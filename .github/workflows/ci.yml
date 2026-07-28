@@ -1,0 +1,76 @@
+# .github/workflows/ci.yml
+
+name: Run Tests
+
+# This workflow runs on pushes to main/development and on PRs targeting those branches.
+on:
+  push:
+    # Only run on pushes to these branches; feature branch coverage comes from pull_request below.
+    branches:
+      - main
+      - development
+  pull_request:
+    # Only run on PRs targeting these branches
+    branches:
+      - main
+      - development
+
+jobs:
+  test:
+    # Ubuntu is sufficient for this pure Node.js/Jest suite and uses 1x minute cost vs 10x for macos-latest.
+    # Switch to macos-latest if test output differences vs local dev become a consistent problem.
+    runs-on: ubuntu-latest
+    # Safety net: kill the job if it takes more than 10 minutes (normal runs complete in ~1-2 minutes).
+    timeout-minutes: 10
+
+    steps:
+      # 1. Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # TruffleHog scans the exact base-to-head commit range.
+          fetch-depth: 0
+
+      # 2. Set up the specific version of Node.js.
+      # This should match the version you use in development (v18.20.4 from AGENTS.md)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.20.4'
+          # Use npm's cache to speed up dependency installation
+          cache: 'npm'
+
+      # 3. Install project dependencies
+      - name: Install dependencies
+        # Use ci instead of install to enforce the lockfile exactly and fail fast on drift.
+        run: npm ci
+
+      # 4. Run the Jest test suite
+      - name: Run Jest tests
+        run: npm test
+
+      # 5. Secret / PII gate for the public tree. Fails the build on any finding, and exits 2
+      # (never 0) if it cannot verify its own tooling — so a broken scanner can never be
+      # mistaken for a clean tree.
+      - name: secret + PII scan
+        run: ./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt
+
+      # The action resolves each GitHub event's range itself, including first pushes and empty diffs.
+      - name: TruffleHog verified secret scan
+        uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11 # v3.96.0
+        with:
+          # Docker image tag on ghcr.io — NO "v" prefix. The action ref above IS v-prefixed
+          # (git tag -> SHA); these are different namespaces. ghcr :v3.96.0 is a 404, :3.96.0 is a 200.
+          version: "3.96.0"
+          # The action adds --fail, so only verified credentials make this gate fail.
+          extra_args: --results=verified
+
+      # Publish detected-but-unverified and verifier-error results without making the job fail.
+      - name: TruffleHog unverified secret report
+        continue-on-error: true
+        uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11 # v3.96.0
+        with:
+          # Docker image tag on ghcr.io — NO "v" prefix. The action ref above IS v-prefixed
+          # (git tag -> SHA); these are different namespaces. ghcr :v3.96.0 is a 404, :3.96.0 is a 200.
+          version: "3.96.0"
+          extra_args: --results=unverified,unknown

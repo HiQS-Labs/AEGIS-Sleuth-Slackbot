@@ -1,0 +1,23 @@
+{
+  "name": "reminder_deduplication_response",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "recommendation": {
+        "type": "string",
+        "enum": ["schedule", "ignore"],
+        "description": "Indicates whether the new reminder should be scheduled ('schedule') or ignored ('ignore') due to duplication."
+      },
+      "rationale": {
+        "type": "string",
+        "description": "Detailed explanation of why the reminder was classified as a duplicate or unique, including specific similarities or differences found."
+      }
+    },
+    "required": [
+      "recommendation",
+      "rationale"
+    ],
+    "additionalProperties": false
+  }
+}

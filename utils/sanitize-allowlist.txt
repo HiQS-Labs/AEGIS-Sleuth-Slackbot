@@ -1,0 +1,57 @@
+# Accepted-by-decision matches for utils/sanitize-scan.sh
+#
+# Each pattern here suppresses a scanner finding. Every entry is a DECISION with a stated reason,
+# not a convenience — an allowlist is where a secret scanner goes to die quietly, so nothing lands
+# here without justification, and "it was noisy" is not one.
+#
+# Patterns are ANCHORED (`^(pattern)$`) against the MATCHED TOKEN ONLY. An entry must therefore
+# describe the whole match. This is deliberate: an earlier unanchored version silently dropped a
+# real Slack token because it happened to contain the substring "xxx".
+#
+# Usage: ./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt
+
+# ---------------------------------------------------------------------------
+# Vendor contact addresses — published intentionally (decision E4)
+# ---------------------------------------------------------------------------
+# neochro.me is the copyright holder's own domain. These addresses appear in admin-setup defaults
+# and support docs and are meant to be reachable. Non-Neochrome addresses are NOT allowlisted.
+[A-Za-z0-9._%+-]+@neochro\.me
+
+# ---------------------------------------------------------------------------
+# Third-party package metadata in lockfiles
+# ---------------------------------------------------------------------------
+# Lockfiles are scanned on purpose (they can leak private registry URLs and internal scoped package
+# names). Public npm maintainer addresses recorded in that metadata are not our secrets to leak —
+# they are already published on the npm registry.
+i@izs\.me
+
+# ---------------------------------------------------------------------------
+# Source-code identifiers that merely NAME a secret, rather than containing one
+# ---------------------------------------------------------------------------
+# The generic-assigned-secret rule is intentionally broad and catches variable assignments whose
+# right-hand side is a reference, not a literal. Each of these was inspected individually.
+token = wsConfig\.LIVE_TOKEN
+token: ArgWorkspaceInfo\.LIVE_TOKEN,
+token = this\.#SlackApp\.WorkspaceInfo\.NOTION_TOKEN
+token: this\.#WorkspaceInfo\.LIVE_TOKEN,
+password: PasswordInput\.value
+secret=client-b-gemini-api-key
+
+# ---------------------------------------------------------------------------
+# Credential-in-URL forms that carry no credential
+# ---------------------------------------------------------------------------
+# The basic-auth-url rule flags user:pass@host, which is a genuine leak shape worth catching.
+# These two matches contain a documentation placeholder and a shell variable reference
+# respectively — the secret is supplied at runtime from the environment, never stored.
+# Written with character classes rather than literal text so this file does not itself contain
+# a `user:pass@host` string. TruffleHog's URI detector flagged the literal form here — a finding
+# whose only cause was the allowlist describing what it suppresses.
+https://your-[a-z]+:your-[a-z]+@github\.com
+https://\$\{GIT_USER_EMAIL\}:\$\{GITHUB_TOKEN\}@github\.com
+
+# ---------------------------------------------------------------------------
+# Test fixtures that are already obvious placeholders
+# ---------------------------------------------------------------------------
+# Real Slack ids are 9-11 chars of opaque base32. These spell words, which is the point.
+U07ALICE99
+U072BF6K4XYZ

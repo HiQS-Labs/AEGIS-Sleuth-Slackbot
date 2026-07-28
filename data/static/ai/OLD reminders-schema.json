@@ -1,0 +1,51 @@
+{
+  "name": "reminder_response",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "recommendation": {
+        "type": "string",
+        "enum": ["schedule", "ignore"],
+        "description": "Indicates whether a reminder should be scheduled ('schedule') or not ('ignore')."
+      },
+      "rationale": {
+        "type": "string",
+        "description": "Detailed explanation of how the model arrived at the given recommendation."
+      },
+      "reminders": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "actionable_language": {
+              "type": "string",
+              "description": "Verbatim quotation of the actionable language detected in the message."
+            },
+            "scheduling_trigger": {
+              "type": "string",
+              "description": "Verbatim quotation of the scheduling trigger associated with the actionable language."
+            },
+            "reminder_message": {
+              "type": "string",
+              "description": "Brief reminder of the actionable task that a user should perform."
+            }
+          },
+          "required": [
+            "actionable_language",
+            "scheduling_trigger",
+            "reminder_message"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Array of reminders with relevant details. Empty if 'recommendation' is 'ignore'."
+      }
+    },
+    "required": [
+      "recommendation",
+      "rationale",
+      "reminders"
+    ],
+    "additionalProperties": false
+  }
+}

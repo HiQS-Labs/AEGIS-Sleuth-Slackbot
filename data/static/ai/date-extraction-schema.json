@@ -1,0 +1,47 @@
+{
+  "name": "datetime_components",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "year": {
+        "type": "integer",
+        "description": "the `year` component of the extracted or computed date."
+      },
+      "month": {
+        "type": "integer",
+        "description": "the `month` component of the extracted or computed date."
+      },
+      "day": {
+        "type": "integer",
+        "description": "the `day` component of the extracted or computed date."
+      },
+      "hour": {
+        "type": "integer",
+        "description": "the `hour` component of the extracted or computed time (in 24-hour format)."
+      },
+      "minute": {
+        "type": "integer",
+        "description": "the `minute` component of the extracted or computed time."
+      },
+      "second": {
+        "type": "integer",
+        "description": "the `second` component of the extracted or computed time."
+      },
+      "rationale": {
+        "type": "string",
+        "description": "step-by-step details of how you produced your output."
+      }
+    },
+    "required": [
+      "year",
+      "month",
+      "day",
+      "hour",
+      "minute",
+      "second",
+      "rationale"
+    ],
+    "additionalProperties": false
+  }
+}

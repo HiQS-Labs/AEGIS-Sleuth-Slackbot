@@ -1,0 +1,28 @@
+{
+  "entries": [
+    {
+      "description": "Workspace-specific exact-phrase trigger for showing reminders for a configured user. Stays in deterministic-responses.json because the phrase embeds a workspace-specific user ID (<@USER1_ID>) that cannot be expressed as a generic catalog RegexAlias. Operators replace SLEUTH_APP_ID and USER1_ID with real Slack IDs for their workspace.",
+      "phrases": [
+        "<@SLEUTH_APP_ID> show reminders for <@USER1_ID> only",
+        "<@SLEUTH_APP_ID> show tasks for <@USER1_ID> only"
+      ],
+      "caseInsensitive": true,
+      "response": {
+        "type": "reminders-for-user",
+        "userMention": "<@USER1_ID>",
+        "limitToCurrentChannel": false
+      }
+    },
+    {
+      "description": "Health probe / connectivity test. Stays here as a true canned response — not a command, not RMM-discoverable by design.",
+      "phrases": [
+        "<@SLEUTH_APP_ID> ping"
+      ],
+      "caseInsensitive": true,
+      "response": {
+        "type": "static-text",
+        "text": "pong"
+      }
+    }
+  ]
+}

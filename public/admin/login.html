@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sleuth Admin Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; }
+    main { max-width: 420px; margin: 64px auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; }
+    h1 { margin: 0 0 16px; font-size: 24px; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+    button { margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #111; color: #fff; cursor: pointer; }
+    a { color: #0b57d0; text-decoration: none; }
+    .muted { margin-top: 10px; color: #666; font-size: 14px; }
+    .status { margin-top: 14px; min-height: 20px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sleuth Admin</h1>
+    <form id="LoginForm">
+      <label for="EmailInput">Email</label>
+      <input id="EmailInput" type="email" required autocomplete="username" value="devops@neochro.me">
+
+      <label for="PasswordInput">Password</label>
+      <input id="PasswordInput" type="password" required autocomplete="current-password">
+
+      <button type="submit">Log in</button>
+      <p class="muted"><a href="#" id="ForgotPasswordLink">Forgot password?</a></p>
+      <div id="StatusMessage" class="status"></div>
+    </form>
+  </main>
+
+  <script>
+    const LoginForm = document.getElementById('LoginForm');
+    const EmailInput = document.getElementById('EmailInput');
+    const PasswordInput = document.getElementById('PasswordInput');
+    const ForgotPasswordLink = document.getElementById('ForgotPasswordLink');
+    const StatusMessage = document.getElementById('StatusMessage');
+
+    function SetStatus(ArgText, ArgIsError = false) {
+      StatusMessage.textContent = ArgText;
+      StatusMessage.style.color = ArgIsError ? '#b3261e' : '#137333';
+    }
+
+    async function CheckAuthStatusAsync() {
+      try {
+        const Response = await fetch('/admin/auth-status');
+        const Payload = await Response.json();
+        if(!Payload.success || !Payload.data || Payload.data.configured !== true) {
+          window.location.href = '/admin/setup.html';
+          return;
+        }
+
+        const ExistingToken = sessionStorage.getItem('adminSessionToken');
+        if(ExistingToken)
+          window.location.href = '/admin/index.html';
+      } catch(error) {
+        SetStatus('Unable to check admin status.', true);
+      }
+    }
+
+    LoginForm.addEventListener('submit', async ArgEvent => {
+      ArgEvent.preventDefault();
+      SetStatus('Logging in...');
+
+      try {
+        const Response = await fetch('/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: EmailInput.value.trim(),
+            password: PasswordInput.value
+          })
+        });
+        const Payload = await Response.json();
+        if(!Payload.success || !Payload.data || typeof Payload.data.token !== 'string') {
+          SetStatus(Payload.data || 'Login failed.', true);
+          return;
+        }
+
+        sessionStorage.setItem('adminSessionToken', Payload.data.token);
+        window.location.href = '/admin/index.html';
+      } catch(error) {
+        SetStatus('Login request failed.', true);
+      }
+    });
+
+    ForgotPasswordLink.addEventListener('click', async ArgEvent => {
+      ArgEvent.preventDefault();
+      SetStatus('Submitting reset request...');
+
+      try {
+        const Response = await fetch('/admin/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: EmailInput.value.trim() })
+        });
+        const Payload = await Response.json();
+        SetStatus(Payload.data || 'If the account exists, a reset email has been sent.');
+      } catch(error) {
+        SetStatus('Reset request failed.', true);
+      }
+    });
+
+    CheckAuthStatusAsync();
+  </script>
+</body>
+</html>

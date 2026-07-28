@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Command Catalog Editor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Scrollbar ─────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+    /* ── Top bar ───────────────────────────────────── */
+    .topbar {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 10px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      user-select: none;
+    }
+    .topbar-brand-dot {
+      width: 8px; height: 8px;
+      background: #2563eb;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .topbar-sep { color: #d1d5db; font-size: 14px; }
+    .topbar-crumb { color: #6b7280; font-size: 12px; }
+    .topbar-crumb span { color: #374151; font-weight: 500; }
+    .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .topbar-status {
+      font-size: 11px;
+      color: #9ca3af;
+      padding: 3px 8px;
+      border-radius: 10px;
+      transition: all 0.2s;
+    }
+    .topbar-status.saved { color: #059669; background: #ecfdf5; }
+    .topbar-status.dirty { color: #d97706; background: #fffbeb; }
+    .topbar-shortcut {
+      font-size: 10px;
+      color: #9ca3af;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      padding: 2px 5px;
+    }
+
+    /* ── Buttons ───────────────────────────────────── */
+    .btn {
+      padding: 5px 11px;
+      border-radius: 6px;
+      border: 1px solid #d1d5db;
+      background: white;
+      font-size: 12px;
+      font-weight: 500;
+      color: #374151;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.1s, border-color 0.1s;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    .btn:hover { background: #f9fafb; }
+    .btn:active { background: #f3f4f6; }
+    .btn-primary { background: #2563eb; border-color: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; border-color: #93c5fd; cursor: default; pointer-events: none; }
+    .btn-sm { padding: 3px 8px; font-size: 11px; }
+    .btn-ghost { border-color: transparent; background: transparent; color: #6b7280; }
+    .btn-ghost:hover { background: #f3f4f6; color: #374151; }
+    .btn-danger { border-color: transparent; background: transparent; color: #dc2626; }
+    .btn-danger:hover { background: #fef2f2; }
+
+    /* ── Layout ────────────────────────────────────── */
+    .app-layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ───────────────────────────────────── */
+    .sidebar {
+      width: 248px;
+      min-width: 248px;
+      background: white;
+      border-right: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-search-wrap { padding: 10px 12px 8px; }
+    .sidebar-search {
+      width: 100%;
+      padding: 5px 9px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #374151;
+      background: #f9fafb;
+      outline: none;
+      font-family: inherit;
+    }
+    .sidebar-search:focus { border-color: #93c5fd; background: white; }
+    .sidebar-section {
+      padding: 6px 14px 3px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sidebar-count {
+      font-weight: 500;
+      color: #d1d5db;
+      font-size: 10px;
+    }
+    .sidebar-list { flex: 1; overflow-y: auto; padding-bottom: 12px; }
+    .sidebar-entry {
+      padding: 7px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      transition: background 0.07s;
+    }
+    .sidebar-entry:hover { background: #f9fafb; }
+    .sidebar-entry.active { background: #eff6ff; }
+    .sidebar-entry-dot {
+      width: 6px; height: 6px;
+      background: #d1d5db;
+      border-radius: 50%;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+    .sidebar-entry.active .sidebar-entry-dot { background: #3b82f6; }
+    .sidebar-entry-body { flex: 1; min-width: 0; }
+    .sidebar-entry-id {
+      font-size: 12px;
+      font-weight: 500;
+      color: #111827;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sidebar-entry.active .sidebar-entry-id { color: #1d4ed8; }
+    .sidebar-entry-meta {
+      font-size: 11px;
+      color: #9ca3af;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sidebar-badge {
+      font-size: 10px;
+      color: #9ca3af;
+      background: #f3f4f6;
+      border-radius: 8px;
+      padding: 1px 6px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      font-weight: 500;
+    }
+    .sidebar-entry.active .sidebar-badge { background: #dbeafe; color: #2563eb; }
+
+    /* ── Main content ──────────────────────────────── */
+    .main { flex: 1; overflow-y: auto; padding: 22px 28px 40px; }
+
+    /* ── Empty state ───────────────────────────────── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 60px 24px;
+      text-align: center;
+    }
+    .empty-icon { font-size: 36px; opacity: 0.4; }
+    .empty-title { font-size: 15px; font-weight: 600; color: #374151; }
+    .empty-desc { font-size: 13px; color: #6b7280; max-width: 280px; line-height: 1.6; }
+
+    /* ── Entry heading ─────────────────────────────── */
+    .entry-id {
+      font-size: 19px;
+      font-weight: 700;
+      color: #111827;
+      font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+      margin-bottom: 18px;
+      letter-spacing: -0.3px;
+    }
+
+    /* ── Cards ─────────────────────────────────────── */
+    .card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .card-head {
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .card-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #6b7280;
+    }
+    .card-hint { font-size: 11px; color: #9ca3af; }
+    .card-body { padding: 14px; }
+
+    /* ── Form fields ───────────────────────────────── */
+    .row { display: flex; gap: 10px; }
+    .row > * { flex: 1; }
+    .field { margin-bottom: 10px; }
+    .field:last-child { margin-bottom: 0; }
+    .field-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .input {
+      width: 100%;
+      padding: 6px 9px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #111827;
+      background: white;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.1s, box-shadow 0.1s;
+    }
+    .input:focus { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(147,197,253,0.25); }
+    textarea.input { resize: vertical; min-height: 64px; line-height: 1.55; }
+    select.input { cursor: pointer; }
+    .input-mono { font-family: 'SF Mono', ui-monospace, monospace; font-size: 12px; }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .checkbox-row input[type=checkbox] {
+      width: 14px; height: 14px;
+      accent-color: #2563eb;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .checkbox-label { font-size: 13px; color: #374151; }
+
+    /* ── Tag input ─────────────────────────────────── */
+    .tag-wrap {
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 5px 7px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-height: 34px;
+      cursor: text;
+      background: white;
+      transition: border-color 0.1s, box-shadow 0.1s;
+    }
+    .tag-wrap:focus-within { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(147,197,253,0.25); }
+    .tag {
+      background: #eff6ff;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 220px;
+    }
+    .tag.mono { font-family: 'SF Mono', ui-monospace, monospace; font-size: 11px; background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+    .tag-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag-x { cursor: pointer; color: #93c5fd; line-height: 1; font-size: 15px; flex-shrink: 0; }
+    .tag-x:hover { color: #1d4ed8; }
+    .tag.mono .tag-x { color: #86efac; }
+    .tag.mono .tag-x:hover { color: #166534; }
+    .tag-input-field {
+      border: none;
+      outline: none;
+      font-size: 12px;
+      min-width: 80px;
+      flex: 1;
+      color: #374151;
+      font-family: inherit;
+      background: transparent;
+      padding: 2px 2px;
+    }
+    .tag-input-field.mono { font-family: 'SF Mono', ui-monospace, monospace; }
+
+    /* ── Regex alias rows ──────────────────────────── */
+    .regex-row {
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: #fafafa;
+    }
+    .regex-row-head {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 8px;
+    }
+    .regex-row-num {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      flex: 1;
+    }
+    .regex-sub-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin-bottom: 3px;
+    }
+    .regex-fields-row { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+    .regex-fields-row > :first-child { flex: 1; }
+    .regex-flags-wrap { width: 52px; flex-shrink: 0; }
+    .regex-input {
+      width: 100%;
+      padding: 5px 8px;
+      border: 1px solid #e5e7eb;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: 'SF Mono', ui-monospace, monospace;
+      color: #111827;
+      outline: none;
+      background: white;
+      transition: border-color 0.1s;
+    }
+    .regex-input:focus { border-color: #93c5fd; }
+    .add-alias-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 6px;
+      border: 1px dashed #bfdbfe;
+      border-radius: 6px;
+      background: transparent;
+      color: #2563eb;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.1s;
+      font-family: inherit;
+    }
+    .add-alias-btn:hover { background: #eff6ff; }
+
+    /* ── Advanced collapse ─────────────────────────── */
+    .adv-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 14px;
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      user-select: none;
+      background: none;
+      border: none;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+    }
+    .adv-toggle:hover { color: #374151; }
+    .adv-chevron { font-size: 9px; transition: transform 0.2s; }
+    .adv-chevron.open { transform: rotate(90deg); }
+    .adv-body { display: none; padding: 0 14px 14px; border-top: 1px solid #f3f4f6; }
+    .adv-body.open { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-brand">
+    <div class="topbar-brand-dot"></div>
+    Command Catalog Editor
+  </div>
+  <div class="topbar-sep">›</div>
+  <div class="topbar-crumb" id="crumb">command-catalog.json</div>
+  <div class="topbar-actions">
+    <span class="topbar-status" id="status"></span>
+    <span class="topbar-shortcut">⌘S</span>
+    <button class="btn btn-primary" id="saveBtn" onclick="saveFile()" disabled>Save</button>
+  </div>
+</div>
+
+<!-- App layout -->
+<div class="app-layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-search-wrap">
+      <input class="sidebar-search" type="text" placeholder="Search entries…" id="searchInput"
+        oninput="handleSearch(this.value)">
+    </div>
+    <div class="sidebar-section">
+      ENTRIES <span class="sidebar-count" id="entryCount">—</span>
+    </div>
+    <div class="sidebar-list" id="sidebarList"></div>
+  </div>
+
+  <!-- Main -->
+  <div class="main" id="main">
+    <div class="empty-state">
+      <div class="empty-icon">⚙️</div>
+      <div class="empty-title">Loading catalog…</div>
+      <div class="empty-desc">Run <code style="font-family:monospace;background:#f3f4f6;padding:2px 5px;border-radius:4px">npm run catalog-editor</code> then open this page via the server link.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────────────
+
+const App = {
+  catalog: null,
+  visible: [],
+  selIdx: 0,
+  dirty: false,
+};
+
+// ── File I/O (server-backed) ───────────────────────────────────────────
+
+async function loadCatalog() {
+  try {
+    const res = await fetch('/api/catalog');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    App.catalog = await res.json();
+    App.dirty = false;
+    App.visible = [...App.catalog];
+    App.selIdx = 0;
+    App.selIdx = 0;
+    document.getElementById('crumb').innerHTML = `<span>${App.fileName}</span>`;
+    setStatus('Opened', 'saved');
+    setTimeout(() => setStatus('', ''), 1800);
+    renderSidebar();
+    renderEntry(0);
+    setStatus('Loaded', 'saved');
+    setTimeout(() => setStatus('', ''), 1500);
+  } catch(e) {
+    document.getElementById('main').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-title">Could not reach server</div>
+        <div class="empty-desc">Run <code style="font-family:monospace;background:#f3f4f6;padding:2px 5px;border-radius:4px">npm run catalog-editor</code> in the sleuth-app directory, then reload this page.</div>
+      </div>`;
+  }
+}
+
+async function saveFile() {
+  if (!App.catalog) return;
+  try {
+    const res = await fetch('/api/catalog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(App.catalog, null, 2) + '\n',
+    });
+    const result = await res.json();
+    if (!result.ok) throw new Error(result.error || 'unknown error');
+    App.dirty = false;
+    document.getElementById('saveBtn').disabled = true;
+    setStatus('Saved ✓', 'saved');
+    setTimeout(() => setStatus('', ''), 1800);
+  } catch(e) {
+    setStatus('Save failed: ' + e.message, 'dirty');
+  }
+}
+
+window.addEventListener('DOMContentLoaded', loadCatalog);
+
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault();
+    if (App.dirty) saveFile();
+  }
+});
+
+// ── Status ─────────────────────────────────────────────────────────────
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'topbar-status' + (cls ? ' ' + cls : '');
+}
+
+function markDirty() {
+  if (!App.dirty) {
+    App.dirty = true;
+    document.getElementById('saveBtn').disabled = false;
+    setStatus('Unsaved changes', 'dirty');
+  }
+}
+
+// ── Sidebar ────────────────────────────────────────────────────────────
+
+function handleSearch(q) {
+  if (!App.catalog) return;
+  const lq = q.toLowerCase().trim();
+  App.visible = lq
+    ? App.catalog.filter(e =>
+        (e.Id || '').toLowerCase().includes(lq) ||
+        (e.Description || '').toLowerCase().includes(lq) ||
+        (e.Aliases || []).some(a => a.toLowerCase().includes(lq)) ||
+        (e.IntentPhrases || []).some(p => p.toLowerCase().includes(lq))
+      )
+    : [...App.catalog];
+  App.selIdx = 0;
+  renderSidebar();
+  if (App.visible.length > 0) renderEntry(0); else clearMain();
+}
+
+function renderSidebar() {
+  document.getElementById('entryCount').textContent = App.visible.length;
+  document.getElementById('sidebarList').innerHTML = App.visible.map((e, i) => {
+    const aliasCount = (e.Aliases || []).length + (e.RegexAliases || []).length;
+    return `
+      <div class="sidebar-entry${i === App.selIdx ? ' active' : ''}" onclick="selectEntry(${i})">
+        <div class="sidebar-entry-dot"></div>
+        <div class="sidebar-entry-body">
+          <div class="sidebar-entry-id">${esc(e.Id || '(no id)')}</div>
+          <div class="sidebar-entry-meta">${esc((e.Description || '').slice(0, 52))}</div>
+        </div>
+        ${aliasCount ? `<span class="sidebar-badge">${aliasCount}</span>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function selectEntry(i) {
+  App.selIdx = i;
+  renderSidebar();
+  renderEntry(i);
+}
+
+function clearMain() {
+  document.getElementById('main').innerHTML =
+    `<div class="empty-state"><div class="empty-desc">No entries match your search.</div></div>`;
+}
+
+// ── Entry form ─────────────────────────────────────────────────────────
+
+function catalogIdx(entry) {
+  return App.catalog.indexOf(entry);
+}
+
+function renderEntry(vi) {
+  const entry = App.visible[vi];
+  if (!entry) return;
+  const ci = catalogIdx(entry);
+  const main = document.getElementById('main');
+  const scrollTop = main.scrollTop;
+
+  main.innerHTML = `
+    <div class="entry-id">${esc(entry.Id || '')}</div>
+
+    <!-- Description -->
+    <div class="card">
+      <div class="card-head"><span class="card-label">Description</span></div>
+      <div class="card-body">
+        <textarea class="input" rows="3"
+          placeholder="What does this command do?"
+          onchange="setField(${ci},'Description',this.value)"
+          >${esc(entry.Description || '')}</textarea>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+      <div class="card-head"><span class="card-label">Settings</span></div>
+      <div class="card-body">
+        <div class="row">
+          <div class="field">
+            <label class="field-label">Permission</label>
+            <select class="input" onchange="setField(${ci},'Permission',this.value)">
+              ${['user','admin','system'].map(v =>
+                `<option value="${v}"${entry.Permission===v?' selected':''}>${v}</option>`
+              ).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label">Risk</label>
+            <select class="input" onchange="setField(${ci},'Risk',this.value)">
+              ${['low','medium','high','critical'].map(v =>
+                `<option value="${v}"${entry.Risk===v?' selected':''}>${v}</option>`
+              ).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input type="checkbox" ${entry.CanExecuteWithIfl?'checked':''}
+              onchange="setField(${ci},'CanExecuteWithIfl',this.checked)">
+            <span class="checkbox-label">CanExecuteWithIfl — reachable via "read my mind" (rmm)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aliases -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-label">Aliases</span>
+        <span class="card-hint">exact-match NL phrases · RMM + help discovery</span>
+      </div>
+      <div class="card-body">
+        ${tagInput(`al-${ci}`, entry.Aliases||[], ci, 'Aliases', false)}
+      </div>
+    </div>
+
+    <!-- Intent Phrases -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-label">Intent Phrases</span>
+        <span class="card-hint">seed phrases for RMM candidate scoring</span>
+      </div>
+      <div class="card-body">
+        ${tagInput(`ip-${ci}`, entry.IntentPhrases||[], ci, 'IntentPhrases', false)}
+      </div>
+    </div>
+
+    <!-- Regex Aliases -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-label">Regex Aliases</span>
+        <span class="card-hint">router-registered NL patterns (chat routes only)</span>
+      </div>
+      <div class="card-body">
+        <div id="rx-list-${ci}">
+          ${(entry.RegexAliases||[]).map((rx,ri)=>regexRow(ci,ri,rx)).join('')}
+        </div>
+        <button class="add-alias-btn" onclick="addRegex(${ci})">+ Add Regex Alias</button>
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div class="card">
+      <button class="adv-toggle" onclick="toggleAdv(this)">
+        <span class="adv-chevron">▶</span> Advanced
+      </button>
+      <div class="adv-body">
+        <div class="field" style="margin-top:12px">
+          <label class="field-label">Registered Routes</label>
+          ${tagInput(`rr-${ci}`, entry.RegisteredRoutes||[], ci, 'RegisteredRoutes', true)}
+        </div>
+        <div class="field">
+          <label class="field-label">Syntax Examples</label>
+          ${tagInput(`sx-${ci}`, entry.SyntaxExamples||[], ci, 'SyntaxExamples', true)}
+        </div>
+        <div class="row">
+          <div class="field">
+            <label class="field-label">Help Section</label>
+            <input class="input" value="${esc(entry.HelpSection||'')}"
+              onchange="setField(${ci},'HelpSection',this.value)">
+          </div>
+          <div class="field">
+            <label class="field-label">Command Section</label>
+            <input class="input" value="${esc(entry.CommandSection||'')}"
+              onchange="setField(${ci},'CommandSection',this.value)">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label class="field-label">Help Order</label>
+            <input type="number" class="input" value="${entry.HelpOrder||''}"
+              onchange="setField(${ci},'HelpOrder',Number(this.value)||0)">
+          </div>
+          <div class="field">
+            <label class="field-label">Command Order</label>
+            <input type="number" class="input" value="${entry.CommandOrder||''}"
+              onchange="setField(${ci},'CommandOrder',Number(this.value)||0)">
+          </div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <div class="field">
+            <label class="checkbox-row">
+              <input type="checkbox" ${entry.HideFromHelp?'checked':''}
+                onchange="setField(${ci},'HideFromHelp',this.checked)">
+              <span class="checkbox-label">Hide from Help</span>
+            </label>
+          </div>
+          <div class="field">
+            <label class="checkbox-row">
+              <input type="checkbox" ${entry.HideFromCommands?'checked':''}
+                onchange="setField(${ci},'HideFromCommands',this.checked)">
+              <span class="checkbox-label">Hide from Commands</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  main.scrollTop = scrollTop;
+}
+
+// ── Tag input helpers ──────────────────────────────────────────────────
+
+function tagInput(id, tags, ci, field, mono) {
+  const tagHtml = tags.map((t, ti) => `
+    <span class="tag${mono?' mono':''}">
+      <span class="tag-text">${esc(t)}</span>
+      <span class="tag-x" onclick="removeTag(${ci},'${field}',${ti})">×</span>
+    </span>`).join('');
+  return `
+    <div class="tag-wrap" onclick="focusTagInput('tinput-${id}')">
+      ${tagHtml}
+      <input class="tag-input-field${mono?' mono':''}" id="tinput-${id}"
+        placeholder="Add, then Enter…"
+        onkeydown="tagKeydown(event,${ci},'${field}','tinput-${id}')">
+    </div>`;
+}
+
+function tagKeydown(e, ci, field, inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const val = input.value.trim().replace(/,+$/, '');
+    if (!val) return;
+    if (!App.catalog[ci][field]) App.catalog[ci][field] = [];
+    App.catalog[ci][field].push(val);
+    markDirty();
+    renderEntry(App.selIdx);
+    const newInput = document.getElementById(inputId);
+    if (newInput) { newInput.value = ''; newInput.focus(); }
+  } else if (e.key === 'Backspace' && !input.value) {
+    const arr = App.catalog[ci][field];
+    if (arr && arr.length) {
+      arr.pop();
+      markDirty();
+      renderEntry(App.selIdx);
+      const newInput = document.getElementById(inputId);
+      if (newInput) newInput.focus();
+    }
+  }
+}
+
+function removeTag(ci, field, ti) {
+  App.catalog[ci][field].splice(ti, 1);
+  markDirty();
+  renderEntry(App.selIdx);
+}
+
+function focusTagInput(id) {
+  const el = document.getElementById(id);
+  if (el) el.focus();
+}
+
+// ── Regex alias helpers ────────────────────────────────────────────────
+
+function regexRow(ci, ri, rx) {
+  const args = (rx.Args || []).join(', ');
+  return `
+    <div class="regex-row">
+      <div class="regex-row-head">
+        <span class="regex-row-num">Alias ${ri + 1}</span>
+        <button class="btn btn-sm btn-danger" onclick="removeRegex(${ci},${ri})">Remove</button>
+      </div>
+      <div class="field">
+        <div class="regex-sub-label">Pattern</div>
+        <input class="regex-input" placeholder="^show\\s+version$"
+          value="${esc(rx.Pattern||'')}"
+          onchange="setRegex(${ci},${ri},'Pattern',this.value)">
+      </div>
+      <div class="regex-fields-row">
+        <div>
+          <div class="regex-sub-label">Route</div>
+          <input class="regex-input" placeholder="route-name"
+            value="${esc(rx.Route||'')}"
+            onchange="setRegex(${ci},${ri},'Route',this.value)">
+        </div>
+        <div class="regex-flags-wrap">
+          <div class="regex-sub-label">Flags</div>
+          <input class="regex-input" placeholder="i"
+            value="${esc(rx.Flags||'i')}"
+            onchange="setRegex(${ci},${ri},'Flags',this.value)">
+        </div>
+      </div>
+      <div class="field" style="margin-top:8px">
+        <div class="regex-sub-label">Args — comma-separated: {user}, {channel}, $1, literal</div>
+        <input class="regex-input" placeholder="{user}, $1"
+          value="${esc(args)}"
+          onchange="setRegexArgs(${ci},${ri},this.value)">
+      </div>
+    </div>`;
+}
+
+function addRegex(ci) {
+  if (!App.catalog[ci].RegexAliases) App.catalog[ci].RegexAliases = [];
+  const defaultRoute = (App.catalog[ci].RegisteredRoutes || [])[0] || '';
+  App.catalog[ci].RegexAliases.push({ Pattern: '', Flags: 'i', Route: defaultRoute, Args: [] });
+  markDirty();
+  renderEntry(App.selIdx);
+}
+
+function removeRegex(ci, ri) {
+  App.catalog[ci].RegexAliases.splice(ri, 1);
+  markDirty();
+  renderEntry(App.selIdx);
+}
+
+function setRegex(ci, ri, field, value) {
+  App.catalog[ci].RegexAliases[ri][field] = value;
+  markDirty();
+}
+
+function setRegexArgs(ci, ri, value) {
+  App.catalog[ci].RegexAliases[ri].Args = value.split(',').map(s => s.trim()).filter(Boolean);
+  markDirty();
+}
+
+// ── Field mutation ─────────────────────────────────────────────────────
+
+function setField(ci, field, value) {
+  App.catalog[ci][field] = value;
+  markDirty();
+  if (field === 'Description') renderSidebar();
+}
+
+// ── Advanced toggle ────────────────────────────────────────────────────
+
+function toggleAdv(btn) {
+  btn.querySelector('.adv-chevron').classList.toggle('open');
+  btn.nextElementSibling.classList.toggle('open');
+}
+
+// ── Escape ─────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "_comment": "Deployment target hosts. The addresses below are RFC 5737 TEST-NET-3 documentation addresses and are deliberately non-routable — replace them with your own hosts before deploying.",
+  "servers": {
+    "experimental": {
+      "host": "203.0.113.11",
+      "alias": "sleuth-experimental",
+      "branch": "experimental",
+      "description": "Testing server for experimental branch",
+      "user": "root"
+    },
+    "development": {
+      "host": "203.0.113.12",
+      "alias": "sleuth-development",
+      "branch": "development",
+      "description": "Testing server for development branch before production",
+      "user": "root"
+    },
+    "production": {
+      "host": "203.0.113.13",
+      "alias": "sleuth-production",
+      "branch": "main",
+      "description": "Production server",
+      "user": "root"
+    }
+  },
+  "ssh_setup": {
+    "key_file": "~/.ssh/sleuth_servers",
+    "_public_key_comment": "Generate your own key pair with: ssh-keygen -t ed25519 -f ~/.ssh/sleuth_servers -C sleuth-servers — then append the resulting .pub contents to each server's ~/.ssh/authorized_keys.",
+    "public_key": ""
+  }
+}

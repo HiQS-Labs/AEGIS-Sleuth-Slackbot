@@ -1,0 +1,242 @@
+{
+  "_comment": "Example schema showing reminder storage and Slack Lists integration",
+  "_updated": "2025-11-26",
+
+  "reminder_storage": {
+    "_file": "data/runtime/reminders/{workspace}_reminders.json",
+    "_description": "Array of ReminderInfo objects stored locally",
+    "example": [
+      {
+        "ReminderID": "15ef5df0-cead-4dcd-a70a-cbe0799e0a1e",
+        "CreatedOn": "2025-11-26T02:01:56.604Z",
+        "ShouldPostOn": "2025-11-27T01:00:00.000Z",
+        "TargetChannelID": "C000EXAMPLE4",
+        "OriginalChannelID": "C000EXAMPLE4",
+        "OriginalMessageID": "1764122340.228039",
+        "OriginalSenderID": "U08BHQEAX",
+        "ReminderMessageText": "Add a new feature to Slack Lists",
+        "IgnoreSnooze": true
+      }
+    ],
+    "field_definitions": {
+      "ReminderID": "UUID - unique identifier for the reminder",
+      "CreatedOn": "ISO 8601 timestamp - when reminder was created",
+      "ShouldPostOn": "ISO 8601 timestamp - when reminder should be posted",
+      "TargetChannelID": "Slack channel ID - where reminder will be posted",
+      "OriginalChannelID": "Slack channel ID - where original message was",
+      "OriginalMessageID": "Slack message timestamp - original message ts",
+      "OriginalSenderID": "Slack user ID - who requested the reminder",
+      "ReminderMessageText": "String - the reminder text/task description",
+      "IgnoreSnooze": "Boolean - if true, post even during snooze hours"
+    }
+  },
+
+  "lists_cache": {
+    "_file": "data/runtime/workspaces/lists/{workspace}_lists_cache.json",
+    "_description": "Cache mapping reminders to Slack List items",
+    "example": {
+      "listId": "F000EXAMPLE2",
+      "itemCache": {
+        "15ef5df0-cead-4dcd-a70a-cbe0799e0a1e": "Rec09V8DYHU4E"
+      },
+      "lastSync": "2025-11-26T03:50:20.011Z",
+      "listSchema": {
+        "summary": "Col0A09CP60CR",
+        "reminder_id": "Col09UV25T4A3",
+        "full_message": "Col0A0QQC3BSL",
+        "scheduled_time": "Col09VAF5LLN6",
+        "source_channel": "Col0A002MRL3W",
+        "original_message": "Col09V43QNPUK",
+        "requester": "Col09V72CC669",
+        "status": "Col09V8DXECBY",
+        "todo_completed": "Col00",
+        "todo_assignee": "Col01",
+        "todo_due_date": "Col02"
+      }
+    },
+    "field_definitions": {
+      "listId": "Slack List ID - the F-prefixed list identifier",
+      "itemCache": "Object mapping ReminderID -> Slack List item ID (Rec-prefixed)",
+      "lastSync": "ISO 8601 timestamp - when cache was last synced",
+      "listSchema": "Object mapping field names to Slack column IDs (Col-prefixed)"
+    }
+  },
+
+  "slack_list_item_creation": {
+    "_description": "Format used when creating items via slackLists.items.create API",
+    "api_method": "slackLists.items.create",
+    "request_format": {
+      "list_id": "F000EXAMPLE2",
+      "initial_fields": [
+        {
+          "column_id": "Col0A09CP60CR",
+          "rich_text": {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  { "type": "text", "text": "Add a new feature to Slack Lists" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "column_id": "Col09UV25T4A3",
+          "rich_text": {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  { "type": "text", "text": "15ef5df0-cead-4dcd-a70a-cbe0799e0a1e" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "column_id": "Col09VAF5LLN6",
+          "number": [1764205200000]
+        },
+        {
+          "column_id": "Col0A002MRL3W",
+          "channel": ["C000EXAMPLE4"]
+        },
+        {
+          "column_id": "Col09V43QNPUK",
+          "link": [
+            {
+              "original_url": "https://neochrome.slack.com/archives/C000EXAMPLE4/p1764122340228039",
+              "display_name": "View message",
+              "display_as_url": true
+            }
+          ]
+        },
+        {
+          "column_id": "Col09V72CC669",
+          "user": ["U08BHQEAX"]
+        }
+      ]
+    }
+  },
+
+  "slack_list_item_response": {
+    "_description": "Format returned by slackLists.items.list API (needs transformation)",
+    "api_method": "slackLists.items.list",
+    "response_format": {
+      "id": "Rec09V8DYHU4E",
+      "list_id": "F000EXAMPLE2",
+      "fields": [
+        {
+          "column_id": "Col0A09CP60CR",
+          "rich_text": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                { "type": "text", "text": "Add a new feature to Slack Lists" }
+              ]
+            }
+          ]
+        },
+        {
+          "column_id": "Col09VAF5LLN6",
+          "number": [1764205200000]
+        },
+        {
+          "column_id": "Col0A002MRL3W",
+          "channel": ["C000EXAMPLE4"]
+        }
+      ]
+    },
+    "_note": "The fields array format requires transformation to flat object for validation"
+  },
+
+  "transformed_list_item": {
+    "_description": "Internal format after #TransformListItem() converts API response",
+    "example": {
+      "id": "Rec09V8DYHU4E",
+      "summary": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            { "type": "text", "text": "Add a new feature to Slack Lists" }
+          ]
+        }
+      ],
+      "reminder_id": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            { "type": "text", "text": "15ef5df0-cead-4dcd-a70a-cbe0799e0a1e" }
+          ]
+        }
+      ],
+      "scheduled_time": [1764205200000],
+      "source_channel": ["C000EXAMPLE4"],
+      "original_message": [
+        {
+          "original_url": "https://neochrome.slack.com/archives/C000EXAMPLE4/p1764122340228039"
+        }
+      ],
+      "requester": ["U08BHQEAX"],
+      "status": ["pending"]
+    }
+  },
+
+  "validated_list_item": {
+    "_description": "Final format after #ValidateListItem() parses and validates fields",
+    "example": {
+      "listItemId": "Rec09V8DYHU4E",
+      "summary": "Add a new feature to Slack Lists",
+      "scheduledTime": 1764205200000,
+      "sourceChannel": "C000EXAMPLE4",
+      "originalMessage": "https://neochrome.slack.com/archives/C000EXAMPLE4/p1764122340228039",
+      "status": "pending",
+      "assignee": "U08BHQEAX",
+      "completed": false,
+      "dueDate": null,
+      "reminderId": "15ef5df0-cead-4dcd-a70a-cbe0799e0a1e",
+      "fullMessage": "Add a new feature to Slack Lists"
+    }
+  },
+
+  "slack_list_schema": {
+    "_description": "Column definitions used when creating a new Slack List",
+    "list_name": "Sleuth To-do's ({branch_name})",
+    "todo_mode": true,
+    "columns": [
+      { "key": "summary", "name": "Task", "type": "text", "is_primary_column": true },
+      { "key": "reminder_id", "name": "ID", "type": "text" },
+      { "key": "full_message", "name": "Details", "type": "text" },
+      { "key": "scheduled_time", "name": "Scheduled", "type": "number" },
+      { "key": "source_channel", "name": "Source", "type": "channel" },
+      { "key": "original_message", "name": "Message", "type": "link" },
+      { "key": "requester", "name": "Requester", "type": "user" },
+      { "key": "status", "name": "Status", "type": "select", "options": ["pending", "posted", "completed", "cancelled"] }
+    ],
+    "auto_added_by_todo_mode": [
+      { "key": "todo_completed", "name": "Completed", "type": "boolean" },
+      { "key": "todo_assignee", "name": "Assignee", "type": "user" },
+      { "key": "todo_due_date", "name": "Due Date", "type": "date" }
+    ]
+  },
+
+  "data_flow": {
+    "_description": "How data flows between reminder storage and Slack Lists",
+    "write_flow": [
+      "1. ReminderInfo created with ReminderMessageText (may contain mrkdwn)",
+      "2. SlackFormatUtils.ExtractKeyTasks() extracts clean summary",
+      "3. AddReminderToListAsync() creates item with initial_fields array",
+      "4. Slack returns item with fields array and Rec-prefixed ID",
+      "5. itemCache updated: ReminderID -> ListItemID mapping"
+    ],
+    "read_flow": [
+      "1. slackLists.items.list returns items with fields array",
+      "2. #TransformListItem() converts fields array to flat object",
+      "3. #ValidateListItem() parses each field using SlackFormatUtils.ParseListFieldValue()",
+      "4. Validated data compared against reminder storage for sync"
+    ]
+  }
+}

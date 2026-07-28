@@ -1,0 +1,90 @@
+{
+  "success": true,
+  "list": {
+    "id": "a2b94e1c-4364-4c61-ac4c-f8ed743b6bb7",
+    "slug": "tdbhIvYYUWhE",
+    "title": "Andy R.",
+    "shareUrl": "https://stratalist.net/go/tdbhIvYYUWhE",
+    "isPublic": true,
+    "timezone": null,
+    "createdAt": "2026-05-05T16:56:15.782082+00:00",
+    "updatedAt": "2026-05-05T17:10:04.883444+00:00"
+  },
+  "items": [
+    {
+      "id": "bd156e75-2b47-48b9-b9d7-307a55d8a662",
+      "text": "Lovable Event - Friday at 4 PM - \"Application/RSVP - https://lafounderseries.lovable.app",
+      "position": 1,
+      "completed": false,
+      "trashed": false,
+      "completedAt": null,
+      "completedBy": null,
+      "dueAt": null,
+      "dueDateOnly": false,
+      "notes": null,
+      "url": null,
+      "createdAt": "2026-05-05T16:56:49.79215+00:00",
+      "updatedAt": "2026-05-06T05:24:08.847417+00:00"
+    },
+    {
+      "id": "8d5599c3-9d35-443e-804b-aeeaa669e35c",
+      "text": "What are vector database and queries? - https://www.youtube.com/watch?v=BKbScJ2P2P0&t=45s",
+      "position": 2,
+      "completed": false,
+      "trashed": false,
+      "completedAt": null,
+      "completedBy": null,
+      "dueAt": null,
+      "dueDateOnly": false,
+      "notes": null,
+      "url": null,
+      "createdAt": "2026-05-05T17:00:39.297456+00:00",
+      "updatedAt": "2026-05-06T05:24:08.854124+00:00"
+    },
+    {
+      "id": "1d9320a2-380b-454a-823e-730b5ca1ba3c",
+      "text": "Semantic search video - https://youtu.be/JB2P5Gk23VI?si=0tv4jBbATOMnaFce",
+      "position": 3,
+      "completed": false,
+      "trashed": false,
+      "completedAt": null,
+      "completedBy": null,
+      "dueAt": null,
+      "dueDateOnly": false,
+      "notes": null,
+      "url": null,
+      "createdAt": "2026-05-06T05:23:51.102444+00:00",
+      "updatedAt": "2026-05-06T05:24:08.863233+00:00"
+    },
+    {
+      "id": "66a58e6d-46cb-489a-a22c-b5b64975b302",
+      "text": "Build Vector Search in GCP - https://www.youtube.com/watch?v=Jl1S4ZcSY8k",
+      "position": 4,
+      "completed": false,
+      "trashed": false,
+      "completedAt": null,
+      "completedBy": null,
+      "dueAt": null,
+      "dueDateOnly": false,
+      "notes": null,
+      "url": null,
+      "createdAt": "2026-05-05T17:01:34.089869+00:00",
+      "updatedAt": "2026-05-06T05:24:08.867674+00:00"
+    },
+    {
+      "id": "2c5d8ecb-69e0-4614-bffe-a6e79d1d404b",
+      "text": "Watch another RAG video - https://youtu.be/pN-LfxNFiTc?si=Hhtn29R4HlhN0RJL",
+      "position": 5,
+      "completed": false,
+      "trashed": false,
+      "completedAt": null,
+      "completedBy": null,
+      "dueAt": null,
+      "dueDateOnly": false,
+      "notes": null,
+      "url": null,
+      "createdAt": "2026-05-06T15:27:25.453541+00:00",
+      "updatedAt": "2026-05-06T15:27:25.453541+00:00"
+    }
+  ]
+}

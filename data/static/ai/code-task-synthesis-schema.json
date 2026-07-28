@@ -1,0 +1,60 @@
+{
+  "name": "code_task_spec",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Short imperative title for the change, e.g. 'Add retry to GitHub sync'. Max ~80 chars."
+      },
+      "summary": {
+        "type": "string",
+        "description": "One or two sentences describing what the change accomplishes and why."
+      },
+      "target_repo": {
+        "type": "string",
+        "description": "owner/repo to change. Omit unless the request clearly names a repository; the deployment supplies the default."
+      },
+      "target_branch": {
+        "type": "string",
+        "description": "Suggested feature branch name, kebab-case, prefixed 'code-task/'. The cloud session opens a PR from this branch; never 'main' or 'development'."
+      },
+      "instructions": {
+        "type": "string",
+        "description": "Detailed, unambiguous implementation instructions for an autonomous coding agent: what to change, where, and the expected behavior. Restate the user's intent precisely; do not invent scope beyond what was asked."
+      },
+      "acceptance_criteria": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Concrete, checkable conditions that define done (tests pass, behavior observed, etc.)."
+      },
+      "affected_areas": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Best-guess files, modules, or subsystems likely to change. Empty array if genuinely unknown."
+      },
+      "open_questions": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Ambiguities the requester should resolve. Empty array when the request is unambiguous."
+      },
+      "confidence": {
+        "type": "number",
+        "description": "0..1 confidence that this spec faithfully captures an actionable, well-scoped change."
+      }
+    },
+    "required": [
+      "title",
+      "summary",
+      "target_repo",
+      "target_branch",
+      "instructions",
+      "acceptance_criteria",
+      "affected_areas",
+      "open_questions",
+      "confidence"
+    ],
+    "additionalProperties": false
+  }
+}

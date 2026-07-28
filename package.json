@@ -1,0 +1,83 @@
+{
+  "name": "aegis",
+  "version": "1.4.251",
+  "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
+  "main": "src/app.js",
+  "engines": {
+    "node": ">=18.20.4"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "jest --forceExit && npm run --silent test:node",
+    "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js",
+    "test:watch": "jest --watch",
+    "dev": "nodemon src/app.js",
+    "build": "tsc --project tsconfig.json",
+    "generate:help": "node scripts/generate-help.js",
+    "slack:harness:post": "node scripts/slack-harness-post.js",
+    "slack:harness:file-upload": "node scripts/slack-harness-file-upload.js",
+    "lists:harness": "node scripts/lists-harness.js",
+    "stratalist:spike": "node scripts/stratalist-import-spike.js",
+    "reconstruct:github": "node scripts/reconstruct-github-reminders.js",
+    "validate:ai": "node scripts/validate-ai-prompts.js",
+    "validate:commands": "node scripts/validate-command-catalog.js",
+    "catalog-editor": "node tools/catalog-server.js",
+    "validate:fsm": "node scripts/validate-fsm-invariants.js",
+    "validate:workspace-isolation": "node scripts/validate-workspace-isolation.js",
+    "validate:reminder-render": "node scripts/validate-reminder-render.js",
+    "validate:changelog-tone": "node scripts/validate-changelog-tone.js",
+    "admin:setup": "node scripts/admin-setup.js",
+    "admin:setup:web": "node scripts/admin-setup-web.js",
+    "admin:reset": "node scripts/admin-setup.js --reset-password",
+    "mcp": "node mcp/sleuth-mcp-server.mjs",
+    "mcp:smoke": "node mcp/test/smoke.mjs",
+    "hooks:install": "bash utils/install-git-hooks.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/your-repo.git"
+  },
+  "author": "neochrome-team",
+  "license": "AGPL-3.0-only",
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/tests/event-store.test.js",
+      "<rootDir>/tests/events-projection.test.js",
+      "<rootDir>/tests/summarize-week-projection.test.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js"
+    ]
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/your-repo/issues"
+  },
+  "homepage": "https://github.com/your-org/your-repo#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@notionhq/client": "^2.3.0",
+    "@octokit/rest": "^22.0.1",
+    "@slack/bolt": "^4.6.0",
+    "@slack/web-api": "^7.17.0",
+    "better-sqlite3": "^12.9.0",
+    "express": "^5.0.1",
+    "newrelic": "^12.16.1",
+    "nodemailer": "^8.0.1",
+    "openai": "^6.9.1",
+    "sqlite-vec": "^0.1.9"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/newrelic": "^9.14.8",
+    "@types/nodemailer": "^7.0.11",
+    "jest": "^30.3.0",
+    "nodemon": "^3.1.10",
+    "typescript": "^5.8.2"
+  }
+}

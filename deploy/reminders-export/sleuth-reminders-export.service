@@ -1,0 +1,14 @@
+[Unit]
+Description=Publish Sleuth reminders export to the private git-pulse repo
+# Run after the app is up so the local API is answering on loopback.
+After=network-online.target sleuth-app.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Reuse the app's runtime env: WEB_API_BEARER_TOKEN + SLEUTH_RAG_GITHUB_PAT live here.
+# The "-" prefix keeps the unit valid if the file is briefly absent.
+EnvironmentFile=-/root/sleuth-app/.env.runtime
+ExecStart=/usr/bin/node /root/sleuth-reminders-export/publish-reminders-export.mjs
+# Don't let a transient GitHub/API hiccup spam the journal as a hard failure.
+SuccessExitStatus=0

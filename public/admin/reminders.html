@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sleuth Reminders Dashboard</title>
+  <style>
+    :root {
+      --border: #ddd;
+      --muted: #666;
+      --bar-scheduled: #4285f4;
+      --bar-overdue: #d93025;
+      --bar-completed: #34a853;
+      --bar-track: #eef0f3;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; color: #222; }
+    header {
+      background: #111; color: #fff; padding: 14px 24px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    header h1 { margin: 0; font-size: 20px; }
+    header .spacer { flex: 1; }
+    header a { color: #9ec0ff; text-decoration: none; font-size: 14px; }
+    main { max-width: 1280px; margin: 20px auto; padding: 0 16px; }
+    .controls {
+      background: #fff; border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .controls label { font-weight: 600; font-size: 14px; }
+    .controls input[type="search"] { flex: 1; min-width: 220px; padding: 9px 10px; border: 1px solid #ccc; border-radius: 6px; }
+    .controls select { padding: 9px 10px; border: 1px solid #ccc; border-radius: 6px; }
+    button {
+      padding: 9px 14px; border: none; border-radius: 6px; background: #111; color: #fff; cursor: pointer; font-size: 14px;
+    }
+    button.secondary { background: #fff; color: #111; border: 1px solid #ccc; }
+    .status { color: var(--muted); font-size: 14px; margin: 8px 2px 14px; min-height: 18px; }
+    .table-wrap { background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+    thead th {
+      position: sticky; top: 0; background: #fafafa; cursor: pointer; user-select: none; white-space: nowrap;
+      border-bottom: 2px solid #e2e2e2;
+    }
+    thead th.timeline-col { cursor: default; }
+    thead th .arrow { color: #888; font-size: 11px; margin-left: 4px; }
+    tbody tr:hover { background: #f9fbff; }
+    td.task { max-width: 420px; }
+    td.task a { color: #0b57d0; text-decoration: none; }
+    .nowrap { white-space: nowrap; }
+    .muted { color: var(--muted); }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; text-transform: capitalize; }
+    .pill.completed { background: #e6f4ea; color: #137333; }
+    .pill.overdue { background: #fce8e6; color: #c5221f; }
+    .pill.scheduled, .pill.posted, .pill.snoozed, .pill.rescheduled { background: #e8f0fe; color: #1967d2; }
+    /* gantt timeline cell */
+    .timeline-col { width: 320px; min-width: 260px; }
+    .track { position: relative; height: 16px; background: var(--bar-track); border-radius: 4px; }
+    .bar { position: absolute; top: 3px; height: 10px; border-radius: 3px; background: var(--bar-scheduled); opacity: 0.9; }
+    .bar.overdue { background: var(--bar-overdue); }
+    .bar.completed { background: var(--bar-completed); }
+    .marker { position: absolute; top: 0; width: 3px; height: 16px; background: #137333; border-radius: 2px; }
+    .dot { position: absolute; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--bar-scheduled); }
+    .dot.overdue { background: var(--bar-overdue); }
+    .empty { padding: 32px; text-align: center; color: var(--muted); }
+    .legend { font-size: 12px; color: var(--muted); margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sleuth Reminders</h1>
+    <div class="spacer"></div>
+    <a href="/admin/index.html">Admin home</a>
+    <a href="#" id="LogoutLink">Log out</a>
+  </header>
+
+  <main>
+    <div class="controls">
+      <label for="WorkspaceSelect">Workspace</label>
+      <select id="WorkspaceSelect"></select>
+      <input id="SearchInput" type="search" placeholder="Filter by task, assignee, or assignor…" autocomplete="off">
+      <button id="RefreshButton" type="button">Refresh</button>
+    </div>
+
+    <div id="StatusMessage" class="status"></div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="taskName">Task name<span class="arrow"></span></th>
+            <th data-sort="assigneeName">Assignee<span class="arrow"></span></th>
+            <th data-sort="assignorName">Assignor<span class="arrow"></span></th>
+            <th data-sort="dueDate" class="nowrap">Due date<span class="arrow"></span></th>
+            <th data-sort="completedDate" class="nowrap">Completed<span class="arrow"></span></th>
+            <th class="timeline-col">Timeline (created &rarr; due)</th>
+          </tr>
+        </thead>
+        <tbody id="TableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span><i class="swatch" style="background:#4285f4"></i> Scheduled</span>
+      <span><i class="swatch" style="background:#d93025"></i> Overdue</span>
+      <span><i class="swatch" style="background:#34a853"></i> Completed</span>
+    </div>
+  </main>
+
+  <script>
+    'use strict';
+
+    // ---- auth guard: reuse the existing admin session token. ----
+    const SessionToken = sessionStorage.getItem('adminSessionToken');
+    if(!SessionToken)
+      window.location.href = '/admin/login.html';
+
+    const WorkspaceSelect = document.getElementById('WorkspaceSelect');
+    const SearchInput = document.getElementById('SearchInput');
+    const RefreshButton = document.getElementById('RefreshButton');
+    const StatusMessage = document.getElementById('StatusMessage');
+    const TableBody = document.getElementById('TableBody');
+    const LogoutLink = document.getElementById('LogoutLink');
+    const HeaderCells = Array.from(document.querySelectorAll('thead th[data-sort]'));
+
+    // ---- view state, seeded from the URL so a view is bookmarkable. ----
+    const SortableKeys = new Set(['taskName', 'assigneeName', 'assignorName', 'dueDate', 'completedDate']);
+    const InitialParams = new URLSearchParams(window.location.search);
+    const State = {
+      workspace: InitialParams.get('workspace') || '',
+      q: InitialParams.get('q') || '',
+      sort: SortableKeys.has(InitialParams.get('sort')) ? InitialParams.get('sort') : 'dueDate',
+      dir: InitialParams.get('dir') === 'asc' ? 'asc' : 'desc'
+    };
+    let AllReminders = [];
+
+    SearchInput.value = State.q;
+
+    function SetStatus(ArgText, ArgIsError) {
+      StatusMessage.textContent = ArgText || '';
+      StatusMessage.style.color = ArgIsError ? '#b3261e' : '#666';
+    }
+
+    // Reflect the current view into the URL (bookmark/share) without adding history entries.
+    function SyncUrl() {
+      const Params = new URLSearchParams();
+      if(State.workspace) Params.set('workspace', State.workspace);
+      if(State.q) Params.set('q', State.q);
+      if(State.sort) Params.set('sort', State.sort);
+      if(State.dir) Params.set('dir', State.dir);
+      const Query = Params.toString();
+      window.history.replaceState(null, '', Query ? `?${Query}` : window.location.pathname);
+    }
+
+    function RedirectToLogin() {
+      sessionStorage.removeItem('adminSessionToken');
+      window.location.href = '/admin/login.html';
+    }
+
+    async function ApiGetAsync(ArgPath) {
+      const Response = await fetch(ArgPath, { headers: { Authorization: `Bearer ${SessionToken}` } });
+      const Payload = await Response.json();
+      if(!Payload.success) {
+        if(typeof Payload.data === 'string' && /forbidden/i.test(Payload.data)) {
+          RedirectToLogin();
+          throw new Error('Session expired.');
+        }
+        throw new Error(Payload.data || 'Request failed.');
+      }
+      return Payload.data;
+    }
+
+    function FormatDate(ArgIso) {
+      if(!ArgIso) return null;
+      const Parsed = new Date(ArgIso);
+      if(Number.isNaN(Parsed.getTime())) return null;
+      return Parsed.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    function Escape(ArgText) {
+      const Div = document.createElement('div');
+      Div.textContent = ArgText == null ? '' : String(ArgText);
+      return Div.innerHTML;
+    }
+
+    // ---- filtering + sorting ----
+    function GetFilteredSorted() {
+      const Needle = State.q.trim().toLowerCase();
+      let Rows = AllReminders;
+      if(Needle) {
+        Rows = Rows.filter(ArgRow =>
+          [ArgRow.taskName, ArgRow.assigneeName, ArgRow.assignorName]
+            .some(ArgValue => (ArgValue || '').toLowerCase().includes(Needle))
+        );
+      }
+
+      const Key = State.sort;
+      const Direction = State.dir === 'asc' ? 1 : -1;
+      const DateKeys = new Set(['dueDate', 'completedDate']);
+      return Rows.slice().sort((ArgLeft, ArgRight) => {
+        let Left = ArgLeft[Key];
+        let Right = ArgRight[Key];
+        if(DateKeys.has(Key)) {
+          // nulls always sort last regardless of direction.
+          const LeftMs = Left ? Date.parse(Left) : null;
+          const RightMs = Right ? Date.parse(Right) : null;
+          if(LeftMs === null && RightMs === null) return 0;
+          if(LeftMs === null) return 1;
+          if(RightMs === null) return -1;
+          return (LeftMs - RightMs) * Direction;
+        }
+        Left = (Left || '').toLowerCase();
+        Right = (Right || '').toLowerCase();
+        if(Left < Right) return -1 * Direction;
+        if(Left > Right) return 1 * Direction;
+        return 0;
+      });
+    }
+
+    // ---- gantt timeline scaling across all currently-visible rows ----
+    function ComputeTimeRange(ArgRows) {
+      let Min = Infinity;
+      let Max = -Infinity;
+      for(const Row of ArgRows) {
+        for(const Value of [Row.createdOn, Row.dueDate, Row.completedDate]) {
+          if(!Value) continue;
+          const Ms = Date.parse(Value);
+          if(Number.isNaN(Ms)) continue;
+          if(Ms < Min) Min = Ms;
+          if(Ms > Max) Max = Ms;
+        }
+      }
+      if(!Number.isFinite(Min) || !Number.isFinite(Max) || Min === Max)
+        return null;
+      return { Min: Min, Max: Max, Span: Max - Min };
+    }
+
+    function Pct(ArgMs, ArgRange) {
+      return ((ArgMs - ArgRange.Min) / ArgRange.Span) * 100;
+    }
+
+    function BuildTimelineCell(ArgRow, ArgRange, ArgNowMs) {
+      if(!ArgRange) return '<span class="muted">—</span>';
+
+      const DueMs = ArgRow.dueDate ? Date.parse(ArgRow.dueDate) : NaN;
+      const CreatedMs = ArgRow.createdOn ? Date.parse(ArgRow.createdOn) : NaN;
+      const CompletedMs = ArgRow.completedDate ? Date.parse(ArgRow.completedDate) : NaN;
+      const IsCompleted = !Number.isNaN(CompletedMs);
+      const IsOverdue = !IsCompleted && !Number.isNaN(DueMs) && DueMs < ArgNowMs;
+
+      let Inner = '';
+      if(!Number.isNaN(CreatedMs) && !Number.isNaN(DueMs)) {
+        const Start = Math.min(Pct(CreatedMs, ArgRange), Pct(DueMs, ArgRange));
+        const End = Math.max(Pct(CreatedMs, ArgRange), Pct(DueMs, ArgRange));
+        const Width = Math.max(End - Start, 1);
+        const Cls = IsCompleted ? 'completed' : (IsOverdue ? 'overdue' : '');
+        Inner += `<div class="bar ${Cls}" style="left:${Start}%;width:${Width}%"></div>`;
+      } else if(!Number.isNaN(DueMs)) {
+        const Cls = IsCompleted ? 'overdue' : '';
+        Inner += `<div class="dot ${IsOverdue ? 'overdue' : Cls}" style="left:calc(${Pct(DueMs, ArgRange)}% - 4px)"></div>`;
+      }
+      if(IsCompleted)
+        Inner += `<div class="marker" style="left:calc(${Pct(CompletedMs, ArgRange)}% - 1px)" title="Completed"></div>`;
+
+      return `<div class="track">${Inner}</div>`;
+    }
+
+    function StateClass(ArgState) {
+      const Known = ['completed', 'overdue', 'scheduled', 'posted', 'snoozed', 'rescheduled'];
+      return Known.includes(ArgState) ? ArgState : 'scheduled';
+    }
+
+    function Render() {
+      const Rows = GetFilteredSorted();
+      const Range = ComputeTimeRange(Rows);
+      const NowMs = Date.now();
+
+      // header sort indicators
+      for(const Cell of HeaderCells) {
+        const Arrow = Cell.querySelector('.arrow');
+        Arrow.textContent = Cell.dataset.sort === State.sort ? (State.dir === 'asc' ? '▲' : '▼') : '';
+      }
+
+      if(Rows.length === 0) {
+        TableBody.innerHTML = `<tr><td colspan="6" class="empty">No reminders match this view.</td></tr>`;
+        return;
+      }
+
+      const Html = Rows.map(Row => {
+        const Due = FormatDate(Row.dueDate);
+        const Completed = FormatDate(Row.completedDate);
+        const TaskCell = Row.permalink
+          ? `<a href="${Escape(Row.permalink)}" target="_blank" rel="noopener">${Escape(Row.taskName || '(untitled)')}</a>`
+          : Escape(Row.taskName || '(untitled)');
+        const StatePill = `<span class="pill ${StateClass(Row.state)}">${Escape(Row.state || '')}</span>`;
+        return `<tr>
+          <td class="task">${TaskCell}<div>${StatePill}</div></td>
+          <td>${Escape(Row.assigneeName) || '<span class="muted">—</span>'}</td>
+          <td>${Escape(Row.assignorName) || '<span class="muted">—</span>'}</td>
+          <td class="nowrap">${Due ? Escape(Due) : '<span class="muted">—</span>'}</td>
+          <td class="nowrap">${Completed ? Escape(Completed) : '<span class="muted">—</span>'}</td>
+          <td class="timeline-col">${BuildTimelineCell(Row, Range, NowMs)}</td>
+        </tr>`;
+      }).join('');
+      TableBody.innerHTML = Html;
+    }
+
+    async function LoadRemindersAsync() {
+      if(!State.workspace) {
+        AllReminders = [];
+        Render();
+        SetStatus('No workspace selected.');
+        return;
+      }
+      SetStatus('Loading reminders…');
+      try {
+        const Data = await ApiGetAsync(`/admin/dashboard/reminders?workspace=${encodeURIComponent(State.workspace)}`);
+        AllReminders = Array.isArray(Data.reminders) ? Data.reminders : [];
+        Render();
+        const Fetched = FormatDate(Data.fetchedAt) || '';
+        SetStatus(`${AllReminders.length} reminder(s) in "${Data.workspaceName}". Loaded ${Fetched}.`);
+      } catch(ArgError) {
+        AllReminders = [];
+        Render();
+        SetStatus(ArgError.message || 'Failed to load reminders.', true);
+      }
+    }
+
+    async function LoadWorkspacesAsync() {
+      try {
+        const Names = await ApiGetAsync('/admin/dashboard/workspaces');
+        WorkspaceSelect.innerHTML = '';
+        if(!Array.isArray(Names) || Names.length === 0) {
+          SetStatus('No workspaces found.', true);
+          return;
+        }
+        for(const Name of Names) {
+          const Option = document.createElement('option');
+          Option.value = Name;
+          Option.textContent = Name;
+          WorkspaceSelect.appendChild(Option);
+        }
+        // honour the workspace in the URL if valid, otherwise default to the first.
+        if(!State.workspace || !Names.includes(State.workspace))
+          State.workspace = Names[0];
+        WorkspaceSelect.value = State.workspace;
+        SyncUrl();
+        await LoadRemindersAsync();
+      } catch(ArgError) {
+        SetStatus(ArgError.message || 'Failed to load workspaces.', true);
+      }
+    }
+
+    // ---- events ----
+    HeaderCells.forEach(Cell => {
+      Cell.addEventListener('click', () => {
+        const Key = Cell.dataset.sort;
+        if(State.sort === Key) {
+          State.dir = State.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          State.sort = Key;
+          State.dir = (Key === 'dueDate' || Key === 'completedDate') ? 'desc' : 'asc';
+        }
+        SyncUrl();
+        Render();
+      });
+    });
+
+    let SearchTimer = null;
+    SearchInput.addEventListener('input', () => {
+      State.q = SearchInput.value;
+      if(SearchTimer) clearTimeout(SearchTimer);
+      SearchTimer = setTimeout(() => { SyncUrl(); Render(); }, 150);
+    });
+
+    WorkspaceSelect.addEventListener('change', () => {
+      State.workspace = WorkspaceSelect.value;
+      SyncUrl();
+      LoadRemindersAsync();
+    });
+
+    RefreshButton.addEventListener('click', () => LoadRemindersAsync());
+
+    LogoutLink.addEventListener('click', async ArgEvent => {
+      ArgEvent.preventDefault();
+      try {
+        await fetch('/admin/logout', { method: 'POST', headers: { Authorization: `Bearer ${SessionToken}` } });
+      } catch(ArgError) { /* ignore network errors and continue local logout. */ }
+      RedirectToLogin();
+    });
+
+    // ---- boot ----
+    LoadWorkspacesAsync();
+  </script>
+</body>
+</html>

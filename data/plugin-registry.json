@@ -1,0 +1,15 @@
+{
+  "version": "1",
+  "plugins": [
+    {
+      "name": "echo-command",
+      "displayName": "Echo Command",
+      "version": "1.0.0",
+      "purpose": "Echoes back any text passed to @sleuth echo. Demonstrates the Phase 1 plugin interface.",
+      "publisher": "NeochromeTeam",
+      "phase": 1,
+      "entryPoint": "src/plugins/echo-command/index.js",
+      "enabled": true
+    }
+  ]
+}

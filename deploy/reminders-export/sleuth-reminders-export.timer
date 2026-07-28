@@ -1,0 +1,15 @@
+[Unit]
+Description=Publish Sleuth reminders export every 5 minutes
+
+[Timer]
+# Every 5 minutes on the wall clock (:00, :05, :10 …), plus a run ~2 min after
+# boot. OnCalendar always computes a deterministic next-elapse (unlike
+# OnUnitActiveSec on a oneshot unit); Persistent=true catches up one missed run
+# after downtime so the export never goes stale silently.
+OnBootSec=2min
+OnCalendar=*:0/5
+Persistent=true
+Unit=sleuth-reminders-export.service
+
+[Install]
+WantedBy=timers.target

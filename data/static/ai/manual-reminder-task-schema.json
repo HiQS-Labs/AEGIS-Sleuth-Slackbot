@@ -1,0 +1,22 @@
+{
+  "name": "manual_reminder_task_response",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "rationale": {
+        "type": "string",
+        "description": "Short explanation of how the task title was inferred from the original Slack message."
+      },
+      "reminder_message": {
+        "type": "string",
+        "description": "Concise imperative reminder title inferred from the original message."
+      }
+    },
+    "required": [
+      "rationale",
+      "reminder_message"
+    ],
+    "additionalProperties": false
+  }
+}

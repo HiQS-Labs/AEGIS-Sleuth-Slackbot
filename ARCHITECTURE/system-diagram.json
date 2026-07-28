@@ -1,0 +1,414 @@
+{
+  "title": "Sleuth — System Architecture",
+  "generated": "2026-07-04",
+  "sources": [
+    "codebase-memory get_architecture (Users-octo-dev-Documents-GH-Repos-sleuth-app: 363 files, 23 routes, 40 classes)",
+    "ARCHITECTURE.md (System Map, Startup/Slack/Reminder/Chat/AI/RAG/Lists/Persistence/Web-API pipelines)"
+  ],
+  "groups": [
+    {
+      "id": "core",
+      "label": "Runtime Core"
+    },
+    {
+      "id": "modules",
+      "label": "Workspace Modules"
+    },
+    {
+      "id": "ai",
+      "label": "AI & RAG Layer"
+    },
+    {
+      "id": "mgmt",
+      "label": "Management"
+    },
+    {
+      "id": "storage",
+      "label": "File Persistence"
+    },
+    {
+      "id": "external",
+      "label": "External Services"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "slack-ext",
+      "label": "Slack Workspace",
+      "type": "external",
+      "group": "external",
+      "tech": "Socket Mode",
+      "description": "Multi-tenant Slack workspaces. Delivers message / app_mention / reaction events over Socket Mode and receives posts, reactions, and Lists mutations."
+    },
+    {
+      "id": "app",
+      "label": "app.js (Orchestrator)",
+      "type": "service",
+      "group": "core",
+      "tech": "Node.js",
+      "description": "Process entrypoint. Loads New Relic, enumerates workspace JSON files, and instantiates + starts every per-workspace module in strict order (Stats first, then Reminders, Chat, Lists, Notion, plugins, GitHub sync, Web API)."
+    },
+    {
+      "id": "slack-app",
+      "label": "slack-app.js (Slack Ingress)",
+      "type": "api",
+      "group": "core",
+      "tech": "Bolt / Socket Mode",
+      "description": "Single Slack ingress layer. Owns the Bolt client, handler registration, event dispatch chain, posting, reactions, and metadata/permalink lookup. Modules also post outbound through this wrapper."
+    },
+    {
+      "id": "stats",
+      "label": "StatsModule",
+      "type": "service",
+      "group": "modules",
+      "tech": "src/stats-module.js",
+      "description": "Starts first per workspace; provides the shared stats object every other module writes into."
+    },
+    {
+      "id": "reminders",
+      "label": "RemindersModule",
+      "type": "service",
+      "group": "modules",
+      "tech": "src/reminders-module.js",
+      "description": "Reminder FSM: extraction, dedup, date extraction, scheduling, snooze enforcement, posting. Enforced through #MakeScheduledReminder / #TryScheduleRemindersAsync / #TransitionReminderState. Includes GitHubCommentRelay and the reminder-check timer."
+    },
+    {
+      "id": "chat",
+      "label": "ChatModule",
+      "type": "service",
+      "group": "modules",
+      "tech": "src/chat-module.js + chat-commands/",
+      "description": "General chat, thread context memory, and the CommandRouter registry dispatching admin/operator commands (RAG, model-switch, run-tests, restart, web search, rmm intent resolver)."
+    },
+    {
+      "id": "notion-mod",
+      "label": "NotionModule",
+      "type": "service",
+      "group": "modules",
+      "tech": "src/notion-module.js",
+      "description": "Optional Notion search on app_mention events."
+    },
+    {
+      "id": "lists",
+      "label": "ListsModule",
+      "type": "service",
+      "group": "modules",
+      "tech": "src/lists-module.js + list-context.js",
+      "description": "Slack Lists sync. Output-only shared list plus durable bi-directional per-user lists. One poll interval iterates all ListContexts with echo suppression on the bot's own writes."
+    },
+    {
+      "id": "plugins",
+      "label": "PluginLoader",
+      "type": "service",
+      "group": "modules",
+      "tech": "src/plugin-loader.js",
+      "description": "Loads enabled per-workspace plugins (from data/plugin-registry.json) and registers their mention handlers before ChatModule's catch-all."
+    },
+    {
+      "id": "github-sync",
+      "label": "GitHub Sync",
+      "type": "job",
+      "group": "modules",
+      "tech": "github-sync-module.js + github-actions-startup-summary.js",
+      "description": "Post-startup GitHub status synchronization across reminder modules, plus the delayed startup Actions-run summary message."
+    },
+    {
+      "id": "workspace-ai",
+      "label": "WorkspaceAI (Dispatcher)",
+      "type": "service",
+      "group": "ai",
+      "tech": "src/workspace-ai.js",
+      "description": "Only supported workspace-scoped AI path. Model-prefix routing, per-channel model overrides, OpenAI Responses-API web search. Lazy-builds provider clients per workspace."
+    },
+    {
+      "id": "ai-providers",
+      "label": "AI Providers",
+      "type": "service",
+      "group": "ai",
+      "tech": "src/ai-providers/",
+      "description": "Provider implementations: gpt-*/o[n]-*/codex-* → OpenAI, claude-* → Anthropic, gemini-* → Gemini (direct REST). Unknown prefixes fall back to OpenAI. Shared schema assets normalized per provider."
+    },
+    {
+      "id": "web-api",
+      "label": "Web API",
+      "type": "api",
+      "group": "mgmt",
+      "tech": "src/web-api.js",
+      "description": "HTTP management plane: workspace CRUD, reminder/stats retrieval, settings, admin auth flows, and normalized reminder export (?format=rebalance). Admin routes use session auth; others use a bearer token."
+    },
+    {
+      "id": "runtime-store",
+      "label": "data/runtime/",
+      "type": "storage",
+      "group": "storage",
+      "tech": "JSON files",
+      "description": "File-based, workspace-isolated persistence: reminders, counters, enabled channels, stats, workspace config, channel model overrides, lists cache, thread context memory, settings."
+    },
+    {
+      "id": "static-assets",
+      "label": "data/static/",
+      "type": "storage",
+      "group": "storage",
+      "tech": "JSON / Markdown",
+      "description": "Prompt & schema assets, command-catalog.json, command-normalization.json, deterministic-responses.json, client-channel-mapping.json, generated HELP.md."
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI API",
+      "type": "external",
+      "group": "external",
+      "tech": "SDK",
+      "description": "Default general model (gpt-4o-mini), complex date extraction (gpt-4o), and Responses-API web search."
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic API",
+      "type": "external",
+      "group": "external",
+      "tech": "SDK",
+      "description": "claude-* models. System prompt sent as cache_control: ephemeral for prompt-cache hits on repeated schema-backed calls."
+    },
+    {
+      "id": "gemini",
+      "label": "Google Gemini API",
+      "type": "external",
+      "group": "external",
+      "tech": "Generative Language REST",
+      "description": "gemini-* workspace models via direct generateContent REST, plus RAG embeddings (gemini-embedding-001) and synthesis (gemini-pro-latest)."
+    },
+    {
+      "id": "notion-ext",
+      "label": "Notion API",
+      "type": "external",
+      "group": "external",
+      "description": "Optional Notion search backend."
+    },
+    {
+      "id": "github-ext",
+      "label": "GitHub API",
+      "type": "external",
+      "group": "external",
+      "description": "Issue/PR status, Actions run summaries, and the comment-relay target for Slack thread replies."
+    },
+    {
+      "id": "wpdbtk",
+      "label": "WP DB Toolkit RAG",
+      "type": "external",
+      "group": "external",
+      "description": "Optional external RAG backing the admin-only ask-woo command; independent of the internal RAG index."
+    },
+    {
+      "id": "newrelic",
+      "label": "New Relic",
+      "type": "external",
+      "group": "external",
+      "description": "APM/observability agent, required to load first in the startup pipeline."
+    }
+  ],
+  "edges": [
+    {
+      "source": "app",
+      "target": "newrelic",
+      "label": "loads first",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "slack-app",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "stats",
+      "label": "starts first",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "reminders",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "chat",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "lists",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "notion-mod",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "plugins",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "github-sync",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "app",
+      "target": "web-api",
+      "label": "starts",
+      "kind": "sync"
+    },
+    {
+      "source": "slack-ext",
+      "target": "slack-app",
+      "label": "Socket Mode events",
+      "kind": "async"
+    },
+    {
+      "source": "slack-app",
+      "target": "reminders",
+      "label": "message / mention / reaction",
+      "kind": "sync"
+    },
+    {
+      "source": "slack-app",
+      "target": "chat",
+      "label": "fall-through events",
+      "kind": "sync"
+    },
+    {
+      "source": "slack-app",
+      "target": "notion-mod",
+      "label": "app_mention",
+      "kind": "sync"
+    },
+    {
+      "source": "slack-app",
+      "target": "plugins",
+      "label": "mention handlers",
+      "kind": "sync"
+    },
+    {
+      "source": "reminders",
+      "target": "lists",
+      "label": "reminder mutations (fan-out)",
+      "kind": "sync"
+    },
+    {
+      "source": "lists",
+      "target": "reminders",
+      "label": "row complete / cancel / create",
+      "kind": "sync"
+    },
+    {
+      "source": "reminders",
+      "target": "workspace-ai",
+      "label": "extract / dedup / date",
+      "kind": "sync"
+    },
+    {
+      "source": "chat",
+      "target": "workspace-ai",
+      "label": "chat + web search",
+      "kind": "sync"
+    },
+    {
+      "source": "chat",
+      "target": "wpdbtk",
+      "label": "ask-woo",
+      "kind": "sync"
+    },
+    {
+      "source": "workspace-ai",
+      "target": "ai-providers",
+      "label": "prefix routing",
+      "kind": "sync"
+    },
+    {
+      "source": "ai-providers",
+      "target": "openai",
+      "label": "gpt-* / o[n]-*",
+      "kind": "sync"
+    },
+    {
+      "source": "ai-providers",
+      "target": "anthropic",
+      "label": "claude-*",
+      "kind": "sync"
+    },
+    {
+      "source": "ai-providers",
+      "target": "gemini",
+      "label": "gemini-*",
+      "kind": "sync"
+    },
+    {
+      "source": "notion-mod",
+      "target": "notion-ext",
+      "label": "search",
+      "kind": "sync"
+    },
+    {
+      "source": "github-sync",
+      "target": "github-ext",
+      "label": "status / actions",
+      "kind": "sync"
+    },
+    {
+      "source": "reminders",
+      "target": "github-ext",
+      "label": "comment relay",
+      "kind": "sync"
+    },
+    {
+      "source": "workspace-ai",
+      "target": "static-assets",
+      "label": "prompts / schemas",
+      "kind": "data"
+    },
+    {
+      "source": "chat",
+      "target": "static-assets",
+      "label": "catalog / responses",
+      "kind": "data"
+    },
+    {
+      "source": "reminders",
+      "target": "runtime-store",
+      "label": "reminders / counter",
+      "kind": "data"
+    },
+    {
+      "source": "chat",
+      "target": "runtime-store",
+      "label": "thread memory / model overrides",
+      "kind": "data"
+    },
+    {
+      "source": "lists",
+      "target": "runtime-store",
+      "label": "lists cache",
+      "kind": "data"
+    },
+    {
+      "source": "stats",
+      "target": "runtime-store",
+      "label": "stats",
+      "kind": "data"
+    },
+    {
+      "source": "web-api",
+      "target": "runtime-store",
+      "label": "read / write",
+      "kind": "data"
+    }
+  ]
+}

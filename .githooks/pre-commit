@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Path safety (DoD 6)
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd -- "${HOOK_DIR}/.." && pwd -P)"
+
+# The scanner (fail-closed check)
+SCANNER="${REPO_ROOT}/utils/sanitize-scan.sh"
+if [[ ! -x "${SCANNER}" ]]; then
+  echo "FATAL: Infrastructure broken. To commit anyway, bypass with: git commit --no-verify" >&2
+  exit 2
+fi
+
+# Run scanner with allowlist, and capture non-zero exit without aborting
+# Note: default mode reads the working tree content rather than index blobs (S1)
+set +e
+"${SCANNER}" --allowlist "${REPO_ROOT}/utils/sanitize-allowlist.txt"
+SCAN_EXIT=$?
+set -e
+
+if [[ ${SCAN_EXIT} -eq 2 ]]; then
+  echo "FATAL: the secret scanner could not verify this tree (exit 2). It found nothing because it scanned nothing." >&2
+  echo "Fix the scanner before committing. Do NOT bypass — nothing has been checked." >&2
+  exit 2
+elif [[ ${SCAN_EXIT} -ne 0 ]]; then
+  echo "FATAL: Secrets were found. Please remove them. If this is a false positive, you may bypass with: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0

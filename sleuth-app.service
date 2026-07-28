@@ -1,0 +1,116 @@
+# This file defines a systemd service that makes it easy to start, restart and run an app in the background.
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#Description
+# This file should be symlinked for access by systemd via the following command:
+#   systemctl link /root/sleuth-app/sleuth-app.service
+# It should be enabled and started via the following commands:
+#   systemctl enable sleuth-app
+#   systemctl start sleuth-app
+# If the file is modified, the configuration should be reloaded (and service restarted) via the following commands:
+#   systemctl daemon-reload && systemctl restart sleuth-app
+# You can monitor the systemd journal for messages from the service via the following command:
+#   journalctl --unit=sleuth-app --output=short-iso --follow --no-hostname --no-pager
+# You can flush the current logs then clean up old logs to leave <= 100MB of logs via the following commands:
+#   journalctl --vacuum-size=100M --rotate
+
+# ======================================================================================================================
+[Unit]
+# Name of the service.
+# See https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#Description=
+Description = Sleuth App
+
+# Ensure the app root directory exists and is populated before starting the app (should make for a cleaner error message).
+# See https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#AssertArchitecture=
+AssertDirectoryNotEmpty = /root/sleuth-app
+AssertFileNotEmpty = /root/sleuth-app/src/app.js
+
+# Ensure the Node executable is present before starting the app (should make for a cleaner error message).
+# See https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#AssertArchitecture=
+AssertFileIsExecutable = /usr/bin/node
+
+# ======================================================================================================================
+[Install]
+
+# Ensure the app is always started when the system is booted.
+# See https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#WantedBy=
+WantedBy = multi-user.target
+
+# ======================================================================================================================
+[Service]
+
+# Proceed with other (dependent) services only after this service has fully started and is ready to handle requests.
+# NOTE: this is recommended here https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#Type=
+Type = exec
+
+# We only have one process so consider the service to be stopped when that process exits.
+# NOTE: this is the default. See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#ExitType=
+ExitType = main
+
+# When the main process exits, the service should be considered stopped (to avoid confusion).
+# NOTE: this is the default. See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#RemainAfterExit=
+RemainAfterExit = no
+
+# Define the working directory for the service. Relative paths will be resolved relative to this directory. NOTE: this
+# must be set explicitly because the default is inherited from the systemd process and will not work for our app. See the
+# following for more information:
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#WorkingDirectory=
+WorkingDirectory = /root/sleuth-app
+
+# Load optional runtime configuration overrides such as WEB_API_BEARER_TOKEN and WEB_API_PORT.
+# Prefixing the path with "-" keeps startup working when the file does not exist yet.
+EnvironmentFile = -/root/sleuth-app/.env.runtime
+
+# Configure input/output/error redirection. We disable standard input and redirect standard output and standard error to
+# the systemd journal. These are the defaults but we set them explicitly for clarity. See the following for more information:
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#StandardInput=
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#StandardOutput=
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#StandardError=
+StandardInput = null
+StandardOutput = journal
+StandardError = journal
+
+# Command to execute to start the service.
+# See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#ExecStart=
+ExecStart = /usr/bin/node --no-warnings /root/sleuth-app/src/app.js
+
+# When stopping the service, kill the main process and all of its children.
+# NOTE: this is the default. See https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html#KillMode=
+KillMode = control-group
+
+# NodeJS apps are terminated by SIGINT (Ctrl+C) so use that signal to stop the service. NOTE: we use this setting instead  
+# of the ExecStop command to send the SIGINT signal manually, because signal handling is asynchronous however the ExecStop
+# command assumes that the process will exit immediately (i.e. synchronously). Using the KillSignal setting ensures that
+# the process is given time to clean up and exit gracefully before being forcibly terminated. See the following for more
+# information:
+#   https://man7.org/linux/man-pages/man7/signal.7.html
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#ExecStop=
+KillSignal = SIGINT
+
+# When the service is stopped, it is first sent the SIGINT signal and then given N seconds to exit gracefully. If the
+# service has not exited after N seconds, it is sent the SIGKILL signal to forcibly terminate it. Since forceful
+# termination can cause data loss or corruption, we lean towards using longer timeouts, but keep in mind that longer
+# timeouts can delay the restart of the service if it crashes or is being upgraded. See the following for more information:
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#TimeoutStartFailureMode=
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html#FinalKillSignal=
+TimeoutStopFailureMode = terminate
+TimeoutStopSec = 30
+SendSIGKILL = yes
+FinalKillSignal = SIGKILL
+
+# If the service exits unexpectedly (i.e. due to some failure), it should be restarted within N seconds. The time to wait
+# before restarting keeps increasing gradually up to a maximum of M seconds. This ensures that if the service is crashing
+# repeatedly, the system is not overloaded with restart attempts. See the following for more information:
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#Restart=
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#RestartSec=
+Restart = on-failure
+RestartSec = 1
+RestartSteps = 1         # only available in systemd v254 and later (ignored by earlier versions with a warning).
+RestartMaxDelaySec = 10  # only available in systemd v254 and later (ignored by earlier versions with a warning).
+
+# Disable killing of the service when memory is low (i.e. other services should be killed first). In any case, if the OOM
+# killer kills our service, it should kill every other process we start so the whole house burns down and nothing lingers.
+# See the following for more information:
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#OOMScoreAdjust=
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#OOMPolicy=
+#   https://docs.kernel.org/filesystems/proc.html#proc-pid-oom-adj-proc-pid-oom-score-adj-adjust-the-oom-killer-score
+OOMScoreAdjust = -1000
+OOMPolicy = kill

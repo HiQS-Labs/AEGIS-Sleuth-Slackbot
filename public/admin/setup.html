@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sleuth Admin Setup</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; }
+    main { max-width: 760px; margin: 48px auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; }
+    h1 { margin-top: 0; font-size: 28px; }
+    h2 { margin-bottom: 8px; font-size: 20px; }
+    pre { background: #111; color: #f4f4f4; padding: 10px; border-radius: 6px; overflow-x: auto; }
+    button { margin-top: 12px; padding: 10px 14px; border: none; border-radius: 6px; background: #111; color: #fff; cursor: pointer; }
+    .status { min-height: 18px; margin-top: 10px; color: #555; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sleuth Admin First-Time Setup</h1>
+    <p>The admin panel has not been configured yet.</p>
+
+    <h2>Step 1: set ADMIN_ENCRYPTION_KEY</h2>
+    <pre>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</pre>
+    <pre>ADMIN_ENCRYPTION_KEY=&lt;your-generated-key&gt;</pre>
+
+    <h2>Step 2: run setup script</h2>
+    <pre>npm run admin:setup</pre>
+
+    <h2>Step 3: restart app and refresh this page</h2>
+    <pre>npm run dev
+systemctl restart sleuth-app</pre>
+
+    <button id="RefreshButton" type="button">Refresh status</button>
+    <div id="StatusMessage" class="status"></div>
+  </main>
+
+  <script>
+    const RefreshButton = document.getElementById('RefreshButton');
+    const StatusMessage = document.getElementById('StatusMessage');
+
+    async function CheckConfiguredAsync() {
+      try {
+        const Response = await fetch('/admin/auth-status');
+        const Payload = await Response.json();
+        if(Payload.success && Payload.data && Payload.data.configured === true) {
+          window.location.href = '/admin/login.html';
+          return;
+        }
+
+        StatusMessage.textContent = 'Setup not detected yet. Run npm run admin:setup, then refresh.';
+      } catch(error) {
+        StatusMessage.textContent = 'Unable to check setup status.';
+      }
+    }
+
+    RefreshButton.addEventListener('click', () => {
+      CheckConfiguredAsync();
+    });
+
+    CheckConfiguredAsync();
+  </script>
+</body>
+</html>
+

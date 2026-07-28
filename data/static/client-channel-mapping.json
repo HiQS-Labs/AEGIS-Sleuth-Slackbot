@@ -1,0 +1,183 @@
+{
+  "_comment": "Maps client identities to the Slack channels and GitHub repos that belong to them, so reminders and queries can be bucketed per client. The Client A–F entries are examples — replace them with your own. ORDER MATTERS: ResolveClientIdentity is first-match-wins, so a client whose repo pattern is also matched by a broader client's pattern must be listed FIRST (Client B precedes Client A below for exactly this reason).",
+  "clients": [
+    {
+      "ClientID": "client-b",
+      "ClientName": "Client B",
+      "Aliases": ["client b", "client-b", "clientb"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["client-b"],
+      "GitHubRepoPatterns": ["client-b", "client-b-analytics"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "client-a",
+      "ClientName": "Client A",
+      "Aliases": ["client a", "client-a", "clienta"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["client-a"],
+      "GitHubRepoPatterns": ["client-a"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": "Sunday 21:00 America/Los_Angeles deploy"
+      }
+    },
+    {
+      "ClientID": "client-d",
+      "ClientName": "Client D",
+      "Aliases": ["client d", "client-d", "clientd"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["client-d"],
+      "GitHubRepoPatterns": [],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "sleuth",
+      "ClientName": "Sleuth",
+      "Aliases": ["sleuth", "sleuth-app", "sleuth app"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["sleuth"],
+      "GitHubRepoPatterns": ["sleuth-app"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "client-f",
+      "ClientName": "Client F",
+      "Aliases": ["client f", "client-f", "clientf"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["client-f"],
+      "GitHubRepoPatterns": ["client-f-canvas-wp-plugin"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "hiqs",
+      "ClientName": "HiQS",
+      "Aliases": ["hiqs", "hi qs"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["hiqs"],
+      "GitHubRepoPatterns": ["hiqs"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "pdda",
+      "ClientName": "PDDA",
+      "Aliases": ["pdda"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["pdda"],
+      "GitHubRepoPatterns": ["pdda"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "xyz",
+      "ClientName": "XYZ",
+      "Aliases": ["xyz", "xyz-3-agents", "xyz swarm"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["xyz"],
+      "GitHubRepoPatterns": ["xyz-3-agents-swarm"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "meetup-groups",
+      "ClientName": "Meetup Groups",
+      "Aliases": ["meetup groups", "meetup group", "meetups", "meetup"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["meetup"],
+      "GitHubRepoPatterns": [],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "client-e",
+      "ClientName": "Client E",
+      "Aliases": ["client e", "client-e", "cliente"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": ["client-e"],
+      "GitHubRepoPatterns": ["client-e-self-service"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "wp-db-toolkit",
+      "ClientName": "WP DB Toolkit",
+      "Aliases": ["wp db toolkit", "wp-db-toolkit", "wpdbtk"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": [],
+      "GitHubRepoPatterns": ["wp-db-toolkit", "python-mysql-wp-parser-backup"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "wp-code-check",
+      "ClientName": "WP Code Check",
+      "Aliases": ["wp code check", "wpcc", "wp-code-check"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": [],
+      "GitHubRepoPatterns": ["wp-code-check"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "rebalance-os",
+      "ClientName": "Rebalance OS",
+      "Aliases": ["rebalance os", "rebalance-os", "rebalanceos"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": [],
+      "GitHubRepoPatterns": ["rebalance-os"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    },
+    {
+      "ClientID": "ai-ddtk",
+      "ClientName": "AI-DDTK",
+      "Aliases": ["ai-ddtk", "ai ddtk", "ddtk"],
+      "ChannelIDs": [],
+      "ChannelNamePatterns": [],
+      "GitHubRepoPatterns": ["ai-ddtk"],
+      "Defaults": {
+        "DefaultAssigneeID": "",
+        "DeadlineConvention": ""
+      }
+    }
+  ],
+  "ClientsList": {
+    "_comment": "Optional Slack List backing this mapping. Leave ListId empty to disable the integration.",
+    "ListId": "",
+    "Columns": {
+      "Name": "",
+      "Aliases": "",
+      "ChannelPatterns": "",
+      "RepoPatterns": ""
+    }
+  }
+}

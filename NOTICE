@@ -1,0 +1,39 @@
+AEGIS
+Copyright (c) 2023-2026 Neochrome. All rights reserved.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License, version 3, as published by
+the Free Software Foundation. This program is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. See the LICENSE file, or <https://www.gnu.org/licenses/agpl-3.0.html>,
+for the full terms.
+
+SPDX-License-Identifier: AGPL-3.0-only
+
+--------------------------------------------------------------------------------
+DUAL LICENSING
+
+AEGIS is available under two licenses:
+
+  1. AGPL-3.0-only (this repository, the default). Free to use, modify and
+     self-host. If you modify AEGIS and let others interact with it over a
+     network, AGPL section 13 requires you to offer those users the complete
+     corresponding source of your modified version.
+
+  2. A commercial license, for organizations that cannot or do not wish to meet
+     the AGPL's source-disclosure obligations. Terms are negotiated, not
+     click-through. See LICENSE-COMMERCIAL.md.
+
+--------------------------------------------------------------------------------
+TRADEMARKS
+
+The AGPL grants no trademark rights. "AEGIS" and "Neochrome", and any
+associated logos, are not licensed by the AGPL. A fork may use the code, but
+must not imply endorsement by or affiliation with Neochrome, and should adopt
+its own name.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY SOFTWARE
+
+AEGIS incorporates third-party open-source packages, each under its own
+license. See THIRD-PARTY.md for the audit and the full inventory.

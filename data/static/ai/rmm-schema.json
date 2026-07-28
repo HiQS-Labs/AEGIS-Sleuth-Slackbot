@@ -1,0 +1,62 @@
+{
+  "name": "rmm_intent_response",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "intent_id": {
+        "type": "string",
+        "description": "Exact command intent ID from the candidate list, or 'clarify' when the request is ambiguous."
+      },
+      "confidence": {
+        "type": "number",
+        "description": "Confidence score between 0 and 1."
+      },
+      "rationale": {
+        "type": "string",
+        "description": "Brief explanation of why the selected intent best matches the user's request."
+      },
+      "needs_clarification": {
+        "type": "boolean",
+        "description": "True when the request is ambiguous or missing a required detail."
+      },
+      "clarification_question": {
+        "type": "string",
+        "description": "One short clarification question, or an empty string when no clarification is needed."
+      },
+      "default_model_name": {
+        "type": "string",
+        "description": "Requested workspace default model name, or an empty string when not applicable."
+      },
+      "complex_model_name": {
+        "type": "string",
+        "description": "Requested complex/date-extraction model name, or an empty string when not applicable."
+      },
+      "channel_model_name": {
+        "type": "string",
+        "description": "Requested per-channel model name, or an empty string when not applicable."
+      },
+      "query_text": {
+        "type": "string",
+        "description": "Trailing query text for commands like web search, Notion search, reminder search, or GitHub sync diagnostics; empty when not applicable."
+      },
+      "user_mention": {
+        "type": "string",
+        "description": "Explicit Slack user mention required by the chosen command, or an empty string when not applicable."
+      }
+    },
+    "required": [
+      "intent_id",
+      "confidence",
+      "rationale",
+      "needs_clarification",
+      "clarification_question",
+      "default_model_name",
+      "complex_model_name",
+      "channel_model_name",
+      "query_text",
+      "user_mention"
+    ],
+    "additionalProperties": false
+  }
+}

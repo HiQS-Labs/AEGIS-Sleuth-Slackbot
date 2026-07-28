@@ -1,0 +1,12 @@
+{
+  "_comment": "Optional remote RAG endpoints Sleuth can query for codebase questions. The entry below is a template — replace it with your own project, or leave `projects` empty to disable the feature. The secret itself is never stored here; `secretEnvVar` names the environment variable Sleuth reads it from.",
+  "integration_version": "1.1",
+  "projects": {
+    "client-b": {
+      "label": "Client B",
+      "endpoint": "https://rag.client-b.example.com/rag-agent/query",
+      "secretEnvVar": "CLIENT_B_RAG_SECRET",
+      "description": "Example analytics codebase — FastAPI + Reflex"
+    }
+  }
+}

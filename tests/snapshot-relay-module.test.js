@@ -1,0 +1,429 @@
+'use strict';
+
+const path = require('path');
+const fs = require('fs').promises;
+const os = require('os');
+const SnapshotRelayModule = require('../src/snapshot-relay-module');
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a minimal mock SlackApp for snapshot-relay tests.
+ * @param {object} [ArgWorkspaceInfo] Workspace info overrides.
+ * @returns {{ WorkspaceInfo: object, PostMessageTextAsync: jest.Mock, UploadFileAsync: jest.Mock, Logger: object }}
+ */
+function MakeMockSlackApp(ArgWorkspaceInfo = {}) {
+  const WorkspaceInfo = {
+    WORKSPACE_NAME: 'neochrome',
+    SNAPSHOT_RELAY_ENABLED: true,
+    ...ArgWorkspaceInfo,
+  };
+
+  const Logger = {
+    InfoMessages: [],
+    WarnMessages: [],
+    ErrorMessages: [],
+    info(...ArgArgs) { this.InfoMessages.push(ArgArgs.join(' ')); },
+    warn(...ArgArgs) { this.WarnMessages.push(ArgArgs.join(' ')); },
+    error(...ArgArgs) { this.ErrorMessages.push(ArgArgs.join(' ')); },
+  };
+
+  return {
+    WorkspaceInfo,
+    Logger,
+    PostMessageTextAsync: jest.fn().mockResolvedValue('ts1'),
+    UploadFileAsync: jest.fn().mockResolvedValue('ts2'),
+  };
+}
+
+/**
+ * Build a fake githubClient with controllable list/get behaviour.
+ * @returns {{ ListSnapshotsAsync: jest.Mock, GetContentAsync: jest.Mock }}
+ */
+function MakeFakeGithubClient() {
+  return {
+    ListSnapshotsAsync: jest.fn().mockResolvedValue([]),
+    GetContentAsync: jest.fn().mockResolvedValue(''),
+  };
+}
+
+/** Default fixture content — short, well under 3500 chars. */
+const DEFAULT_CONTENT = [
+  '<!-- snapshot-sleuth-relay: forwarded-at=2026-06-17T10:00:00Z device="MacBook Pro" repo="sleuth-app" -->',
+  '# Snapshot — 2026-06-17',
+  '',
+  'Session notes go here.',
+].join('\n');
+
+/**
+ * Build a SnapshotRelayModule instance wired to a fake githubClient, no real git, no real network.
+ * @param {object} ArgSlackApp Mock SlackApp.
+ * @param {string} ArgSeenPath Seen-set persistence path.
+ * @param {object} ArgGithubClient Fake githubClient.
+ * @param {object} [ArgExtraConfig] Additional config overrides.
+ * @returns {SnapshotRelayModule}
+ */
+function MakeModule(ArgSlackApp, ArgSeenPath, ArgGithubClient, ArgExtraConfig = {}) {
+  return new SnapshotRelayModule(ArgSlackApp, ArgSlackApp.Logger, {
+    enabled: true,
+    channelId: 'C000EXAMPLE3',
+    pat: 'test-pat',
+    repo: 'test-org/test-repo',
+    dir: 'snapshots',
+    branch: 'main',
+    seenPath: ArgSeenPath,
+    pollIntervalMs: 999999,    // effectively never fires automatically
+    githubClient: ArgGithubClient,
+    ...ArgExtraConfig,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Test suite 1 — Exactly-once: one remote file posts exactly once per RunOnceAsync
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — exactly-once posting', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp();
+    GithubClient = MakeFakeGithubClient();
+
+    // StartAsync seed: one file already exists remotely.
+    GithubClient.ListSnapshotsAsync.mockResolvedValueOnce([
+      { name: 'snapshot-2026-06-17.md', sha: 'sha1' },
+    ]);
+
+    Module = MakeModule(SlackApp, SeenPath, GithubClient);
+  });
+
+  afterEach(async () => {
+    await Module.StopAsync();
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  test('one file seeded, new file appears → PostMessageTextAsync called once; second RunOnceAsync → still once', async () => {
+    // StartAsync seeds the existing file (no post).
+    await Module.StartAsync();
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+
+    // Now a new file appears on the second list call.
+    GithubClient.ListSnapshotsAsync.mockResolvedValue([
+      { name: 'snapshot-2026-06-17.md', sha: 'sha1' },
+      { name: 'snapshot-2026-06-18.md', sha: 'sha2' },
+    ]);
+    GithubClient.GetContentAsync.mockResolvedValue([
+      '<!-- snapshot-sleuth-relay: forwarded-at=2026-06-18T08:00:00Z device="MacBook" repo="sleuth-app" -->',
+      '# Snapshot — 2026-06-18',
+      'New session.',
+    ].join('\n'));
+
+    await Module.RunOnceAsync();
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+
+    // Second RunOnceAsync — same list, file now in seen-set → no re-post.
+    await Module.RunOnceAsync();
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite 2 — No-backlog-flood seeding
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — no-backlog-flood seeding', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp();
+    GithubClient = MakeFakeGithubClient();
+
+    GithubClient.ListSnapshotsAsync.mockResolvedValueOnce([
+      { name: 'snapshot-a.md', sha: 'sha-a' },
+      { name: 'snapshot-b.md', sha: 'sha-b' },
+      { name: 'snapshot-c.md', sha: 'sha-c' },
+    ]);
+
+    Module = MakeModule(SlackApp, SeenPath, GithubClient);
+  });
+
+  afterEach(async () => {
+    await Module.StopAsync();
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  test('StartAsync posts zero messages and seeds all 3 files into the seen-set', async () => {
+    await Module.StartAsync();
+
+    // no messages posted during seed.
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+    expect(SlackApp.UploadFileAsync).not.toHaveBeenCalled();
+
+    // GetContentAsync must NOT have been called during seed.
+    expect(GithubClient.GetContentAsync).not.toHaveBeenCalled();
+
+    // seen.json should now contain 3 entries.
+    const SeenRaw = await fs.readFile(SeenPath, 'utf8');
+    const SeenArray = JSON.parse(SeenRaw);
+    expect(SeenArray).toHaveLength(3);
+    expect(SeenArray).toContain('snapshot-a.md');
+    expect(SeenArray).toContain('snapshot-b.md');
+    expect(SeenArray).toContain('snapshot-c.md');
+
+    // logger should mention the first-run seed.
+    const SeedLog = SlackApp.Logger.InfoMessages.find((ArgMsg) => ArgMsg.includes('first run'));
+    expect(SeedLog).toBeTruthy();
+    expect(SeedLog).toMatch(/seeded 3 existing file/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite 2b — Restart does NOT re-seed: downtime arrivals still post
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — restart resumes without re-seeding', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp();
+    GithubClient = MakeFakeGithubClient();
+
+    // A persisted seen-set already exists (a prior run) → this start is a RESTART.
+    await fs.writeFile(SeenPath, JSON.stringify(['snapshot-old.md']), 'utf8');
+
+    // The remote now has the old file PLUS one that arrived while we were down.
+    GithubClient.ListSnapshotsAsync.mockResolvedValue([
+      { name: 'snapshot-old.md', sha: 'sha-old' },
+      { name: 'snapshot-during-downtime.md', sha: 'sha-new' },
+    ]);
+    GithubClient.GetContentAsync.mockResolvedValue(DEFAULT_CONTENT);
+
+    Module = MakeModule(SlackApp, SeenPath, GithubClient);
+  });
+
+  afterEach(async () => {
+    await Module.StopAsync();
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  test('restart does not re-seed; a downtime arrival is posted, the already-seen file is not', async () => {
+    await Module.StartAsync();
+    // No seeding on restart → nothing posted yet, downtime file NOT pre-marked seen.
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+    const ResumeLog = SlackApp.Logger.InfoMessages.find((ArgMsg) => ArgMsg.includes('resuming'));
+    expect(ResumeLog).toBeTruthy();
+
+    await Module.RunOnceAsync();
+    // The downtime arrival posts exactly once; the already-seen file does not.
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+    expect(GithubClient.GetContentAsync).toHaveBeenCalledWith('snapshot-during-downtime.md');
+    expect(GithubClient.GetContentAsync).not.toHaveBeenCalledWith('snapshot-old.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite 3 — Long content → UploadFileAsync (not a single full text post)
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — long content triggers file upload', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp();
+    GithubClient = MakeFakeGithubClient();
+
+    // Seed one short file.
+    GithubClient.ListSnapshotsAsync.mockResolvedValueOnce([
+      { name: 'snapshot-short.md', sha: 'sha-s' },
+    ]);
+
+    Module = MakeModule(SlackApp, SeenPath, GithubClient);
+  });
+
+  afterEach(async () => {
+    await Module.StopAsync();
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  test('entry > 3500 chars → UploadFileAsync is called (not just a text post)', async () => {
+    // StartAsync seeds the existing short file.
+    await Module.StartAsync();
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+
+    // Now a new long file appears.
+    const LongContent = [
+      '<!-- snapshot-sleuth-relay: forwarded-at=2026-06-18T09:00:00Z device="MacBook Pro" repo="sleuth-app" -->',
+      '# Snapshot — 2026-06-18 long',
+      '',
+      'y'.repeat(4000),
+    ].join('\n');
+
+    GithubClient.ListSnapshotsAsync.mockResolvedValue([
+      { name: 'snapshot-short.md', sha: 'sha-s' },
+      { name: 'snapshot-long.md', sha: 'sha-l' },
+    ]);
+    GithubClient.GetContentAsync.mockResolvedValue(LongContent);
+
+    await Module.RunOnceAsync();
+
+    // UploadFileAsync must have been called once.
+    expect(SlackApp.UploadFileAsync).toHaveBeenCalledTimes(1);
+    // NO separate header text post — the header is the file's initial comment, so a
+    // failed upload can't leave a re-posting header (the duplicate-spam fix).
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+    // The compact header is passed as the file's initial comment (4th arg).
+    const UploadArgs = SlackApp.UploadFileAsync.mock.calls[0];
+    expect(UploadArgs[3]).toContain('Snapshot — 2026-06-18 long');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite 4 — Flag OFF or PAT missing → StartAsync does nothing
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — flag OFF gate', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  afterEach(async () => {
+    if(Module) await Module.StopAsync();
+    if(TempDir) await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  test('SNAPSHOT_RELAY_ENABLED false → StartAsync is a no-op (no posts, no seen-set, no timer, client never called)', async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp({ SNAPSHOT_RELAY_ENABLED: false });
+    GithubClient = MakeFakeGithubClient();
+    Module = MakeModule(SlackApp, SeenPath, GithubClient, { enabled: false });
+
+    await Module.StartAsync();
+
+    // no messages posted.
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+    expect(SlackApp.UploadFileAsync).not.toHaveBeenCalled();
+
+    // GitHub client must NOT have been called.
+    expect(GithubClient.ListSnapshotsAsync).not.toHaveBeenCalled();
+    expect(GithubClient.GetContentAsync).not.toHaveBeenCalled();
+
+    // seen.json should NOT exist (nothing was seeded).
+    let SeenExists = false;
+    try {
+      await fs.access(SeenPath);
+      SeenExists = true;
+    } catch {
+      // expected.
+    }
+    expect(SeenExists).toBe(false);
+
+    // RunOnceAsync should also be a no-op when not active.
+    await Module.RunOnceAsync();
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+  });
+
+  test('PAT missing → constructor disables the module, StartAsync is a no-op', async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp({ SNAPSHOT_RELAY_ENABLED: true });
+    GithubClient = MakeFakeGithubClient();
+
+    // Force PAT to empty string to trigger the PAT-missing branch.
+    // enabled is NOT explicitly passed — the constructor derives it from workspace flags,
+    // then disables because pat is ''.
+    Module = new SnapshotRelayModule(SlackApp, SlackApp.Logger, {
+      channelId: 'C000EXAMPLE3',
+      pat: '',
+      repo: 'test-org/test-repo',
+      dir: 'snapshots',
+      branch: 'main',
+      seenPath: SeenPath,
+      pollIntervalMs: 999999,
+      githubClient: GithubClient,
+    });
+
+    await Module.StartAsync();
+
+    expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+    expect(GithubClient.ListSnapshotsAsync).not.toHaveBeenCalled();
+
+    // A warning about missing PAT should have been logged.
+    const WarnLog = SlackApp.Logger.WarnMessages.find((ArgMsg) => ArgMsg.includes('no PAT'));
+    expect(WarnLog).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite — durable env-allowlist enable path (SNAPSHOT_RELAY_WORKSPACES)
+// The workspace JSON flag can silently revert on a redeploy/restore (observed
+// 2026-07-06); the env allowlist lives in .env.runtime, which survives redeploys.
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — durable env-allowlist enable', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+  const SavedAllowlist = process.env.SNAPSHOT_RELAY_WORKSPACES;
+
+  afterEach(async () => {
+    if(Module) await Module.StopAsync();
+    if(SavedAllowlist === undefined) delete process.env.SNAPSHOT_RELAY_WORKSPACES;
+    else process.env.SNAPSHOT_RELAY_WORKSPACES = SavedAllowlist;
+    if(TempDir) await fs.rm(TempDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  test('env allowlist enables even when the workspace SNAPSHOT_RELAY_ENABLED flag is false (redeploy-durable)', async () => {
+    process.env.SNAPSHOT_RELAY_WORKSPACES = 'neochrome';
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp({ SNAPSHOT_RELAY_ENABLED: false }); // workspace flag OFF (reverted-by-redeploy scenario)
+    GithubClient = MakeFakeGithubClient();
+
+    // `enabled` is NOT passed — the constructor must derive it from the env allowlist.
+    Module = new SnapshotRelayModule(SlackApp, SlackApp.Logger, {
+      channelId: 'C000EXAMPLE3', pat: 'test-pat', repo: 'test-org/test-repo',
+      dir: 'snapshots', branch: 'main', seenPath: SeenPath, pollIntervalMs: 999999,
+      githubClient: GithubClient,
+    });
+    await Module.StartAsync();
+
+    // Enabled → StartAsync seeds via the github client.
+    expect(GithubClient.ListSnapshotsAsync).toHaveBeenCalled();
+  });
+
+  test('env allowlist NOT including the workspace leaves it disabled (with the flag also off)', async () => {
+    process.env.SNAPSHOT_RELAY_WORKSPACES = 'someotherworkspace';
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp({ SNAPSHOT_RELAY_ENABLED: false });
+    GithubClient = MakeFakeGithubClient();
+
+    Module = new SnapshotRelayModule(SlackApp, SlackApp.Logger, {
+      channelId: 'C000EXAMPLE3', pat: 'test-pat', repo: 'test-org/test-repo',
+      dir: 'snapshots', branch: 'main', seenPath: SeenPath, pollIntervalMs: 999999,
+      githubClient: GithubClient,
+    });
+    await Module.StartAsync();
+
+    // Disabled → StartAsync is a no-op, the github client is never touched.
+    expect(GithubClient.ListSnapshotsAsync).not.toHaveBeenCalled();
+  });
+
+  test('legacy workspace-flag path still enables neochrome when the env allowlist is unset', async () => {
+    delete process.env.SNAPSHOT_RELAY_WORKSPACES;
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp({ SNAPSHOT_RELAY_ENABLED: true }); // legacy config path
+    GithubClient = MakeFakeGithubClient();
+
+    Module = new SnapshotRelayModule(SlackApp, SlackApp.Logger, {
+      channelId: 'C000EXAMPLE3', pat: 'test-pat', repo: 'test-org/test-repo',
+      dir: 'snapshots', branch: 'main', seenPath: SeenPath, pollIntervalMs: 999999,
+      githubClient: GithubClient,
+    });
+    await Module.StartAsync();
+
+    expect(GithubClient.ListSnapshotsAsync).toHaveBeenCalled();
+  });
+});

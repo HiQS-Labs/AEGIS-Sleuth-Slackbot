@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "allowJs": true, // allow JavaScript files to be part of the project.
+    "checkJs": true, // enable TypeScript type-checking for all JavaScript files.
+    "noEmit": true, // prevent emitting any output files, as we're just checking.
+    "noImplicitAny": true, // raise error on expressions and declarations with an implied 'any' type.
+    "esModuleInterop": true // needed to fix an error related to the `@slack/socket-mode` package.
+  },
+  "include": [
+    "src/**/*.js",
+    "src/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

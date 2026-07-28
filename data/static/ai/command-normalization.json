@@ -1,0 +1,56 @@
+{
+  "ModelAliases": [
+    { "Match": "chatgpt 5.5", "Replace": "gpt-5.5" },
+    { "Match": "gpt 5.5", "Replace": "gpt-5.5" },
+    { "Match": "gpt5.5", "Replace": "gpt-5.5" },
+    { "Match": "chatgpt 5 mini", "Replace": "gpt-5-mini" },
+    { "Match": "gpt 5 mini", "Replace": "gpt-5-mini" },
+    { "Match": "gpt5 mini", "Replace": "gpt-5-mini" },
+    { "Match": "chatgpt 5", "Replace": "gpt-5" },
+    { "Match": "gpt 5", "Replace": "gpt-5" },
+    { "Match": "gpt5", "Replace": "gpt-5" },
+    { "Match": "chatgpt 4o mini", "Replace": "gpt-4o-mini" },
+    { "Match": "gpt 4o mini", "Replace": "gpt-4o-mini" },
+    { "Match": "gpt4o mini", "Replace": "gpt-4o-mini" },
+    { "Match": "chatgpt 4o", "Replace": "gpt-4o" },
+    { "Match": "gpt 4o", "Replace": "gpt-4o" },
+    { "Match": "gpt4o", "Replace": "gpt-4o" },
+    { "Match": "anthropic claude fable 5", "Replace": "claude-fable-5" },
+    { "Match": "anthropic fable 5", "Replace": "claude-fable-5" },
+    { "Match": "claude fable 5", "Replace": "claude-fable-5" },
+    { "Match": "fable 5", "Replace": "claude-fable-5" },
+    { "Match": "fable5", "Replace": "claude-fable-5" }
+  ],
+  "DirectCommandPatterns": [
+    {
+      "IntentId": "model-switch-both",
+      "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*default\\s*=\\s*['\"]([^'\"]+)['\"]\\s*,\\s*complex\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
+      "Arguments": ["DefaultModelName", "ComplexModelName"]
+    },
+    {
+      "IntentId": "model-switch-both",
+      "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*complex\\s*=\\s*['\"]([^'\"]+)['\"]\\s*,\\s*default\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
+      "Arguments": ["ComplexModelName", "DefaultModelName"]
+    },
+    {
+      "IntentId": "model-switch-default",
+      "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*default\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
+      "Arguments": ["DefaultModelName"]
+    },
+    {
+      "IntentId": "model-switch-complex",
+      "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*complex\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
+      "Arguments": ["ComplexModelName"]
+    },
+    {
+      "IntentId": "model-switch-default",
+      "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*['\"]([^'\"]+)['\"]\\s*$",
+      "Arguments": ["DefaultModelName"]
+    },
+    {
+      "IntentId": "set-channel-model",
+      "Pattern": "^set(?:-|\\s+)channel(?:-|\\s+)model\\s*:?\\s*['\"]([^'\"]+)['\"]\\s*$",
+      "Arguments": ["ChannelModelName"]
+    }
+  ]
+}

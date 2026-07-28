@@ -1,0 +1,31 @@
+# Binary (NUL-containing) files accepted after MANUAL review.
+#
+# Why this file exists
+# --------------------
+# `sanitize-scan.sh` runs its rules through `grep -I`, which treats a file containing NUL bytes as
+# non-matching. A binary therefore can NEVER produce a finding regardless of what is inside it, so
+# "no findings" on a binary means "not examined" — never "clean". The scanner enumerates such files
+# and FAILS rather than letting silence imply safety.
+#
+# Most binaries should be removed from the tree, not listed here. This file is only for a *source*
+# file that legitimately contains a NUL byte and must stay. Every entry needs a reviewer, a date,
+# and what was checked — an entry without evidence is just a suppressed alarm.
+#
+# An empty or missing file means "nothing reviewed", which correctly keeps the gate closed.
+#
+# Format: one repo-relative path per line. Blank lines and #-comments ignored.
+
+# Reviewed 2026-07-27 (claude-a) — surfaced by the FIRST real CI run on Linux, which is also what
+# exposed that macOS was silently reporting zero binaries for this same file.
+#
+# Contains exactly 2 NUL bytes, both deliberate: a composite cache key uses NUL as the separator
+# between channel id and user id, because it cannot occur in either component —
+#     const Key = `${ArgChannelId}\0${ArgUserId}`;   (and the matching @type comment above it)
+#
+# Checked by hand, with NULs stripped, for every credential shape the scanner looks for:
+# slack tokens (xoxb/xoxp/xapp), OpenAI sk-, GitHub ghp_, AWS AKIA, PEM blocks, bearer tokens and
+# IPv4 literals. NO matches. File is 1852 bytes, `node --check` passes, and it is covered by
+# tests/channel-membership-cache.test.js.
+#
+# Re-review if this file changes materially.
+src/channel-membership-cache.js

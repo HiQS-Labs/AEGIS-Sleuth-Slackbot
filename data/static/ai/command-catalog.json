@@ -1,0 +1,1968 @@
+[
+  {
+    "Id": "help-features",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Show the user-facing help and features guide.",
+    "SyntaxExamples": [
+      "@Sleuth AI help",
+      "@Sleuth AI features"
+    ],
+    "Aliases": [
+      "help",
+      "features",
+      "show help",
+      "show features"
+    ],
+    "IntentPhrases": [
+      "show me what sleuth can do",
+      "how do i use sleuth",
+      "show the features"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants guidance, capabilities, or a help screen."
+    ],
+    "RegisteredRoutes": [
+      "help/features",
+      "help/features guidance"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 10,
+    "CommandsListOrder": 110,
+    "HelpSection": "Getting Started"
+  },
+  {
+    "Id": "commands",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Show the full command reference for Sleuth.",
+    "SyntaxExamples": [
+      "@Sleuth AI commands"
+    ],
+    "Aliases": [
+      "commands",
+      "command list",
+      "show commands",
+      "list commands"
+    ],
+    "IntentPhrases": [
+      "what commands are available",
+      "show me the admin commands",
+      "list the exact commands"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user explicitly wants the command list rather than one specific action."
+    ],
+    "RegisteredRoutes": [
+      "commands"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 10
+  },
+  {
+    "Id": "run-diagnostics",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Run workspace diagnostics for config, Slack connectivity, disk access, reminders, stats, OpenAI, and Notion.",
+    "SyntaxExamples": [
+      "@Sleuth AI run-diagnostics"
+    ],
+    "Aliases": [
+      "run diagnostics",
+      "diagnostics",
+      "health check"
+    ],
+    "IntentPhrases": [
+      "check if sleuth is healthy",
+      "run the diagnostics",
+      "test the integrations"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Prefer this when the user wants system health or troubleshooting information."
+    ],
+    "RegisteredRoutes": [
+      "run-diagnostics"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 20
+  },
+  {
+    "Id": "show-rebalance-reminders",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Dump the published rebalance reminders export file (the artifact the rebalance-OS dashboard consumes) for debugging, with UTC and workspace-local timestamps.",
+    "SyntaxExamples": [
+      "@Sleuth AI show-rebalance-reminders"
+    ],
+    "Aliases": [
+      "show rebalance reminders",
+      "dump rebalance export",
+      "show rebalance export"
+    ],
+    "IntentPhrases": [
+      "dump the rebalance reminders file",
+      "show what got synced to rebalance",
+      "debug the git pulse reminders export"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this to inspect the actual published reminders-<workspace>.json from the export-repo repo, including its freshness/heartbeat, rather than the live in-process reminders."
+    ],
+    "RegisteredRoutes": [
+      "show-rebalance-reminders"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 25
+  },
+  {
+    "Id": "show-rebalance-reminders-formatted",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Show the published rebalance reminders export as Slack-formatted reminder and memory lines instead of the raw JSON file.",
+    "SyntaxExamples": [
+      "@Sleuth AI show-rebalance-reminders-formatted"
+    ],
+    "Aliases": [
+      "show rebalance reminders formatted",
+      "formatted rebalance reminders",
+      "rebalance export formatted"
+    ],
+    "IntentPhrases": [
+      "show the rebalance reminders nicely formatted",
+      "give me a readable version of the rebalance export",
+      "list the published rebalance reminders without the json"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants the published rebalance export as readable Slack lines; use show-rebalance-reminders when they want the raw JSON file."
+    ],
+    "RegisteredRoutes": [
+      "show-rebalance-reminders-formatted"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 26
+  },
+  {
+    "Id": "run-tests",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Run the full Jest suite and post the summarized result.",
+    "SyntaxExamples": [
+      "@Sleuth AI run-tests"
+    ],
+    "Aliases": [
+      "run tests",
+      "test suite",
+      "jest"
+    ],
+    "IntentPhrases": [
+      "run the tests",
+      "kick off the test suite",
+      "run jest"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "This is expensive enough that rmm ifl should only suggest it, not auto-run it."
+    ],
+    "RegisteredRoutes": [
+      "run-tests"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 30
+  },
+  {
+    "Id": "code-task",
+    "Permission": "admin",
+    "Risk": "high",
+    "CanExecuteWithIfl": false,
+    "Description": "Synthesize a freeform code-change request and dispatch it to Claude Code Cloud, which opens a PR. The session/PR link is posted back to the thread.",
+    "SyntaxExamples": [
+      "@Sleuth AI code-task add a retry to the GitHub sync fetch",
+      "@Sleuth AI code-task make the daily digest skip empty channels"
+    ],
+    "Aliases": [
+      "code-task",
+      "code task",
+      "codetask"
+    ],
+    "IntentPhrases": [
+      "try making changes to",
+      "have claude code change",
+      "make a code change to",
+      "dispatch a code task",
+      "change the codebase to"
+    ],
+    "ArgumentHints": [
+      "RequestText"
+    ],
+    "DisambiguationNotes": [
+      "Use this only when an admin explicitly wants Sleuth to modify a codebase via Claude Code Cloud. High risk and admin-only, so rmm must never auto-run it — only suggest it."
+    ],
+    "RegisteredRoutes": [
+      "code-task"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 31
+  },
+  {
+    "Id": "restart",
+    "Permission": "admin",
+    "Risk": "high",
+    "CanExecuteWithIfl": false,
+    "Description": "Gracefully restart the Sleuth process.",
+    "SyntaxExamples": [
+      "@Sleuth AI restart"
+    ],
+    "Aliases": [
+      "restart",
+      "reboot sleuth",
+      "restart the bot"
+    ],
+    "IntentPhrases": [
+      "restart sleuth",
+      "reboot the app",
+      "bounce the service"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Because this restarts the service, rmm ifl must not auto-execute it."
+    ],
+    "RegisteredRoutes": [
+      "restart"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 40
+  },
+  {
+    "Id": "version",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Show the current Sleuth version number.",
+    "SyntaxExamples": [
+      "@Sleuth AI version"
+    ],
+    "Aliases": [
+      "version",
+      "show version",
+      "what version"
+    ],
+    "IntentPhrases": [
+      "what version of sleuth is this",
+      "show me the version",
+      "which version is running"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [],
+    "RegisteredRoutes": [
+      "version"
+    ],
+    "RegexAliases": [
+      {
+        "Pattern": "^(?:show|what)\\s+version$",
+        "Route": "version"
+      }
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 45
+  },
+  {
+    "Id": "run-daily-digest",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Force-run the daily digest immediately.",
+    "SyntaxExamples": [
+      "@Sleuth AI run daily digest"
+    ],
+    "Aliases": [
+      "run daily digest",
+      "daily digest",
+      "force digest"
+    ],
+    "IntentPhrases": [
+      "send the daily digest now",
+      "force the digest to run",
+      "run todays digest"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "This has real downstream side effects, so rmm ifl should not auto-run it."
+    ],
+    "RegisteredRoutes": [
+      "run daily digest"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 80
+  },
+  {
+    "Id": "models",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Show the current workspace and channel model configuration.",
+    "SyntaxExamples": [
+      "@Sleuth AI models"
+    ],
+    "Aliases": [
+      "models",
+      "current model",
+      "show models"
+    ],
+    "IntentPhrases": [
+      "what model are we using",
+      "show the current model settings",
+      "what are the current ai models"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants model status across the workspace/channel."
+    ],
+    "RegisteredRoutes": [
+      "models"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 50
+  },
+  {
+    "Id": "show-channel-model",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Show this channel's override and effective chat model.",
+    "SyntaxExamples": [
+      "@Sleuth AI show-channel-model"
+    ],
+    "Aliases": [
+      "show channel model",
+      "channel model",
+      "what model is this channel using",
+      "what model are you",
+      "what model are you running",
+      "which model are you running"
+    ],
+    "IntentPhrases": [
+      "show this channels model",
+      "what model is active in this channel",
+      "inspect this channel model",
+      "what model are you running on this channel",
+      "which model are you running right now",
+      "what model are you using right now",
+      "which model is running in this channel"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this for channel-specific model inspection, not workspace-wide status.",
+      "Model-identity questions like 'what model are you?' map here — the answer must come from runtime config, never from the chat model's self-knowledge."
+    ],
+    "RegisteredRoutes": [
+      "show-channel-model"
+    ],
+    "RegexAliases": [
+      {
+        "Pattern": "^(?:what|which)\\s+(?:ai\\s+|chat\\s+|llm\\s+)?model\\s+(?:are\\s+you(?:\\s+(?:running|using|on))?|is\\s+(?:this|the)\\s+channel\\s+(?:running|using|on)|is\\s+(?:running|active|in\\s+use))(?:\\s+(?:on|in|for)\\s+this\\s+channel)?(?:\\s+right\\s+now|\\s+now|\\s+currently|\\s+today)?\\s*\\?*$",
+        "DescribePattern": "^(?:what|which)\\s+(?:ai\\s+|chat\\s+|llm\\s+)?model\\b",
+        "Route": "show-channel-model"
+      }
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 90,
+    "CommandsListOrder": 150,
+    "HelpSection": "Models & Workspace"
+  },
+  {
+    "Id": "set-channel-model",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": true,
+    "Description": "Set a chat-model override for only the current channel.",
+    "SyntaxExamples": [
+      "@Sleuth AI set-channel-model:'gpt-5'",
+      "@Sleuth AI set-channel-model:'gpt-5-mini'"
+    ],
+    "Aliases": [
+      "set channel model",
+      "channel override",
+      "use this model in this channel"
+    ],
+    "IntentPhrases": [
+      "use gpt 5 only in this channel",
+      "set this channel to gpt 5 mini",
+      "override this channels model"
+    ],
+    "ArgumentHints": [
+      "ChannelModelName"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user explicitly says only this channel should change."
+    ],
+    "RegisteredRoutes": [
+      "set-channel-model"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 60
+  },
+  {
+    "Id": "clear-channel-model",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": true,
+    "Description": "Clear the current channel's override and revert to the workspace default model.",
+    "SyntaxExamples": [
+      "@Sleuth AI clear-channel-model"
+    ],
+    "Aliases": [
+      "clear channel model",
+      "remove channel override",
+      "reset this channel model"
+    ],
+    "IntentPhrases": [
+      "turn off the channel override",
+      "go back to the workspace default in this channel",
+      "remove this channels model override"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants to undo a per-channel model override."
+    ],
+    "RegisteredRoutes": [
+      "clear-channel-model"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 70
+  },
+  {
+    "Id": "model-switch-default",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": true,
+    "Description": "Change the workspace default chat model.",
+    "SyntaxExamples": [
+      "@Sleuth AI switch-models:'gpt-5'",
+      "@Sleuth AI switch-models:'gpt-5-mini'"
+    ],
+    "Aliases": [
+      "model switch",
+      "switch model",
+      "switch models",
+      "model-switch",
+      "change model",
+      "change models",
+      "change the default model",
+      "use chatgpt 5"
+    ],
+    "IntentPhrases": [
+      "switch to gpt 5",
+      "use gpt5 for chat",
+      "change the workspace default model",
+      "how do I change models",
+      "how do I switch models",
+      "how to change models",
+      "how to switch models",
+      "what is the command to change models",
+      "what command do I use to change models"
+    ],
+    "ArgumentHints": [
+      "DefaultModelName"
+    ],
+    "DisambiguationNotes": [
+      "If the user mentions one model without saying complex, date extraction, or this channel only, assume they mean the workspace default chat model.",
+      "Discovery framings like 'how do I change models?' or 'change models' (without specifying complex/this channel) also map here — see rmm-instructions.md rule 6."
+    ],
+    "RegisteredRoutes": [
+      "switch-models"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 51
+  },
+  {
+    "Id": "router-mode",
+    "Permission": "admin",
+    "Risk": "high",
+    "CanExecuteWithIfl": false,
+    "Description": "Set the experimental command-router mode (off, shadow, or active) for this workspace.",
+    "SyntaxExamples": [
+      "@Sleuth AI router-mode",
+      "@Sleuth AI router-mode shadow",
+      "@Sleuth AI router-mode active",
+      "@Sleuth AI router-mode off"
+    ],
+    "Aliases": [
+      "router mode",
+      "router-mode",
+      "set router mode"
+    ],
+    "IntentPhrases": [
+      "turn on router shadow mode",
+      "enable the flash lite router",
+      "switch the router to active mode",
+      "disable the router shadow"
+    ],
+    "ArgumentHints": [
+      "Mode"
+    ],
+    "DisambiguationNotes": [
+      "Toggles the GH-397 Gemini Flash Lite router experiment. 'shadow' logs a corpus with zero authority; 'active' lets Flash Lite take over command resolution; 'off' disables it. Admin/owner only; in-memory (resets on restart)."
+    ],
+    "RegisteredRoutes": [
+      "router-mode"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": false
+  },
+  {
+    "Id": "model-switch-complex",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": true,
+    "Description": "Change only the complex/date-extraction model.",
+    "SyntaxExamples": [
+      "@Sleuth AI switch-models:complex='gpt-5'",
+      "@Sleuth AI switch-models:complex='gpt-4o'"
+    ],
+    "Aliases": [
+      "complex model",
+      "date extraction model",
+      "switch complex model"
+    ],
+    "IntentPhrases": [
+      "change the complex model",
+      "set date extraction to gpt 5",
+      "use gpt 5 only for hard reasoning"
+    ],
+    "ArgumentHints": [
+      "ComplexModelName"
+    ],
+    "DisambiguationNotes": [
+      "Use this only when the user clearly references the complex model, date extraction, or difficult reasoning tasks."
+    ],
+    "RegisteredRoutes": [
+      "switch-models"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 52
+  },
+  {
+    "Id": "model-switch-both",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": true,
+    "Description": "Change both the workspace default chat model and the complex/date-extraction model.",
+    "SyntaxExamples": [
+      "@Sleuth AI switch-models:default='gpt-5-mini',complex='gpt-5'",
+      "@Sleuth AI switch-models:default='gpt-4o-mini',complex='gpt-4o'"
+    ],
+    "Aliases": [
+      "switch both models",
+      "change both models",
+      "default and complex"
+    ],
+    "IntentPhrases": [
+      "set both models",
+      "change chat to gpt 5 mini and complex to gpt 5",
+      "update the default and complex models together"
+    ],
+    "ArgumentHints": [
+      "DefaultModelName",
+      "ComplexModelName"
+    ],
+    "DisambiguationNotes": [
+      "Use this only when the user clearly specifies two different targets or explicitly says both/default and complex."
+    ],
+    "RegisteredRoutes": [
+      "switch-models"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 53
+  },
+  {
+    "Id": "web-search",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Search the web through OpenAI Responses API and reply with sourced results.",
+    "SyntaxExamples": [
+      "@Sleuth AI web-search automated web browsers",
+      "@Sleuth AI search-web latest OpenAI news"
+    ],
+    "Aliases": [
+      "web-search",
+      "search-web",
+      "search web",
+      "search the web",
+      "look up",
+      "lookup"
+    ],
+    "IntentPhrases": [
+      "search the web for",
+      "look up on the web",
+      "find recent information about"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Prefer this for generic web lookups when the user does not explicitly ask for Google or Gemini."
+    ],
+    "RegisteredRoutes": [
+      "web-search"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 60,
+    "CommandsListOrder": 120,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "gemini-search",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Search the web through Google Gemini and reply with sourced results.",
+    "SyntaxExamples": [
+      "@Sleuth AI gemini-search automated web browsers",
+      "@Sleuth AI google-search latest Gemini news"
+    ],
+    "Aliases": [
+      "gemini-search",
+      "search-gemini",
+      "google-search",
+      "search-google",
+      "search google",
+      "google for"
+    ],
+    "IntentPhrases": [
+      "search google for",
+      "google this for me",
+      "use gemini web search"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Prefer this when the user explicitly says Google or Gemini."
+    ],
+    "RegisteredRoutes": [
+      "gemini-search"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 70,
+    "CommandsListOrder": 130,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "notion-search",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Search the connected Notion workspace.",
+    "SyntaxExamples": [
+      "@Sleuth AI notion search release notes",
+      "@Sleuth AI search notion for onboarding docs"
+    ],
+    "Aliases": [
+      "notion search",
+      "search notion",
+      "find in notion"
+    ],
+    "IntentPhrases": [
+      "search notion for",
+      "look in notion for",
+      "find this in notion"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "This is handled by the Notion module, so rmm can suggest it but should not auto-execute it."
+    ],
+    "RegisteredRoutes": [],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 80,
+    "CommandsListOrder": 170,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "view-stratalist",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Fetch a public Stratalist list and show it in Slack without creating reminders.",
+    "SyntaxExamples": [
+      "@Sleuth AI view stratalist jinhui2026",
+      "@Sleuth AI view stratalist https://stratalist.net/go/jinhui2026"
+    ],
+    "Aliases": [
+      "view stratalist",
+      "show stratalist",
+      "open stratalist list"
+    ],
+    "IntentPhrases": [
+      "show me this stratalist list",
+      "view a shared stratalist list",
+      "look up a stratalist list by slug"
+    ],
+    "ArgumentHints": [
+      "ListSlugOrUrl"
+    ],
+    "DisambiguationNotes": [
+      "Use this for read-only display of a public Stratalist list. It does not create reminders."
+    ],
+    "RegisteredRoutes": [
+      "view stratalist"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 82,
+    "CommandsListOrder": 171,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "refresh-clients",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Re-read the operator-managed Clients Slack List into the Sleuth client lookup so reminder client-name inference picks up new clients and aliases without a code deploy.",
+    "SyntaxExamples": [
+      "@Sleuth AI refresh clients"
+    ],
+    "Aliases": [
+      "refresh clients",
+      "reload clients",
+      "sync clients list"
+    ],
+    "IntentPhrases": [
+      "update the clients lookup from slack",
+      "pull in the latest client names",
+      "re-read the clients list"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "This reads the Clients Slack List and rewrites the per-workspace client overlay. It does not create reminders or edit the list."
+    ],
+    "RegisteredRoutes": [
+      "refresh clients"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 83,
+    "CommandsListOrder": 172,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "search-reminders",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Search pending reminders across the workspace by keyword or close typo match.",
+    "SyntaxExamples": [
+      "@Sleuth AI search reminders invoice",
+      "@Sleuth AI search reminders client-c shipping"
+    ],
+    "Aliases": [
+      "search reminders",
+      "find reminders",
+      "search tasks",
+      "search todos"
+    ],
+    "IntentPhrases": [
+      "search reminders for",
+      "find matching reminders",
+      "search tasks about"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Use this for reminder/task search across the workspace."
+    ],
+    "RegisteredRoutes": [
+      "search-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 30,
+    "CommandsListOrder": 210,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "search-projects",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Show high-level PROJECT-tagged reminders, a shortcut for searching reminders by the PROJECT keyword. Trailing keywords narrow within projects.",
+    "SyntaxExamples": [
+      "@Sleuth AI search-projects",
+      "@Sleuth AI search-projects client-a"
+    ],
+    "Aliases": [
+      "search projects",
+      "search-projects",
+      "show projects",
+      "list projects"
+    ],
+    "IntentPhrases": [
+      "search high level projects",
+      "find project reminders",
+      "what projects are pending"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Use this for high-level PROJECT reminders; expands to 'search reminders PROJECT <keywords>'."
+    ],
+    "RegisteredRoutes": [
+      "search-projects"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 31,
+    "CommandsListOrder": 211,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "search-reminders-here",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Search pending reminders only from the current channel.",
+    "SyntaxExamples": [
+      "@Sleuth AI search reminders here invoice"
+    ],
+    "Aliases": [
+      "search reminders here",
+      "search tasks here",
+      "search this channel reminders"
+    ],
+    "IntentPhrases": [
+      "search reminders in this channel",
+      "search tasks here for",
+      "find reminders here"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user explicitly scopes reminder search to the current channel."
+    ],
+    "RegisteredRoutes": [
+      "search-reminders-here"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 40,
+    "CommandsListOrder": 220,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "search-my-reminders",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Search reminders the user created, is assigned to, or is mentioned in.",
+    "SyntaxExamples": [
+      "@Sleuth AI search my reminders invoice"
+    ],
+    "Aliases": [
+      "search my reminders",
+      "search my tasks",
+      "find my reminders"
+    ],
+    "IntentPhrases": [
+      "search my reminders for",
+      "find my tasks about",
+      "search tasks assigned to me"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user wants only their own reminder scope."
+    ],
+    "RegisteredRoutes": [
+      "search-my-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 35,
+    "CommandsListOrder": 215,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "show-reminders",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "List all pending reminders.",
+    "SyntaxExamples": [
+      "@Sleuth AI show reminders"
+    ],
+    "Aliases": [
+      "show reminders",
+      "list reminders",
+      "show tasks"
+    ],
+    "IntentPhrases": [
+      "show all reminders",
+      "list pending reminders",
+      "what reminders are open"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this for a workspace-wide pending reminder list."
+    ],
+    "RegisteredRoutes": [
+      "show-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 45,
+    "CommandsListOrder": 230,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "show-reminders-here",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "List pending reminders only from the current channel.",
+    "SyntaxExamples": [
+      "@Sleuth AI show reminders here"
+    ],
+    "Aliases": [
+      "show reminders here",
+      "list reminders here",
+      "show tasks here"
+    ],
+    "IntentPhrases": [
+      "show reminders in this channel",
+      "list tasks here",
+      "what reminders are open here"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants current-channel reminder scope."
+    ],
+    "RegisteredRoutes": [
+      "show-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 50,
+    "CommandsListOrder": 240,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "show-github-reminders",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "List only pending reminders with GitHub links.",
+    "SyntaxExamples": [
+      "@Sleuth AI show reminders github"
+    ],
+    "Aliases": [
+      "show reminders github",
+      "list github reminders",
+      "show github tasks"
+    ],
+    "IntentPhrases": [
+      "show reminders with github links",
+      "list github-linked reminders",
+      "show the github tasks"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this for GitHub-scoped reminder lists."
+    ],
+    "RegisteredRoutes": [
+      "show-github-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 55,
+    "CommandsListOrder": 235,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "summarize-week",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Recap the current calendar week (Sun–Sat): reminder tasks completed this week and the tasks still open.",
+    "SyntaxExamples": [
+      "@Sleuth AI summarize week"
+    ],
+    "Aliases": [
+      "summarize week",
+      "summarize-week",
+      "week summary",
+      "weekly summary",
+      "this week summary"
+    ],
+    "IntentPhrases": [
+      "what did we get done this week",
+      "show what was completed and what is still open this week",
+      "give me a summary of this week's tasks"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this for a Sun–Sat recap of completed vs. still-open tasks. Use show-reminders when you only want the open list."
+    ],
+    "RegisteredRoutes": [
+      "summarize-week"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 57,
+    "CommandsListOrder": 248,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "show-my-reminders",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "List reminders the user created, is assigned to, or is mentioned in.",
+    "SyntaxExamples": [
+      "@Sleuth AI show my reminders"
+    ],
+    "Aliases": [
+      "show my reminders",
+      "list my reminders",
+      "show my tasks"
+    ],
+    "IntentPhrases": [
+      "show my open reminders",
+      "list my tasks",
+      "what reminders do i have"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants their own reminder scope."
+    ],
+    "RegisteredRoutes": [
+      "show-my-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 48,
+    "CommandsListOrder": 245,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "show-me",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "AI-ranked priority view of a user's open reminders, with a deterministic grouping of all their open work by relationship.",
+    "SyntaxExamples": [
+      "@Sleuth AI show-me @jane"
+    ],
+    "Aliases": [
+      "show-me",
+      "what should I work on",
+      "what are my tasks"
+    ],
+    "IntentPhrases": [
+      "what should jane focus on today",
+      "prioritize my reminders",
+      "what should i work on first"
+    ],
+    "ArgumentHints": [
+      "UserMention"
+    ],
+    "DisambiguationNotes": [
+      "Use this for a prioritized focus list. Use show-me-projects to group a user's work into client/project buckets instead."
+    ],
+    "RegisteredRoutes": [
+      "show-me"
+    ],
+    "RegexAliases": [
+      {
+        "Pattern": "^(?:what(?:'s|\\s+are|\\s+is)?\\s+my\\s+tasks?|show\\s+me\\s+my\\s+tasks?|what\\s+should\\s+i\\s+(?:work\\s+on|do|focus\\s+on)\\s+today)\\b",
+        "DescribePattern": "^(?:what\\s+(?:are\\s+)?my\\s+tasks?|show\\s+me\\s+my\\s+tasks?)",
+        "Route": "show-me",
+        "Args": [
+          "{user}"
+        ]
+      },
+      {
+        "Pattern": "^(?:what\\s+(?:are|is)\\s+(<@[UW][^>]+>)(?:'s?)?\\s+tasks?|show\\s+me\\s+(<@[UW][^>]+>)(?:'s?)?\\s+tasks?|what\\s+should\\s+(<@[UW][^>]+>)\\s+(?:work\\s+on|do|focus\\s+on)\\s+today)\\b",
+        "DescribePattern": "^what\\s+(?:are|is)\\s+<@",
+        "Route": "show-me",
+        "Args": [
+          "$1??$2??$3"
+        ]
+      },
+      {
+        "Pattern": "^for[-\\s]today(?:\\s+(<@[UW][^>]+>))?",
+        "DescribePattern": "^for[-\\s]today\\b",
+        "Route": "show-me",
+        "Args": [
+          "$1??{user}"
+        ]
+      }
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 246
+  },
+  {
+    "Id": "show-me-projects",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Group a user's open reminders into client and project buckets, ordered by urgency.",
+    "SyntaxExamples": [
+      "@Sleuth AI show-me-projects @jane"
+    ],
+    "Aliases": [
+      "show-me-projects",
+      "group my reminders by project",
+      "show my work by client",
+      "show me projects"
+    ],
+    "IntentPhrases": [
+      "group jane's tasks into projects",
+      "show my reminders by client",
+      "organize my work by project"
+    ],
+    "ArgumentHints": [
+      "UserMention"
+    ],
+    "DisambiguationNotes": [
+      "Use this to see the shape of the work by client/project. Use show-me for a prioritized focus list instead."
+    ],
+    "RegisteredRoutes": [
+      "show-me-projects"
+    ],
+    "RegexAliases": [
+      {
+        "Pattern": "^(?:what(?:'s|\\s+are|\\s+is)?\\s+my\\s+projects?|show\\s+me\\s+(?:my\\s+)?projects?|group\\s+my\\s+tasks?)\\b",
+        "DescribePattern": "^(?:what\\s+(?:are\\s+)?my\\s+projects?|show\\s+me\\s+(?:my\\s+)?projects?|group\\s+my\\s+tasks?)",
+        "Route": "show-me-projects",
+        "Args": [
+          "{user}"
+        ]
+      },
+      {
+        "Pattern": "^(?:what\\s+(?:are|is)\\s+(<@[UW][^>]+>)(?:'s?)?\\s+projects?|show\\s+me\\s+(<@[UW][^>]+>)(?:'s?)?\\s+projects?|group\\s+(<@[UW][^>]+>)(?:'s?)?\\s+tasks?)\\b",
+        "DescribePattern": "^(?:what\\s+(?:are|is)\\s+<@|group\\s+<@)",
+        "Route": "show-me-projects",
+        "Args": [
+          "$1??$2??$3"
+        ]
+      }
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 247
+  },
+  {
+    "Id": "enable-reminders",
+    "Permission": "public",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Enable automatic reminder detection in the current channel.",
+    "SyntaxExamples": [
+      "@Sleuth AI enable reminders"
+    ],
+    "Aliases": [
+      "enable reminders",
+      "turn on reminders",
+      "activate reminders"
+    ],
+    "IntentPhrases": [
+      "start auto reminders here",
+      "turn reminders on in this channel",
+      "enable automatic reminder detection"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "This changes channel behavior and is handled by the reminders module, so rmm should suggest it but not auto-run it."
+    ],
+    "RegisteredRoutes": [
+      "enable-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 20,
+    "CommandsListOrder": 260,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "disable-reminders",
+    "Permission": "public",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Disable automatic reminder detection in the current channel.",
+    "SyntaxExamples": [
+      "@Sleuth AI disable reminders"
+    ],
+    "Aliases": [
+      "disable reminders",
+      "turn off reminders",
+      "stop reminders"
+    ],
+    "IntentPhrases": [
+      "turn reminders off in this channel",
+      "disable automatic reminder detection",
+      "stop auto reminders here"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "This changes channel behavior and is handled by the reminders module, so rmm should suggest it but not auto-run it."
+    ],
+    "RegisteredRoutes": [
+      "disable-reminders"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 21,
+    "CommandsListOrder": 270,
+    "HelpSection": "Reminders"
+  },
+  {
+    "Id": "process-reminders-now",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Trigger scheduled reminder delivery immediately.",
+    "SyntaxExamples": [
+      "@Sleuth AI process reminders now"
+    ],
+    "Aliases": [
+      "process reminders now",
+      "run reminders now",
+      "send reminders now"
+    ],
+    "IntentPhrases": [
+      "force reminders to send now",
+      "run the reminder queue now",
+      "process pending reminders"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Handled by the reminders module with real side effects, so rmm should only suggest it."
+    ],
+    "RegisteredRoutes": [
+      "process-reminders-now"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 90
+  },
+  {
+    "Id": "github-sync-now",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Manually trigger GitHub status synchronization.",
+    "SyntaxExamples": [
+      "@Sleuth AI sync-github"
+    ],
+    "Aliases": [
+      "github sync now",
+      "run github sync",
+      "sync github now",
+      "sync-github"
+    ],
+    "IntentPhrases": [
+      "trigger github sync",
+      "run the github status sync",
+      "sync github statuses now"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Handled by the reminders module with side effects, so rmm should only suggest it."
+    ],
+    "RegisteredRoutes": [
+      "sync-github"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 100
+  },
+  {
+    "Id": "test-github-sync",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Test GitHub PAT connectivity, optionally against one specific issue or PR URL.",
+    "SyntaxExamples": [
+      "@Sleuth AI test github sync",
+      "@Sleuth AI test github sync https://github.com/owner/repo/issues/123"
+    ],
+    "Aliases": [
+      "test github sync",
+      "test github connectivity",
+      "check github sync"
+    ],
+    "IntentPhrases": [
+      "test the github sync integration",
+      "check github pat connectivity",
+      "test github access"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Use this for GitHub sync diagnostics; rmm should suggest it but not auto-run it."
+    ],
+    "RegisteredRoutes": [
+      "test-github-sync"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 101
+  },
+  {
+    "Id": "show-stats",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Show usage statistics for the workspace.",
+    "SyntaxExamples": [
+      "@Sleuth AI show-stats"
+    ],
+    "Aliases": [
+      "show stats",
+      "show-stats",
+      "usage stats"
+    ],
+    "IntentPhrases": [
+      "show the stats",
+      "what are the usage stats",
+      "show workspace usage"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Handled outside ChatModule, so rmm can suggest it but should not auto-run it."
+    ],
+    "RegisteredRoutes": [],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 100,
+    "CommandsListOrder": 280,
+    "HelpSection": "Models & Workspace"
+  },
+  {
+    "Id": "ping",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Run a lightweight connectivity check.",
+    "SyntaxExamples": [
+      "@Sleuth AI ping"
+    ],
+    "Aliases": [
+      "connectivity check",
+      "are you alive"
+    ],
+    "IntentPhrases": [
+      "ping sleuth",
+      "check if the bot is up",
+      "quick connectivity check"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Handled outside ChatModule, so rmm can suggest it but should not auto-run it."
+    ],
+    "RegisteredRoutes": [],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 110,
+    "CommandsListOrder": 290,
+    "HelpSection": "Models & Workspace"
+  },
+  {
+    "Id": "changelog",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Summarize the latest shipped Sleuth changes from the changelog.",
+    "SyntaxExamples": [
+      "@Sleuth AI changelog"
+    ],
+    "Aliases": [
+      "changelog",
+      "recent changes",
+      "what changed"
+    ],
+    "IntentPhrases": [
+      "show me the latest changes",
+      "what shipped recently",
+      "summarize the changelog"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants a release recap rather than repository docs."
+    ],
+    "RegisteredRoutes": [
+      "changelog"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 25,
+    "CommandsListOrder": 140,
+    "HelpSection": "Getting Started"
+  },
+  {
+    "Id": "rmm",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Translate plain English into the closest exact Sleuth command.",
+    "SyntaxExamples": [
+      "@Sleuth AI rmm remind me to check invoices"
+    ],
+    "Aliases": [
+      "rmm",
+      "resolve my message",
+      "map request to command"
+    ],
+    "IntentPhrases": [
+      "figure out the right sleuth command",
+      "translate my request into a command",
+      "which exact command should i use"
+    ],
+    "ArgumentHints": [
+      "RequestText"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user knows the goal but not the exact command syntax."
+    ],
+    "RegisteredRoutes": [
+      "rmm"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 11,
+    "CommandsListOrder": 111,
+    "HelpSection": "Getting Started"
+  },
+  {
+    "Id": "rmm-ifl",
+    "Permission": "public",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Resolve plain English to a Sleuth command and auto-run only the low-risk commands explicitly allowed for IFL.",
+    "SyntaxExamples": [
+      "@Sleuth AI rmm ifl show my reminders"
+    ],
+    "Aliases": [
+      "rmm ifl",
+      "if low risk run it",
+      "resolve and run"
+    ],
+    "IntentPhrases": [
+      "find the command and run it if safe",
+      "auto run the safest matching command",
+      "translate this and do it if allowed"
+    ],
+    "ArgumentHints": [
+      "RequestText"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user wants convenience but only within the pre-authorized low-risk command set."
+    ],
+    "RegisteredRoutes": [
+      "rmm ifl"
+    ],
+    "RegexAliases": [
+      {
+        "Pattern": "^(?:ifl|(?:i'?m?\\s+)?feel(?:ing)?\\s+lucky)\\b(?:\\s+rmm\\b)?[\\s,:;.!?]+(.+)",
+        "Flags": "is",
+        "Route": "rmm ifl",
+        "Args": [
+          "$1"
+        ]
+      }
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 12,
+    "CommandsListOrder": 112,
+    "HelpSection": "Getting Started"
+  },
+  {
+    "Id": "ask-code",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "If the workspace has a registered remote RAG project, query that codebase from Slack by project slug.",
+    "SyntaxExamples": [
+      "@Sleuth AI ask-code client-b how does delta sync work"
+    ],
+    "Aliases": [
+      "ask-code",
+      "query remote codebase",
+      "search registered project code"
+    ],
+    "IntentPhrases": [
+      "ask the client-b codebase about delta sync",
+      "query a registered remote repo",
+      "search code for a configured project slug"
+    ],
+    "ArgumentHints": [
+      "ProjectSlug",
+      "QuestionText"
+    ],
+    "DisambiguationNotes": [
+      "Use this for a registered remote RAG project, not Sleuth's own repo."
+    ],
+    "RegisteredRoutes": [
+      "ask-code"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 162
+  },
+  {
+    "Id": "remember-above",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Capture the current Slack thread into Sleuth's searchable memory so you can recall it later.",
+    "SyntaxExamples": [
+      "@Sleuth AI remember above"
+    ],
+    "Aliases": [
+      "remember above",
+      "remember this thread",
+      "save this thread"
+    ],
+    "IntentPhrases": [
+      "remember this conversation",
+      "save the thread above",
+      "capture this thread for later"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Run at the end of a thread; retrieve it later with 'recall'."
+    ],
+    "RegisteredRoutes": [
+      "remember-above"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 164
+  },
+  {
+    "Id": "send-to-github",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "File a GitHub issue on the configured issue repo with the thread transcript as evidence.",
+    "SyntaxExamples": [
+      "@Sleuth AI send to github",
+      "@Sleuth AI send to github: reminder fired incorrectly"
+    ],
+    "Aliases": [
+      "send to github",
+      "file github issue",
+      "report to github"
+    ],
+    "IntentPhrases": [
+      "file a github issue from this thread",
+      "report this problem to github"
+    ],
+    "ArgumentHints": [
+      "optional issue title"
+    ],
+    "DisambiguationNotes": [
+      "Reply in thread to the conversation to capture; channel-level mentions have no prior context. Files on sleuth-app only."
+    ],
+    "CommandsListNotes": [
+      "Reply in thread to the messages you want to capture, then run this command from that thread reply — not as a new channel message.",
+      "Optional inline title after a colon: send to github: reminder fired on non-actionable message",
+      "Requires workspace GITHUB_PAT with issues:write; Sleuth posts the new GitHub issue URL back in-thread."
+    ],
+    "RegisteredRoutes": [
+      "send-to-github"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 165
+  },
+  {
+    "Id": "recall",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Fuzzy-search threads captured with 'remember above' and get ranked results with permalinks.",
+    "SyntaxExamples": [
+      "@Sleuth AI recall checkout flow"
+    ],
+    "Aliases": [
+      "recall",
+      "search remembered threads",
+      "find a remembered thread"
+    ],
+    "IntentPhrases": [
+      "recall what we discussed about checkout",
+      "find the thread about the migration",
+      "search my remembered threads"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Searches remembered Slack threads (captured via 'remember above'), not reminders or the codebase."
+    ],
+    "RegisteredRoutes": [
+      "recall"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 166
+  },
+  {
+    "Id": "ask-woo",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Query the configured WP DB Toolkit RAG service from Slack.",
+    "SyntaxExamples": [
+      "@Sleuth AI ask-woo what broke in Woo staging"
+    ],
+    "Aliases": [
+      "ask-woo",
+      "woo rag",
+      "wordpress rag"
+    ],
+    "IntentPhrases": [
+      "ask the woo rag",
+      "query wordpress rag",
+      "search the wp toolkit knowledge base"
+    ],
+    "ArgumentHints": [
+      "QuestionText"
+    ],
+    "DisambiguationNotes": [
+      "Use this only when the workspace has the optional WP DB Toolkit integration configured."
+    ],
+    "RegisteredRoutes": [
+      "ask-woo"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 102
+  },
+  {
+    "Id": "web-search-advanced",
+    "Permission": "admin",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Reserved placeholder for the future buffered multi-step web-search mode.",
+    "SyntaxExamples": [
+      "@Sleuth AI web-search-advanced release timeline"
+    ],
+    "Aliases": [
+      "web-search-advanced",
+      "advanced web search"
+    ],
+    "IntentPhrases": [
+      "use advanced web search mode",
+      "run buffered web search",
+      "do the advanced web search"
+    ],
+    "ArgumentHints": [
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Keep this documented so the placeholder route stays visible until the advanced mode ships."
+    ],
+    "RegisteredRoutes": [
+      "web-search-advanced"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 131
+  },
+  {
+    "Id": "live-model-catalog-question",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": false,
+    "Description": "Answer natural-language questions about which OpenAI or ChatGPT models are currently available to this workspace.",
+    "SyntaxExamples": [
+      "@Sleuth AI what OpenAI models are currently available?"
+    ],
+    "Aliases": [
+      "available models question",
+      "openai model availability question"
+    ],
+    "IntentPhrases": [
+      "what models are available right now",
+      "which chatgpt models can this workspace use",
+      "list current openai models"
+    ],
+    "ArgumentHints": [
+      "QuestionText"
+    ],
+    "DisambiguationNotes": [
+      "This is a natural-language route, not a literal named command."
+    ],
+    "RegisteredRoutes": [
+      "live-model-catalog-question"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": false
+  },
+  {
+    "Id": "search-reminders-for-user",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Search reminders assigned to or mentioning a specific user.",
+    "SyntaxExamples": [
+      "@Sleuth AI search reminders for @jane deploy"
+    ],
+    "Aliases": [
+      "search reminders for user",
+      "search tasks for user",
+      "find reminders for user"
+    ],
+    "IntentPhrases": [
+      "search janes reminders for deploy",
+      "find tasks for a specific user",
+      "search reminders assigned to jane"
+    ],
+    "ArgumentHints": [
+      "UserMention",
+      "QueryText"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the request explicitly targets one user rather than the current user or the whole workspace."
+    ],
+    "RegisteredRoutes": [
+      "search-reminders-for-user"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 225
+  },
+  {
+    "Id": "show-reminders-for-user",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "List reminders assigned to or mentioning a specific user.",
+    "SyntaxExamples": [
+      "@Sleuth AI show reminders for @jane"
+    ],
+    "Aliases": [
+      "show reminders for user",
+      "list tasks for user",
+      "show tasks for user"
+    ],
+    "IntentPhrases": [
+      "show janes reminders",
+      "list tasks for a specific user",
+      "what reminders does jane have"
+    ],
+    "ArgumentHints": [
+      "UserMention"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user wants another person's task list rather than their own."
+    ],
+    "RegisteredRoutes": [
+      "show-reminders-for-user"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 250
+  },
+  {
+    "Id": "create-reminder-from-task-above",
+    "Permission": "public",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Create a reminder from the task message immediately above your thread reply. If neither the source task nor the command includes a time, it defaults to tomorrow at 8:00 AM.",
+    "SyntaxExamples": [
+      "@Sleuth AI make a Sleuth reminder for @jane based on task above"
+    ],
+    "Aliases": [
+      "make reminder from task above",
+      "create reminder from task above",
+      "set reminder based on task above"
+    ],
+    "IntentPhrases": [
+      "make a reminder for jane from the message above",
+      "turn the task above into a reminder for jane",
+      "create a reminder from the thread message above"
+    ],
+    "ArgumentHints": [
+      "UserMention",
+      "OptionalDateTime"
+    ],
+    "DisambiguationNotes": [
+      "Use this as a thread reply under the source task. If the task already includes a due-time phrase, Sleuth keeps that instead of applying the default."
+    ],
+    "RegisteredRoutes": [
+      "create-reminder-from-task-above",
+      "create-reminder-from-task-above-shorthand"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 252
+  },
+  {
+    "Id": "confirm-multi-task-proposal",
+    "Permission": "public",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Confirm a pending multi-task proposal in the current thread, creating the proposed reminders. Anyone replying in the thread can confirm.",
+    "SyntaxExamples": [
+      "confirm",
+      ":white_check_mark:"
+    ],
+    "Aliases": [
+      "confirm",
+      "confirm tasks",
+      "confirm all",
+      "yes create",
+      "create all",
+      "approve tasks"
+    ],
+    "IntentPhrases": [
+      "confirm the proposed tasks",
+      "approve these tasks and create them",
+      "yes go ahead and create the tasks"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Only meaningful as a thread reply after Sleuth has posted a pending multi-task proposal; matches the whole message (e.g. bare \"confirm\" or the white_check_mark emoji), not a keyword within a longer sentence."
+    ],
+    "RegisteredRoutes": [
+      "confirm-multi-task-proposal"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 253
+  },
+  {
+    "Id": "generate-user-list",
+    "Permission": "public",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Create a one-time Slack List snapshot of reminders assigned to a specific user.",
+    "SyntaxExamples": [
+      "@Sleuth AI generate-list for @jane"
+    ],
+    "Aliases": [
+      "generate list for user",
+      "create list for user",
+      "export user task list"
+    ],
+    "IntentPhrases": [
+      "make a slack list for janes tasks",
+      "export janes assigned reminders to a list",
+      "generate a user-specific task list"
+    ],
+    "ArgumentHints": [
+      "UserMention"
+    ],
+    "DisambiguationNotes": [
+      "This creates a new snapshot list and does not keep syncing it afterward."
+    ],
+    "RegisteredRoutes": [
+      "generate-user-list"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 255
+  },
+  {
+    "Id": "test-random-reminder",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Pick one pending reminder at random and render its output format for debugging.",
+    "SyntaxExamples": [
+      "@Sleuth AI test random reminder"
+    ],
+    "Aliases": [
+      "test random reminder",
+      "random reminder debug"
+    ],
+    "IntentPhrases": [
+      "show a random reminder debug view",
+      "test one random reminder",
+      "debug reminder output"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Debug-only reminder output command for admins."
+    ],
+    "RegisteredRoutes": [
+      "test-random-reminder"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 103
+  },
+  {
+    "Id": "test-reminder-by-id",
+    "Permission": "admin",
+    "Risk": "medium",
+    "CanExecuteWithIfl": false,
+    "Description": "Render one specific pending reminder by ID for debugging.",
+    "SyntaxExamples": [
+      "@Sleuth AI test reminder 11111111-1111-1111-1111-111111111111"
+    ],
+    "Aliases": [
+      "test reminder by id",
+      "debug one reminder"
+    ],
+    "IntentPhrases": [
+      "debug a specific reminder",
+      "show reminder output for this id",
+      "test reminder id"
+    ],
+    "ArgumentHints": [
+      "ReminderId"
+    ],
+    "DisambiguationNotes": [
+      "Debug-only reminder output command for admins when you know the reminder ID."
+    ],
+    "RegisteredRoutes": [
+      "test-reminder-by-id"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 104
+  }
+]

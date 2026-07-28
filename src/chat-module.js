@@ -1,0 +1,2749 @@
+
+// import required modules.
+const fs = require('fs').promises;
+const path = require('path');
+const SlackApp = require('./slack-app');
+const WorkspaceAI = require('./workspace-ai');
+const Workspaces = require('./workspaces');
+const ChannelModelSettings = require('./channel-model-settings');
+const SlackFormatUtils = require('./slack-format-utils');
+const { ResolveMentionsForExternalDisplayAsync } = require('./slack-message-pipeline');
+const {
+  WebSearchProviders,
+  BuildProviderMatcherRegex,
+  GetWebSearchProviderById,
+  FormatProviderCommandsListLine,
+} = require('./web-search-providers');
+const { CommandRouter } = require('./chat-command-router');
+const { RegisterCatalogRegexAliases } = require('./catalog-regex-aliases');
+const { CommandCatalogPath } = require('./command-catalog');
+const {
+  SelectContextMemoryFile,
+  IsBinaryMediaFile,
+  LooksLikeHtmlErrorPage,
+} = require('./context-file-classifier');
+const HandleRestartCommandAsync = require('./chat-commands/restart-command');
+const HandleVersionCommandAsync = require('./chat-commands/version-command');
+const HandleWebSearchAdvancedCommandAsync = require('./chat-commands/web-search-advanced-command');
+const HandleRunDailyDigestCommandAsync = require('./chat-commands/run-daily-digest-command');
+const HandleClearChannelModelCommandAsync = require('./chat-commands/clear-channel-model-command');
+const HandleShowChannelModelCommandAsync = require('./chat-commands/show-channel-model-command');
+const HandleAskCodeCommandAsync = require('./chat-commands/ask-code-command');
+const HandleAskWooCommandAsync = require('./chat-commands/ask-woo-command');
+const HandleWebSearchProviderCommandAsync = require('./chat-commands/web-search-provider-command');
+const HandleHelpFeaturesCommandAsync = require('./chat-commands/help-features-command');
+const HandleViewStratalistCommandAsync = require('./chat-commands/view-stratalist-command');
+const HandleChangelogCommandAsync = require('./chat-commands/changelog-command');
+const HandleCommandsListAsync = require('./chat-commands/commands-list-command');
+const HandleRunDiagnosticsCommandAsync = require('./chat-commands/run-diagnostics-command');
+const HandleShowRebalanceRemindersCommandAsync = require('./chat-commands/show-rebalance-reminders-command');
+const HandleRunTestsCommandAsync = require('./chat-commands/run-tests-command');
+const HandleCodeTaskCommandAsync = require('./chat-commands/code-task-command');
+const HandleModelsCommandAsync = require('./chat-commands/models-command');
+const HandleLiveModelCatalogQuestionAsync = require('./chat-commands/live-model-catalog-question');
+const HandleModelSwitchCommandAsync = require('./chat-commands/model-switch-command');
+const HandleSetChannelModelCommandAsync = require('./chat-commands/set-channel-model-command');
+const { HandleRouterModeCommandAsync } = require('./chat-commands/router-mode-command');
+const { RouterShadowModule } = require('./router-shadow-module');
+const { createRouterShadowStore } = require('./router-shadow-store');
+const { IsTruthyFlag } = require('./startup-message');
+const { OPEN_REMINDER_STATES } = require('./workspace-snapshot');
+const { AssembleCandidates } = require('./reminder-candidates');
+const { FilterCandidates, ResolveTimeWindow } = require('./reminder-query-engine');
+const {
+  BuildPrivateChannelSetAsync,
+  BuildMemberPrivateChannelSetAsync,
+} = require('./chat-commands/ask-reminders-command');
+const { LoadClientMappingsSync, ResolveClientsFromQuery } = require('./client-mapping');
+const HandleRmmCommandAsync = require('./chat-commands/rmm-command');
+const HandleShowMeCommandAsync = require('./chat-commands/show-me-command');
+const HandleShowMeProjectsCommandAsync = require('./chat-commands/show-me-projects-command');
+const HandleRefreshClientsCommandAsync = require('./chat-commands/refresh-clients-command');
+const HandleRecallCommandAsync = require('./chat-commands/recall-command');
+const { FileGithubIssueAsync } = require('./github-issue-filer');
+const {
+  NormalizeDirectCommandTextAsync,
+  ResolveRmmIntentAsync,
+  RetrieveScoredCandidates,
+} = require('./command-intent-resolver');
+
+const MaxJestFailureLines = 3;
+const MaxWebSearchSources = 5;
+
+// Provisional score floor pending Phase 0 counter data.
+const NEAR_MISS_SCORE_FLOOR = 5;
+
+/**
+ * Configuration for deterministic responses.
+ * @typedef {Object} DeterministicResponseConfig
+ * @property {'static-text'|'reminders-for-user'} type Type of deterministic response to execute.
+ * @property {string} [text] Static text to post when the response type is "static-text".
+ * @property {string} [userMention] Slack user mention string used for reminders commands.
+ * @property {boolean} [limitToCurrentChannel] Limit reminder queries to the current channel when true.
+ */
+
+/**
+ * Deterministic response map entry.
+ * @typedef {Object} DeterministicResponseEntry
+ * @property {DeterministicResponseConfig} config Parsed configuration for the deterministic response.
+ */
+
+/**
+ * Provides a ChatGPT experience within a Slack workspace.
+ */
+class ChatModule {
+  /**
+   * Regex matching `ask-code <slug> <query>` (after bot mention is stripped).
+   * Captures everything after the separator as one group; the handler splits on
+   * first whitespace to extract slug and query.
+   * @type {RegExp}
+   */
+  static AskCodeCommandRegex = /^ask-code\b[\s,:;.!?]+(.+)/is;
+
+  /**
+   * Slack app instance.
+   * @type {SlackApp}
+   */
+  #SlackApp;
+
+  /**
+   * Workspace AI instance.
+   * @type {WorkspaceAI}
+   */
+  #WorkspaceAI;
+
+  /**
+   * Per-channel model override store.
+   * @type {ChannelModelSettings}
+   */
+  #ChannelModelSettings;
+
+  /**
+   * Reminders module reference.
+   * @type {import('./reminders-module')}
+   */
+  #RemindersModule;
+
+  /**
+   * Stats module reference.
+   * @type {import('./stats-module')}
+   */
+  #StatsModule;
+
+  /**
+   * Notion module reference.
+   * @type {import('./notion-module')}
+   */
+  #NotionModule;
+
+  /**
+   * Chat system instructions template.
+   * @type {string}
+   */
+  #SystemInstructionsTemplate;
+
+  /**
+   * Deterministic response configuration indexed by normalized phrase.
+   * @type {Map<string, DeterministicResponseEntry>|null}
+   */
+  #DeterministicResponsesByPhrase = null;
+
+  /**
+   * Active background Jest run promise for this workspace, or null when idle.
+   * @type {Promise<void>|null}
+   */
+  #ActiveJestRunPromise = null;
+
+  /**
+   * In-memory store of uploaded MD file context keyed by "channelID:threadTS".
+   * @type {Map<string, {filename: string, content: string}>}
+   */
+  #ThreadContextMemory = new Map();
+
+  /**
+   * GH-397 per-workspace router mode (off/shadow/active) + Flash Lite shadow corpus. In-memory
+   * (resets to `off` on restart), stored on this instance — never a global — so it stays per
+   * workspace per the #387 isolation guard.
+   * @type {RouterShadowModule}
+   */
+  #RouterShadow;
+
+  /**
+   * Registry of recognized chat commands. Populated by #RegisterCommandRoutes during
+   * construction. Both #OnAppMentionAsync (dispatch) and #DescribeChatRoute (diagnostics)
+   * read from this single source of truth.
+   * @type {CommandRouter}
+   */
+  #CommandRouter;
+
+  /**
+   * Extract concise Jest summary details from raw process output.
+   * @param {string} ArgOutputText Combined stdout/stderr text.
+   * @returns {{ TestSuitesLine: string|null, TestsLine: string|null, TimeLine: string|null, TopFailures: string[] }}
+   */
+  static ExtractJestOutputSummary(ArgOutputText) {
+    const Lines = (ArgOutputText || '').split(/\r?\n/);
+    let TestSuitesLine = null;
+    let TestsLine = null;
+    let TimeLine = null;
+    /** @type {string[]} */
+    const TopFailures = [];
+
+    for(const CurrentLine of Lines) {
+      const TrimmedLine = CurrentLine.trim();
+      if(!TrimmedLine) continue;
+
+      if(!TestSuitesLine && /^Test Suites:/i.test(TrimmedLine))
+        TestSuitesLine = TrimmedLine.replace(/\s+/g, ' ');
+
+      if(!TestsLine && /^Tests:/i.test(TrimmedLine))
+        TestsLine = TrimmedLine.replace(/\s+/g, ' ');
+
+      if(!TimeLine && /^Time:/i.test(TrimmedLine))
+        TimeLine = TrimmedLine.replace(/\s+/g, ' ');
+
+      if(/^●\s+/.test(TrimmedLine)) {
+        const FailureText = TrimmedLine.replace(/^●\s+/, '').trim();
+        if(FailureText && !TopFailures.includes(FailureText))
+          TopFailures.push(FailureText);
+      }
+    }
+
+    return { TestSuitesLine, TestsLine, TimeLine, TopFailures };
+  }
+
+  /**
+   * Format duration in human-readable minutes and seconds.
+   * @param {number} ArgDurationMs Duration in milliseconds.
+   * @returns {string}
+   */
+  static FormatDuration(ArgDurationMs) {
+    const TotalSeconds = Math.max(0, Math.round(ArgDurationMs / 1000));
+    const Minutes = Math.floor(TotalSeconds / 60);
+    const Seconds = TotalSeconds % 60;
+
+    if(Minutes <= 0) return `${Seconds}s`;
+
+    return `${Minutes}m ${Seconds}s`;
+  }
+
+  /**
+   * Build Slack-safe summary text for a completed Jest run.
+   * @param {number|null} ArgExitCode Exit code from the Jest process.
+   * @param {number} ArgDurationMs Run duration in milliseconds.
+   * @param {string} ArgStdoutText Captured stdout text.
+   * @param {string} ArgStderrText Captured stderr text.
+   * @param {boolean} ArgTimedOut Whether the process timed out and was stopped.
+   * @returns {string}
+   */
+  static BuildJestResultMessage(ArgExitCode, ArgDurationMs, ArgStdoutText, ArgStderrText, ArgTimedOut) {
+    const CombinedOutputText = [ArgStdoutText || '', ArgStderrText || ''].filter(Boolean).join('\n');
+    const Summary = ChatModule.ExtractJestOutputSummary(CombinedOutputText);
+    /** @type {string[]} */
+    const Lines = [];
+
+    if(ArgTimedOut) Lines.push(`Jest suite timed out after ${ChatModule.FormatDuration(ArgDurationMs)} and was stopped.`);
+    else if(ArgExitCode === 0) Lines.push('Jest suite passed.');
+    else Lines.push('Jest suite failed.');
+
+    if(ArgExitCode !== null) Lines.push(`Exit code: ${ArgExitCode}.`);
+
+    Lines.push(`Duration: ${ChatModule.FormatDuration(ArgDurationMs)}.`);
+
+    if(Summary.TestSuitesLine) Lines.push(Summary.TestSuitesLine);
+    if(Summary.TestsLine) Lines.push(Summary.TestsLine);
+    if(!ArgTimedOut && Summary.TimeLine) Lines.push(Summary.TimeLine);
+
+    if((ArgTimedOut || ArgExitCode !== 0) && Summary.TopFailures.length > 0) {
+      Lines.push('Top failures:');
+      for(const FailureText of Summary.TopFailures.slice(0, MaxJestFailureLines))
+        Lines.push(`- ${FailureText}`);
+    }
+
+    return Lines.join('\n');
+  }
+
+  /**
+   * Initialize a new instance of the ChatModule with the given Slack app and workspace stats.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./stats-module').WorkspaceStats} ArgWorkspaceStats Stats for the workspace.
+   * @param {import("./reminders-module")} ArgRemindersModule
+   * @param {import("./stats-module")} ArgStatsModule
+   * @param {import("./notion-module")} ArgNotionModule
+   */
+  constructor(ArgSlackApp, ArgWorkspaceStats, ArgRemindersModule, ArgStatsModule, ArgNotionModule) {
+    // save the Slack app instance.
+    this.#SlackApp = ArgSlackApp;
+
+    // module references for diagnostics.
+    this.#RemindersModule = ArgRemindersModule;
+    this.#StatsModule = ArgStatsModule;
+    this.#NotionModule = ArgNotionModule;
+
+    // initialize the WorkspaceAI instance using the workspace info and stats.
+    this.#WorkspaceAI = new WorkspaceAI(this.#SlackApp.WorkspaceInfo, ArgWorkspaceStats);
+
+    // initialize the per-channel model override store. Disk load is deferred to StartAsync so
+    // construction stays synchronous and matches the pattern used by other modules.
+    const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
+    const ChannelModelsFilePath = path.resolve(
+      path.join(__dirname, '..', 'data', 'runtime', 'workspaces', `${WorkspaceName}_channel_models.json`)
+    );
+    this.#ChannelModelSettings = new ChannelModelSettings(this.#SlackApp, ChannelModelsFilePath);
+
+    // GH-397 router mode (off/shadow/active). Non-authoritative corpus lives OUTSIDE
+    // data/runtime/events/ (that dir is the P3 authoritative ledger). Default mode is `off`.
+    const RouterShadowStore = createRouterShadowStore({
+      rootDir: path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'shadow')),
+    });
+    this.#RouterShadow = new RouterShadowModule({
+      WorkspaceName,
+      Logger: this.#SlackApp.Logger,
+      Store: RouterShadowStore,
+      // GH-405 (lane p1): the ROUTER closure — and ONLY this one — opt-passes the cached workspace
+      // snapshot into the resolver when ROUTER_SNAPSHOT_ENABLED is on. The rmm / rmm ifl / help closures
+      // deliberately keep the plain signature so they stay snapshot-free (byte-identical context).
+      ResolveIntentAsync: (ArgText, ArgOptions) =>
+        ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, this.#WithRouterSnapshotOptions(ArgOptions)),
+    });
+
+    // build the command router after all dependencies are in place — handler closures reach
+    // back into the same `this` to invoke the existing private command implementations.
+    this.#CommandRouter = new CommandRouter();
+    this.#RegisterCommandRoutes();
+
+    // add handlers for app_mention and message events.
+    this.#SlackApp.HandleAppMention(this.#OnAppMentionAsync.bind(this));
+    this.#SlackApp.HandleMessage(this.#OnMessageAsync.bind(this));
+
+    // handle clicks on the "Search the web" suggestion button attached to freeform chat answers.
+    this.#SlackApp.HandleAction(
+      ChatModule.ChatGoogleSearchActionId, this.#OnChatGoogleSearchActionAsync.bind(this)
+    );
+  }
+
+  /**
+   * Register every recognized chat command on #CommandRouter. Adding a new command means
+   * appending one entry here (and supplying its handler) — the dispatcher and DescribeRoute
+   * then pick it up automatically. Order matters: more specific patterns must register before
+   * broader ones (e.g. web-search-advanced before any web-search* alias).
+   *
+   * BEFORE adding a new Router.Register entry here, ask: does the target route already exist?
+   * If yes, add the phrasing to data/static/ai/command-catalog.json (Aliases, IntentPhrases,
+   * or RegexAliases) rather than hardcoding it here. Catalog-only changes are registered
+   * automatically by #RegisterCatalogRegexAliasesAsync and remain visible to rmm, help
+   * generation, and validate:commands. New Router.Register entries are only needed for
+   * entirely new commands (new route, new handler) or patterns requiring runtime function logic.
+   * See AGENTS.md §14 "Adding Command Aliases or NL Phrasings" and ARCHITECTURE.md
+   * § "Command Catalog, Help, and RMM Intent Resolution".
+   */
+  #RegisterCommandRoutes() {
+    const Router = this.#CommandRouter;
+
+    Router.Register({
+      Pattern: /^(help|features)\b[\s,:;.!?]+(.+)/is,
+      DescribePattern: /^(help|features)\b/i,
+      Route: 'help/features guidance',
+      Handle: (ArgEventInfo, _ArgCommandWord, ArgQueryText) => HandleHelpFeaturesCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        {
+          QueryText: ArgQueryText.trim(),
+          ResolveIntentAsync: (ArgText, ArgOptions) => ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
+          BuildChannelModelStatus: (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
+        }
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^(help|features)$/i,
+      Route: 'help/features',
+      Handle: (ArgEventInfo) => HandleHelpFeaturesCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    Router.Register({
+      Pattern: /^view\s+stratalist\b[\s,:;.!?]+(.+)/is,
+      DescribePattern: /^view\s+stratalist(?:\b|[\s,:;.!?])/i,
+      Route: 'view stratalist',
+      Handle: (ArgEventInfo, ArgReferenceText) =>
+        HandleViewStratalistCommandAsync(this.#SlackApp, ArgEventInfo, ArgReferenceText.trim()),
+    });
+
+    Router.Register({
+      Pattern: /^refresh\s+clients\b/i,
+      Route: 'refresh clients',
+      Handle: (ArgEventInfo) => HandleRefreshClientsCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    Router.Register({
+      Pattern: /^changelog\b/i,
+      Route: 'changelog',
+      Handle: (ArgEventInfo) => HandleChangelogCommandAsync(this.#SlackApp, ArgEventInfo, {
+        WorkspaceAI: this.#WorkspaceAI,
+      }),
+    });
+
+    Router.Register({
+      Pattern: /^rmm\s+ifl\b[\s,:;.!?]+(.+)/is,
+      DescribePattern: /^rmm\s+ifl\b/i,
+      Route: 'rmm ifl',
+      Handle: (ArgEventInfo, ArgRequestText) => HandleRmmCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgRequestText.trim(),
+        true,
+        {
+          ResolveIntentAsync: (ArgText, ArgOptions) => ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
+          ExecuteCanonicalCommandAsync: (ArgCanonicalCommand) => this.#CommandRouter.RouteAsync(ArgCanonicalCommand, ArgEventInfo),
+          BuildChannelModelStatus: (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
+        }
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^rmm\b[\s,:;.!?]+(.+)/is,
+      DescribePattern: /^rmm\b/i,
+      Route: 'rmm',
+      Handle: (ArgEventInfo, ArgRequestText) => HandleRmmCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgRequestText.trim(),
+        false,
+        {
+          ResolveIntentAsync: (ArgText, ArgOptions) => ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
+          ExecuteCanonicalCommandAsync: (ArgCanonicalCommand) => this.#CommandRouter.RouteAsync(ArgCanonicalCommand, ArgEventInfo),
+          BuildChannelModelStatus: (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
+        }
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^commands\b/i,
+      Route: 'commands',
+      Handle: (ArgEventInfo) => HandleCommandsListAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    // GH-397: admin-only toggle for the Gemini Flash Lite router experiment (off/shadow/active).
+    Router.Register({
+      Pattern: /^router-mode(?:\s+(off|shadow|active))?\s*$/i,
+      DescribePattern: /^router-mode\b/i,
+      Route: 'router-mode',
+      Handle: (ArgEventInfo, ArgMode) => HandleRouterModeCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgMode ? ArgMode.trim() : null,
+        {
+          GetRouterMode: () => this.#RouterShadow.GetMode(),
+          SetRouterMode: (ArgRequestedMode) => this.#RouterShadow.SetMode(ArgRequestedMode),
+        }
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^run-diagnostics\b/i,
+      Route: 'run-diagnostics',
+      Handle: (ArgEventInfo) => HandleRunDiagnosticsCommandAsync(this.#SlackApp, ArgEventInfo, {
+        WorkspaceAI: this.#WorkspaceAI,
+        StatsModule: this.#StatsModule,
+        RemindersModule: this.#RemindersModule,
+        NotionModule: this.#NotionModule,
+      }),
+    });
+
+    // registered BEFORE the plain route: `\b` treats the hyphen as a word boundary, so the
+    // broader pattern below would otherwise swallow the `-formatted` variant (first match wins).
+    Router.Register({
+      Pattern: /^show-rebalance-reminders-formatted\b/i,
+      Route: 'show-rebalance-reminders-formatted',
+      Handle: (ArgEventInfo) =>
+        HandleShowRebalanceRemindersCommandAsync(this.#SlackApp, ArgEventInfo, { Formatted: true }),
+    });
+
+    Router.Register({
+      Pattern: /^show-rebalance-reminders\b/i,
+      Route: 'show-rebalance-reminders',
+      Handle: (ArgEventInfo) => HandleShowRebalanceRemindersCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    Router.Register({
+      Pattern: /^recall\b[\s,:;.!?]+(.+)/is,
+      DescribePattern: /^recall\b/i,
+      Route: 'recall',
+      Handle: (ArgEventInfo, ArgQuery) =>
+        HandleRecallCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
+    });
+
+    Router.Register({
+      Pattern: ChatModule.AskCodeCommandRegex,
+      Route: 'ask-code',
+      Handle: (ArgEventInfo, ArgQuery) =>
+        HandleAskCodeCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
+    });
+
+    Router.Register({
+      Pattern: /^ask-woo(?:\s+(.+))?$/is,
+      DescribePattern: /^ask-woo(?:\s|$)/i,
+      Route: 'ask-woo',
+      Handle: (ArgEventInfo, ArgQuery) =>
+        HandleAskWooCommandAsync(this.#SlackApp, ArgEventInfo, (ArgQuery || '').trim()),
+    });
+
+    Router.Register({
+      Pattern: /^web-search-advanced(?:\s|$)/i,
+      Route: 'web-search-advanced',
+      Handle: (ArgEventInfo) => HandleWebSearchAdvancedCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    // web-search providers (web-search, gemini-search and their aliases). One route per registered
+    // provider so DescribeRoute returns the specific provider id ('web-search', 'gemini-search')
+    // instead of a generic name. Adding a new provider in src/web-search-providers.js auto-extends
+    // both dispatch and route classification — no edit here.
+    for(const Provider of WebSearchProviders) {
+      Router.Register({
+        Pattern: BuildProviderMatcherRegex(Provider),
+        Route: Provider.Id,
+        Handle: (ArgEventInfo, ArgQuery) => HandleWebSearchProviderCommandAsync(
+          this.#SlackApp,
+          ArgEventInfo,
+          Provider,
+          (ArgQuery || '').trim(),
+          this.#WorkspaceAI,
+          ChatModule.BuildWebSearchResponseText
+        ),
+      });
+    }
+
+    Router.Register({
+      Pattern: /^version$/i,
+      Route: 'version',
+      Handle: (ArgEventInfo) => HandleVersionCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    // NL phrasings ("what version", "show version") are catalog-driven RegexAliases on the
+    // version entry — see #RegisterCatalogRegexAliasesAsync.
+
+    Router.Register({
+      Pattern: /^restart\b/i,
+      Route: 'restart',
+      Handle: (ArgEventInfo) => HandleRestartCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    Router.Register({
+      Pattern: /^run-tests\b/i,
+      Route: 'run-tests',
+      Handle: (ArgEventInfo) => HandleRunTestsCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        {
+          IsActive: () => this.#ActiveJestRunPromise !== null,
+          TrackRun: (ArgPromise) => {
+            this.#ActiveJestRunPromise = ArgPromise.finally(() => { this.#ActiveJestRunPromise = null; });
+          },
+        },
+        ChatModule.BuildJestResultMessage
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^code-?task\b/i,
+      Route: 'code-task',
+      Handle: (ArgEventInfo) => HandleCodeTaskCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        { WorkspaceAI: this.#WorkspaceAI }
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^show-me\s+(?:what\s+tasks?\s+)?(<@[UW][^>]+>)(?:\s+.*)?$/i,
+      DescribePattern: /^show-me\b/i,
+      Route: 'show-me',
+      Handle: (ArgEventInfo, ArgRawMention) => HandleShowMeCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgRawMention,
+        { WorkspaceAI: this.#WorkspaceAI, RemindersModule: this.#RemindersModule }
+      ),
+    });
+
+    // NL phrasings for show-me ("what are my tasks?", "for-today", third-person variants) are
+    // catalog-driven: see the `RegexAliases` array on the show-me entry in command-catalog.json,
+    // registered by #RegisterCatalogRegexAliasesAsync during StartAsync.
+
+    // ── show-me-projects family: group a user's open reminders into client + project buckets. ──
+    // "show-me-projects @user" (third-person) or bare "show-me-projects" (self-referential).
+    Router.Register({
+      Pattern: /^show-me-projects(?:\s+(<@[UW][^>]+>))?/i,
+      DescribePattern: /^show-me-projects\b/i,
+      Route: 'show-me-projects',
+      Handle: (ArgEventInfo, ArgMention) => HandleShowMeProjectsCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgMention || `<@${ArgEventInfo.user}>`,
+        { WorkspaceAI: this.#WorkspaceAI, RemindersModule: this.#RemindersModule }
+      ),
+    });
+
+    // NL phrasings for show-me-projects ("show me projects", "what are my projects", third-person
+    // variants) are catalog-driven RegexAliases on the show-me-projects entry — see
+    // #RegisterCatalogRegexAliasesAsync.
+
+    Router.Register({
+      Pattern: /^run\s+daily\s+digest\b/i,
+      Route: 'run daily digest',
+      Handle: (ArgEventInfo) => HandleRunDailyDigestCommandAsync(
+        this.#SlackApp, ArgEventInfo, this.#RemindersModule
+      ),
+    });
+
+    // Anchored to the start of the mention-stripped command so a message that merely
+    // mentions `switch-models:'...'` in conversational prose can't be routed as a command.
+    Router.Register({
+      Pattern: (ArgStrippedText) => {
+        const SimpleMatch = ArgStrippedText.match(/^(?:switch-models?|model-switch):'([^']+)'/i);
+        if(SimpleMatch) return [SimpleMatch[1], null];
+        const KeyValueMatch = ArgStrippedText.match(
+          /^(?:switch-models?|model-switch):(?:default='([^']*)')?(?:,)?(?:complex='([^']*)')?/i
+        );
+        if(KeyValueMatch && (KeyValueMatch[1] || KeyValueMatch[2]))
+          return [KeyValueMatch[1] || null, KeyValueMatch[2] || null];
+        return null;
+      },
+      DescribePattern: /^(?:switch-models?|model-switch):/i,
+      Route: 'switch-models',
+      Handle: (ArgEventInfo, ArgDefaultModel, ArgComplexModel) => HandleModelSwitchCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgDefaultModel,
+        ArgComplexModel,
+        this.#WorkspaceAI,
+        this.#RemindersModule,
+        () => { this.#SystemInstructionsTemplate = null; },
+        (ArgWorkspaceInfo) => Workspaces.SaveWorkspaceInfoAsync(ArgWorkspaceInfo)
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^models$/i,
+      Route: 'models',
+      Handle: (ArgEventInfo) => HandleModelsCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
+        this.#ChannelModelSettings,
+        this.#RemindersModule,
+        {
+          mode: this.#RouterShadow.GetMode(),
+          model: this.#RouterShadow.EffectiveModelName(),
+          armed: this.#RouterShadow.IsArmed(),
+          confidenceMin: this.#RouterShadow.ActiveConfidenceMin(),
+        }
+      ),
+    });
+
+    Router.Register({
+      Pattern: (ArgStrippedText) =>
+        ChatModule.IsLiveModelCatalogQuestion(ArgStrippedText) ? [ArgStrippedText] : null,
+      Route: 'live-model-catalog-question',
+      Handle: (ArgEventInfo, ArgQuestionText) => HandleLiveModelCatalogQuestionAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgQuestionText,
+        this.#WorkspaceAI,
+        this.#ChannelModelSettings,
+        ChatModule.FilterLiveModelCatalogForChat,
+        () => this.#PrepareSystemInstructionsAsync(),
+        (SlackApp, MessageText, SystemInstructions, ChannelID, ChannelModel) =>
+          this.#ProcessChatWithChannelModelAsync(SlackApp, MessageText, SystemInstructions, ChannelID, ChannelModel),
+        (Text) => this.#FormatMessageForSlack(Text)
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^set-channel-model:'([^']+)'$/i,
+      DescribePattern: /^set-channel-model:/i,
+      Route: 'set-channel-model',
+      Handle: (ArgEventInfo, ArgModelName) => HandleSetChannelModelCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgModelName,
+        this.#WorkspaceAI,
+        this.#ChannelModelSettings
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^clear-channel-model$/i,
+      Route: 'clear-channel-model',
+      Handle: (ArgEventInfo) => HandleClearChannelModelCommandAsync(
+        this.#SlackApp, ArgEventInfo, this.#ChannelModelSettings, this.#WorkspaceAI
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^show-channel-model$/i,
+      Route: 'show-channel-model',
+      Handle: (ArgEventInfo) => HandleShowChannelModelCommandAsync(
+        this.#SlackApp, ArgEventInfo, (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID)
+      ),
+    });
+
+    // NL model-identity phrasings ("what model are you running?", "which model is this channel
+    // using?", etc.) are catalog-driven RegexAliases on the show-channel-model entry — see
+    // #RegisterCatalogRegexAliasesAsync. ModelIdentityPattern is still exported for the
+    // thread-reply intercept below (line ~1569), which is a justified code-only use.
+  }
+
+  /**
+   * Load disk-backed state for the chat module (currently the per-channel model overrides).
+   * Also registers the reaction handler used by the `:wrench:` chat triage feature.
+   * Registered here (not in the constructor) so it lands in the SlackApp reaction-handler
+   * chain BEFORE RemindersModule.StartAsync runs — that ordering lets the chat module
+   * claim wrench reactions on chat messages and fall through to reminder triage for
+   * everything else. Safe to call once during workspace startup.
+   * @returns {Promise<void>}
+   */
+  async StartAsync() {
+    await this.#ChannelModelSettings.LoadAsync();
+    await this.#LoadThreadMemoryAsync();
+    await this.#RegisterCatalogRegexAliasesAsync();
+    this.#SlackApp.HandleReactionAdded(this.#OnReactionAddedAsync.bind(this));
+  }
+
+  /**
+   * Register natural-language regex aliases declared in command-catalog.json (`RegexAliases`
+   * per entry) onto the command router. Runs after construction so every code-registered route
+   * exists to delegate to; aliases append to the end of the first-match-wins list, so they can
+   * never shadow a primary command pattern. A missing/corrupt catalog only disables aliases —
+   * it never blocks startup.
+   * @returns {Promise<void>}
+   */
+  async #RegisterCatalogRegexAliasesAsync() {
+    try {
+      const CatalogEntries = JSON.parse(await fs.readFile(CommandCatalogPath, 'utf8'));
+      const Count = RegisterCatalogRegexAliases(this.#CommandRouter, CatalogEntries, this.#SlackApp.Logger, this.#SlackApp);
+      this.#SlackApp.Logger.info(`registered ${Count} catalog regex aliases.`);
+    } catch(error) {
+      this.#SlackApp.Logger.warn(`catalog regex aliases not registered: ${error.message}`);
+    }
+  }
+
+  /**
+   * Persist thread context memory to disk on shutdown.
+   * @returns {Promise<void>}
+   */
+  async StopAsync() {
+    if(this.#ThreadContextMemory.size > 0)
+      await this.#SaveThreadMemoryAsync();
+  }
+
+  /**
+   * Expose the WorkspaceAI instance.
+   * @returns {WorkspaceAI}
+   */
+  get WorkspaceAI() {
+    return this.#WorkspaceAI;
+  }
+
+  /**
+   * Expose the registered command routes for validation tooling.
+   * @returns {import('./chat-command-router').CommandRoute[]}
+   */
+  GetRegisteredCommandRoutes() {
+    return this.#CommandRouter.GetRoutes();
+  }
+
+  /**
+   * GH-405: is the workspace-snapshot router feature enabled? Default OFF; truthy is 'true'/'yes'
+   * (case- and whitespace-insensitive) via the shared IsTruthyFlag helper. Read at inject/answer time
+   * so flipping the env var takes effect without a restart. OFF ⇒ byte-identical behavior to before.
+   * @returns {boolean}
+   */
+  #IsRouterSnapshotEnabled() {
+    return IsTruthyFlag(process.env.ROUTER_SNAPSHOT_ENABLED);
+  }
+
+  /**
+   * GH-405 (lane p1): opt-merge the cached workspace snapshot into a resolver ArgOptions object — but
+   * ONLY for the router closure and ONLY when the gate is on. When the gate is off (or no reminders
+   * module / snapshot is available) the original ArgOptions object is returned UNCHANGED (same
+   * reference), so the resolver context stays byte-identical to today for every other caller.
+   * @param {any} ArgOptions Resolver options from the router closure.
+   * @returns {any}
+   */
+  #WithRouterSnapshotOptions(ArgOptions) {
+    if(!this.#IsRouterSnapshotEnabled()) return ArgOptions;
+    if(!this.#RemindersModule || typeof this.#RemindersModule.GetWorkspaceSnapshot !== 'function') return ArgOptions;
+    const Snapshot = this.#RemindersModule.GetWorkspaceSnapshot();
+    if(!Snapshot) return ArgOptions;
+    return { ...(ArgOptions || {}), WorkspaceSnapshot: Snapshot };
+  }
+
+  /**
+   * GH-405 (lane p2): detect an UNAMBIGUOUS "how many open for <client>" question and resolve the
+   * single client it targets. Deterministic, no LLM. Returns null (→ caller falls through to the normal
+   * resolver) on ANY ambiguity: not a count question, no open/pending word, a user mention present (an
+   * assignee dimension), a time phrase present (a time-scoped count this all-time path can't answer), or
+   * zero / more-than-one resolved client. The single-client requirement is what makes the answer safe to
+   * emit without a model.
+   * @param {string} ArgText Raw mention text (mention already stripped upstream).
+   * @returns {{ clientId: string, clientName: string }|null}
+   */
+  #DetectOpenCountIntent(ArgText) {
+    const Text = typeof ArgText === 'string' ? ArgText : '';
+    if(!/\bhow\s+many\b/i.test(Text)) return null;
+    if(!/\b(open|pending|outstanding|active|unfinished|remaining)\b/i.test(Text)) return null;
+    // A Slack user mention means the question is about an assignee, not a pure client count — ambiguous.
+    if(/<@[A-Z0-9]+>/i.test(Text)) return null;
+    // First-person means an assignee-scoped question ("open tasks do I have"), not a pure client count.
+    if(/\b(i|me|my|mine)\b/i.test(Text)) return null;
+
+    const MatchedClients = ResolveClientsFromQuery(Text, LoadClientMappingsSync());
+    if(MatchedClients.length !== 1) return null;
+    const Client = MatchedClients[0];
+    const ClientId = typeof Client.ClientID === 'string' && Client.ClientID.length > 0 ? Client.ClientID : null;
+    const ClientName = typeof Client.ClientName === 'string' && Client.ClientName.length > 0 ? Client.ClientName : null;
+    if(!ClientId || !ClientName) return null;
+
+    // Time-scope check — a time phrase means a time-scoped count this live all-time path can't answer,
+    // so bail. Strip the resolved client's name + aliases FIRST so a client name that happens to carry a
+    // time word (e.g. "Green Day") does not false-trip the \bday\b branch. Then decline if the residual
+    // resolves to a concrete window OR carries any broad relative-time word. tz is only for phrase
+    // DETECTION here (not a precise window), so the workspace tz — else UTC — is sufficient.
+    let Residual = Text.toLowerCase();
+    const ClientTerms = [Client.ClientName, ...(Array.isArray(Client.Aliases) ? Client.Aliases : [])]
+      .filter((/** @type {any} */ ArgTerm) => typeof ArgTerm === 'string' && ArgTerm.length > 0);
+    for(const Term of ClientTerms) Residual = Residual.split(Term.toLowerCase()).join(' ');
+
+    const Timezone = (this.#SlackApp && this.#SlackApp.WorkspaceInfo && this.#SlackApp.WorkspaceInfo.MAIN_TIMEZONE) || 'UTC';
+    if(ResolveTimeWindow(Residual, Date.now(), Timezone)) return null;
+    if(/\b(today|yesterday|tomorrow|tonight|week|weeks|weekend|month|months|year|years|quarter|day|days|this|last|next|upcoming|recent|since|until|before|after|by|ago|soon|later|overdue)\b/i.test(Residual)) return null;
+
+    return { clientId: ClientId, clientName: ClientName };
+  }
+
+  /**
+   * GH-405 (lane p2): answer "how many open for <client>?" deterministically. The count is recomputed
+   * LIVE from RemindersModule.GetAllReminders() at answer time (NEVER the cached snapshot, which may be
+   * stale) — filtered to OPEN_REMINDER_STATES + the resolved clientId — and channel-privacy scoped the
+   * same way ask-reminders does: private/DM candidates are excluded unless the asker is a confirmed
+   * member (the command channel is always allowed). Returns false (fall through) when the intent is not
+   * an unambiguous client count or no reminders module is wired.
+   * @param {SlackApp} ArgSlackApp
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
+   * @param {string} ArgRawText Raw mention text.
+   * @returns {Promise<boolean>} true only when a deterministic answer was posted.
+   */
+  async #TryDeterministicOpenCountAnswerAsync(ArgSlackApp, ArgEventInfo, ArgRawText) {
+    const Intent = this.#DetectOpenCountIntent(ArgRawText);
+    if(!Intent) return false;
+    if(!this.#RemindersModule || typeof this.#RemindersModule.GetAllReminders !== 'function') return false;
+
+    // LIVE authoritative reminders — the whole point of lane p2 is to never trust the cached snapshot.
+    const ActiveReminders = this.#RemindersModule.GetAllReminders();
+    const NowMs = Date.now();
+
+    /** @type {Set<string|null>} */
+    const CandidateChannels = new Set();
+    for(const Reminder of ActiveReminders)
+      CandidateChannels.add(Reminder.OriginalChannelID || Reminder.TargetChannelID || null);
+
+    // Reuse the canonical fail-closed privacy/membership helpers (same ones ask-reminders uses) rather
+    // than a divergent copy. `unresolved` are channels Slack couldn't classify right now.
+    const { private: PrivateChannels, unresolved: UnresolvedChannels } =
+      await BuildPrivateChannelSetAsync(ArgSlackApp, CandidateChannels, NowMs);
+
+    // Correctness gate: an incomplete privacy view must NOT yield a confident exact count. A transient
+    // Slack failure (unresolved channel) would otherwise silently undercount, so decline and fall
+    // through to the normal resolver — post nothing.
+    if(UnresolvedChannels.size > 0) return false;
+
+    const MemberPrivateChannels = await BuildMemberPrivateChannelSetAsync(ArgSlackApp, ArgEventInfo.user, PrivateChannels, NowMs);
+    const AllowedChannelIds = [ArgEventInfo.channel, ...MemberPrivateChannels];
+
+    const Candidates = AssembleCandidates({
+      activeReminders: ActiveReminders,
+      isChannelPrivate: (/** @type {string|null} */ ArgChannelId) => PrivateChannels.has(ArgChannelId),
+    });
+    const Result = FilterCandidates(Candidates, {
+      clientId: Intent.clientId,
+      channelScope: { allowedChannelIds: AllowedChannelIds },
+    });
+
+    // Open-state gate — mirrors the snapshot's single source of truth. Only active reminders were
+    // assembled (no completion history), but gating on OPEN_REMINDER_STATES keeps the definition aligned.
+    const OpenCount = Result.matched.filter(
+      (/** @type {any} */ ArgCandidate) => OPEN_REMINDER_STATES.has(String(ArgCandidate.state || '').trim().toLowerCase())
+    ).length;
+
+    const Noun = OpenCount === 1 ? 'open task' : 'open tasks';
+    await ArgSlackApp.PostMessageTextAsync(
+      ArgEventInfo.channel,
+      ArgEventInfo.ts,
+      `${Intent.clientName} has *${OpenCount}* ${Noun}.`
+    );
+    ArgSlackApp.Logger.info(
+      `router deterministic count: client=${Intent.clientId} open=${OpenCount} channel=${ArgEventInfo.channel}`
+    );
+    return true;
+  }
+
+  /**
+   * GH-397 active router mode: let Gemini Flash Lite resolve the command and, above the confidence
+   * floor, execute it (FULL takeover — any canonical command, including Risk-tagged ones, per the
+   * operator decision). Always logs a corpus record. Returns true only when it actually executed a
+   * command; otherwise false so the caller falls back to the normal resolver. Never throws — a
+   * resolve/execute/log failure degrades to false (normal pipeline runs).
+   * @param {SlackApp} ArgSlackApp
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
+   * @param {string} ArgRawText Original (un-normalized) mention text — the corpus signal.
+   * @param {string} ArgNormalizedText Normalized command text used for routing/matching.
+   * @returns {Promise<boolean>}
+   */
+  async #TryRouterActiveTakeoverAsync(ArgSlackApp, ArgEventInfo, ArgRawText, ArgNormalizedText) {
+    const EventInfoAny = /** @type {any} */ (ArgEventInfo);
+    if(EventInfoAny.bot_id || (EventInfoAny.user && EventInfoAny.user === ArgSlackApp.BotUserID))
+      return false;
+
+    // GH-405 (lane p2): before the model resolves anything, try a deterministic open-count answer.
+    // Inert unless ROUTER_SNAPSHOT_ENABLED is on; fires ONLY on an unambiguous "how many open for
+    // <resolved client>" question with a single confidently-resolved client. The count is recomputed
+    // LIVE from GetAllReminders() (never the cached snapshot) and channel-privacy-scoped. Any ambiguity
+    // falls through to the normal active-takeover resolution below — no guessing.
+    if(this.#IsRouterSnapshotEnabled()) {
+      try {
+        if(await this.#TryDeterministicOpenCountAnswerAsync(ArgSlackApp, ArgEventInfo, ArgRawText))
+          return true;
+      } catch(Error) {
+        ArgSlackApp.Logger.warn(
+          `router deterministic count failed (non-fatal): ${Error && /** @type {Error} */ (Error).message ? /** @type {Error} */ (Error).message : Error}`
+        );
+      }
+    }
+
+    const IncumbentRoute = this.#CommandRouter.MatchRouteName(ArgNormalizedText, ArgEventInfo);
+    const Candidate = await this.#RouterShadow.ResolveCandidateAsync(ArgRawText, ArgEventInfo.channel);
+
+    let Executed = false;
+    if(this.#RouterShadow.ShouldExecute(Candidate)) {
+      try {
+        Executed = await this.#CommandRouter.RouteAsync(/** @type {string} */ (Candidate.canonicalCommand), ArgEventInfo);
+      } catch(Error) {
+        ArgSlackApp.Logger.error(
+          `router active execution failed for '${Candidate.canonicalCommand}': ${Error && /** @type {Error} */ (Error).message ? /** @type {Error} */ (Error).message : Error}`
+        );
+        Executed = false;
+      }
+    }
+
+    this.#RouterShadow.AppendRecordAsync({
+      mode: 'active',
+      channelId: ArgEventInfo.channel,
+      rawText: ArgRawText,
+      routerOutcome: IncumbentRoute ? 'matched' : 'unmatched',
+      matchedRoute: IncumbentRoute,
+      candidate: Candidate,
+      executed: Executed,
+    }).catch((Error) => ArgSlackApp.Logger.warn(`router shadow log failed: ${Error && Error.message ? Error.message : Error}`));
+
+    return Executed;
+  }
+
+  /**
+   * Phase 0 near-miss probe: a best-effort, no-LLM measurement emitted when an app-mention matched no
+   * command and is about to fall through to generic AI chat. Logs only the top deterministic candidate +
+   * score (no raw message text) so unmatched mentions can later be bucketed into "wrong syntax for a real
+   * command" (high score) vs genuine chat (~0) — the input that decides whether the AI recovery tier is
+   * worth building. Temporary measurement scaffolding; remove once the dead-end rate is known. See
+   * PROJECT/1-INBOX/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 0).
+   * @param {SlackApp} ArgSlackApp
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
+   * @param {string} ArgNormalizedText Mention-stripped, normalized command text (the scored signal).
+   * @returns {Promise<void>}
+   */
+  async #EmitNearMissProbeAsync(ArgSlackApp, ArgEventInfo, ArgNormalizedText) {
+    const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
+    const TopCandidate = ScoredCandidates[0];
+    const TopScore = TopCandidate ? TopCandidate.Score : 0;
+    ArgSlackApp.Logger.info('near-miss probe (unmatched mention fell through to chat):', {
+      workspace: ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME ?? null,
+      channel: ArgEventInfo.channel ?? null,
+      user: ArgEventInfo.user ?? null,
+      topCandidateId: TopScore > 0 ? TopCandidate.Entry.Id : null,
+      topScore: TopScore,
+    });
+  }
+
+  /**
+   * Deterministic near-miss command handler tier.
+   * If the user message is a near-miss for a registered command (wrong syntax but matches command catalog
+   * with high enough score), reply with that candidate's syntax example and return true.
+   * @param {SlackApp} ArgSlackApp
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
+   * @param {string} ArgNormalizedText Mention-stripped, normalized command text (the scored signal).
+   * @returns {Promise<boolean>}
+   */
+  async #TryHandleNearMissCommandAsync(ArgSlackApp, ArgEventInfo, ArgNormalizedText) {
+    const EventInfoAny = /** @type {any} */ (ArgEventInfo);
+    if(EventInfoAny.bot_id || (EventInfoAny.user && EventInfoAny.user === ArgSlackApp.BotUserID))
+      return false;
+
+    const RawFlag = (process.env.COMMAND_NEAR_MISS_LITE || '').trim().toLowerCase();
+    const IsEnabled = RawFlag === 'on' || RawFlag === 'true' || RawFlag === '1' || RawFlag === 'yes' || RawFlag === 'enabled';
+    if(!IsEnabled)
+      return false;
+
+    const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
+    const TopCandidate = ScoredCandidates[0];
+    if(!TopCandidate)
+      return false;
+
+    if(TopCandidate.Score >= NEAR_MISS_SCORE_FLOOR) {
+      const SuggestionSyntax = (TopCandidate.Entry.SyntaxExamples?.[0] || '').replace(/@Sleuth AI/g, ArgSlackApp.AppMentionString);
+      const ResponseMessage = `Did you mean the \`${TopCandidate.Entry.Id}\` command? Try \`${SuggestionSyntax}\`.`;
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ResponseMessage);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Handle Slack app_mention event.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
+   * @returns {Promise<boolean>}
+   */
+  async #OnAppMentionAsync(ArgSlackApp, ArgEventInfo) {
+    // log the app_mention event.
+    ArgSlackApp.Logger.info(
+      `app_mention event handled by ChatModule:`,
+      ChatModule.#BuildSafeInboundEventLogInfo(ArgEventInfo)
+    );
+
+    // normalize app mention commands so they are resilient to trailing punctuation or extra spacing.
+    // computed before the file check so we can suppress the confirmation when question text is present.
+    const CommandTextWithoutMention = ArgEventInfo.text.replace(ArgSlackApp.AppMentionString, '').trim();
+
+    // check for an uploaded text file (Markdown, snippet, log, CSV, code, etc.) and store it as
+    // thread context memory before any other handling. Suppress the "I've loaded…" confirmation
+    // post when the user also asked a question — the AI's attribution footer signals which file was
+    // used, and suppressing prevents the confirmation from appearing in the thread context the AI
+    // reads on the same turn.
+    const FileStoreResult = await this.#TryStoreThreadMemoryFileAsync(
+      ArgSlackApp,
+      ArgEventInfo,
+      !!CommandTextWithoutMention
+    );
+    const FileWasHandled = FileStoreResult.FoundContextFile;
+    const FileWasLoaded = FileStoreResult.FileWasStored;
+
+    if(FileWasHandled) {
+      if(!FileWasLoaded) return true;
+      // if the message contained only the file with no question, the confirmation is sufficient.
+      if(!CommandTextWithoutMention) return true;
+      // question text is present alongside the upload — skip command routing and fall through
+      // to generate an AI answer grounded in the just-loaded context memory.
+    } else {
+      // no file — run the normal command routing pipeline.
+      const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(CommandTextWithoutMention);
+      const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
+
+      // GH-397 router mode: when armed, Gemini Flash Lite either shadows the resolver (logs a corpus
+      // record, ZERO authority) or, in `active`, takes over resolution above a confidence floor.
+      // `off`/`shadow` never change production behavior; `active` takeover falls back to the normal
+      // pipeline below whenever it declines or errors. All paths are best-effort — a Flash Lite
+      // outage cannot break the hot path.
+      if(CommandTextWithoutMention && this.#RouterShadow.IsArmed()) {
+        if(this.#RouterShadow.GetMode() === 'active') {
+          if(await this.#TryRouterActiveTakeoverAsync(ArgSlackApp, ArgEventInfo, CommandTextWithoutMention, NormalizedCommandText))
+            return true;
+        } else {
+          const IncumbentRoute = this.#CommandRouter.MatchRouteName(NormalizedCommandText, ArgEventInfo);
+          this.#RouterShadow.LogShadowAsync({
+            rawText: CommandTextWithoutMention,
+            channelId: ArgEventInfo.channel,
+            routerOutcome: IncumbentRoute ? 'matched' : 'unmatched',
+            matchedRoute: IncumbentRoute,
+          }).catch((Error) => ArgSlackApp.Logger.warn(`router shadow log failed: ${Error && Error.message ? Error.message : Error}`));
+        }
+      }
+
+      // dispatch any registered chat command — see #RegisterCommandRoutes for the full list.
+      if(await this.#CommandRouter.RouteAsync(NormalizedCommandText, ArgEventInfo)) return true;
+
+      // run deterministic response handling before invoking the AI model.
+      if(await this.#TryHandleDeterministicResponseAsync(ArgSlackApp, ArgEventInfo))
+        return true;
+
+      if(await this.#TryHandleUnsupportedReminderActionAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
+        return true;
+
+      // natural-language and freshness-driven auto-routes always target the OpenAI provider — that
+      // is the documented product behavior, not a registry concern.
+      const OpenAIWebSearchProvider = GetWebSearchProviderById('web-search');
+
+      // route explicit natural-language web lookup aliases before the generic chat fallback.
+      const NaturalLanguageWebSearchQuery = ChatModule.ExtractNaturalLanguageWebSearchQuery(NormalizedCommandText);
+      if(NaturalLanguageWebSearchQuery) {
+        await HandleWebSearchProviderCommandAsync(
+          ArgSlackApp,
+          ArgEventInfo,
+          OpenAIWebSearchProvider,
+          NaturalLanguageWebSearchQuery,
+          this.#WorkspaceAI,
+          ChatModule.BuildWebSearchResponseText
+        );
+        return true;
+      }
+
+      // route a narrow class of freshness-sensitive external questions to web search.
+      if(ChatModule.ShouldAutoRouteToWebSearchForFreshness(NormalizedCommandText)) {
+        await HandleWebSearchProviderCommandAsync(
+          ArgSlackApp,
+          ArgEventInfo,
+          OpenAIWebSearchProvider,
+          NormalizedCommandText,
+          this.#WorkspaceAI,
+          ChatModule.BuildWebSearchResponseText
+        );
+        return true;
+      }
+
+      // Phase 0 near-miss probe: every deterministic route + web-search auto-route declined, so this
+      // mention is about to fall through to generic AI chat — exactly the dead-end we want to measure.
+      // Fire-and-forget; the .catch keeps a probe failure from ever affecting the chat fallthrough.
+      this.#EmitNearMissProbeAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText)
+        .catch((Error) => ArgSlackApp.Logger.warn(`near-miss probe failed: ${Error && Error.message ? Error.message : Error}`));
+
+      if(await this.#TryHandleNearMissCommandAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
+        return true;
+    }
+
+    // gather thread context. For a root message that just had a file loaded, use event.ts as the
+    // thread root so the context memory block is included in the AI call even though thread_ts is
+    // not set on the root message event.
+    const ContextThreadTS = ArgEventInfo.thread_ts ?? (FileWasLoaded ? ArgEventInfo.ts : null);
+    const MessageText = ContextThreadTS
+      ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+      : ArgEventInfo.text;
+
+    // prepare system instructions.
+    const SystemInstructions = await this.#PrepareSystemInstructionsAsync();
+
+    // resolve the per-channel model override (if any) and process the message with the AI.
+    const ChannelModel = this.#ChannelModelSettings.GetModelForChannel(ArgEventInfo.channel);
+    const ResponseText = await this.#ProcessChatWithChannelModelAsync(
+      ArgSlackApp, MessageText, SystemInstructions, ArgEventInfo.channel, ChannelModel
+    );
+
+    // append a grounding attribution when the answer was based on a context memory file, so the
+    // user can see which document was used. Suppress the web-search suggestion in this case —
+    // document analysis is not a web-search scenario.
+    const UsedMemoryKey = ContextThreadTS ? `${ArgEventInfo.channel}:${ContextThreadTS}` : null;
+    const UsedMemory = UsedMemoryKey ? this.#ThreadContextMemory.get(UsedMemoryKey) : null;
+    const Attribution = UsedMemory ? `\n\n_Answer based on context from: *${UsedMemory.filename}*_` : '';
+    const FormattedResponseText = this.#FormatMessageForSlack(ResponseText) + Attribution;
+
+    // only attach the "search the web" suggestion when the user is plainly asking Sleuth (no
+    // teammate mentions, no empty query) and the answer was not grounded in a context memory file.
+    const SearchSuggestionQuery = CommandTextWithoutMention.replace(/[?.!]+$/, '').trim();
+    const ShouldSuggestWebSearch = !UsedMemory
+      && SearchSuggestionQuery.length > 0
+      && !ChatModule.HasOtherUserMentions(ArgEventInfo.text, ArgSlackApp.BotUserID);
+
+    if(ShouldSuggestWebSearch) {
+      const SuggestionBlocks = ChatModule.BuildGoogleSearchSuggestionBlocks(
+        FormattedResponseText, SearchSuggestionQuery
+      );
+      await ArgSlackApp.PostMessageTextWithBlocksAsync(
+        ArgEventInfo.channel, FormattedResponseText, SuggestionBlocks, undefined, ArgEventInfo.ts
+      );
+    } else {
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, FormattedResponseText);
+    }
+
+    // return true to indicate that the event was handled.
+    return true;
+  }
+
+  /**
+   * Handle a click on the "Search the web" suggestion button attached to a freeform chat answer.
+   * Re-routes the suggested query through the OpenAI web-search provider, posting the result as a
+   * sibling reply in the same thread as the original answer.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').BlockActionInfo} ArgActionInfo Action payload.
+   * @returns {Promise<boolean>}
+   */
+  async #OnChatGoogleSearchActionAsync(ArgSlackApp, ArgActionInfo) {
+    ArgSlackApp.Logger.info(`chat-google-search action handled by ChatModule:`, ArgActionInfo);
+
+    const Query = (ArgActionInfo.value ?? '').trim();
+    if(!Query) return true;
+
+    // Post the result in the same thread. If the bot message was itself a thread reply, threadTs
+    // points at the original mention's TS. Otherwise it stood alone, so its own TS becomes the
+    // thread root once we post under it.
+    const ReplyTS = ArgActionInfo.threadTs || ArgActionInfo.messageTs;
+
+    /** @type {import('./slack-app').AppMentionEventInfo} */
+    const SyntheticEventInfo = {
+      channel: ArgActionInfo.channel,
+      text: Query,
+      ts: ReplyTS,
+      thread_ts: ReplyTS,
+      user: ArgActionInfo.user,
+      files: [],
+    };
+
+    await HandleWebSearchProviderCommandAsync(
+      ArgSlackApp,
+      SyntheticEventInfo,
+      GetWebSearchProviderById('web-search'),
+      Query,
+      this.#WorkspaceAI,
+      ChatModule.BuildWebSearchResponseText
+    );
+
+    return true;
+  }
+
+  /**
+   * Process a chat message with the channel's overridden model when set, falling back to the workspace
+   * default only when the override is rejected as an invalid/deprecated model. Transient failures
+   * (rate limits, timeouts, 5xx, network) propagate so we don't double-bill or duplicate responses.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgMessageText User message text to process.
+   * @param {string} ArgSystemInstructions System instructions for the AI request.
+   * @param {string} ArgChannelID Channel ID where the message was posted.
+   * @param {string|null} ArgChannelModel Per-channel model override, or null to use the workspace default.
+   * @returns {Promise<string>}
+   */
+  async #ProcessChatWithChannelModelAsync(ArgSlackApp, ArgMessageText, ArgSystemInstructions, ArgChannelID, ArgChannelModel) {
+    const SelectedModel = ArgChannelModel || this.#WorkspaceAI.DefaultModelName;
+    const StartTime = Date.now();
+
+    if(!ArgChannelModel) {
+      try {
+        const ResponseText = await this.#WorkspaceAI.ProcessMessageWithTextResponseAsync(
+          ArgMessageText,
+          ArgSystemInstructions
+        );
+        ArgSlackApp.Logger.info(
+          `[chat-ai] reply succeeded in ${Date.now() - StartTime}ms ` +
+          `(channel=${ArgChannelID}, model=${SelectedModel}, promptChars=${ArgMessageText.length})`
+        );
+        return ResponseText;
+      } catch(error) {
+        ArgSlackApp.Logger.error(
+          `[chat-ai] reply failed after ${Date.now() - StartTime}ms ` +
+          `(channel=${ArgChannelID}, model=${SelectedModel}, promptChars=${ArgMessageText.length}):`,
+          error
+        );
+        throw error;
+      }
+    }
+
+    try {
+      const ResponseText = await this.#WorkspaceAI.ProcessMessageWithTextResponseAsync(
+        ArgMessageText, ArgSystemInstructions, ArgChannelModel
+      );
+      ArgSlackApp.Logger.info(
+        `[chat-ai] reply succeeded in ${Date.now() - StartTime}ms ` +
+        `(channel=${ArgChannelID}, model=${SelectedModel}, promptChars=${ArgMessageText.length}, override=yes)`
+      );
+      return ResponseText;
+    } catch(error) {
+      // only fall back to the workspace default when the error looks like a model-validity problem
+      // (e.g. the stored override has been deprecated since it was saved). All other failures
+      // propagate so we don't issue a second OpenAI request during transient outages.
+      if(!ChatModule.IsInvalidModelError(error)) {
+        ArgSlackApp.Logger.error(
+          `[chat-ai] reply failed after ${Date.now() - StartTime}ms ` +
+          `(channel=${ArgChannelID}, model=${SelectedModel}, promptChars=${ArgMessageText.length}, override=yes):`,
+          error
+        );
+        throw error;
+      }
+
+      ArgSlackApp.Logger.error(
+        `channel model override '${ArgChannelModel}' is no longer valid in channel ${ArgChannelID}, falling back to default:`,
+        error
+      );
+      const FallbackStartTime = Date.now();
+      const ResponseText = await this.#WorkspaceAI.ProcessMessageWithTextResponseAsync(
+        ArgMessageText,
+        ArgSystemInstructions
+      );
+      ArgSlackApp.Logger.info(
+        `[chat-ai] fallback reply succeeded in ${Date.now() - FallbackStartTime}ms ` +
+        `(channel=${ArgChannelID}, model=${this.#WorkspaceAI.DefaultModelName}, promptChars=${ArgMessageText.length}, overrideFallbackFrom=${SelectedModel})`
+      );
+      return ResponseText;
+    }
+  }
+
+  /**
+   * Heuristic check for OpenAI errors that indicate the requested model is invalid, deprecated, or
+   * unavailable to this account. Used to decide whether a per-channel model override should be
+   * silently retried with the workspace default.
+   * @param {any} ArgError Error thrown by the OpenAI client.
+   * @returns {boolean}
+   */
+  static IsInvalidModelError(ArgError) {
+    if(!ArgError) return false;
+
+    // OpenAI APIError surfaces a structured code on model-not-found responses.
+    if(ArgError.code === 'model_not_found') return true;
+
+    // 404 from the chat completions endpoint when the model id is not recognized.
+    if(ArgError.status === 404) return true;
+
+    // text-shape fallback for SDK versions that don't populate a structured code.
+    const Message = typeof ArgError.message === 'string' ? ArgError.message : '';
+    if(/model[^a-z0-9]+.*(?:not found|does not exist|is not allowed|not a valid model|invalid model|cannot be found)/i.test(Message)) return true;
+
+    return false;
+  }
+
+  /**
+   * Check whether a user is asking for the live OpenAI/ChatGPT model catalog.
+   * @param {string} ArgCommandText App mention text after removing the bot mention.
+   * @returns {boolean}
+   */
+  static IsLiveModelCatalogQuestion(ArgCommandText) {
+    if(typeof ArgCommandText !== 'string') return false;
+
+    const NormalizedText = ArgCommandText
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if(NormalizedText.length === 0) return false;
+
+    if(/^(models|show-channel-model|set-channel-model|clear-channel-model|switch-models?|model-switch)\b/.test(NormalizedText))
+      return false;
+
+    const MentionsModelCatalog = /\bmodels?\b/.test(NormalizedText)
+      && /\b(?:chatgpt|openai|gpt|claude|anthropic|gemini)\b/.test(NormalizedText);
+    const AsksForAvailability = /\b(?:available|availability|current|currently|latest|list|supported|options|choices)\b/.test(NormalizedText);
+    const IsQuestionShape = /\?|\b(?:what|which|list|show|tell)\b/.test(NormalizedText);
+
+    return MentionsModelCatalog && AsksForAvailability && IsQuestionShape;
+  }
+
+  /**
+   * Detect reminder-creation requests that should not fall through to freeform chat.
+   * @param {string} ArgCommandText App mention text after removing the bot mention.
+   * @returns {boolean}
+   */
+  static IsReminderActionIntent(ArgCommandText) {
+    if(typeof ArgCommandText !== 'string') return false;
+
+    const NormalizedText = ArgCommandText
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if(NormalizedText.length === 0) return false;
+
+    const HasReminderNoun = /\breminder(?:s)?\b/.test(NormalizedText);
+    const HasCreationVerb = /\b(?:make|create|set|add|schedule)\b/.test(NormalizedText);
+    return HasReminderNoun && HasCreationVerb;
+  }
+
+  /**
+   * Action ID for the "Search the web" suggestion button attached to freeform chat answers.
+   * Keep this stable — Slack matches block_actions payloads against it.
+   */
+  static ChatGoogleSearchActionId = 'chat-google-search';
+
+  /**
+   * Detect whether an inbound Slack message text contains a user mention other than the bot
+   * itself. Used to suppress the web-search suggestion when the user is involving a teammate.
+   * @param {string} ArgMessageText Raw Slack message text containing `<@U...>` mention encodings.
+   * @param {string|null} ArgBotUserID Bot's own Slack user ID (excluded from the check).
+   * @returns {boolean}
+   */
+  static HasOtherUserMentions(ArgMessageText, ArgBotUserID) {
+    if(typeof ArgMessageText !== 'string') return false;
+    const UserMentionRegex = /<@([A-Z0-9]+)>/g;
+    let Match;
+    while((Match = UserMentionRegex.exec(ArgMessageText)) !== null) {
+      if(Match[1] !== ArgBotUserID) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Build the Block Kit payload for a freeform chat answer that includes a "Search the web"
+   * suggestion button. The button's value carries the search query verbatim; the chat-google-search
+   * action handler re-routes that query into the OpenAI web-search provider when clicked.
+   * @param {string} ArgAnswerText Slack-formatted answer body (mrkdwn).
+   * @param {string} ArgSearchQuery Suggested search query (already trimmed of trailing punctuation).
+   * @returns {Array<any>} Blocks array suitable for chat.postMessage.
+   */
+  static BuildGoogleSearchSuggestionBlocks(ArgAnswerText, ArgSearchQuery) {
+    // Slack section text caps at 3000 chars — trim the body so the API rejects nothing.
+    const SectionTextLimit = 2900;
+    const AnswerSection = ArgAnswerText.length > SectionTextLimit
+      ? ArgAnswerText.slice(0, SectionTextLimit) + '…'
+      : ArgAnswerText;
+
+    // Slack button text caps at 75 chars; the prefix consumes some, so cap the query at 45.
+    const ButtonTextLimit = 45;
+    const ButtonQuery = ArgSearchQuery.length > ButtonTextLimit
+      ? ArgSearchQuery.slice(0, ButtonTextLimit - 1) + '…'
+      : ArgSearchQuery;
+
+    // Slack button value caps at 2000 chars; trim defensively so the click payload always
+    // represents what the label promises.
+    const ButtonValueLimit = 1800;
+    const ButtonValue = ArgSearchQuery.length > ButtonValueLimit
+      ? ArgSearchQuery.slice(0, ButtonValueLimit)
+      : ArgSearchQuery;
+
+    return [
+      { type: 'section', text: { type: 'mrkdwn', text: AnswerSection } },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            action_id: ChatModule.ChatGoogleSearchActionId,
+            text: { type: 'plain_text', text: `Search the web for: ${ButtonQuery}` },
+            value: ButtonValue,
+          },
+        ],
+      },
+    ];
+  }
+
+  /**
+   * Extract a web-search query from a narrow set of natural-language lookup aliases.
+   * @param {string} ArgCommandText App mention text after removing the bot mention.
+   * @returns {string|null}
+   */
+  static ExtractNaturalLanguageWebSearchQuery(ArgCommandText) {
+    if(typeof ArgCommandText !== 'string') return null;
+
+    const NormalizedText = ArgCommandText
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(NormalizedText.length === 0) return null;
+
+    const Prefix = '(?:please\\s+|can\\s+you\\s+|could\\s+you\\s+|would\\s+you\\s+)?';
+    const AliasPatterns = [
+      new RegExp(`^${Prefix}search (?:the )?web for (.+)$`, 'i'),
+      new RegExp(`^${Prefix}search the web (.+)$`, 'i'),
+      new RegExp(`^${Prefix}(?:look up|lookup) (.+)$`, 'i'),
+      new RegExp(`^${Prefix}google (.+)$`, 'i'),
+      new RegExp(`^${Prefix}find (?:recent|current|latest) (?:info|information) (?:on|about) (.+)$`, 'i'),
+      // "check <domain.tld> ..." — TLD presence is the high-confidence signal; won't false-positive on internal commands.
+      new RegExp(`^${Prefix}(?:check|look\\s+at)\\s+((?:[\\w-]+\\.)+(?:com|org|net|io|co|app|dev|ai|uk|us)(?:/\\S*)?(?:\\s+.*)?)$`, 'i'),
+      // "search <domain.tld> ..." — requires a TLD to avoid colliding with "search reminders", "search my reminders", etc.
+      new RegExp(`^${Prefix}search\\s+((?:[\\w-]+\\.)+(?:com|org|net|io|co|app|dev|ai|uk|us)(?:/\\S*)?(?:\\s+.*)?)$`, 'i'),
+    ];
+
+    for(const AliasPattern of AliasPatterns) {
+      const Match = NormalizedText.match(AliasPattern);
+      if(!Match) continue;
+
+      const Query = Match[1].trim().replace(/[?.!]+$/, '').trim();
+      if(Query.length > 0) return Query;
+    }
+
+    return null;
+  }
+
+  /**
+   * Detect a narrow class of current-events or live-facts questions that should use web search.
+   * @param {string} ArgCommandText App mention text after removing the bot mention.
+   * @returns {boolean}
+   */
+  static ShouldAutoRouteToWebSearchForFreshness(ArgCommandText) {
+    if(typeof ArgCommandText !== 'string') return false;
+
+    const NormalizedText = ArgCommandText
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if(NormalizedText.length === 0) return false;
+
+    const IsQuestionShape = /\?|^(?:what|which|who|when|where|why|how|is|are|do|does|did|can|could|would)\b/.test(NormalizedText);
+    if(!IsQuestionShape) return false;
+
+    const IsFreshNewsQuestion = /\b(?:latest|recent|current)\b.*\b(?:news|updates?|headlines?|developments?)\b/.test(NormalizedText)
+      || /\b(?:news|updates?|headlines?|developments?)\b.*\b(?:latest|recent|current)\b/.test(NormalizedText)
+      || /\bwhat'?s the latest on\b/.test(NormalizedText)
+      || /\bany (?:recent|latest|current)?\s*news on\b/.test(NormalizedText)
+      || /\bwhat(?:'s| is) happening with\b.*\b(?:today|right now|currently)\b/.test(NormalizedText);
+
+    const IsLiveFactQuestion = /\b(?:current|latest)\s+(?:price|stock price|weather|forecast|status|score|version)\b/.test(NormalizedText)
+      || /\b(?:price|stock price|weather|forecast|status|score|version)\s+(?:of|for|in)\b.*\b(?:today|right now|currently|current|latest)\b/.test(NormalizedText);
+
+    return IsFreshNewsQuestion || IsLiveFactQuestion;
+  }
+
+  /**
+   * Filter a raw OpenAI model list down to IDs useful for chat model questions.
+   * @param {string[]} ArgModelIds Raw model IDs returned by the OpenAI API.
+   * @returns {string[]}
+   */
+  static FilterLiveModelCatalogForChat(ArgModelIds) {
+    if(!Array.isArray(ArgModelIds)) return [];
+
+    const UniqueModelIds = [...new Set(ArgModelIds.filter((ArgModelId) =>
+      typeof ArgModelId === 'string' && ArgModelId.trim().length > 0
+    ).map((ArgModelId) => ArgModelId.trim()))].sort();
+
+    const ChatLikeModelIds = UniqueModelIds.filter((ArgModelId) =>
+      /^(?:chatgpt|codex|computer-use|gpt-|o[0-9]|claude-|gemini-)/.test(ArgModelId) &&
+      !/(?:embedding|moderation|tts|whisper|transcribe|dall-e|image|vision-preview)/.test(ArgModelId)
+    );
+
+    return ChatLikeModelIds.length > 0 ? ChatLikeModelIds : UniqueModelIds;
+  }
+
+  /**
+   * Build the Slack message for a web-search result.
+   * @param {{ text: string, sources: Array<{ title: string|null, url: string }>, searchSuggestions?: string[] }} ArgResult Web-search result.
+   * @returns {string}
+   */
+  static BuildWebSearchResponseText(ArgResult) {
+    const Lines = [SlackFormatUtils.NormalizeModelMarkdownForSlack(ArgResult.text)];
+    const Sources = Array.isArray(ArgResult.sources) ? ArgResult.sources.slice(0, MaxWebSearchSources) : [];
+
+    if(Sources.length > 0) {
+      Lines.push('', '*Sources:*');
+      for(const Source of Sources) {
+        const SafeUrl = ChatModule.BuildSafeSlackLinkUrl(Source.url);
+        if(!SafeUrl) continue;
+        const SourceTitle = SlackFormatUtils.SanitizeForInlineSlack(Source.title || Source.url, 120);
+        Lines.push(`- <${SafeUrl}|${SourceTitle}>`);
+      }
+    }
+
+    const Suggestions = Array.isArray(ArgResult.searchSuggestions)
+      ? ArgResult.searchSuggestions.slice(0, MaxWebSearchSources)
+      : [];
+    if(Suggestions.length > 0) {
+      const SuggestionLinks = Suggestions
+        .map((Query) => {
+          const SafeUrl = ChatModule.BuildSafeSlackLinkUrl(`https://www.google.com/search?q=${encodeURIComponent(Query)}`);
+          if(!SafeUrl) return null;
+          const SafeLabel = SlackFormatUtils.SanitizeForInlineSlack(Query, 80);
+          return `<${SafeUrl}|${SafeLabel}>`;
+        })
+        .filter(Boolean);
+      if(SuggestionLinks.length > 0) Lines.push('', `_Related searches: ${SuggestionLinks.join(' · ')}_`);
+    }
+
+    return Lines.join('\n');
+  }
+
+  /**
+   * Validate and minimally escape a URL before embedding it in Slack link markup.
+   * @param {string|undefined|null} ArgUrl Candidate source URL.
+   * @returns {string|null}
+   */
+  static BuildSafeSlackLinkUrl(ArgUrl) {
+    if(typeof ArgUrl !== 'string' || ArgUrl.trim().length === 0) return null;
+
+    try {
+      const ParsedUrl = new URL(ArgUrl.trim());
+      if(ParsedUrl.protocol !== 'http:' && ParsedUrl.protocol !== 'https:')
+        return null;
+
+      return ParsedUrl.toString()
+        .replace(/>/g, '%3E')
+        .replace(/\|/g, '%7C');
+    } catch {
+      return null;
+    }
+  }
+
+
+
+
+  /**
+   * Handle Slack reaction_added event. Intercepts `:bug:` and `:wrench:` reactions for Sleuth-
+   * owned chat diagnostics and GitHub filing, while returning false for unrelated messages so the
+   * reminders reaction handler (registered after this one) still gets to run for reminder triage
+   * and lifecycle reactions.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').ReactionAddedEventInfo} ArgEventInfo Event payload.
+   * @returns {Promise<boolean>}
+   */
+  async #OnReactionAddedAsync(ArgSlackApp, ArgEventInfo) {
+    // handle stop sign reaction — stops handsfree mode and confirms to the user.
+    if(ArgEventInfo.reaction === 'octagonal_sign') {
+      return await this.#HandleStopReactionAsync(ArgSlackApp, ArgEventInfo);
+    }
+
+    if(ArgEventInfo.reaction === 'bug')
+      return await this.#HandleBugReportReactionAsync(ArgSlackApp, ArgEventInfo);
+
+    if(ArgEventInfo.reaction !== 'wrench') return false;
+
+    // fetch the parent message text. failures here fall through to the reminders handler so
+    // a transient Slack API error doesn't swallow reminder triage on unrelated messages.
+    /** @type {Array<import('./slack-app').MessageInfo>} */
+    let ThreadMessages;
+    try {
+      ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(
+        ArgEventInfo.item.channel, ArgEventInfo.item.ts
+      );
+    } catch(error) {
+      ArgSlackApp.Logger.warn('chat triage: failed to fetch thread for wrench reaction:', error);
+      return false;
+    }
+
+    const OriginalMessage = ThreadMessages[0];
+    if(!OriginalMessage || typeof OriginalMessage.text !== 'string') return false;
+
+    const MessageMetadata = await ArgSlackApp.GetMessageMetadataAsync(
+      ArgEventInfo.item.channel, ArgEventInfo.item.ts
+    );
+    if(MessageMetadata?.event_type === 'sleuth-ai-reminder-ids') return false;
+
+    // strip the bot mention so the regex matches both leading-mention and trailing-mention forms.
+    // strip the bot mention so route description matches both leading- and trailing-mention forms.
+    const TextWithoutMention = ArgSlackApp.AppMentionString
+      ? OriginalMessage.text.replace(ArgSlackApp.AppMentionString, '').trim()
+      : OriginalMessage.text.trim();
+
+    const ThreadDebugInfo = this.#GetThreadDebugInfo(
+      ArgSlackApp,
+      ArgEventInfo.item.channel,
+      ArgEventInfo.item.ts,
+      ThreadMessages
+    );
+    if(!ThreadDebugInfo.ShouldHandleAsChatDebug) return false;
+
+    await this.#PostChatTriageAsync(
+      ArgSlackApp,
+      ArgEventInfo.item.channel,
+      ArgEventInfo.item.ts,
+      ArgEventInfo.user,
+      OriginalMessage,
+      TextWithoutMention,
+      ThreadMessages,
+      ThreadDebugInfo
+    );
+    return true;
+  }
+
+  /**
+   * Summarize how Sleuth would route a thread for chat auto-response and context-memory lookup.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Channel ID containing the thread.
+   * @param {string} ArgReactedMessageTS Timestamp of the reacted message.
+   * @param {Array<import('./slack-app').MessageInfo>} ArgThreadMessages Thread messages returned by Slack.
+   * @returns {{
+   *   ThreadRootTS: string,
+   *   ThreadStartsWithMention: boolean,
+   *   ShouldAutoRespond: boolean,
+   *   Memory: { filename: string, content: string }|null,
+   *   ShouldHandleAsChatDebug: boolean
+   * }}
+   */
+  #GetThreadDebugInfo(ArgSlackApp, ArgChannelID, ArgReactedMessageTS, ArgThreadMessages) {
+    const FirstMessage = ArgThreadMessages[0] || null;
+    const ThreadRootTS = FirstMessage?.thread_ts || FirstMessage?.ts || ArgReactedMessageTS;
+    const ThreadStartsWithMention = !!FirstMessage?.text?.includes(ArgSlackApp.AppMentionString);
+
+    let ShouldAutoRespond = ThreadStartsWithMention;
+    for(const Message of ArgThreadMessages) {
+      if(!Message.reactions) continue;
+      if(Message.reactions.includes('bell')) ShouldAutoRespond = true;
+      if(Message.reactions.includes('no_bell')) ShouldAutoRespond = false;
+    }
+
+    const Memory = this.#ThreadContextMemory.get(`${ArgChannelID}:${ThreadRootTS}`) || null;
+    const ShouldHandleAsChatDebug = ThreadStartsWithMention || !!Memory;
+
+    return {
+      ThreadRootTS,
+      ThreadStartsWithMention,
+      ShouldAutoRespond,
+      Memory,
+      ShouldHandleAsChatDebug,
+    };
+  }
+
+  /**
+   * Describe the high-level routing path for a chat/app-mention message. Used by the wrench-
+   * reaction triage diagnostic to surface where a message would be dispatched.
+   *
+   * The registered chat commands are described via the CommandRouter (which uses each route's
+   * DescribePattern when supplied — generally a looser prefix-only check so malformed commands
+   * still classify under their intended route, e.g. `switch-models:badformat` → `switch-models`).
+   * The natural-language / freshness / generic-chat paths are not router routes — they are
+   * downstream fallbacks in #OnAppMentionAsync — and remain hardcoded here.
+   *
+   * @param {string} ArgTextWithoutMention Message text after removing the bot mention.
+   * @param {import('./slack-app').AppMentionEventInfo} [ArgEventInfo] Original Slack event info;
+   *   only required when classifying a command whose Pattern function reads from it (currently
+   *   `switch-models`).
+   * @returns {Promise<string>}
+   */
+  async #DescribeChatRouteAsync(ArgTextWithoutMention, ArgEventInfo) {
+    const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(ArgTextWithoutMention);
+    const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
+
+    const RegisteredRoute = this.#CommandRouter.DescribeRoute(NormalizedCommandText, ArgEventInfo);
+    if(RegisteredRoute) return RegisteredRoute;
+    if(ChatModule.ExtractNaturalLanguageWebSearchQuery(NormalizedCommandText)) return 'natural-language web-search';
+    if(ChatModule.ShouldAutoRouteToWebSearchForFreshness(NormalizedCommandText)) return 'freshness auto-web-search';
+    return 'generic chat';
+  }
+
+  /**
+   * Post generic chat triage diagnostics for Sleuth chat threads and app mentions.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Channel ID of the reacted message.
+   * @param {string} ArgMessageTS Timestamp of the reacted message.
+   * @param {string} ArgReactingUserID User who reacted with :wrench:.
+   * @param {import('./slack-app').MessageInfo} ArgOriginalMessage First/root message returned for the thread.
+   * @param {string} ArgTextWithoutMention Message text after mention stripping.
+   * @param {Array<import('./slack-app').MessageInfo>} ArgThreadMessages Loaded thread messages.
+   * @param {{
+   *   ThreadRootTS: string,
+   *   ThreadStartsWithMention: boolean,
+   *   ShouldAutoRespond: boolean,
+   *   Memory: { filename: string, content: string }|null
+   * }} ArgThreadDebugInfo Thread debug summary.
+   * @returns {Promise<void>}
+   */
+  async #PostChatTriageAsync(
+    ArgSlackApp,
+    ArgChannelID,
+    ArgMessageTS,
+    ArgReactingUserID,
+    ArgOriginalMessage,
+    ArgTextWithoutMention,
+    ArgThreadMessages,
+    ArgThreadDebugInfo
+  ) {
+    const ChannelModelStatus = this.#BuildChannelModelStatus(ArgChannelID);
+    const ComplexModel = this.#RemindersModule?.WorkspaceAI?.ComplexModelName || 'not available';
+    const ParsedRoute = await this.#DescribeChatRouteAsync(ArgTextWithoutMention, {
+      channel: ArgChannelID,
+      ts: ArgMessageTS,
+      user: ArgOriginalMessage.user,
+      text: ArgOriginalMessage.text,
+      thread_ts: ArgOriginalMessage.thread_ts || ArgMessageTS,
+    });
+    const PreviewSourceText = ArgTextWithoutMention || ArgOriginalMessage.text || '';
+    const TextPreview = SlackFormatUtils.SanitizeForInlineSlack(PreviewSourceText, 200);
+
+    const FeedbackLines = [
+      `:wrench: Chat triage requested by <@${ArgReactingUserID}>.`,
+      '*Routing:*',
+      `• Thread starts with app mention: *${ArgThreadDebugInfo.ThreadStartsWithMention ? 'yes' : 'no'}*`,
+      `• Parsed route: *${ParsedRoute}*`,
+      `• Auto-respond for this thread: *${ArgThreadDebugInfo.ShouldAutoRespond ? 'enabled' : 'disabled'}*`,
+      '*Model selection:*',
+      ...ChannelModelStatus.lines.map((ArgLine) => `• ${ArgLine}`),
+      `• Complex/date extraction model: \`${ComplexModel}\``,
+      '*Thread context:*',
+      `• Thread root ts: \`${ArgThreadDebugInfo.ThreadRootTS}\``,
+      `• Reacted message ts: \`${ArgMessageTS}\``,
+      `• Loaded thread messages: ${ArgThreadMessages.length}`,
+      `• Stored context memory: ${ArgThreadDebugInfo.Memory ? `yes (\`${ArgThreadDebugInfo.Memory.filename}\`)` : 'no'}`,
+      '*Target message:*',
+      `• Sender: <@${ArgOriginalMessage.user}>`,
+      `• Sender role: ${ArgOriginalMessage.bot_id ? 'assistant/bot' : 'user'}`,
+      `• Text preview: ${TextPreview || '_(empty)_'}`
+    ];
+
+    await ArgSlackApp.PostMessageTextAsync(ArgChannelID, ArgMessageTS, FeedbackLines.join('\n'));
+  }
+
+
+
+
+
+
+
+  /**
+   * Build reusable channel model status lines for admin/debug surfaces.
+   * @param {string} ArgChannelID Channel being inspected.
+   * @returns {{ override: string|null, defaultModel: string, effectiveModel: string, lines: string[] }}
+   */
+  #BuildChannelModelStatus(ArgChannelID) {
+    const Override = this.#ChannelModelSettings.GetModelForChannel(ArgChannelID);
+    const DefaultModel = this.#WorkspaceAI.DefaultModelName;
+    const EffectiveModel = Override || DefaultModel;
+
+    return {
+      override: Override,
+      defaultModel: DefaultModel,
+      effectiveModel: EffectiveModel,
+      lines: [
+        `Channel override: ${Override ? `\`${Override}\`` : '_(none — using workspace default)_'}`,
+        `Channel basic model: \`${EffectiveModel}\``,
+        `Workspace default chat model: \`${DefaultModel}\``,
+      ],
+    };
+  }
+
+
+
+
+
+
+  /**
+   * Handle Slack message event.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @returns {Promise<boolean>}
+   */
+  async #OnMessageAsync(ArgSlackApp, ArgEventInfo) {
+    try {
+      // check if we should respond to this message. This functionality allows the chat module to respond to messages
+      // without having to explicitly mention the app, and addresses a common user request for a "hands-free" mode.
+      const { ShouldRespond } = await this.#ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo);
+      if(!ShouldRespond) return false;
+
+      // check for an uploaded text file (Markdown, snippet, log, CSV, code, etc.) and store it as
+      // thread context memory before any other handling. Suppress the confirmation when the message
+      // also has question text (same-turn contamination fix).
+      const HasQuestionText = !!ArgEventInfo.text.trim();
+      const FileStoreResult = await this.#TryStoreThreadMemoryFileAsync(
+        ArgSlackApp,
+        ArgEventInfo,
+        HasQuestionText
+      );
+      const FileWasHandled = FileStoreResult.FoundContextFile;
+      const FileWasLoaded = FileStoreResult.FileWasStored;
+      if(FileWasHandled && !FileWasLoaded) return true;
+      if(FileWasLoaded && !HasQuestionText) return true;
+
+      // attempt to handle deterministic responses first (skip when file was just loaded).
+      if(!FileWasLoaded && await this.#TryHandleDeterministicResponseAsync(ArgSlackApp, ArgEventInfo))
+        return true;
+
+      // model-identity guard: when a thread participant asks "what model are you running?",
+      // answer from runtime config instead of forwarding to the chat model, whose self-knowledge
+      // about its own model name is unreliable and prone to hallucination.
+      if(!FileWasLoaded
+        && HandleShowChannelModelCommandAsync.ModelIdentityPattern.test((ArgEventInfo.text ?? '').trim())) {
+        await HandleShowChannelModelCommandAsync(
+          ArgSlackApp, ArgEventInfo, (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID)
+        );
+        return true;
+      }
+
+      // gather thread context. Use event.ts as the thread root for root messages that just had a
+      // file loaded so the context memory block is included even without thread_ts being set.
+      const ContextThreadTS = ArgEventInfo.thread_ts ?? (FileWasLoaded ? ArgEventInfo.ts : null);
+      const MessageText = ContextThreadTS
+        ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+        : ArgEventInfo.text;
+
+      const SystemInstructions = await this.#PrepareSystemInstructionsAsync();
+      const ChannelModel = this.#ChannelModelSettings.GetModelForChannel(ArgEventInfo.channel);
+      const ResponseText = await this.#ProcessChatWithChannelModelAsync(
+        ArgSlackApp, MessageText, SystemInstructions, ArgEventInfo.channel, ChannelModel
+      );
+
+      // append grounding attribution when context memory was used.
+      const UsedMemoryKey = ContextThreadTS ? `${ArgEventInfo.channel}:${ContextThreadTS}` : null;
+      const UsedMemory = UsedMemoryKey ? this.#ThreadContextMemory.get(UsedMemoryKey) : null;
+      const Attribution = UsedMemory ? `\n\n_Answer based on context from: *${UsedMemory.filename}*_` : '';
+      const FormattedResponseText = this.#FormatMessageForSlack(ResponseText) + Attribution;
+
+      // send the AI response and return true to indicate that the event was handled.
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, FormattedResponseText);
+      return true;
+    } catch(error) {
+      // log any errors that occur during message processing and return false to indicate that the event was not handled.
+      ArgSlackApp.Logger.error("Error in OnMessageAsync:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Attempt to handle a deterministic response before calling the AI model.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @returns {Promise<boolean>}
+   */
+  async #TryHandleDeterministicResponseAsync(ArgSlackApp, ArgEventInfo) {
+    try {
+      const ResponsesByPhrase = await this.#GetDeterministicResponseMapAsync();
+      if(ResponsesByPhrase.size === 0) return false;
+
+      const NormalizedText = this.#NormalizeDeterministicPhrase(ArgEventInfo.text ?? '');
+      if(NormalizedText.length === 0) return false;
+
+      const CaseSensitiveKey = `cs:${NormalizedText}`;
+      const CaseInsensitiveKey = `ci:${NormalizedText.toLowerCase()}`;
+      const Entry = ResponsesByPhrase.get(CaseSensitiveKey) ?? ResponsesByPhrase.get(CaseInsensitiveKey);
+      if(!Entry) return false;
+
+      return await this.#ExecuteDeterministicResponseAsync(ArgSlackApp, ArgEventInfo, Entry.config);
+    } catch(error) {
+      ArgSlackApp.Logger.error("Error in TryHandleDeterministicResponseAsync:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Prevent freeform chat from pretending it completed a reminder action when no
+   * deterministic reminder route actually handled the request.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
+   * @param {string} ArgNormalizedCommandText App mention text after removing the bot mention.
+   * @returns {Promise<boolean>}
+   */
+  async #TryHandleUnsupportedReminderActionAsync(ArgSlackApp, ArgEventInfo, ArgNormalizedCommandText) {
+    if(!ChatModule.IsReminderActionIntent(ArgNormalizedCommandText)) return false;
+
+    await ArgSlackApp.PostMessageTextAsync(
+      ArgEventInfo.channel,
+      ArgEventInfo.ts,
+      `I didn't create a reminder. Supported creation paths are :alarm_clock: on the source message, or in a thread use \`${ArgSlackApp.AppMentionString} make a Sleuth reminder for @user based on task above\`. If no time is specified, that thread command defaults to tomorrow morning.`
+    );
+    return true;
+  }
+
+  /**
+   * Execute the deterministic response associated with a matching phrase.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @param {DeterministicResponseConfig} ArgResponseConfig Parsed deterministic response configuration.
+   * @returns {Promise<boolean>}
+   */
+  async #ExecuteDeterministicResponseAsync(ArgSlackApp, ArgEventInfo, ArgResponseConfig) {
+    switch(ArgResponseConfig.type) {
+      case 'static-text': {
+        if(!ArgResponseConfig.text || ArgResponseConfig.text.trim().length === 0) {
+          ArgSlackApp.Logger.warn('deterministic response skipped due to missing static text.');
+          return false;
+        }
+
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ArgResponseConfig.text);
+        return true;
+      }
+
+      case 'reminders-for-user': {
+        if(!this.#RemindersModule) {
+          ArgSlackApp.Logger.warn('deterministic reminders request ignored because reminders module is unavailable.');
+          return false;
+        }
+
+        if(!ArgResponseConfig.userMention || ArgResponseConfig.userMention.trim().length === 0) {
+          ArgSlackApp.Logger.warn('deterministic reminders request skipped due to missing user mention.');
+          return false;
+        }
+
+        return await this.#RemindersModule.ShowRemindersForUserDeterministicAsync(
+          ArgEventInfo,
+          ArgResponseConfig.userMention,
+          { limitToCurrentChannel: ArgResponseConfig.limitToCurrentChannel === true }
+        );
+      }
+
+      default:
+        ArgSlackApp.Logger.warn('unsupported deterministic response type:', ArgResponseConfig.type);
+        return false;
+    }
+  }
+
+  /**
+   * Load deterministic response configuration from disk on first use.
+   * @returns {Promise<Map<string, DeterministicResponseEntry>>}
+   */
+  async #GetDeterministicResponseMapAsync() {
+    if(this.#DeterministicResponsesByPhrase)
+      return this.#DeterministicResponsesByPhrase;
+
+    const ResponsesByPhrase = new Map();
+    const ConfigPath = path.join(__dirname, '..', 'data', 'static', 'deterministic-responses.json');
+
+    try {
+      const FileContents = await fs.readFile(ConfigPath, 'utf8');
+      const ParsedConfig = JSON.parse(FileContents);
+
+      if(Array.isArray(ParsedConfig.entries)) {
+        for(const CurrentEntry of ParsedConfig.entries) {
+          if(!CurrentEntry || !Array.isArray(CurrentEntry.phrases) || CurrentEntry.phrases.length === 0) continue;
+
+          const ParsedResponseConfig = this.#ParseDeterministicResponseConfig(CurrentEntry.response);
+          if(!ParsedResponseConfig) {
+            this.#SlackApp.Logger.warn('skipping deterministic response entry due to invalid response configuration.');
+            continue;
+          }
+
+          const IsCaseInsensitive = CurrentEntry.caseInsensitive === true;
+          for(const CurrentPhrase of CurrentEntry.phrases) {
+            if(typeof CurrentPhrase !== 'string') continue;
+
+            const NormalizedPhrase = this.#NormalizeDeterministicPhrase(CurrentPhrase);
+            if(NormalizedPhrase.length === 0) continue;
+
+            const MapKey = IsCaseInsensitive
+              ? `ci:${NormalizedPhrase.toLowerCase()}`
+              : `cs:${NormalizedPhrase}`;
+            ResponsesByPhrase.set(MapKey, { config: ParsedResponseConfig });
+          }
+        }
+      }
+    } catch(error) {
+      const NodeError = /** @type {NodeJS.ErrnoException} */ (error);
+      if(NodeError.code === 'ENOENT')
+        this.#SlackApp.Logger.info('no deterministic responses configuration file found. skipping.');
+      else
+        this.#SlackApp.Logger.error('failed to load deterministic responses configuration:', error);
+    }
+
+    this.#DeterministicResponsesByPhrase = ResponsesByPhrase;
+    return ResponsesByPhrase;
+  }
+
+  /**
+   * Normalize deterministic response phrases by trimming whitespace and collapsing spaces.
+   * @param {string} ArgPhrase Raw phrase string.
+   * @returns {string}
+   */
+  #NormalizeDeterministicPhrase(ArgPhrase) {
+    if(typeof ArgPhrase !== 'string') return '';
+    return ArgPhrase.replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Validate and normalize deterministic response configuration objects.
+   * @param {unknown} ArgResponse Raw response configuration object.
+   * @returns {DeterministicResponseConfig|null}
+   */
+  #ParseDeterministicResponseConfig(ArgResponse) {
+    if(!ArgResponse || typeof ArgResponse !== 'object') return null;
+
+    const ResponseType = /** @type {{ type?: string }} */ (ArgResponse).type;
+    if(ResponseType === 'static-text') {
+      const TextValue = /** @type {{ text?: string }} */ (ArgResponse).text;
+      if(typeof TextValue !== 'string' || TextValue.trim().length === 0) return null;
+
+      return { type: 'static-text', text: TextValue };
+    }
+
+    if(ResponseType === 'reminders-for-user') {
+      const UserMentionValue = /** @type {{ userMention?: string }} */ (ArgResponse).userMention;
+      if(typeof UserMentionValue !== 'string' || UserMentionValue.trim().length === 0) return null;
+
+      const LimitToCurrentChannel = /** @type {{ limitToCurrentChannel?: boolean }} */ (ArgResponse).limitToCurrentChannel;
+      return {
+        type: 'reminders-for-user',
+        userMention: UserMentionValue,
+        limitToCurrentChannel: LimitToCurrentChannel === true,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Handle octagonal_sign (🛑) reaction — stops handsfree mode and posts a confirmation.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').ReactionAddedEventInfo} ArgEventInfo Reaction event information.
+   * @returns {Promise<boolean>}
+   */
+  async #HandleStopReactionAsync(ArgSlackApp, ArgEventInfo) {
+    try {
+      // resolve the thread root ts — the reacted message could be the root or a reply.
+      const ThreadTs = await ArgSlackApp.GetMessageThreadTsAsync(
+        ArgEventInfo.item.channel, ArgEventInfo.item.ts
+      );
+      if(!ThreadTs) return false;
+
+      // fetch the full thread to check if handsfree mode is active.
+      const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(
+        ArgEventInfo.item.channel, ThreadTs
+      );
+      const FirstMessage = ThreadMessages[0];
+      if(!FirstMessage?.text?.includes(ArgSlackApp.AppMentionString)) return false;
+
+      // post the confirmation reply in the thread.
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.item.channel, ThreadTs,
+        "Got it, I'll stop monitoring this thread unless you tag me again."
+      );
+      return true;
+    } catch(error) {
+      ArgSlackApp.Logger.warn('handsfree stop reaction: failed to process octagonal_sign:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Handle `:bug:` reaction by filing a GitHub issue for a Sleuth-authored message.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').ReactionAddedEventInfo} ArgEventInfo Reaction event information.
+   * @returns {Promise<boolean>}
+   */
+  async #HandleBugReportReactionAsync(ArgSlackApp, ArgEventInfo) {
+    let ReplyTS = ArgEventInfo.item.ts;
+
+    try {
+      const ThreadRootTS = await ArgSlackApp.GetMessageThreadTsAsync(
+        ArgEventInfo.item.channel,
+        ArgEventInfo.item.ts
+      );
+      if(ThreadRootTS) ReplyTS = ThreadRootTS;
+
+      const HasAccess = await ArgSlackApp.IsAdminOrOwnerAsync(ArgEventInfo.user);
+      if(!HasAccess) {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          'sorry, only workspace admins or owners can file GitHub bug reports from reactions.'
+        );
+        return true;
+      }
+
+      const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(
+        ArgEventInfo.item.channel,
+        ReplyTS
+      );
+      const ReactedMessage = ThreadMessages.find((ArgMessage) => ArgMessage.ts === ArgEventInfo.item.ts);
+      if(!ReactedMessage || typeof ReactedMessage.text !== 'string') return false;
+
+      const MessageMetadata = await ArgSlackApp.GetMessageMetadataAsync(
+        ArgEventInfo.item.channel,
+        ArgEventInfo.item.ts
+      );
+      if(!this.#IsSleuthAuthoredMessage(ArgSlackApp, ReactedMessage, MessageMetadata)) {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          'the :bug: reaction only files GitHub issues for Sleuth-authored messages.'
+        );
+        return true;
+      }
+
+      const ChannelName = await ArgSlackApp.GetChannelNameAsync(ArgEventInfo.item.channel);
+      const Permalink = await ArgSlackApp.GetPermaLinkAsync(ArgEventInfo.item.channel, ArgEventInfo.item.ts, ReplyTS);
+      const ReportedByName = (await ArgSlackApp.GetUserDisplayNameAsync(ArgEventInfo.user))
+        || ArgEventInfo.user
+        || 'Unknown';
+      // GH-428: resolve raw `<@U...>` mentions to display names before this text leaves Slack —
+      // Slack's own client resolves them automatically, but a GitHub issue body/title cannot.
+      const ResolvedMessageText = await ResolveMentionsForExternalDisplayAsync(ArgSlackApp, ReactedMessage.text);
+      const ExistingBugReport = await this.#FindExistingBugReportAsync(
+        ArgSlackApp,
+        ArgEventInfo.item.channel,
+        ArgEventInfo.item.ts
+      );
+      if(ExistingBugReport) {
+        const ExistingIssueSuffix = ExistingBugReport.GitHubIssueUrl
+          ? `: #${ExistingBugReport.GitHubIssueNumber} ${ExistingBugReport.GitHubIssueUrl}`
+          : '.';
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          `A GitHub bug report was already filed for this message${ExistingIssueSuffix}`
+        );
+        return true;
+      }
+
+      const Title = this.#BuildBugReportIssueTitle(ResolvedMessageText);
+      const Body = this.#BuildBugReportIssueBody(ArgSlackApp, {
+        ChannelID: ArgEventInfo.item.channel,
+        ChannelName,
+        MessageText: ResolvedMessageText,
+        MessageTS: ArgEventInfo.item.ts,
+        ThreadRootTS: ReplyTS,
+        Permalink,
+        ReportedByName,
+        MessageMetadata,
+      });
+      const Result = await FileGithubIssueAsync(ArgSlackApp.WorkspaceInfo, Title, Body);
+
+      if(Result.ok) {
+        await this.#AppendBugReportAsync({
+          Kind: 'bug',
+          WorkspaceName: ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME || 'unknown',
+          ChannelID: ArgEventInfo.item.channel,
+          MessageTS: ArgEventInfo.item.ts,
+          ThreadRootTS: ReplyTS,
+          ReportedByUserID: ArgEventInfo.user,
+          ReportedByName,
+          GitHubIssueNumber: Result.number,
+          GitHubIssueUrl: Result.htmlUrl,
+          GitHubRepo: Result.repo,
+          CreatedAt: new Date().toISOString(),
+        });
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          `You've reported an issue with Sleuth - bug filed under GH ${Result.number} (${Result.htmlUrl}). We'll review and resolve ASAP.`
+        );
+        return true;
+      }
+
+      if(Result.reason === 'no-pat') {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          'cannot file a GitHub issue: `GITHUB_PAT` is not configured for this workspace.'
+        );
+        return true;
+      }
+
+      if(Result.reason === 'forbidden') {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          "couldn't file the GitHub issue: `GITHUB_PAT` lacks permission (filing issues requires `issues:write` scope)."
+        );
+        return true;
+      }
+
+      if(Result.reason === 'github-error') {
+        ArgSlackApp.Logger.warn(`[bug-reaction] GitHub API returned ${Result.status} for ${Result.apiUrl}`);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          `couldn't file the GitHub issue (GitHub returned ${Result.status}). Check the logs.`
+        );
+        return true;
+      }
+
+      ArgSlackApp.Logger.error('[bug-reaction] failed:', Result.error);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.item.channel,
+        ReplyTS,
+        "Sorry - couldn't file the GitHub issue. Check the logs."
+      );
+      return true;
+    } catch(error) {
+      ArgSlackApp.Logger.error('[bug-reaction] failed:', error);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.item.channel,
+        ReplyTS,
+        "Sorry - couldn't file the GitHub issue. Check the logs."
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Check whether a Slack message was authored by Sleuth itself.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').MessageInfo} ArgMessage Message information.
+   * @param {import('./slack-app').MessageMetadata|null} ArgMessageMetadata Optional Slack metadata.
+   * @returns {boolean}
+   */
+  #IsSleuthAuthoredMessage(ArgSlackApp, ArgMessage, ArgMessageMetadata) {
+    if(typeof ArgMessageMetadata?.event_type === 'string' && ArgMessageMetadata.event_type.startsWith('sleuth-'))
+      return true;
+
+    const BotUserID = ArgSlackApp.BotUserID;
+    return !!BotUserID && ArgMessage.user === BotUserID;
+  }
+
+  /**
+   * Build the GitHub issue title from the reacted-to message. Reuses the shared clean-summary
+   * extractor: it drops quote blocks + "Key task(s):" boilerplate, collapses whitespace, and
+   * truncates to a readable length. A blind `slice(0, 15)` produced raw, mid-token-cut titles like
+   * "A.) <@U072BF6K4" when a reminder-digest line was reacted to (issue #378). No AI synthesis —
+   * still refinable by a human editing the issue.
+   *
+   * Callers must pass text already run through `ResolveMentionsForExternalDisplayAsync` (GH-428) —
+   * any remaining `<@U...>`/`<url|label>`/`<!date…>` markup is stripped to a fallback form here,
+   * not resolved to a name.
+   * @param {string} ArgMessageText Sleuth message text, mentions already resolved to display names.
+   * @returns {string}
+   */
+  #BuildBugReportIssueTitle(ArgMessageText) {
+    if(!ArgMessageText || !ArgMessageText.trim()) return 'Sleuth bug report';
+    const Title = SlackFormatUtils.ExtractCleanSummary(ArgMessageText, { maxLength: 72 });
+    // ExtractCleanSummary is reminder-oriented: input that strips to empty (e.g. a quote-only
+    // message) returns its 'Untitled reminder' fallback. Don't leak that wording into a bug title.
+    return (!Title || Title === 'Untitled reminder') ? 'Sleuth bug report' : Title;
+  }
+
+  /**
+   * Return the absolute path for the bug report log JSON file for this workspace.
+   * @returns {string}
+   */
+  #GetBugReportsFilePath() {
+    const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
+    return path.resolve(
+      path.join(__dirname, '..', 'data', 'runtime', 'bugs', `${WorkspaceName}_bugs.json`)
+    );
+  }
+
+  /**
+   * Load persisted GitHub bug report entries from disk.
+   * Missing files are treated as empty logs.
+   * @returns {Promise<Array<{
+   *   Kind: string,
+   *   WorkspaceName: string,
+   *   ChannelID: string,
+   *   MessageTS: string,
+   *   ThreadRootTS?: string,
+   *   ReportedByUserID?: string,
+   *   ReportedByName?: string,
+   *   GitHubIssueNumber?: number,
+   *   GitHubIssueUrl?: string,
+   *   GitHubRepo?: string,
+   *   CreatedAt?: string
+   * }>>}
+   */
+  async #LoadBugReportsAsync() {
+    const FilePath = this.#GetBugReportsFilePath();
+
+    try {
+      const RawJson = await fs.readFile(FilePath, 'utf8');
+      const Parsed = JSON.parse(RawJson);
+      if(!Array.isArray(Parsed)) return [];
+
+      return Parsed.filter((ArgEntry) => (
+        ArgEntry
+        && typeof ArgEntry.Kind === 'string'
+        && typeof ArgEntry.WorkspaceName === 'string'
+        && typeof ArgEntry.ChannelID === 'string'
+        && typeof ArgEntry.MessageTS === 'string'
+      ));
+    } catch(error) {
+      if(error.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
+  /**
+   * Persist GitHub bug report entries to disk.
+   * @param {Array<object>} ArgEntries Bug report log entries.
+   * @returns {Promise<void>}
+   */
+  async #SaveBugReportsAsync(ArgEntries) {
+    const FilePath = this.#GetBugReportsFilePath();
+    await fs.mkdir(path.dirname(FilePath), { recursive: true });
+    await fs.writeFile(FilePath, JSON.stringify(ArgEntries, null, 2), 'utf8');
+  }
+
+  /**
+   * Find an existing bug-report entry for a Slack message.
+   * De-duplicates by workspace, channel, message ts, and Kind.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Slack channel ID.
+   * @param {string} ArgMessageTS Reacted Slack message ts.
+   * @returns {Promise<{
+   *   Kind: string,
+   *   WorkspaceName: string,
+   *   ChannelID: string,
+   *   MessageTS: string,
+   *   GitHubIssueNumber?: number,
+   *   GitHubIssueUrl?: string
+   * }|null>}
+   */
+  async #FindExistingBugReportAsync(ArgSlackApp, ArgChannelID, ArgMessageTS) {
+    const WorkspaceName = ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME || 'unknown';
+    const Entries = await this.#LoadBugReportsAsync();
+    return Entries.find((ArgEntry) => (
+      ArgEntry.Kind === 'bug'
+      && ArgEntry.WorkspaceName === WorkspaceName
+      && ArgEntry.ChannelID === ArgChannelID
+      && ArgEntry.MessageTS === ArgMessageTS
+    )) || null;
+  }
+
+  /**
+   * Append a bug-report entry to the workspace log.
+   * @param {{
+   *   Kind: 'bug',
+   *   WorkspaceName: string,
+   *   ChannelID: string,
+   *   MessageTS: string,
+   *   ThreadRootTS: string,
+   *   ReportedByUserID: string,
+   *   ReportedByName: string,
+   *   GitHubIssueNumber: number,
+   *   GitHubIssueUrl: string,
+   *   GitHubRepo: string,
+   *   CreatedAt: string
+   * }} ArgEntry Log entry to append.
+   * @returns {Promise<void>}
+   */
+  async #AppendBugReportAsync(ArgEntry) {
+    const Entries = await this.#LoadBugReportsAsync();
+    Entries.push(ArgEntry);
+    await this.#SaveBugReportsAsync(Entries);
+  }
+
+  /**
+   * Build the GitHub issue body for a reacted-to Sleuth message.
+   * `MessageText` must already be resolved via `ResolveMentionsForExternalDisplayAsync` (GH-428) —
+   * this just lays out the fenced code block, it does not touch mention markup.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {{
+   *   ChannelID: string,
+   *   ChannelName: string|null,
+   *   MessageText: string,
+   *   MessageTS: string,
+   *   ThreadRootTS: string,
+   *   Permalink: string|null,
+   *   ReportedByName: string,
+   *   MessageMetadata: import('./slack-app').MessageMetadata|null
+   * }} ArgIssueInfo Message context.
+   * @returns {string}
+   */
+  #BuildBugReportIssueBody(ArgSlackApp, ArgIssueInfo) {
+    const WorkspaceName = ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME || 'unknown';
+    const ChannelLabel = ArgIssueInfo.ChannelName
+      ? `#${ArgIssueInfo.ChannelName}`
+      : ArgIssueInfo.ChannelID;
+    const Lines = [
+      '## Slack bug report',
+      '',
+      `**Workspace:** ${WorkspaceName}`,
+      `**Channel:** ${ChannelLabel}`,
+      `**Reported by:** ${ArgIssueInfo.ReportedByName}`,
+      `**Message ts:** ${ArgIssueInfo.MessageTS}`,
+      `**Thread root ts:** ${ArgIssueInfo.ThreadRootTS}`,
+    ];
+
+    if(typeof ArgIssueInfo.MessageMetadata?.event_type === 'string')
+      Lines.push(`**Sleuth event type:** ${ArgIssueInfo.MessageMetadata.event_type}`);
+
+    if(ArgIssueInfo.Permalink) {
+      Lines.push('');
+      Lines.push(`[View Slack message](${ArgIssueInfo.Permalink})`);
+    }
+
+    Lines.push('');
+    Lines.push('## Sleuth message');
+    Lines.push('');
+    Lines.push('````');
+    Lines.push(ArgIssueInfo.MessageText);
+    Lines.push('````');
+    Lines.push('');
+    Lines.push('---');
+    Lines.push('_Filed from Slack by Sleuth_');
+
+    return Lines.join('\n');
+  }
+
+  /**
+   * Check if the app should respond to a message based on thread context and reactions.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').MessageEventInfo} ArgEventInfo Message event information.
+   * @returns {Promise<{ ShouldRespond: boolean, IsStopping?: boolean }>}
+   */
+  async #ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo) {
+    try {
+      // a 1:1 DM is an inherently personal, user-initiated conversation — always respond, regardless
+      // of mentions or thread state. This must run before the mention/thread checks below: those exist
+      // to keep hands-free mode from firing in shared channels, but a DM has no other participants to
+      // mention and no hands-free ceremony to opt into (GH-412).
+      if(ArgEventInfo.channel_type === 'im') return { ShouldRespond: true, IsStopping: false };
+
+      // we don't want to respond to messages that mention other users directly. NOTE: if the message mentions the
+      // app directly, it will be handled by the app_mention event handler and we should never reach this point.
+      if(ArgEventInfo.text.includes('<@')) return { ShouldRespond: false };
+
+      // if the message is not part of a thread, then it is a top-level message and we only respond to those
+      // if they mention the app directly which is handled by the app_mention event handler.
+      if(!ArgEventInfo.thread_ts) return { ShouldRespond: false };
+
+      // get all messages in the thread.
+      const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(
+        ArgEventInfo.channel, ArgEventInfo.thread_ts
+      );
+
+      // check if the first message in thread has an app mention (hands-free mode).
+      const FirstMessage = ThreadMessages[0];
+      const ThreadStartsWithMention = FirstMessage?.text.includes(ArgSlackApp.AppMentionString);
+
+      // find the last bell/no_bell/octagonal_sign reaction in the thread to determine current state. Initially,
+      // we auto-respond if the thread starts with an app mention, but this can be overridden by reactions below.
+      let ShouldAutoRespond = ThreadStartsWithMention;
+
+      // messages are ordered chronologically, so iterate through them to track state changes.
+      for(const Message of ThreadMessages) {
+        // we only care about messages with reactions so skip those without any.
+        if(!Message.reactions) continue;
+
+        // check for bell/no_bell/octagonal_sign reactions in this message. These control auto-response behavior.
+        const HasBell = Message.reactions.includes('bell');
+        const HasNoBell = Message.reactions.includes('no_bell');
+        const HasStop = Message.reactions.includes('octagonal_sign');
+
+        // update state based on reactions (last one wins). bell re-enables, no_bell and octagonal_sign disable.
+        if(HasBell) ShouldAutoRespond = true;
+        if(HasNoBell || HasStop) ShouldAutoRespond = false;
+      }
+
+      // return the final auto-response state.
+      return { ShouldRespond: ShouldAutoRespond, IsStopping: false };
+    } catch(error) {
+      // log any errors that occur during message processing and return false to indicate that the event was not handled.
+      ArgSlackApp.Logger.error("Error in ShouldRespondToMessageAsync:", error);
+      return { ShouldRespond: false };
+    }
+  }
+
+  /**
+   * Return the absolute path for the thread memory JSON file for this workspace.
+   * @returns {string}
+   */
+  #GetThreadMemoryFilePath() {
+    const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
+    return path.resolve(
+      path.join(__dirname, '..', 'data', 'runtime', 'context-memory', `${WorkspaceName}_thread_memory.json`)
+    );
+  }
+
+  /**
+   * Load persisted thread context memory from disk into the in-memory map.
+   * Missing files are silently ignored (first run or memory never populated).
+   * @returns {Promise<void>}
+   */
+  async #LoadThreadMemoryAsync() {
+    try {
+      const FilePath = this.#GetThreadMemoryFilePath();
+      const RawJson = await fs.readFile(FilePath, 'utf8');
+      const Parsed = JSON.parse(RawJson);
+      if(Parsed && typeof Parsed === 'object') {
+        for(const [Key, Value] of Object.entries(Parsed)) {
+          if(Value && typeof Value.filename === 'string' && typeof Value.content === 'string')
+            this.#ThreadContextMemory.set(Key, { filename: Value.filename, content: Value.content });
+        }
+      }
+      this.#SlackApp.Logger.info(`thread context memory loaded (${this.#ThreadContextMemory.size} entries).`);
+    } catch(error) {
+      if(error.code !== 'ENOENT')
+        this.#SlackApp.Logger.error('failed to load thread context memory:', error);
+    }
+  }
+
+  /**
+   * Persist the current thread context memory map to disk.
+   * @returns {Promise<void>}
+   */
+  async #SaveThreadMemoryAsync() {
+    try {
+      const FilePath = this.#GetThreadMemoryFilePath();
+      await fs.mkdir(path.dirname(FilePath), { recursive: true });
+      await fs.writeFile(FilePath, JSON.stringify(Object.fromEntries(this.#ThreadContextMemory)), 'utf8');
+    } catch(error) {
+      this.#SlackApp.Logger.error('failed to save thread context memory:', error);
+    }
+  }
+
+  /**
+   * Detect an uploaded MD file in the event, download it, and store as thread context memory.
+   * Only processes when the event is in a thread (thread_ts is set). Replaces any prior memory
+   * for the same thread. Posts a confirmation reply on success, or an error reply on oversized files.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @param {boolean} [ArgSuppressConfirmation] When true, skip the "I've loaded…" confirmation post.
+   *   Pass true when question text is present alongside the upload so the confirmation does not
+   *   contaminate the same-turn thread context that the AI will read immediately afterwards.
+   * @returns {Promise<{ FoundContextFile: boolean, FileWasStored: boolean }>}
+   *   `FoundContextFile` is true whenever an attachment was recognized as something to act on
+   *   (a text file, an oversized/failed text file, or an unsupported binary) so the caller stops
+   *   instead of falling through to an ungrounded AI answer.
+   */
+  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false) {
+    // accept any text-readable attachment (Markdown, plain text, code, logs, CSV/JSON/YAML, SQL,
+    // and Slack code snippets) — not just `.md`. See src/context-file-classifier.js for the rules.
+    const Selection = SelectContextMemoryFile(ArgEventInfo.files);
+    if(Selection.Kind === 'no-files')
+      return { FoundContextFile: false, FileWasStored: false };
+
+    const ReplyThreadTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
+
+    // a file is attached but none of the attachments are text-readable (image, PDF, archive, etc.).
+    // Tell the user explicitly instead of silently falling through to an ungrounded AI answer that
+    // claims "I don't see any files" — the exact failure mode this method guards against.
+    if(Selection.Kind === 'unsupported') {
+      const UnsupportedFile = Selection.File;
+      const Descriptor = IsBinaryMediaFile(UnsupportedFile) ? 'a binary' : 'an unsupported';
+      ArgSlackApp.Logger.info(
+        `[TryStoreThreadMemoryFile] ignoring ${Descriptor} attachment '${UnsupportedFile.name}' (mimetype: ${UnsupportedFile.mimetype || 'unknown'})`
+      );
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyThreadTS,
+        `I can only read text-based files as context — Markdown, plain text, code, logs, CSV/JSON/YAML, SQL, and Slack code snippets. *${UnsupportedFile.name}* isn't a text file I can analyze.`
+      );
+      return { FoundContextFile: true, FileWasStored: false };
+    }
+
+    const ContextFile = Selection.File;
+
+    const MaxFileSizeBytes = 200 * 1024;
+    if(ContextFile.size > MaxFileSizeBytes) {
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyThreadTS,
+        `The file *${ContextFile.name}* is too large to use as context memory (max 200 KB). Please upload a smaller file.`
+      );
+      return { FoundContextFile: true, FileWasStored: false };
+    }
+
+    let Content = '';
+    try {
+      const DownloadURL = ContextFile.url_private_download ?? ContextFile.url_private;
+      const DownloadHost = SlackApp.GetSafeUrlHostForLog(DownloadURL);
+      ArgSlackApp.Logger.info(
+        `[TryStoreThreadMemoryFile] url_private_download present: ${!!ContextFile.url_private_download} | host: ${DownloadHost}`
+      );
+      Content = await ArgSlackApp.GetFileContentAsync(DownloadURL);
+    } catch(error) {
+      ArgSlackApp.Logger.error(`failed to download context memory file '${ContextFile.name}':`, error);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyThreadTS,
+        `I couldn't download *${ContextFile.name}* right now (Slack file access failed). Please try uploading it again.`
+      );
+      return { FoundContextFile: true, FileWasStored: false };
+    }
+
+    if(LooksLikeHtmlErrorPage(Content)) {
+      ArgSlackApp.Logger.error(`context memory file '${ContextFile.name}' returned HTML — likely unauthenticated redirect`);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyThreadTS,
+        `I couldn't read *${ContextFile.name}* — Slack returned a page instead of the file content. Please try uploading it again.`
+      );
+      return { FoundContextFile: true, FileWasStored: false };
+    }
+
+    const ThreadKey = `${ArgEventInfo.channel}:${ArgEventInfo.thread_ts ?? ArgEventInfo.ts}`;
+    this.#ThreadContextMemory.set(ThreadKey, { filename: ContextFile.name, content: Content });
+    await this.#SaveThreadMemoryAsync();
+
+    if(!ArgSuppressConfirmation) {
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyThreadTS,
+        `I've loaded *${ContextFile.name}* as context memory for this thread. I'll reference it in every response here.`
+      );
+    }
+    return { FoundContextFile: true, FileWasStored: true };
+  }
+
+  /**
+   * Build a log-safe summary for inbound chat events that may include Slack file metadata.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @returns {{ channel: string, user: string, ts: string, thread_ts?: string, text: string, files?: Array<{ name: string, size: number, host: string, hasDownloadUrl: boolean }> }}
+   */
+  static #BuildSafeInboundEventLogInfo(ArgEventInfo) {
+    return {
+      channel: ArgEventInfo.channel,
+      user: ArgEventInfo.user,
+      ts: ArgEventInfo.ts,
+      thread_ts: ArgEventInfo.thread_ts,
+      text: ArgEventInfo.text,
+      files: ArgEventInfo.files?.map((ArgFile) => ({
+        name: ArgFile.name,
+        size: ArgFile.size,
+        host: SlackApp.GetSafeUrlHostForLog(ArgFile.url_private_download ?? ArgFile.url_private ?? ''),
+        hasDownloadUrl: !!ArgFile.url_private_download,
+      })),
+    };
+  }
+
+  /**
+   * Gather context from a Slack thread.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Channel ID where the thread is located.
+   * @param {string} ArgThreadTS Timestamp of the parent message of the thread.
+   * @returns {Promise<string>}
+   */
+  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS) {
+    // get all the messages in the thread.
+    const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS);
+
+    // concatenate all the messages in the thread into a single message.
+    const ThreadText = ThreadMessages.reduce((ArgAccumulatedText, ArgCurrentMessage) => {
+      // compose the message text according to the structure described in the chat-instructions.md file. These
+      // details are used to provide context to the AI model so it can answer questions based on the context
+      // (e.g. "Summarize everything said by @UserX in this thread").
+      const MessageText =
+        `Message Sender ID: <@${ArgCurrentMessage.user}>\n` +
+        `Message Sender Role: ${ArgCurrentMessage.bot_id ? "assistant" : "user"}\n` +
+        `Message Sent On: ${new Date(Number(ArgCurrentMessage.ts) * 1000).toUTCString()}\n` +
+        `Message Text (Triple Quoted): """\n${ArgCurrentMessage.text}\n"""`;
+
+      // return the accumulated text with the current message appended and separated by a line of dashes.
+      return ArgAccumulatedText + MessageText + `\n${"-".repeat(5)}\n`;
+    }, "");
+
+    // prepend context memory file content if one has been stored for this thread.
+    const MemoryKey = `${ArgChannelID}:${ArgThreadTS}`;
+    const Memory = this.#ThreadContextMemory.get(MemoryKey);
+    if(!Memory) return ThreadText;
+
+    const MemoryPrefix =
+      `=== Context Memory File: ${Memory.filename} ===\n` +
+      `${Memory.content}\n` +
+      `=== End Context Memory ===\n\n`;
+    return MemoryPrefix + ThreadText;
+  }
+
+  /**
+   * Prepare chat system instructions by replacing placeholders so they are ready to be sent to the OpenAI chat API.
+   * @returns {Promise<string>}
+   */
+  async #PrepareSystemInstructionsAsync() {
+    // load the system instructions template if not already loaded.
+    if(!this.#SystemInstructionsTemplate) {
+      // build the file path dynamically (this assumes we are in the /src folder and are looking for the file in
+      // the /data/static/ai folder, both of which are rooted in the project folder).
+      const TargetFilePath = path.join(__dirname, '..', 'data', 'static', 'ai', 'chat-instructions.md');
+
+      // read the file, replace static placeholders which don't change at runtime and cache the result.
+      let TargetInstructions = await fs.readFile(TargetFilePath, 'utf8');
+      TargetInstructions = TargetInstructions.replace('{{OPENAI_MODEL_NAME}}', this.#WorkspaceAI.DefaultModelName);
+      this.#SystemInstructionsTemplate = TargetInstructions;
+    }
+
+    // replace dynamic placeholders and return the resulting system instructions without modifying the template.
+    return this.#SystemInstructionsTemplate.replace('{{CURRENT_DATETIME_UTC}}', new Date().toISOString());
+  }
+
+  /**
+   * Format message text to ensure compatibility with Slack formatting.
+   * @param {string} ArgMessageText Message text to format (received from OpenAI).
+   * @returns {string}
+   */
+  #FormatMessageForSlack(ArgMessageText) {
+    // the Context Memory File block (see #GatherThreadContextAsync and chat-instructions.md) is input-only context
+    // that the model is told never to echo. Defensively strip any leaked block — and any orphaned marker lines — so
+    // the internal delimiters never reach Slack even if the model parrots them back.
+    let FormattedText = ArgMessageText
+      .replace(/===\s*Context Memory File:[\s\S]*?===\s*End Context Memory\s*===\n*/g, '')
+      .replace(/^[ \t]*===\s*(?:Context Memory File:.*|End Context Memory)\s*===[ \t]*\n?/gm, '')
+      .replace(/^\s+/, '');
+
+    // sometimes the model uses three hashes to indicate a heading, which is not supported in Slack. We need to replace
+    // the three hashes with something that will make the text stand out in Slack (we'll strip the hashes, wrap the text
+    // in asterisks to make it bold, and prefix it with :point_right: emoji).
+    FormattedText = FormattedText.replace(/### (.+)$/gm, ':point_right: *$1*');
+
+    // sometimes the model uses double asterisks to indicate bold text, which is not supported in Slack. We need to
+    // replace the double asterisks with the appropriate Slack syntax for bold text. NOTE: since we may add asterisks
+    // in the previous step, we generally replace two or more asterisks with a single asterisk to avoid making the text
+    // too bold.
+    FormattedText = FormattedText.replace(/\*{2,}/g, '*');
+
+    // return the formatted text.
+    return FormattedText;
+  }
+}
+
+// export the class.
+module.exports = ChatModule;
