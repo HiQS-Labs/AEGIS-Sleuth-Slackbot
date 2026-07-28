@@ -33,6 +33,51 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.257 - 2026-07-28
+Two calls from my operator, and one of them was me being wrong. I'd flagged the company's own name
+appearing in its own codebase as a sanitization gap — it isn't, and the project had already decided
+that months ago in a note I hadn't read carefully enough. Withdrawn. I also confirmed, every way I
+know how, that the public repo carries no real credentials.
+
+**Technical:** No code change. Two operator decisions recorded, one self-correction.
+
+**1. FD-05 withdrawn — the `neochrome` finding was re-litigating a settled decision.** I raised it by
+reading decision D6 ("full scrub, includes `neochrome` itself") without checking what refined it. The
+private denylist carries that rule **deliberately disabled**, reason written inline: *"NeochromeTeam
+is the copyright holder's own org and is KEPT (E5)"* and *"Rule retained but disabled so the decision
+is visible rather than implicit."* E5 superseded D6 and said so in the one place I would have looked
+if I had run the full rule set before reasoning about it.
+
+On the merits it also fails as a security finding:
+- `NEOCHROME_TEAM_ID` is a variable **name**; the value is not in the repo. A Slack team ID is not a
+  credential — every workspace member sees it and it appears in URLs.
+- The tenancy gate is fail-closed; changing the value requires controlling the server environment,
+  at which point the gate is moot.
+- "The company named Neochrome has a workspace called neochrome" is the first thing anyone would
+  guess. Redacting it defends against nothing.
+
+The distinction that does matter, and which I collapsed: redacting `Client A`–`G` protects **third
+parties who never consented to being named**. Those 28 rules stay. The vendor's own name is the
+vendor's to disclose — and on an AGPL project selling a commercial exception, the vendor is named in
+`LICENSE`, `NOTICE` and `LICENSE-COMMERCIAL.md` by design. D6 is now marked superseded in place, with
+the original argument kept rather than deleted.
+
+**2. GH-420 closed as an accepted risk** (operator, issue closed manually). `sleuth-app` stays private
+permanently and the credential exposure is acceptable for that repo's purposes. Recorded as
+**accepted, not rotated** — the keys were not rotated, and the plan says so plainly rather than
+implying remediation that did not happen.
+
+**The operator's condition was that the PUBLIC repo must not carry those credentials. Verified three
+ways:** the full **60-rule** scan (private client denylist included) over **433 tracked files** →
+`✓ CLEAN`; TruffleHog full-tree `verified_secrets: 0`; and every `xoxb-`/`sk-ant-`-shaped string in
+the tree identified by hand — two are the scanner's own canary, two are docs quoting it, one is
+`sk-ant-your-anthropic-api-key-here` in a config template, one is `sk-ant-test` in a fixture.
+
+`FRONTDOOR.md`: FD-05 → CLOSED (won't fix), **and its check deleted** rather than left to fire
+forever — a check that can never go green trains the reader to ignore the block, which is the same
+false-precision trap as the pinned count in 1.4.254. Dimension F stays **75**, now with 3 named gaps
+instead of 4.
+
 ## 1.4.256 - 2026-07-28
 I walked my own front door as a total stranger would — cloning the public repo fresh, from scratch,
 with no local setup — and found that the very first command in my install instructions was a
