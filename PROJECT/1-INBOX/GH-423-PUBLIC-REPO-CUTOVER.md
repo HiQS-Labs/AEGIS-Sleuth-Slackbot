@@ -5,7 +5,7 @@ title: "Stand up a public, zero-history Sleuth repo (sanitized docs + AGPL/comme
 status: "Published 2026-07-28 — Phases 0-6 complete; Phase 7 (cutover) out of scope per E11"
 created: 2026-07-20
 doc_type: project
-related: "GH-420 (committed credentials) — RECLASSIFIED: not a publication gate (zero-history repo, clean scans), but still OPEN and urgent on the private repo"
+related: "GH-420 (committed credentials) — never a publication gate (zero-history repo, clean scans); CLOSED 2026-07-28 by the operator as an accepted risk, not rotated"
 target_window: 2026-07-20 → 2026-07-27 (7 days); published 2026-07-28, one day over
 ---
 
@@ -97,14 +97,15 @@ different speeds and blending them hides which one is stuck.
 **Weighted:** `20 + 10 + 10 + 10 + 15 + 7.5 + 7.5 + 5 + 10 = 95 / 100`
 **Artifact (A–G):** `80 / 85 = 94%`
 
-> **Note the shape of this update (2026-07-28).** Publication readiness did not move — **I** gained
-> 2.5 (the repo is public with every protection enabled) and **G** lost exactly 2.5 (its evidence
-> cited a CI run that scanned zero bytes). Artifact readiness fell **99% → 96%**. A static headline
-> hiding two real movements in opposite directions is the argument for keeping the two numbers
-> separate, and for the rule that a dimension is scored on what its check *observed*, never on the
-> fact that a green tick appeared.
+> **Note the shape of 2026-07-28.** Three dimensions moved and the headline barely did. **I** +2.5
+> (public, all protections on); **G** −2.5 (its evidence cited a CI run that scanned **0 bytes**);
+> **F** −1.5 (90 was never a legal value under this rubric's own 0/25/50/75/100 rule). Net:
+> publication **96.5% → 95%**, artifact **99% → 94%**. At one point in the day publication was
+> *unchanged* while two dimensions moved 2.5 in opposite directions — which is the argument for
+> keeping the two numbers separate, and for the rule that a dimension is scored on what its check
+> *observed*, never on the fact that a green tick appeared.
 
-### What the remaining 3.5% actually is
+### What the remaining 5% actually is
 
 **Every item on the original list is now done** — the repo is public with all protections on. What
 remains is a different, smaller set, and none of it blocks anything:
@@ -133,10 +134,14 @@ remains is a different, smaller set, and none of it blocks anything:
 > commercially licensed build. It is now answered *before* the repo is public, which was the point
 > of deciding it here rather than at first PR.
 
-**Deliberately excluded from this rubric:** GH-420 credential rotation. The public RC carries zero
-history and both TruffleHog passes are clean, so rotation cannot gate *publication*. It remains a
-real and separate security obligation on **this private repo**, owned by GH-420. Scoring it here
-would make the publication number wrong in both directions — it isn't blocking, and it isn't done.
+**Deliberately excluded from this rubric:** GH-420 credential rotation. The public repo carries zero
+history and every scan is clean, so rotation could never gate *publication*; scoring it here would
+have made the number wrong in both directions. **Resolved 2026-07-28** — the operator closed GH-420
+as an **accepted risk**: `sleuth-app` stays private permanently and the exposure is acceptable for
+that repo. Recorded as *accepted, not rotated*; the keys were not rotated. The condition attached to
+it — that the **public** repo carry none of those credentials — is verified three ways (60-rule scan
+CLEAN over 433 files, TruffleHog full-tree `verified_secrets: 0`, every token-shaped string
+identified by hand).
 
 ### Re-scoring — run these, then update the table
 
@@ -464,11 +469,13 @@ routes; a dedicated `licensing@` alias is a one-line swap in `LICENSE-COMMERCIAL
 - [x] **Run `/front-door` against the sanitized tree** — see below
 - [x] Fix every finding classed as *human-blocking* friction; log agent-absorbable friction as
       follow-up issues rather than fixing inline
-- [ ] **OPEN.** Save the audit as `FRONTDOOR.md` in the new repo — it's a re-runnable health board
-      with a deterministic check per finding, so onboarding rot is detectable later instead of
-      discovered by a stranger. **Not written:** the board mode is opt-in and was not taken, so the
-      front-door record is prose in CHANGELOG v1.4.245. Re-scoring onboarding later means re-running
-      the skill rather than reading a board. Belongs in the new repo
+- [x] **DONE 2026-07-28.** Save the audit as `FRONTDOOR.md` in the new repo — a re-runnable health
+      board with a deterministic check per finding, so onboarding rot is detectable later instead of
+      discovered by a stranger. Written from the fresh-clone re-run: 6 findings (FD-01…FD-06), 2 fixed
+      immediately, 1 withdrawn, 3 open with a check each. Invariant is **empty output = all green**;
+      read-only by construction (never runs the repo's own scripts or tests). **Its checks block was
+      executed, not just written** — the first extraction produced an empty file and therefore a
+      silent all-green, which is the same false-green class as everything else found this week
 
 **Exit:** a doc set a stranger can act on, verified by front-door rather than asserted.
 
@@ -634,7 +641,7 @@ Still open:
 
 4. Does the public `CHANGELOG` keep the existing `v1.4.x` numbering, or does the public release
    reset to `v2.0.0` with prior entries preserved beneath it? **Currently still `v1.4.x`** (now
-   `1.4.255`) — the default happened by continuing to ship, not by a decision. Worth deciding
+   `1.4.258`) — the default happened by continuing to ship, not by a decision. Worth deciding
    deliberately, since a public `v1.x` implies a stability promise the internal numbering never made
 5. ~~**GH-420 credential rotation**~~ → **CLOSED by the operator, 2026-07-28, as an accepted risk.**
    `sleuth-app` stays private permanently, and the exposure is acceptable for that repo's purposes.
