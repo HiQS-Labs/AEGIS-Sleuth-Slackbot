@@ -33,6 +33,55 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.254 - 2026-07-28
+My secret scanner in CI was only ever checking the files that changed in each commit — not the whole
+codebase. On the very first push it checked *nothing at all* and still showed a green tick. I've
+fixed that: the full codebase now gets scanned on a schedule and on demand, and I've confirmed it
+really does read all of it. Nothing bad was hiding — the full scan came back clean — but a check that
+quietly looks at nothing is worse than no check, because it tells you you're safe.
+
+**Technical:** The TruffleHog GitHub Action derives its scan range from the triggering event, so on
+`push` and `pull_request` it scans only that event's diff. Measured from the run logs:
+
+| Run | Event | Scanned |
+|---|---|---|
+| `30318895391` | `push` (initial commit) | **`chunks: 0, bytes: 0`** |
+| `30321845101` | `pull_request` | `chunks: 10, bytes: 10436` (4 changed files) |
+| `30322218876` | `workflow_dispatch` (after fix) | **`chunks: 751, bytes: 5435279`** |
+
+The zero-byte run is the action's documented behaviour, not a misconfiguration: on a first push
+`github.event.before` is the zero SHA, so it sets `BASE=""` but keeps `HEAD=<detached sha>`, and
+`--branch <sha>` matches no branch. Result: a gate that passed having examined nothing.
+
+The action already ships a whole-repo path — it resolves `schedule` and `workflow_dispatch` to
+`BASE="" HEAD=""` — but neither event was declared, leaving it unreachable. Declared both
+(`cron: '0 9 * * 1'` + manual dispatch) and **verified by running it**: 5,435,279 bytes over 751
+chunks against 5,430,106 bytes of tracked content, **0 verified secrets**.
+
+Two unverified findings surfaced, both decoys, both deliberately left in place:
+- `docs/server-installation-guide.md:288` — `https://your-email:your-token@github.com`, a doc placeholder
+- `utils/sanitize-scan.sh:263` — `xoxb-1234567890-9876543210-xxxSECRETxxx`, the scanner's **own canary**,
+  the fake token it greps for to prove grep works before it scans anything
+
+Suppressing them was rejected: a scanner configured to ignore its own canary can no longer report
+that it is working.
+
+Also corrected two things that were wrong in the record rather than in the code:
+- `GH-423`'s re-score command was `trufflehog filesystem . --results=verified,unknown` while asserting
+  "expect 0 unverified" — it filtered `unverified` out of the printout, so the number it told you to
+  confirm could not appear. Now `trufflehog git` with `unverified` listed, and the 2 expected decoys
+  documented inline. (`filesystem .` also scans `.git/objects`, triple-counting the same strings:
+  14.8 MB / 1802 chunks / 7 hits vs 5.4 MB / 751 chunks / 2 hits.)
+- The `ci.yml` step comment claimed the action handled "first pushes and empty diffs". That is exactly
+  the case where it scanned zero bytes.
+
+Rubric: **G 100 → 75** (named gaps: push/PR still scan diff-only, so whole-tree verified-credential
+coverage rides on a cron GitHub disables after 60 days of inactivity; CI still runs 32 of 60 rules).
+**I 75 → 100** (repo public, verified anonymously; secret scanning, push protection, Dependabot and
+branch protection all enabled). Publication readiness unchanged at 96.5%; **artifact readiness
+99% → 96%**. Compensating control for the diff-only gap: `sanitize-scan.sh` reads every tracked file
+via `git ls-files -z` on every run.
+
 ## 1.4.253 - 2026-07-28
 I'm public now — and the README finally explains the thing that would confuse every new reader: the docs say AEGIS but the code, the settings and the install paths all say Sleuth. That's because I was Sleuth internally for three years, and renaming the internals would break every existing install. Now it's written down as a deliberate choice instead of looking like a half-finished rename.
 

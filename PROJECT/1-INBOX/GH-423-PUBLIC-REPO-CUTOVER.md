@@ -13,8 +13,16 @@ target_window: 2026-07-20 → 2026-07-27 (7 days)
 
 ## Readiness scorecard (rubric)
 
-**Publication readiness: 96.5%** · **Artifact readiness: 99%** — scored 2026-07-27 against branch
-`public/rc-02`, after the checkbox audit.
+**Publication readiness: 96.5%** · **Artifact readiness: 96%** — re-scored 2026-07-28 against the
+**published** repo `hiqs-suite/aegis-sleuth-slack-bot`, after running the gates rather than reading
+them.
+
+> **The number has now moved down twice, for the same reason both times.** The checkbox audit cut it
+> once; running the CI gates cut it again — dimension **G** was resting on a run that reported green
+> having scanned **0 bytes**. Every defect found today (`grep -IL` platform drift, a ghcr tag that
+> 404s, a zero-byte scan, an unverified count nobody could see) was invisible to review and obvious
+> on execution. Three of them survived a two-round adversarial swarm review. **Do not score a
+> dimension on the existence of a gate — score it on what the gate reports it examined.**
 
 > **Trajectory: 71/84 → 69/81 (audit) → 73/86 (Phase 3 complete).** The middle step matters most —
 > the checkbox audit moved the number **down**, because ticking 93 boxes surfaced three things RC-01
@@ -76,18 +84,25 @@ different speeds and blending them hides which one is stuck.
 
 | | Dimension | Weight | Score | Evidence |
 |---|---|---|---|---|
-| **A** | Secret & PII sanitization | 20 | **100** | `sanitize-scan` CLEAN, 60 rules / 427 files. TruffleHog 3.96.0: **0 verified, 0 unverified** on both the filesystem artifact and a simulated zero-history squash |
+| **A** | Secret & PII sanitization | 20 | **100** | `sanitize-scan` CLEAN, 60 rules / 427 files. TruffleHog 3.96.0: **0 verified** on the filesystem artifact, a simulated zero-history squash, and (2026-07-28) the published tree in CI — 5,435,279 bytes / 751 chunks, run `30322218876`. **Evidence corrected 2026-07-28:** this row previously read "0 verified, **0 unverified**". The unverified half was wrong — there are **2**, both decoys that must stay: a `your-email:your-token@github.com` doc placeholder, and the scanner's own `xoxb-…xxxSECRETxxx` canary. It went unnoticed because the documented re-score command passed `--results=verified,unknown`, omitting `unverified` from the printout while the row asserted a count for it. **0 verified is and always was the gate**, and it holds in every mode |
 | **B** | Structural scope (what ships) | 10 | **100** ↑ | 551 → 427 tracked files. `relay-system/`, `phases/`, RAG index, prod dumps, 11 internal docs, `ask_self`, 4 internal workflows, `xyz-tick/` all out; every move logged and reversible. **Audit gap now closed:** the 10 sensitive untracked files (incl. a private SSH key) are quarantined, and the last DROP-list verdict is recorded — **`RELEASES.md` = KEEP** (operator, 2026-07-27), consistent with E7 already shipping all of `PROJECT/` |
 | **C** | Portability from a fresh clone | 10 | **100** ↑ | `/shakedown` fixed both installers' hardcoded repo URLs; slugs are env-driven with no vendor default. **PROVEN 2026-07-27:** cloned fresh from `hiqs-suite` at a foreign path — `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install` configured `core.hooksPath`, and no `/Users/` path leaks. Same suite also green on Linux in CI |
 | **D** | Build & test health | 10 | **100** | jest **1470/1470 across 89 suites**; `tsc` at parity with the `development` baseline (50 pre-existing, no net-new) |
 | **E** | Legal & licensing | 15 | **100** ↑ | **Phase 3 complete (7/7).** `LICENSE` (verbatim AGPL-3.0, cross-verified byte-identical against two upstream copies), `NOTICE`, `LICENSE-COMMERCIAL.md`, `THIRD-PARTY.md` (616 pkgs, zero GPL-incompatible), `CONTRIBUTING.md` (CLA question answered — lightweight inbound grant, DCO rejected with reason), `SECURITY.md`, `package.json` |
 | **F** | Onboarding & public docs | 10 | **90** | README rewritten for an outside reader and graded against `HONEST.md`; `/front-door` run, human-blocking findings fixed. **Gap:** no outsider has actually completed a first run |
-| **G** | Automated gates in CI | 10 | **100** ↑ | **BOTH GATES EXECUTED IN ANGER AND PASSED (2026-07-27).** CI run `30318895391`: all 7 steps green incl. `secret + PII scan`, `TruffleHog verified`, `TruffleHog unverified`. Pre-commit hook independently **blocked a real staged Slack-shaped token** in the fresh clone (commit refused, history unchanged). **Running them found 2 defects that a 2-round adversarial review had missed:** the scanner's `grep -IL` binary detection was platform-dependent (macOS silently reported 0 binaries), and TruffleHog was pinned to a ghcr tag that does not exist (`:v3.96.0` → 404). Neither was catchable by inspection. Residual, stated not hidden: CI still runs **shape rules only** (32 of 60) because the literal denylist cannot ship |
+| **G** | Automated gates in CI | 10 | **75** ↓ | **Scored DOWN from 100 on 2026-07-28 — the previous evidence cited a run that scanned nothing.** It read "BOTH GATES EXECUTED IN ANGER AND PASSED… CI run `30318895391`". That run's TruffleHog steps reported **`chunks: 0, bytes: 0`**: the action derives its range from the event, and on a first push `github.event.before` is the zero SHA, so it scanned zero bytes and reported green. The `pull_request` run `30321845101` was real but scanned only the diff — **10,436 bytes, 4 files**. **Now fixed and PROVEN:** `schedule` + `workflow_dispatch` declared, which the action resolves to its whole-repo path; dispatch run `30322218876` scanned **5,435,279 bytes / 751 chunks, 0 verified** (the 2 unverified are the documented decoys, see A). Pre-commit hook independently **blocked a real staged Slack-shaped token** (commit refused, history unchanged). **Named residual gaps (why this is 75, not 100):** (1) push/PR runs still scan only the event diff, so whole-tree verified-credential coverage rides on the weekly cron — and GitHub **disables scheduled workflows after 60 days of repo inactivity**, silently; (2) CI runs **shape rules only** (32 of 60) because the literal denylist cannot ship. Compensating control for (1): `sanitize-scan.sh` reads **every tracked file** (`git ls-files -z`) on *every* run |
 | **H** | Identity — repo name + org | 5 | **100** ↑ | **Decided 2026-07-27.** Product renamed **Sleuth → AEGIS**. Target repo `hiqs-suite/aegis-sleuth-slack-bot` — **already created, private, empty**, default `main`; operator is org **admin** and the org was already OAuth-authorized, so no new auth wall. Rename scoped to the **product name only** (149 replacements / 25 docs): `SLEUTH_*` env vars (34), code identifiers, `sleuth-app` paths and `@Sleuth` (functional in 18 src files) all deliberately unchanged |
-| **I** | Publication execution | 10 | **75** ↑ | Repo created **private**, zero-history single commit pushed (author *and* committer `Neochrome <devops@neochro.me>`), 432 files, gates re-verified from a real fresh clone, CI green. **Named gap: not flipped public** — the one-way door, deliberately left to the operator. Also blocked until then: secret scanning (`422`) and branch protection (`403`) are unavailable on a private repo on a free org |
+| **I** | Publication execution | 10 | **100** ↑ | **PUBLIC 2026-07-28**, verified anonymously (unauthenticated web `200`, API `private=false`) — not from the authenticated view, which is what caught an earlier flip that had silently not taken. Zero-history single commit (author *and* committer `Neochrome <devops@neochro.me>`), 432 files. Everything the private repo blocked is now on: **secret scanning, push protection, Dependabot security updates**, and **branch protection on `main`** (required check `test`, `enforce_admins`, no force-push, no deletions). Branch protection means changes now land by PR — **PR #1 merged**, which also exercised the `pull_request` CI path for the first time |
 
-**Weighted:** `20 + 10 + 10 + 10 + 15 + 9 + 10 + 5 + 7.5 = 96.5 / 100`
-**Artifact (A–G):** `84 / 85 = 99%`
+**Weighted:** `20 + 10 + 10 + 10 + 15 + 9 + 7.5 + 5 + 10 = 96.5 / 100`
+**Artifact (A–G):** `81.5 / 85 = 96%`
+
+> **Note the shape of this update (2026-07-28).** Publication readiness did not move — **I** gained
+> 2.5 (the repo is public with every protection enabled) and **G** lost exactly 2.5 (its evidence
+> cited a CI run that scanned zero bytes). Artifact readiness fell **99% → 96%**. A static headline
+> hiding two real movements in opposite directions is the argument for keeping the two numbers
+> separate, and for the rule that a dimension is scored on what its check *observed*, never on the
+> fact that a green tick appeared.
 
 ### What the remaining 3.5% actually is
 
@@ -120,7 +135,21 @@ Read-only. Empty output where noted means that dimension holds.
 # A — secret & PII gate (60 rules; the private denylist lives outside the repo)
 ./utils/sanitize-scan.sh --rules temp/moved-private-files/sanitize-rules.private.tsv \
                          --allowlist utils/sanitize-allowlist.txt   # expect: ✓ CLEAN, exit 0
-trufflehog filesystem . --results=verified,unknown --no-update      # expect: 0 verified, 0 unverified
+
+# TruffleHog. Use GIT mode, not `filesystem .` -- filesystem mode also scans `.git/objects`,
+# so the same placeholder gets counted once per compressed blob (14.8MB/1802 chunks and 7 hits,
+# vs 5.4MB/751 chunks and 2 hits for the 5,430,106 bytes actually tracked). And ALWAYS list
+# `unverified` in --results: the old command here said `--results=verified,unknown` while
+# claiming "expect 0 unverified", so it filtered out of the printout the very thing it asked
+# you to confirm. (The summary counter reports them either way -- read that line, not silence.)
+trufflehog git "file://$PWD" --results=verified,unverified,unknown --no-update
+#   expect: verified_secrets: 0   <- this is the gate
+#   expect: unverified_secrets: 2 <- both are DECOYS, and both are supposed to be there:
+#     docs/server-installation-guide.md:288  https://your-email:your-token@github.com  (doc placeholder)
+#     utils/sanitize-scan.sh:263             xoxb-1234567890-9876543210-xxxSECRETxxx   (the scanner's
+#         OWN canary -- the fake token it greps for to prove grep works before it scans anything)
+#   A count other than 2, or any verified finding, is a real result. Do NOT suppress these two:
+#   a scanner configured to ignore its own canary cannot tell you it is still working.
 
 # B — scope: nothing quarantined has crept back
 git ls-files | wc -l                                                # expect: ~427
