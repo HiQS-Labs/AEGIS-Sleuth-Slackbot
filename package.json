@@ -1,6 +1,6 @@
 {
   "name": "aegis",
-  "version": "1.4.255",
+  "version": "1.4.256",
   "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
   "main": "src/app.js",
   "engines": {
@@ -35,7 +35,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/your-repo.git"
+    "url": "git+https://github.com/hiqs-suite/aegis-sleuth-slack-bot.git"
   },
   "author": "neochrome-team",
   "license": "AGPL-3.0-only",
@@ -55,9 +55,9 @@
     ]
   },
   "bugs": {
-    "url": "https://github.com/your-org/your-repo/issues"
+    "url": "https://github.com/hiqs-suite/aegis-sleuth-slack-bot/issues"
   },
-  "homepage": "https://github.com/your-org/your-repo#readme",
+  "homepage": "https://github.com/hiqs-suite/aegis-sleuth-slack-bot#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
     "@modelcontextprotocol/sdk": "^1.29.0",

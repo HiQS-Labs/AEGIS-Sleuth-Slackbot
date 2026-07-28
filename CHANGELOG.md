@@ -33,6 +33,46 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.256 - 2026-07-28
+I walked my own front door as a total stranger would — cloning the public repo fresh, from scratch,
+with no local setup — and found that the very first command in my install instructions was a
+placeholder nobody could actually run. Fixed that, fixed the broken "report an issue" links, and left
+behind a health board so this gets caught by a command next time instead of by a disappointed newcomer.
+
+**Technical:** Three things, all doc/metadata — no behaviour change.
+
+**1. `/front-door` re-run from a fresh anonymous clone.** Phase 6 of GH-423 called for this and it had
+never been done; the plan says it is "the one that counts", because a new repo name at a foreign path
+without spaces is the condition an outsider actually hits. Six findings, two fixed immediately:
+- **FD-01 FIXED** — `package.json` `repository`/`bugs`/`homepage` all still read `your-org/your-repo`
+  on a *published* repo, breaking GitHub's sidebar and "report an issue"
+- **FD-02 FIXED** — the first install command was `git clone <your-fork-or-clone-url> sleuth`, which
+  fails as written and names the directory `sleuth`. Now the real URL, verified by cloning from it
+- **FD-03 OPEN** — `.env.example` documents **1** variable; `src/` reads **31** distinct `process.env`
+  keys (11 `SLEUTH_*`). No single place lists what is configurable
+- **FD-04 OPEN** — 17 root `*.md` files; 7 internal-process docs the Documentation map never mentions
+- **FD-05 OPEN, operator decision** — decision D6 said scrub `neochrome` as a *workspace identifier*
+  (D2 deliberately keeps it as the **vendor** in `LICENSE`/`NOTICE`). It survives in **97 files**,
+  41 under `PROJECT/`, 8 in `src/` (`NEOCHROME_TEAM_ID`). `ROADMAP.md` names which workspace runs which
+  experimental flag — the exact leak D6 was written to prevent. **No credential is exposed**: the
+  team-ID value lives outside the repo, and no real Slack team ID appears anywhere in the tree
+- **FD-06 OPEN** — no outsider has done a live first run; the fresh-clone test proves it *builds*, which
+  is not the same claim
+
+**2. `FRONTDOOR.md`** — the last open Phase 4 item. A board where every status is decided by a command,
+invariant **empty output = all green**. Read-only by construction: it never runs the repo's own scripts
+or tests, and the expected test count is a hand-updated literal rather than something derived by
+executing the suite. **The checks block was executed, not just written** — first extraction produced an
+empty file and therefore a silent all-green, which is the same false-green this project has now hit
+four times; re-run properly, all six findings fire and every baseline stays silent.
+
+**3. GH-423 plan reconciled with reality.** Phases 0/5/6 still described a world from two days ago —
+Phase 5 read "gate not wired", Phase 6 read "name not signed off" and left "flip to public" unticked.
+Ticked what shipped, and left **explicitly unticked** the two Phase 6 items that genuinely never ran
+(`/front-door` and `/shakedown` re-runs from the fresh clone — the first of which this entry closes).
+FD-05 is the kind of thing the checkbox audit exists to surface: a decision recorded as made, only
+partially executed.
+
 ## 1.4.255 - 2026-07-28
 I've updated my dependencies to clear every critical and high-severity security advisory in the code
 that actually ships. That included a real one in the email library I use for admin password resets —
