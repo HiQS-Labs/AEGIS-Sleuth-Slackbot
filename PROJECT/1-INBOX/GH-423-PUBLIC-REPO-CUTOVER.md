@@ -13,7 +13,7 @@ target_window: 2026-07-20 → 2026-07-27 (7 days)
 
 ## Readiness scorecard (rubric)
 
-**Publication readiness: 84%** · **Artifact readiness: 93%** — scored 2026-07-27 against branch
+**Publication readiness: 96.5%** · **Artifact readiness: 99%** — scored 2026-07-27 against branch
 `public/rc-02`, after the checkbox audit.
 
 > **Trajectory: 71/84 → 69/81 (audit) → 73/86 (Phase 3 complete).** The middle step matters most —
@@ -78,18 +78,18 @@ different speeds and blending them hides which one is stuck.
 |---|---|---|---|---|
 | **A** | Secret & PII sanitization | 20 | **100** | `sanitize-scan` CLEAN, 60 rules / 427 files. TruffleHog 3.96.0: **0 verified, 0 unverified** on both the filesystem artifact and a simulated zero-history squash |
 | **B** | Structural scope (what ships) | 10 | **100** ↑ | 551 → 427 tracked files. `relay-system/`, `phases/`, RAG index, prod dumps, 11 internal docs, `ask_self`, 4 internal workflows, `xyz-tick/` all out; every move logged and reversible. **Audit gap now closed:** the 10 sensitive untracked files (incl. a private SSH key) are quarantined, and the last DROP-list verdict is recorded — **`RELEASES.md` = KEEP** (operator, 2026-07-27), consistent with E7 already shipping all of `PROJECT/` |
-| **C** | Portability from a fresh clone | 10 | **75** | `/shakedown` fixed both installers' hardcoded repo URLs; slugs are env-driven with no vendor default. **Gap:** never yet cloned fresh from the real new org — Phase 6 |
+| **C** | Portability from a fresh clone | 10 | **100** ↑ | `/shakedown` fixed both installers' hardcoded repo URLs; slugs are env-driven with no vendor default. **PROVEN 2026-07-27:** cloned fresh from `hiqs-suite` at a foreign path — `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install` configured `core.hooksPath`, and no `/Users/` path leaks. Same suite also green on Linux in CI |
 | **D** | Build & test health | 10 | **100** | jest **1470/1470 across 89 suites**; `tsc` at parity with the `development` baseline (50 pre-existing, no net-new) |
 | **E** | Legal & licensing | 15 | **100** ↑ | **Phase 3 complete (7/7).** `LICENSE` (verbatim AGPL-3.0, cross-verified byte-identical against two upstream copies), `NOTICE`, `LICENSE-COMMERCIAL.md`, `THIRD-PARTY.md` (616 pkgs, zero GPL-incompatible), `CONTRIBUTING.md` (CLA question answered — lightweight inbound grant, DCO rejected with reason), `SECURITY.md`, `package.json` |
 | **F** | Onboarding & public docs | 10 | **90** | README rewritten for an outside reader and graded against `HONEST.md`; `/front-door` run, human-blocking findings fixed. **Gap:** no outsider has actually completed a first run |
-| **G** | Automated gates in CI | 10 | **75** ↑ | **Both gates built and reviewed (XYZ swarm, 2026-07-27).** `ci.yml` runs `sanitize-scan` **and** TruffleHog — SHA-pinned `@6f3c981e…` (verified against the GitHub API = `v3.96.0`, matching the version that cleared the RC), verified findings fail, unverified surfaced non-fatally. `.githooks/pre-commit` + `utils/install-git-hooks.sh` + `npm run hooks:install`; all three exit paths executed (clean `0`, cannot-vouch `2`, missing-scanner `2`). **Not 100 — two named gaps:** neither gate has **ever executed in anger** (no GitHub Actions run, and `core.hooksPath` is currently unset here), and CI still runs **shape rules only** (32 of 60) because the literal denylist cannot ship |
+| **G** | Automated gates in CI | 10 | **100** ↑ | **BOTH GATES EXECUTED IN ANGER AND PASSED (2026-07-27).** CI run `30318895391`: all 7 steps green incl. `secret + PII scan`, `TruffleHog verified`, `TruffleHog unverified`. Pre-commit hook independently **blocked a real staged Slack-shaped token** in the fresh clone (commit refused, history unchanged). **Running them found 2 defects that a 2-round adversarial review had missed:** the scanner's `grep -IL` binary detection was platform-dependent (macOS silently reported 0 binaries), and TruffleHog was pinned to a ghcr tag that does not exist (`:v3.96.0` → 404). Neither was catchable by inspection. Residual, stated not hidden: CI still runs **shape rules only** (32 of 60) because the literal denylist cannot ship |
 | **H** | Identity — repo name + org | 5 | **100** ↑ | **Decided 2026-07-27.** Product renamed **Sleuth → AEGIS**. Target repo `hiqs-suite/aegis-sleuth-slack-bot` — **already created, private, empty**, default `main`; operator is org **admin** and the org was already OAuth-authorized, so no new auth wall. Rename scoped to the **product name only** (149 replacements / 25 docs): `SLEUTH_*` env vars (34), code identifiers, `sleuth-app` paths and `@Sleuth` (functional in 18 src files) all deliberately unchanged |
-| **I** | Publication execution | 10 | **0** | Phase 6 not started: create private → re-verify from a real fresh clone → flip public |
+| **I** | Publication execution | 10 | **75** ↑ | Repo created **private**, zero-history single commit pushed (author *and* committer `Neochrome <devops@neochro.me>`), 432 files, gates re-verified from a real fresh clone, CI green. **Named gap: not flipped public** — the one-way door, deliberately left to the operator. Also blocked until then: secret scanning (`422`) and branch protection (`403`) are unavailable on a private repo on a free org |
 
-**Weighted:** `20 + 10 + 7.5 + 10 + 15 + 9 + 7.5 + 5 + 0 = 84 / 100`
-**Artifact (A–G):** `79 / 85 = 93%`
+**Weighted:** `20 + 10 + 10 + 10 + 15 + 9 + 10 + 5 + 7.5 = 96.5 / 100`
+**Artifact (A–G):** `84 / 85 = 99%`
 
-### What the remaining 16% actually is
+### What the remaining 3.5% actually is
 
 Nearly all of it is **small in effort and large in consequence** — the reverse of the work done so
 far. Sequenced by what unblocks what:

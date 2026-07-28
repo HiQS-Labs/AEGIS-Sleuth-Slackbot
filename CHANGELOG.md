@@ -33,6 +33,32 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.253 - 2026-07-28
+I'm public now — and the README finally explains the thing that would confuse every new reader: the docs say AEGIS but the code, the settings and the install paths all say Sleuth. That's because I was Sleuth internally for three years, and renaming the internals would break every existing install. Now it's written down as a deliberate choice instead of looking like a half-finished rename.
+
+**Technical:** `hiqs-suite/aegis-sleuth-slack-bot` is **public** (verified anonymously — web `200`, `private=false` — not from the authenticated view, which had reported private through an earlier failed attempt).
+
+**New README section: "A note on the name — formerly Sleuth."** A table covering every surface where the old name survives and why each one stayed: the ~34 `SLEUTH_*` environment variables (configuration keys, not branding — renaming breaks every deployed `.env`), code identifiers like `SleuthAuditWriteID` (a purely cosmetic diff that would destroy `git blame` and conflict every open patch), `sleuth-app` paths and systemd unit names (a migration, not a rename), `@Sleuth` in Slack examples (operators name their own app; the code matches mentions of *theirs*), ~888 CHANGELOG entries (rewriting them would make 2023 entries claim a name coined in 2026), and the repo slug carrying both so anyone who knew it as Sleuth can still find it. Summarised as: **AEGIS is the product name, `SLEUTH_`/`sleuth-` is the internal namespace — if a search for AEGIS finds nothing, search for Sleuth.** Signposted three ways: a heads-up in the intro, a TOC entry, and a callout at the top of Configuration reference, where a reader first meets `SLEUTH_`.
+
+**Fixed a defect I introduced:** the README had **two `## Security` sections**. The second was added alongside `SECURITY.md` and duplicated a richer existing one — and because both rendered as `#security`, the table-of-contents anchor silently resolved to the wrong one. Removed the duplicate and folded the `SECURITY.md` pointer into the surviving section.
+
+**Protections enabled now that they are possible** — on a free org these are unavailable while a repo is private, which is why the plan's "protect then flip" order had to invert: secret scanning **enabled**, push protection **enabled**, Dependabot security updates **enabled**, and branch protection on `main` with required check `test`, `enforce_admins`, no force-pushes, no deletions. That last one also means the repo is no longer amend-and-force-push territory; changes now go through pull requests. [README.md](README.md).
+
+## 1.4.252 - 2026-07-27
+Both of my safety checks now actually run, on a real machine, and both pass. That sounds small, but running them for the first time is what found the two bugs in the previous two entries — neither of which any amount of reading the code had caught. I'm sitting in the new repository, private, waiting on one human decision to become public.
+
+**Technical:** GH-423 Phase 6 executed up to (and deliberately not through) the public flip.
+
+**What landed.** `hiqs-suite/aegis-sleuth-slack-bot`: **private**, **1 commit**, 432 files, author *and* committer `Neochrome <devops@neochro.me>` — both set, because `--author` alone does not change the committer and in a zero-history repo commit #1's identity is permanent. Verified from a **real fresh clone** at a foreign path: `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install` wired `core.hooksPath`, no local-path leaks. The pre-commit hook was then given a real staged Slack-shaped token and **refused the commit**.
+
+**CI run `30318895391`: all 7 steps green** — jest, `secret + PII scan`, TruffleHog verified, TruffleHog unverified. That is the first fully-passing execution of gates that had been "built and reviewed" since earlier today.
+
+**Two deviations from the plan worth recording.** (1) GH-423 Phase 6 assumed protections go on *before* the flip. On a free org they cannot: secret scanning returns `422 not available` and branch protection `403 Upgrade to GitHub Pro or make this repository public`. Both are free **for public repos**, so the order must invert to flip-then-protect, leaving a brief unprotected window. (2) The public tree carries **431→432 files, not 433** — the two relay threads from the swarm test are excluded because `relay-system/` is gitignored under decision E8, which is correct.
+
+**Rubric.** **C 75 → 100** (fresh-clone proof), **G 75 → 100** (both gates executed and passed), **I 0 → 75** (created, pushed, verified; not public). Publication **84% → 96.5%**, artifact **93% → 99%**. The remaining 3.5% is one irreversible action.
+
+**Still open for the operator, and worth deciding before the flip:** `npm audit` reports **29 production vulnerabilities (2 critical, 10 high)** including a direct dependency, and GitHub publishes Dependabot alerts on public repos. Not a leak, not a blocker — but cheap to address now and visible later. [PROJECT/1-INBOX/GH-423-PUBLIC-REPO-CUTOVER.md](PROJECT/1-INBOX/GH-423-PUBLIC-REPO-CUTOVER.md).
+
 ## 1.4.251 - 2026-07-27
 My second secret scanner was pinned to a version of itself that doesn't exist, so it crashed instead of scanning. Caught by actually running it. Fixed.
 

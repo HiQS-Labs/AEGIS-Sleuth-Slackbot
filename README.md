@@ -10,11 +10,16 @@ or AEGIS closes it itself when the linked GitHub issue is merged.
 AEGIS has been in daily production use for about 2.5 years by a working team, across multiple
 Slack workspaces. It is multi-tenant, self-hosted, and stores its data on disk you control.
 
+> **Heads up:** this project was called **Sleuth** internally until July 2026, and you will see that
+> name throughout the code, the settings, and the release history. That is deliberate, not leftover
+> mess — see [A note on the name](#a-note-on-the-name--formerly-sleuth).
+
 ---
 
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [A note on the name — formerly Sleuth](#a-note-on-the-name--formerly-sleuth)
 - [Maturity — an honest read](#maturity--an-honest-read)
 - [Requirements](#requirements)
 - [Install](#install)
@@ -57,6 +62,29 @@ without redeploying.
 Also included, and honestly earlier in maturity: **Notion search (beta)** — search-only and
 token-gated; and a **plugin architecture** — a working loader that ships one reference plugin.
 There is no plugin catalogue.
+
+## A note on the name — formerly Sleuth
+
+**This project was built and run internally as "Sleuth" from 2023 until July 2026.** It was renamed
+**AEGIS** when it was published. The rename was applied to the documentation only, so you will find
+the old name in a lot of places. Nothing is broken, and none of it is an oversight:
+
+| Where you'll see `Sleuth` | Why it stayed |
+|---|---|
+| **Environment variables** — `SLEUTH_API_TOKEN`, `SLEUTH_DATA_DIR`, and ~32 others | Renaming these would break every existing deployment's `.env` for no functional gain. They are configuration keys, not branding. |
+| **Code identifiers** — `SleuthAuditWriteID`, `IsSleuthAuthoredMessage`, and similar | Renaming symbols across the codebase is a large, purely cosmetic diff. It would make `git blame` useless and every open patch conflict, while changing nothing a user can observe. |
+| **Paths and service names** — `sleuth-app`, `sleuth-app.service`, `/root/sleuth-app` | These are install locations and systemd unit names on running servers. Changing them is a migration, not a rename. |
+| **`@Sleuth` in Slack examples** | This is how the bot is mentioned in the workspaces it already runs in. You name your own Slack app whatever you like — the code responds to mentions of *your* app, not to the literal string. |
+| **`CHANGELOG.md`** — ~888 entries | Entries written before July 2026 say "Sleuth" because that is what it was called at the time. Rewriting them would make 2023 entries claim a name coined in 2026. |
+| **The repository name** — `aegis-sleuth-slack-bot` | Deliberately carries both, so anyone who knew it as Sleuth can still find it. |
+
+**The short version: `AEGIS` is the product name; `SLEUTH_`/`sleuth-` is the internal namespace.**
+Treat them as the same thing. If you are searching the code for something and AEGIS turns up
+nothing, search for Sleuth.
+
+A full rename of the internals is possible later, but it is a breaking change for anyone already
+running this, so it is not being done casually. If you are starting fresh and would prefer
+`AEGIS_*` variables, that is a reasonable thing to open an issue about.
 
 ## Maturity — an honest read
 
@@ -212,6 +240,9 @@ macOS development setup: [`macos-install-guide.md`](./macos-install-guide.md).
 
 ## Configuration reference
 
+> Environment variables are prefixed **`SLEUTH_`**, not `AEGIS_`. That is intentional — see
+> [A note on the name](#a-note-on-the-name--formerly-sleuth).
+
 **AI models.** The default is a small, cheap model; date extraction uses a stronger one, because
 turning "the Tuesday after next" into a timestamp is harder than it looks. Per-channel model
 overrides are supported.
@@ -266,8 +297,9 @@ AEGIS handles Slack tokens and AI provider keys. A few things worth stating plai
 - **Rotation.** If a credential is ever committed, rotate it. Removing it from a file does not
   un-expose it.
 
-To report a vulnerability, contact the maintainers privately at **security@neochro.me** rather than
-opening a public issue.
+To report a vulnerability, contact the maintainers privately at
+**[security@neochro.me](mailto:security@neochro.me)** rather than opening a public issue. Full
+policy, supported versions and scope: [`SECURITY.md`](./SECURITY.md).
 
 ## Documentation map
 
@@ -282,14 +314,6 @@ opening a public issue.
 | [`HONEST.md`](./HONEST.md) | Ground-truth maturity assessment — the source for the table above |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | How to contribute — **read the inbound licensing section** |
 | [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability, and operator responsibilities |
-
-## Security
-
-Report vulnerabilities privately to **[security@neochro.me](mailto:security@neochro.me)** — not in a
-public issue. See [`SECURITY.md`](./SECURITY.md).
-
-One thing to do at install time rather than later: **set `WEB_API_BEARER_TOKEN`**. Unset, the web
-API falls back to the literal token `test`, and that API creates workspaces and accepts credentials.
 
 ## Contributing
 
