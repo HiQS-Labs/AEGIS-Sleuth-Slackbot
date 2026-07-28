@@ -89,7 +89,7 @@ different speeds and blending them hides which one is stuck.
 | **C** | Portability from a fresh clone | 10 | **100** ↑ | `/shakedown` fixed both installers' hardcoded repo URLs; slugs are env-driven with no vendor default. **PROVEN 2026-07-27:** cloned fresh from `hiqs-suite` at a foreign path — `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install` configured `core.hooksPath`, and no `/Users/` path leaks. Same suite also green on Linux in CI |
 | **D** | Build & test health | 10 | **100** | jest **1470/1470 across 89 suites**; `tsc` at parity with the `development` baseline (50 pre-existing, no net-new) |
 | **E** | Legal & licensing | 15 | **100** ↑ | **Phase 3 complete (7/7).** `LICENSE` (verbatim AGPL-3.0, cross-verified byte-identical against two upstream copies), `NOTICE`, `LICENSE-COMMERCIAL.md`, `THIRD-PARTY.md` (616 pkgs, zero GPL-incompatible), `CONTRIBUTING.md` (CLA question answered — lightweight inbound grant, DCO rejected with reason), `SECURITY.md`, `package.json` |
-| **F** | Onboarding & public docs | 10 | **75** ↓ | **Was scored 90 — which is not a legal value.** This rubric permits only 0/25/50/75/100 and says "never a finer grain — false precision here is worse than a round number". A 90 was the scorecard breaking its own rule to avoid rounding down. Corrected 2026-07-28 by actually running the check: **`/front-door` re-run from a fresh anonymous clone** (the Phase 6 run that had never happened), producing `FRONTDOOR.md` — a board where every status is decided by a command. **2 findings fixed on the spot:** `package.json` metadata still read `your-org/your-repo` on a published repo, and the first install command was an unrunnable placeholder (`git clone <your-fork-or-clone-url>`). **4 named residual gaps, all tracked with checks:** FD-03 `.env.example` documents 1 of 31 env vars; FD-04 seven internal-process root docs absent from the Documentation map; FD-05 `neochrome` survives as a workspace identifier in 97 files (**operator decision** — D6 partially executed; no credential exposed); FD-06 no outsider has completed a live first run |
+| **F** | Onboarding & public docs | 10 | **75** ↓ | **Was scored 90 — which is not a legal value.** This rubric permits only 0/25/50/75/100 and says "never a finer grain — false precision here is worse than a round number". A 90 was the scorecard breaking its own rule to avoid rounding down. Corrected 2026-07-28 by actually running the check: **`/front-door` re-run from a fresh anonymous clone** (the Phase 6 run that had never happened), producing `FRONTDOOR.md` — a board where every status is decided by a command. **2 findings fixed on the spot:** `package.json` metadata still read `your-org/your-repo` on a published repo, and the first install command was an unrunnable placeholder (`git clone <your-fork-or-clone-url>`). **3 named residual gaps, each tracked with a check:** FD-03 `.env.example` documents 1 of 31 env vars `src/` reads; FD-04 seven internal-process root docs absent from the Documentation map; FD-06 no outsider has completed a live first run. **FD-05 withdrawn** — it flagged `neochrome` as a surviving workspace identifier, but E5 had already settled that deliberately (the denylist rule is disabled *with the reason written inline*), and there is no vulnerability behind it: the team ID is not a credential and the value is not in the repo. It was re-litigating a decision by reading D6 without checking what refined it |
 | **G** | Automated gates in CI | 10 | **75** ↓ | **Scored DOWN from 100 on 2026-07-28 — the previous evidence cited a run that scanned nothing.** It read "BOTH GATES EXECUTED IN ANGER AND PASSED… CI run `30318895391`". That run's TruffleHog steps reported **`chunks: 0, bytes: 0`**: the action derives its range from the event, and on a first push `github.event.before` is the zero SHA, so it scanned zero bytes and reported green. The `pull_request` run `30321845101` was real but scanned only the diff — **10,436 bytes, 4 files**. **Now fixed and PROVEN:** `schedule` + `workflow_dispatch` declared, which the action resolves to its whole-repo path; dispatch run `30322218876` scanned **5,435,279 bytes / 751 chunks, 0 verified** (the 2 unverified are the documented decoys, see A). Pre-commit hook independently **blocked a real staged Slack-shaped token** (commit refused, history unchanged). **Named residual gaps (why this is 75, not 100):** (1) push/PR runs still scan only the event diff, so whole-tree verified-credential coverage rides on the weekly cron — and GitHub **disables scheduled workflows after 60 days of repo inactivity**, silently; (2) CI runs **shape rules only** (32 of 60) because the literal denylist cannot ship. Compensating control for (1): `sanitize-scan.sh` reads **every tracked file** (`git ls-files -z`) on *every* run |
 | **H** | Identity — repo name + org | 5 | **100** ↑ | **Decided 2026-07-27.** Product renamed **Sleuth → AEGIS**. Target repo `hiqs-suite/aegis-sleuth-slack-bot` — **already created, private, empty**, default `main`; operator is org **admin** and the org was already OAuth-authorized, so no new auth wall. Rename scoped to the **product name only** (149 replacements / 25 docs): `SLEUTH_*` env vars (34), code identifiers, `sleuth-app` paths and `@Sleuth` (functional in 18 src files) all deliberately unchanged |
 | **I** | Publication execution | 10 | **100** ↑ | **PUBLIC 2026-07-28**, verified anonymously (unauthenticated web `200`, API `private=false`) — not from the authenticated view, which is what caught an earlier flip that had silently not taken. Zero-history single commit (author *and* committer `Neochrome <devops@neochro.me>`), 432 files. Everything the private repo blocked is now on: **secret scanning, push protection, Dependabot security updates**, and **branch protection on `main`** (required check `test`, `enforce_admins`, no force-push, no deletions). Branch protection means changes now land by PR — **PR #1 merged**, which also exercised the `pull_request` CI path for the first time |
@@ -114,7 +114,7 @@ remains is a different, smaller set, and none of it blocks anything:
 | 1 | **`/front-door` + `/shakedown` re-run from the fresh clone** — the Phase 6 runs that never happened; the plan itself calls these "the one that counts" | F, C | ~1 hour | Me |
 | 2 | **`FRONTDOOR.md`** — the re-runnable onboarding board, still the one open Phase 4 item | F | ~1 hour | Me |
 | 3 | **An outsider completes a real first run** with live Slack + OpenAI credentials | F | — | Human-gated |
-| 4 | **GH-420 credential rotation** — **OPEN**, and TruffleHog *verified* the OpenAI key is live. Not a publication gate; a real obligation on the private repo | — | ~30 min | **Operator only** |
+| 4 | ~~GH-420 credential rotation~~ — **closed 2026-07-28 as an accepted risk**; `sleuth-app` stays private, public repo verified clean | — | done | Operator |
 
 <details><summary>Original list (all closed) — kept for the record</summary>
 
@@ -248,17 +248,41 @@ These are settled. Phases below implement them; they are not re-litigated mid-bu
 | D3 | CHANGELOG | **Full rewrite, redacted in place** | All ~888 entries kept. The 2.5-year track record is the credibility signal; losing it is a real cost. |
 | D4 | Cutover | New repo canonical, old **archived read-only**, prod CI/CD repointed | |
 | D5 | Rotation | **Out of scope** — owned by GH-420 | Blocking gate at Phase 6 |
-| D6 | Sanitization | **Full scrub** — no real client or infra identifier anywhere | Includes `neochrome` itself |
+| D6 | Sanitization | **Full scrub** — no real **client** or infra identifier anywhere | ~~Includes `neochrome` itself~~ — **refined by E5**: the vendor's own name is KEPT. See the note below |
 | D7 | Doc set | **Minimal public set**, docs rebuilt for outsiders | PDDA/agent-harness internals dropped |
 | D8 | Repo name | **Open** — naming check gates creation | "Sleuth" is contested |
 
-### On D6 — why scrub `neochrome` too
+### On D6 — ~~why scrub `neochrome` too~~ → SUPERSEDED by E5 (operator, confirmed 2026-07-28)
 
-Neochrome is the vendor and will appear in `LICENSE` and `NOTICE` deliberately. But `neochrome`
-as a *workspace identifier* baked into 155 files of config, fixtures, and examples is different:
-it makes the public codebase read as one company's internal tool with a special-cased tenant,
-and it leaks which workspace runs which experimental feature flags (e.g. the GH-397 router is
-scoped to `neochrome` on prod). Examples get a generic tenant.
+> **D6's original argument, kept for the record:** Neochrome is the vendor and appears in `LICENSE`
+> and `NOTICE` deliberately, but `neochrome` as a *workspace identifier* across 155 files makes the
+> codebase read as one company's internal tool with a special-cased tenant, and leaks which
+> workspace runs which experimental flag.
+
+**That argument does not survive contact with the actual threat model, and E5 already said so.** The
+private denylist carries the rule **deliberately disabled**, with the reason written inline:
+*"NeochromeTeam is the copyright holder's own org and is KEPT (E5), so it is deliberately NOT a
+rule"* and *"Rule retained but disabled so the decision is visible rather than implicit."*
+
+Three reasons the scrub was never justified:
+
+1. **There is no vulnerability.** `NEOCHROME_TEAM_ID` is a variable *name*; the value is not in the
+   repo. A Slack team ID is not a credential — every workspace member can see it and it appears in
+   URLs. The tenancy gate is fail-closed, and changing the value requires controlling the server's
+   environment, at which point the gate is irrelevant anyway.
+2. **It is not secret information.** "The company named Neochrome has a Slack workspace probably
+   called neochrome" is the first thing anyone would guess. Redacting it protects nothing that
+   guessing would not defeat instantly.
+3. **The consent distinction is the one that matters.** Redacting `Client A`–`G` protects **third
+   parties who never agreed to be named**. That obligation is real and those 28 rules stay. The
+   vendor's own name is the vendor's own to disclose — and on an AGPL project that sells a
+   commercial exception, the vendor is named in `LICENSE`, `NOTICE` and `LICENSE-COMMERCIAL.md` by
+   design.
+
+**Verified 2026-07-28 against the published repo:** full **60-rule** scan (private client denylist
+included) over **433 tracked files** → `✓ CLEAN`. TruffleHog full-tree `verified_secrets: 0`. Every
+`xoxb-`/`sk-ant-`-shaped string accounted for by hand — the scanner's canary, docs quoting it, one
+config-template placeholder, one test fixture.
 
 ## Scope surface (measured 2026-07-20)
 
@@ -509,12 +533,12 @@ project genuinely does absorb.
 - [x] Phase 3 legal complete, no incompatible dependency, CLA decided — 7/7; CLA answered as a
       lightweight inbound grant, DCO considered and rejected with reason
 - [x] Phase 5 scan clean **and gate wired** — both ✅ (see Phase 5 for the two residual limits)
-- [x] **GH-420 reclassified — NOT a publication gate** (it remains **OPEN** and urgent on the
-      *private* repo). The public repo carries zero history and both TruffleHog passes are clean, so
-      nothing GH-420 covers can reach it. **Rotation is still outstanding as of 2026-07-28** —
-      TruffleHog *authenticated* the OpenAI key against OpenAI's API, so it is live and exposed to
-      anyone who cloned or forked `sleuth-app`. Ticked here only in the sense that the gate question
-      is settled, **not** in the sense that the credentials are rotated
+- [x] **GH-420 — CLOSED by the operator 2026-07-28 as an accepted risk.** `sleuth-app` stays private
+      permanently and the exposure is acceptable for that repo's purposes; the issue was closed
+      manually. The operator's condition was that the **public** repo must not carry those
+      credentials, which is **verified** (60-rule scan CLEAN over 433 files; TruffleHog full-tree
+      `verified_secrets: 0`; every `xoxb-`/`sk-ant-` string identified by hand). Recorded plainly
+      rather than as "rotated" — the credentials were **not** rotated, the risk was accepted
 - [x] Clean-machine test: fresh clone → `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install`
       configured `core.hooksPath`, no `/Users/` path leaks. **Caveat:** this proves the repo *builds
       and tests* from a foreign path — it is **not** a working first run against live Slack, which
@@ -602,9 +626,11 @@ Still open:
    reset to `v2.0.0` with prior entries preserved beneath it? **Currently still `v1.4.x`** (now
    `1.4.255`) — the default happened by continuing to ship, not by a decision. Worth deciding
    deliberately, since a public `v1.x` implies a stability promise the internal numbering never made
-5. **GH-420 credential rotation** — still **OPEN**. Not a publication gate, but the OpenAI key was
-   *verified live* by TruffleHog and is exposed to anyone who cloned or forked the private repo.
-   This is the highest-consequence item left anywhere in this project, and only the operator can do it
+5. ~~**GH-420 credential rotation**~~ → **CLOSED by the operator, 2026-07-28, as an accepted risk.**
+   `sleuth-app` stays private permanently, and the exposure is acceptable for that repo's purposes.
+   The operator's stated condition was that the **public** repo must not carry those credentials —
+   **verified**: 60-rule scan CLEAN over 433 files, TruffleHog full-tree `verified_secrets: 0`, and
+   every token-shaped string in the tree identified by hand as a placeholder, fixture or canary
 
 ## Sequencing note
 

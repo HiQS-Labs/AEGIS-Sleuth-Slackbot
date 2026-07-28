@@ -12,7 +12,7 @@ root `*.md` files changes — those are what a newcomer actually touches.
 |---|---|
 | **Last audited** | 2026-07-28, against `main` at a **fresh anonymous clone** (not a working copy) at a foreign path with no spaces |
 | **Method** | `/front-door` walk — clone → docs → install → auth → first success, plus a secret sweep |
-| **Verdict** | ⚠️ **Bumpy** — an agent-assisted newcomer reaches a running process. The two install-path blockers found in this audit are fixed; what remains is an incomplete env-var story and unlabelled internal docs. No leaked secrets. |
+| **Verdict** | ⚠️ **Bumpy** — an agent-assisted newcomer reaches a running process. The two install-path blockers found in this audit are fixed; what remains is an incomplete env-var story and unlabelled internal docs. **No leaked secrets:** full 60-rule scan CLEAN over 433 files, TruffleHog full-tree `verified_secrets: 0`. |
 
 ## Health at a glance
 
@@ -34,23 +34,28 @@ root `*.md` files changes — those are what a newcomer actually touches.
 | FD-02 | Install | 🟠 | ✅ FIXED | The first install command was `git clone <your-fork-or-clone-url> sleuth` — a placeholder that fails as written, naming the directory `sleuth` rather than `aegis`. Now the real public URL, verified by cloning from it anonymously |
 | FD-03 | Config | 🟠 | ⬜ OPEN | `.env.example` defines **1** variable (`ADMIN_ENCRYPTION_KEY`) while `src/` reads **31** distinct `process.env` keys, 11 of them `SLEUTH_*`. The README's Configuration reference is prose, not a list. A newcomer has no single place to learn what is configurable |
 | FD-04 | Front door | 🟡 | ⬜ OPEN | 17 root `*.md` files. The Documentation map lists 9; it never mentions `ROUTER.md`, `SENTINEL.md`, `CLAUDE.md`, `ROADMAP.md`, `GUIDING-PRINCIPLES.md`, `ARCHITECTURE-DECISIONS.md` or `RELEASES.md`. These are internal-process docs; a newcomer opening `ROUTER.md` first learns nothing about running the app. Either list them as internal, or move them under `PROJECT/` |
-| FD-05 | Sanitization | 🟠 | ⬜ OPEN — **operator decision** | Decision **D6** said scrub `neochrome` as a *workspace identifier* (`LICENSE`/`NOTICE` keep it as the **vendor**, which is D2 and correct). It survives in **97 files** — 41 under `PROJECT/`, 8 in `src/` (`NEOCHROME_TEAM_ID`). `ROADMAP.md` states outright which workspace runs which experimental flag, which is the exact leak D6 named. **No credential is exposed** — the team-ID *value* lives outside the repo. This is disclosure/positioning, and it needs a decision, not a script |
+| FD-05 | Sanitization | — | ✅ **CLOSED — won't fix (already decided, E5)** | Raised as "`neochrome` survives as a workspace identifier in 97 files". **Withdrawn: this was re-litigating a settled decision.** The private denylist carries the rule *deliberately disabled*, with the reason inline — "NeochromeTeam is the copyright holder's own org and is KEPT (E5)" — so E5 had already refined D6, and the finding read D6 alone. On the merits there is also no vulnerability: `NEOCHROME_TEAM_ID` is a variable *name*; a Slack team ID is not a credential (every workspace member sees it, it appears in URLs), the gate is fail-closed, and changing the value requires controlling the server env. Redacting `Client A`–`G` protects **third parties who never consented**; the vendor's own name is the vendor's to disclose. Operator confirmed 2026-07-28 |
 | FD-06 | First success | 🟡 | ⬜ OPEN | No outsider has completed a first run against live Slack + a live AI key. The fresh-clone test proves it *builds and tests*, which is not the same thing. This is the open half of rubric dimension F |
 
-### Why FD-05 can't be closed by CI
+### What CI's secret gate can and cannot see
 
-`sanitize-scan.sh` runs **32 of its 60 rules** in CI. The other 28 are literal client and workspace
-names — that denylist *is* the de-anonymization key, so it cannot ship in a public repo. The scanner
-says so out loud rather than implying full coverage:
+`sanitize-scan.sh` runs **32 of its 60 rules** in CI. The other 28 are literal client names — that
+denylist *is* the de-anonymization key, so it cannot ship in a public repo. The scanner says so out
+loud rather than implying full coverage:
 
 ```
 no --rules given: shape rules only (client-name leaks will NOT be detected)
 active rules: 32
 ```
 
-So FD-05 is invisible to the automated gate **by construction**. It is listed here because a board
-that only tracks what CI can see would score this repo green on a question CI is structurally unable
-to answer.
+So **client-name leaks are invisible to the automated gate by construction**, and a green CI secret
+step means "no credential *shapes*", never "no client identifiers". Run the full 60-rule scan from a
+checkout that carries the private denylist.
+
+**Done 2026-07-28, and it is clean:** all **60 rules** over **433 tracked files** → `✓ CLEAN`.
+TruffleHog full-tree agrees at `verified_secrets: 0`. Every `xoxb-`/`sk-ant-` shaped string in the
+tree was also accounted for by hand: two are the scanner's own canary, two are docs quoting it, one
+is `sk-ant-your-anthropic-api-key-here` in a config template, one is `sk-ant-test` in a fixture.
 
 ## Verified baselines (keep green)
 
@@ -90,11 +95,11 @@ for f in ROUTER.md SENTINEL.md CLAUDE.md ROADMAP.md GUIDING-PRINCIPLES.md \
     && echo "FD-04 OPEN: $f is a root doc that the README's Documentation map never mentions"
 done
 
-NEO=$(git ls-files -z | xargs -0 grep -oil 'neochrome' 2>/dev/null \
-      | grep -vE '^(LICENSE|NOTICE|CONTRIBUTING\.md|LICENSE-COMMERCIAL\.md|SECURITY\.md|README\.md|FRONTDOOR\.md)$' \
-      | wc -l | tr -d ' ')
-[ "$NEO" -gt 0 ] \
-  && echo "FD-05 OPEN: 'neochrome' used as a workspace identifier in $NEO files (D6 partially executed)"
+# FD-05 has NO check: it is closed won't-fix, and the vendor's own name appearing in its own
+# repo is a deliberate decision (E5), not a condition to re-detect. A check here would fire
+# forever and train the reader to ignore the block. What still matters -- CLIENT names, which
+# are third-party data -- cannot be checked here: those 28 rules are the de-anonymization key
+# and live outside the repo. Run the full 60-rule scan from a checkout that has them.
 
 grep -q 'no outsider has' FRONTDOOR.md 2>/dev/null \
   && echo "FD-06 OPEN: no verified outsider first run against live Slack"
