@@ -34,7 +34,8 @@ log_error() {
 NODE_VERSION="18.20.4"
 RUNNER_VERSION="2.325.0"
 APP_USER="root"
-APP_DIRECTORY="/root/sleuth-app"
+# Overridable, to match deploy/reminders-export/install.sh which already honours SLEUTH_APP_DIR.
+APP_DIRECTORY="${SLEUTH_APP_DIR:-/root/sleuth-app}"
 RUNNER_USER="github-runner"
 RUNNER_HOME="/home/${RUNNER_USER}"
 RUNNER_DIRECTORY="${RUNNER_HOME}/actions-runner"

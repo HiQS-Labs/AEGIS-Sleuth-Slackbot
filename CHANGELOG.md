@@ -33,6 +33,65 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.258 - 2026-07-28
+I checked whether my own setup scripts still work when someone clones me to a totally different
+folder — including one with a space in its name, and even running from the filesystem root. They all
+do. But three of my install instructions still told people to use a repo address that doesn't exist
+anymore, so anyone following them would have hit a dead link on step one. Fixed, and I've left behind
+a report so this is re-checkable rather than remembered.
+
+**Technical:** `/shakedown` re-run against the **published public repo** from a fresh anonymous clone
+at a foreign path with **no spaces** — the Phase 6 run GH-423 calls "the one that counts", which had
+never been performed. (Phase 2 ran locally in a dir named `sleuth-app` under `GH Repos`, a path *with*
+a space, by someone who already had the code.) Report: `SHAKEDOWN/2026-07-28/aegis-public-repo-0838.md`,
+indexed in `SHAKEDOWN/INDEX.md`. **This is the first persisted shakedown report** — Phase 2's was run
+and acted on but never written down.
+
+**Verdict: [warnings only] — no discovery bug.** Static: 18/18 scripts have a shebang, exec bit and
+parse under `bash -n`; 17/18 self-locate; **0** source a sibling by CWD-relative path (the six
+`pdda-*` scripts all use `. "$HERE/pdda-lib.sh"`); **0** real hardcoded `/Users/` paths.
+
+Live matrix, by absolute path from control / foreign CWD / nested CWD / **path with spaces** / `/`:
+- `utils/sanitize-scan.sh` — **433 files scanned in all five**. The file count is the evidence, not
+  the `✓ CLEAN`: from a non-git CWD it could have found nothing and reported clean, which is exactly
+  the false-green hit four times in the last two days. It genuinely self-locates.
+- `utils/pdda/pdda.sh frontmatter` — `errors=0` in all five; `$HERE` sibling-sourcing holds.
+- `utils/install-git-hooks.sh` — from a foreign CWD it reported "already configured", proving it
+  resolved back to its own repo (`git config --local` would have failed otherwise). Verified it uses
+  `--local`, never `--global`, before running it.
+
+Three low findings, all fixed:
+- **SD-01** `macos-local-install.sh` — error-message example still read `your-org/sleuth.git`
+- **SD-03** `scripts/quick-install.sh` — the same defect in *slug* form (`SLEUTH_REPO=your-org/sleuth`),
+  which feeds a `raw.githubusercontent.com` fetch, so the example named a repo that exists nowhere
+- **SD-02** `scripts/server-install.sh` — `APP_DIRECTORY` was hardcoded while its sibling
+  `deploy/reminders-export/install.sh` already honoured `SLEUTH_APP_DIR`; now consistent
+
+Also updated two `docs/server-installation-guide.md` examples that named the nonexistent `your-org/sleuth`.
+
+**My own detection missed SD-03, and that is worth recording.** The discovery sweep grepped
+`https://github\.com/...`, which matches the URL form but not the bare `owner/repo` slug form. SD-03
+surfaced only because the *post-fix verification* grep was written differently from the discovery
+grep. Same failure as everything else this week: a pattern narrower than the thing it hunts returns
+nothing, and nothing looks like clean.
+
+**Seven `your-org` placeholders were deliberately KEPT** in `config/workspace-template.json`,
+`deploy/reminders-export/README.md` and `docs/web-api.md`. They stand for *the operator's own* repo
+(`GITHUB_ACTIONS_REPO`, `SLEUTH_EXPORT_REPO`), not for AEGIS — blanket-replacing them would have told
+every user to point their GitHub Actions integration and reminder export at this project's repo. The
+test that decides it: does the variable name the software being installed, or the user's own project?
+
+**Dismissed, not silently dropped:** `scripts/ssh-setup.sh` is the only script that does not
+self-locate, but it references no siblings and no relative paths — its one target is `~/.ssh/config`,
+absolute. Nothing to locate; adding `SCRIPT_DIR` would be ceremony.
+
+**Stated limits:** live coverage is **9/18** — the nine installers/backup scripts mutate a machine or
+need a live server and were audited statically only. macOS/bash 3.2 only, which matters given that a
+macOS-only `grep -IL` portability bug was the headline defect of 2026-07-27; CI does exercise
+`sanitize-scan.sh` on ubuntu every run.
+
+jest 1470/1470 across 89 suites.
+
 ## 1.4.257 - 2026-07-28
 Two calls from my operator, and one of them was me being wrong. I'd flagged the company's own name
 appearing in its own codebase as a sanitization gap — it isn't, and the project had already decided

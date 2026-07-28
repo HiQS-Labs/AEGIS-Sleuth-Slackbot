@@ -111,8 +111,8 @@ remains is a different, smaller set, and none of it blocks anything:
 
 | # | Item | Dim | Effort | Who |
 |---|---|---|---|---|
-| 1 | **`/front-door` + `/shakedown` re-run from the fresh clone** — the Phase 6 runs that never happened; the plan itself calls these "the one that counts" | F, C | ~1 hour | Me |
-| 2 | **`FRONTDOOR.md`** — the re-runnable onboarding board, still the one open Phase 4 item | F | ~1 hour | Me |
+| 1 | ~~`/front-door` + `/shakedown` re-run from the fresh clone~~ — **both DONE 2026-07-28**; between them found 9, fixed 5 | F, C | done | Me |
+| 2 | ~~`FRONTDOOR.md`~~ — **DONE 2026-07-28**, plus `SHAKEDOWN/` reports now persisted | F | done | Me |
 | 3 | **An outsider completes a real first run** with live Slack + OpenAI credentials | F | — | Human-gated |
 | 4 | ~~GH-420 credential rotation~~ — **closed 2026-07-28 as an accepted risk**; `sleuth-app` stays private, public repo verified clean | — | done | Operator |
 
@@ -383,8 +383,11 @@ Anything hardcoding `sleuth-app` in a path, or assuming CWD is the repo root, br
 first outside user — and it breaks as a "doesn't work" first impression, not a clean error.
 
 - [x] Run `/shakedown` against each script-calling skill; capture the graded report
-      — **caveat:** run and acted on, but no `SHAKEDOWN/` report folder was persisted, so the
-      record is the CHANGELOG v1.4.245 entry rather than a re-readable matrix
+      — ~~**caveat:** run and acted on, but no `SHAKEDOWN/` report folder was persisted~~
+      **RESOLVED 2026-07-28:** the Phase 6 re-run persisted one at
+      `SHAKEDOWN/2026-07-28/aegis-public-repo-0838.md` with `SHAKEDOWN/INDEX.md` as the newest-first
+      index. Note it is the *first* report, so there is nothing to diff against — the run can claim
+      "clean today", not "no regression"
 - [x] Fix path-resolution findings **in the sanitized tree** (and backport to this repo if the bug
       exists here too — it almost certainly does) — both installers hardcoded a repo URL in the old
       org (a guaranteed 404 on step one for every outside user); now `SLEUTH_REPO`/`SLEUTH_REPO_URL`
@@ -543,14 +546,21 @@ project genuinely does absorb.
       configured `core.hooksPath`, no `/Users/` path leaks. **Caveat:** this proves the repo *builds
       and tests* from a foreign path — it is **not** a working first run against live Slack, which
       still nobody outside has done (that is the open half of dimension F)
-- [ ] **NOT DONE — `/front-door` re-run against the pushed repo** (not the local tree). Both skills
-      ran in Phase 2/4 against the local tree and found real bugs there (a second competing
-      onboarding door with a named Product Owner and internal KPIs; `package.json` `main` pointing at
-      a nonexistent file). **The Phase 6 re-run — the one this plan says "is the one that counts" —
-      never happened.** Ticking the fresh-clone build test is not a substitute
-- [ ] **NOT DONE — `/shakedown` re-run from that same fresh clone.** Same reason. Its Phase 2 run
-      found both installers hardcoding a repo URL in the old org (a guaranteed 404 on step one for
-      every outside user), which is exactly the class of bug a new name + new path re-triggers
+- [x] **DONE 2026-07-28 — `/front-door` re-run against the pushed repo** from a fresh anonymous clone
+      at a foreign path. Found 6, fixed 2 immediately: `package.json` `repository`/`bugs`/`homepage`
+      still read `your-org/your-repo` on a published repo, and the **first install command was an
+      unrunnable placeholder** (`git clone <your-fork-or-clone-url> sleuth`). Produced `FRONTDOOR.md`,
+      a board where every status is decided by a command. Both were invisible to the Phase 4 local run
+      for the obvious reason: locally you already have the repo
+- [x] **DONE 2026-07-28 — `/shakedown` re-run from that same fresh clone** (foreign path, **no
+      spaces**, new repo name). **Verdict `[warnings only]` — no discovery bug.** 18/18 scripts have
+      shebang + exec bit + parse; 17/18 self-locate; 0 source a sibling by CWD-relative path.
+      `sanitize-scan.sh` scanned **433 files from all five CWDs** including `/` and a spaces-path —
+      the file count being the evidence, not the `✓ CLEAN`. 3 low findings, all fixed: two stale
+      `your-org/sleuth` install examples (URL form *and* slug form) and one non-overridable
+      `APP_DIRECTORY` its sibling already made configurable.
+      **Report persisted at `SHAKEDOWN/2026-07-28/aegis-public-repo-0838.md`** — the first one ever
+      written down, which closes the Phase 2 caveat below
 
 Then:
 
