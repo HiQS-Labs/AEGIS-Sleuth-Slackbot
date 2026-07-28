@@ -27,7 +27,7 @@ Before starting, gather the following:
   - `repo` (Full control of private repositories)
   - `workflow` (Update GitHub Action workflows)
   - `admin:org` (if using organization repository)
-- **Repository**: `owner/repository-name` (e.g., `your-org/sleuth`)
+- **Repository**: `owner/repository-name` — your fork or clone of AEGIS (canonical: `hiqs-suite/aegis-sleuth-slack-bot`)
 - **Branch**: Usually `main`, `development`, or `experimental`
 
 #### 2. Git Configuration
@@ -72,7 +72,7 @@ chmod +x server-install.sh
 ```bash
 # Required environment variables
 export GITHUB_TOKEN="ghp_your_personal_access_token_here"
-export GITHUB_REPO="your-org/sleuth"   # your fork/clone
+export GITHUB_REPO="hiqs-suite/aegis-sleuth-slack-bot"   # or your own fork/clone
 export SERVER_ENV="experimental"  # or "development" or "production"
 export GIT_USER_NAME="Your Full Name"
 export GIT_USER_EMAIL="your.email@domain.com"

@@ -102,7 +102,7 @@ SLEUTH_BRANCH="${SLEUTH_BRANCH:-main}"
 
 if [ -z "$SLEUTH_REPO" ]; then
     echo "ERROR: set SLEUTH_REPO to the GitHub repo to install from, e.g.:"
-    echo "  SLEUTH_REPO=your-org/sleuth $0"
+    echo "  SLEUTH_REPO=hiqs-suite/aegis-sleuth-slack-bot $0"
     exit 1
 fi
 

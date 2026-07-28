@@ -97,7 +97,7 @@ clone_repo() {
         log_warning "A '$SLEUTH_DIR' directory already exists. Skipping clone."
     elif [ -z "$SLEUTH_REPO_URL" ]; then
         log_error "Set SLEUTH_REPO_URL to the repository to clone, e.g.:"
-        log_error "  SLEUTH_REPO_URL=https://github.com/your-org/sleuth.git $0"
+        log_error "  SLEUTH_REPO_URL=https://github.com/hiqs-suite/aegis-sleuth-slack-bot.git $0"
         exit 1
     else
         git clone "$SLEUTH_REPO_URL" "$SLEUTH_DIR"
