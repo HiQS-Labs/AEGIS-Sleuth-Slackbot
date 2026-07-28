@@ -118,8 +118,8 @@ AEGIS must stay running to listen for Slack events — it is a long-lived proces
 ## Install
 
 ```bash
-git clone <your-fork-or-clone-url> sleuth
-cd sleuth
+git clone https://github.com/hiqs-suite/aegis-sleuth-slack-bot.git aegis
+cd aegis
 npm install
 ```
 

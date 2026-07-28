@@ -2,18 +2,18 @@
 gh_issue: 423
 source: https://github.com/NeochromeTeam/sleuth-app/issues/423
 title: "Stand up a public, zero-history Sleuth repo (sanitized docs + AGPL/commercial dual license) and cut over"
-status: Proposed (1-INBOX — not yet active)
+status: "Published 2026-07-28 — Phases 0-6 complete; Phase 7 (cutover) out of scope per E11"
 created: 2026-07-20
 doc_type: project
-related: "GH-420 (committed credentials) — hard dependency, blocking gate; rotation owned there, not here"
-target_window: 2026-07-20 → 2026-07-27 (7 days)
+related: "GH-420 (committed credentials) — RECLASSIFIED: not a publication gate (zero-history repo, clean scans), but still OPEN and urgent on the private repo"
+target_window: 2026-07-20 → 2026-07-27 (7 days); published 2026-07-28, one day over
 ---
 
 # GH-423 — Public repo cutover
 
 ## Readiness scorecard (rubric)
 
-**Publication readiness: 96.5%** · **Artifact readiness: 96%** — re-scored 2026-07-28 against the
+**Publication readiness: 95%** · **Artifact readiness: 94%** — re-scored 2026-07-28 against the
 **published** repo `hiqs-suite/aegis-sleuth-slack-bot`, after running the gates rather than reading
 them.
 
@@ -89,13 +89,13 @@ different speeds and blending them hides which one is stuck.
 | **C** | Portability from a fresh clone | 10 | **100** ↑ | `/shakedown` fixed both installers' hardcoded repo URLs; slugs are env-driven with no vendor default. **PROVEN 2026-07-27:** cloned fresh from `hiqs-suite` at a foreign path — `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install` configured `core.hooksPath`, and no `/Users/` path leaks. Same suite also green on Linux in CI |
 | **D** | Build & test health | 10 | **100** | jest **1470/1470 across 89 suites**; `tsc` at parity with the `development` baseline (50 pre-existing, no net-new) |
 | **E** | Legal & licensing | 15 | **100** ↑ | **Phase 3 complete (7/7).** `LICENSE` (verbatim AGPL-3.0, cross-verified byte-identical against two upstream copies), `NOTICE`, `LICENSE-COMMERCIAL.md`, `THIRD-PARTY.md` (616 pkgs, zero GPL-incompatible), `CONTRIBUTING.md` (CLA question answered — lightweight inbound grant, DCO rejected with reason), `SECURITY.md`, `package.json` |
-| **F** | Onboarding & public docs | 10 | **90** | README rewritten for an outside reader and graded against `HONEST.md`; `/front-door` run, human-blocking findings fixed. **Gap:** no outsider has actually completed a first run |
+| **F** | Onboarding & public docs | 10 | **75** ↓ | **Was scored 90 — which is not a legal value.** This rubric permits only 0/25/50/75/100 and says "never a finer grain — false precision here is worse than a round number". A 90 was the scorecard breaking its own rule to avoid rounding down. Corrected 2026-07-28 by actually running the check: **`/front-door` re-run from a fresh anonymous clone** (the Phase 6 run that had never happened), producing `FRONTDOOR.md` — a board where every status is decided by a command. **2 findings fixed on the spot:** `package.json` metadata still read `your-org/your-repo` on a published repo, and the first install command was an unrunnable placeholder (`git clone <your-fork-or-clone-url>`). **4 named residual gaps, all tracked with checks:** FD-03 `.env.example` documents 1 of 31 env vars; FD-04 seven internal-process root docs absent from the Documentation map; FD-05 `neochrome` survives as a workspace identifier in 97 files (**operator decision** — D6 partially executed; no credential exposed); FD-06 no outsider has completed a live first run |
 | **G** | Automated gates in CI | 10 | **75** ↓ | **Scored DOWN from 100 on 2026-07-28 — the previous evidence cited a run that scanned nothing.** It read "BOTH GATES EXECUTED IN ANGER AND PASSED… CI run `30318895391`". That run's TruffleHog steps reported **`chunks: 0, bytes: 0`**: the action derives its range from the event, and on a first push `github.event.before` is the zero SHA, so it scanned zero bytes and reported green. The `pull_request` run `30321845101` was real but scanned only the diff — **10,436 bytes, 4 files**. **Now fixed and PROVEN:** `schedule` + `workflow_dispatch` declared, which the action resolves to its whole-repo path; dispatch run `30322218876` scanned **5,435,279 bytes / 751 chunks, 0 verified** (the 2 unverified are the documented decoys, see A). Pre-commit hook independently **blocked a real staged Slack-shaped token** (commit refused, history unchanged). **Named residual gaps (why this is 75, not 100):** (1) push/PR runs still scan only the event diff, so whole-tree verified-credential coverage rides on the weekly cron — and GitHub **disables scheduled workflows after 60 days of repo inactivity**, silently; (2) CI runs **shape rules only** (32 of 60) because the literal denylist cannot ship. Compensating control for (1): `sanitize-scan.sh` reads **every tracked file** (`git ls-files -z`) on *every* run |
 | **H** | Identity — repo name + org | 5 | **100** ↑ | **Decided 2026-07-27.** Product renamed **Sleuth → AEGIS**. Target repo `hiqs-suite/aegis-sleuth-slack-bot` — **already created, private, empty**, default `main`; operator is org **admin** and the org was already OAuth-authorized, so no new auth wall. Rename scoped to the **product name only** (149 replacements / 25 docs): `SLEUTH_*` env vars (34), code identifiers, `sleuth-app` paths and `@Sleuth` (functional in 18 src files) all deliberately unchanged |
 | **I** | Publication execution | 10 | **100** ↑ | **PUBLIC 2026-07-28**, verified anonymously (unauthenticated web `200`, API `private=false`) — not from the authenticated view, which is what caught an earlier flip that had silently not taken. Zero-history single commit (author *and* committer `Neochrome <devops@neochro.me>`), 432 files. Everything the private repo blocked is now on: **secret scanning, push protection, Dependabot security updates**, and **branch protection on `main`** (required check `test`, `enforce_admins`, no force-push, no deletions). Branch protection means changes now land by PR — **PR #1 merged**, which also exercised the `pull_request` CI path for the first time |
 
-**Weighted:** `20 + 10 + 10 + 10 + 15 + 9 + 7.5 + 5 + 10 = 96.5 / 100`
-**Artifact (A–G):** `81.5 / 85 = 96%`
+**Weighted:** `20 + 10 + 10 + 10 + 15 + 7.5 + 7.5 + 5 + 10 = 95 / 100`
+**Artifact (A–G):** `80 / 85 = 94%`
 
 > **Note the shape of this update (2026-07-28).** Publication readiness did not move — **I** gained
 > 2.5 (the repo is public with every protection enabled) and **G** lost exactly 2.5 (its evidence
@@ -106,16 +106,27 @@ different speeds and blending them hides which one is stuck.
 
 ### What the remaining 3.5% actually is
 
-Nearly all of it is **small in effort and large in consequence** — the reverse of the work done so
-far. Sequenced by what unblocks what:
+**Every item on the original list is now done** — the repo is public with all protections on. What
+remains is a different, smaller set, and none of it blocks anything:
 
-| # | Item | Dim | Effort | Reversible? |
+| # | Item | Dim | Effort | Who |
 |---|---|---|---|---|
-| 1 | ~~Decide repo name + GitHub org~~ — **done**: `hiqs-suite/aegis-sleuth-slack-bot`, created private+empty | H | done | Yes, until published |
-| 2 | ~~Record the `RELEASES.md` DROP-list verdict~~ — **KEEP** (operator, 2026-07-27) | B | done | Yes |
-| 3 | ~~Wire TruffleHog + a pre-commit hook~~ — **built + reviewed 2026-07-27**; proof pending first real run | G | done | Yes |
-| 4 | Create private repo, re-run both gates **from a real fresh clone** | C, I | ~1 hour | Yes |
-| 5 | Flip public | I | minutes | **No.** This is the one-way door |
+| 1 | **`/front-door` + `/shakedown` re-run from the fresh clone** — the Phase 6 runs that never happened; the plan itself calls these "the one that counts" | F, C | ~1 hour | Me |
+| 2 | **`FRONTDOOR.md`** — the re-runnable onboarding board, still the one open Phase 4 item | F | ~1 hour | Me |
+| 3 | **An outsider completes a real first run** with live Slack + OpenAI credentials | F | — | Human-gated |
+| 4 | **GH-420 credential rotation** — **OPEN**, and TruffleHog *verified* the OpenAI key is live. Not a publication gate; a real obligation on the private repo | — | ~30 min | **Operator only** |
+
+<details><summary>Original list (all closed) — kept for the record</summary>
+
+| # | Item | Dim | Status |
+|---|---|---|---|
+| 1 | Decide repo name + GitHub org | H | **done** — `hiqs-suite/aegis-sleuth-slack-bot`, product AEGIS |
+| 2 | Record the `RELEASES.md` DROP-list verdict | B | **done** — KEEP (operator, 2026-07-27) |
+| 3 | Wire TruffleHog + a pre-commit hook | G | **done** — and then found broken by running it, three separate ways |
+| 4 | Create private repo, re-run both gates from a real fresh clone | C, I | **done** — `npm ci`, jest 1470/1470, hooks installed, no path leaks |
+| 5 | Flip public | I | **done 2026-07-28** — the one-way door, verified anonymously |
+
+</details>
 
 > ~~`CONTRIBUTING.md` + CLA decision; `SECURITY.md`~~ — **done 2026-07-27.** The CLA was the
 > one-way door in this list: a PR merged under the wrong inbound terms cannot be un-merged out of a
@@ -270,12 +281,14 @@ that is the phase's main risk, not the find-and-replace itself.
 
 Blocks repo creation. Nothing else depends on it, so it can run in parallel with Phase 1.
 
-- [ ] Confirm the collision set: Spring Cloud Sleuth (Pivotal/VMware), sleuth.io (deploy analytics),
-      any others found
-- [ ] Check availability: GitHub org + repo, npm package name, `.com`/`.dev` domain
-- [ ] Decide: keep `sleuth` with a qualifier (`sleuth-bot`, `sleuthhq`), or rename outright
-- [ ] Decide publishing identity: `NeochromeTeam/<name>` vs a dedicated org
-- [ ] **Operator sign-off on the final name** — everything downstream hardcodes it
+- [x] Confirm the collision set: Spring Cloud Sleuth (Pivotal/VMware), sleuth.io (deploy analytics)
+      — resolved by renaming outright rather than qualifying
+- [x] Check availability: **GitHub org + repo confirmed** (`hiqs-suite/aegis-sleuth-slack-bot`
+      created). **npm package name and `.com`/`.dev` domain were NOT checked** — not needed, since
+      nothing is published to npm and there is no marketing site in scope (see Anti-goals)
+- [x] Decide: keep `sleuth` with a qualifier, or rename outright — **renamed outright to AEGIS**
+- [x] Decide publishing identity: **`hiqs-suite`**, a separate org from `NeochromeTeam`
+- [x] **Operator sign-off on the final name** — 2026-07-27
 
 **Exit:** a written name + org decision, recorded in this doc.
 **DECIDED 2026-07-27:** org **`hiqs-suite`**, repo **`aegis-sleuth-slack-bot`**, product renamed **Sleuth → AEGIS**. Repo already exists (private, empty). The repo slug deliberately retains `sleuth` — this is a transitional identity, not an erasure, which is why docs say AEGIS while env vars and code keep `SLEUTH_`/`sleuth-app`.
@@ -460,15 +473,29 @@ Built *before* publication so it can be run *as* the publication check.
       gitleaks for the decisive property here: it *verifies* findings against the provider's API,
       separating live secrets from dead placeholders
 - [x] Run it over the entire Phase 2 tree — **zero findings required** → CLEAN, and TruffleHog
-      **0 verified / 0 unverified** on both the filesystem artifact and a simulated zero-history squash
-- [ ] **OPEN — largest remaining gap in the automated gate (rubric dimension G, scored 40).** Wire
-      it as a CI workflow in the new repo so a PR reintroducing any of it fails. Today `ci.yml`
-      runs `sanitize-scan.sh` only, and **in CI it can only run 32 of the 60 rules** — the literal
-      denylist is itself the de-anonymization key and cannot ship. TruffleHog is not wired at all,
-      which is exactly the half that would cover the rules CI can't carry
-- [ ] **OPEN.** Add a pre-commit hook mirroring the CI check — no `.githooks/`, no husky
+      **0 verified** on both the filesystem artifact and a simulated zero-history squash.
+      (Corrected 2026-07-28: this originally also claimed "0 unverified". There are 2, both
+      documented decoys — see dimension A. `0 verified` is the gate)
+- [x] **DONE 2026-07-27/28.** Wire it as a CI workflow in the new repo so a PR reintroducing any of
+      it fails. `ci.yml` runs `sanitize-scan.sh` + TruffleHog (verified = gate, unverified =
+      non-blocking report) on push to `main`/`development`, PRs targeting them, **and** a weekly
+      `schedule` + `workflow_dispatch` for whole-tree coverage.
+      **Two residual limits, stated not hidden:** (1) in CI the scanner can only run **32 of the 60
+      rules** — the literal denylist is itself the de-anonymization key and cannot ship; (2) on
+      push/PR, TruffleHog scans only the **event diff**, so whole-tree verified-credential coverage
+      comes from the scheduled/dispatch runs
+- [x] **DONE.** Add a pre-commit hook mirroring the CI check — `.githooks/pre-commit` +
+      `utils/install-git-hooks.sh` + `npm run hooks:install` (sets `core.hooksPath`; no husky).
+      Exit 2 from the scanner is treated as **fatal and non-bypassable** — "it found nothing because
+      it scanned nothing" is failed differently from "it found nothing"
 
-**Exit:** clean scan, gate wired. **Status 2026-07-27:** scan clean ✅, gate **not** wired ❌.
+**Exit:** clean scan, gate wired.
+**Status 2026-07-28: BOTH DONE — and both were then found broken by *running* them.** The gate was
+built and passed a two-round adversarial swarm review on 2026-07-27 with three defects still in it:
+`grep -IL` binary detection that silently reported 0 on macOS, a TruffleHog ghcr tag that 404s
+(`:v3.96.0` — the *release* tag is v-prefixed, the *image* tag is not), and a whole-tree scan that
+was never reachable. **None was catchable by inspection; all three were obvious on first execution.**
+That is the durable lesson from this phase — see the note at the top of the scorecard.
 
 This closes GH-420's "prevent recurrence" item structurally, which is the part of GH-420 this
 project genuinely does absorb.
@@ -477,32 +504,39 @@ project genuinely does absorb.
 
 **Hard gates — all must be green before the repo is made public:**
 
-- [ ] Phase 0 name signed off — **operator decision, not started**
+- [x] Phase 0 name signed off — **`hiqs-suite/aegis-sleuth-slack-bot`**, product **AEGIS** (2026-07-27)
 - [x] Phase 2 tests green — 1470/1470 across 89 suites
-- [ ] Phase 3 legal complete, no incompatible dependency, CLA decided
-      — dependency constraint **cleared**; licence files done; **CLA still open**
-- [ ] Phase 5 scan clean **and gate wired** — scan clean ✅, gate not wired ❌
-- [ ] **GH-420 CLOSED** — all four secrets rotated, Web API bearer no longer `test`.
-      **Reclassified 2026-07-27: this is no longer a publication gate.** The public repo carries
-      zero history and both TruffleHog passes are clean, so nothing GH-420 covers can reach it.
-      Rotation remains a real and urgent obligation on **this private repo** — TruffleHog
-      authenticated the OpenAI key against OpenAI's API, so it is live — but blocking publication
-      on it conflates two unrelated exposures
-- [ ] Clean-machine test: fresh clone → working first run using the public README alone
-- [ ] **`/front-door` re-run against the pushed private repo** (not the local tree) — this is the
-      first time the artifact is a real clone at a foreign path with a new repo name, which is the
-      condition that surfaces the bugs `/shakedown` predicts. A clean local run does not substitute
-- [ ] **`/shakedown` re-run from that same fresh clone** — same reason: new name, new path, and
-      possibly no spaces in it for the first time
+- [x] Phase 3 legal complete, no incompatible dependency, CLA decided — 7/7; CLA answered as a
+      lightweight inbound grant, DCO considered and rejected with reason
+- [x] Phase 5 scan clean **and gate wired** — both ✅ (see Phase 5 for the two residual limits)
+- [x] **GH-420 reclassified — NOT a publication gate** (it remains **OPEN** and urgent on the
+      *private* repo). The public repo carries zero history and both TruffleHog passes are clean, so
+      nothing GH-420 covers can reach it. **Rotation is still outstanding as of 2026-07-28** —
+      TruffleHog *authenticated* the OpenAI key against OpenAI's API, so it is live and exposed to
+      anyone who cloned or forked `sleuth-app`. Ticked here only in the sense that the gate question
+      is settled, **not** in the sense that the credentials are rotated
+- [x] Clean-machine test: fresh clone → `npm ci` exit 0, jest **1470/1470**, `npm run hooks:install`
+      configured `core.hooksPath`, no `/Users/` path leaks. **Caveat:** this proves the repo *builds
+      and tests* from a foreign path — it is **not** a working first run against live Slack, which
+      still nobody outside has done (that is the open half of dimension F)
+- [ ] **NOT DONE — `/front-door` re-run against the pushed repo** (not the local tree). Both skills
+      ran in Phase 2/4 against the local tree and found real bugs there (a second competing
+      onboarding door with a named Product Owner and internal KPIs; `package.json` `main` pointing at
+      a nonexistent file). **The Phase 6 re-run — the one this plan says "is the one that counts" —
+      never happened.** Ticking the fresh-clone build test is not a substitute
+- [ ] **NOT DONE — `/shakedown` re-run from that same fresh clone.** Same reason. Its Phase 2 run
+      found both installers hardcoding a repo URL in the old org (a guaranteed 404 on step one for
+      every outside user), which is exactly the class of bug a new name + new path re-triggers
 
 Then:
 
-- [ ] `gh repo create <org>/<name> --private` — **private first**
-- [ ] Single initial commit of the sanitized tree
-- [ ] Re-run the secret scan against the pushed repo
-- [ ] Enable GitHub secret scanning + **push protection**
-- [ ] Branch protection on `main`
-- [ ] Flip to **public**
+- [x] `gh repo create <org>/<name> --private` — **private first**
+- [x] Single initial commit of the sanitized tree — 432 files, author *and* committer `Neochrome <devops@neochro.me>`
+- [x] Re-run the secret scan against the pushed repo — from a real fresh clone, and again in CI
+- [x] Enable GitHub secret scanning + **push protection** — both on (returned `422` while private on a free org)
+- [x] Branch protection on `main` — required check `test`, `enforce_admins`, no force-push, no deletions
+- [x] Flip to **public** (2026-07-28) — verified **anonymously**, not from the authenticated view,
+      which is what caught an earlier attempt that had silently not taken
 
 **Why private-first even with a clean tree:** it gives one last look at the thing as GitHub renders
 it, and force-push is still free. After the flip it is not.
@@ -553,12 +587,24 @@ Do not run this phase on momentum. It moves production.
 
 ## Open questions for the operator
 
-1. **Final name and publishing org** (Phase 0) — everything downstream hardcodes it
-2. **Commercial-license contact address** for `LICENSE-COMMERCIAL.md`
-3. **CLA or DCO for inbound contributions?** Blocks the ability to sell commercial licenses if
-   answered wrong, and it must be answered before the repo is public
+Answered (2026-07-27/28), kept for the record:
+
+1. ~~**Final name and publishing org**~~ → **`hiqs-suite/aegis-sleuth-slack-bot`**, product **AEGIS**
+2. ~~**Commercial-license contact address**~~ → provisionally `support@neochro.me`, because it
+   demonstrably routes. A dedicated `licensing@` alias remains a one-line swap
+3. ~~**CLA or DCO?**~~ → **lightweight inbound licence grant**, recorded by opening a PR. A DCO was
+   considered and **rejected**: it grants only the outbound licence (AGPL), which is precisely what
+   would break the ability to sell a commercial exception
+
+Still open:
+
 4. Does the public `CHANGELOG` keep the existing `v1.4.x` numbering, or does the public release
-   reset to `v2.0.0` with prior entries preserved beneath it?
+   reset to `v2.0.0` with prior entries preserved beneath it? **Currently still `v1.4.x`** (now
+   `1.4.255`) — the default happened by continuing to ship, not by a decision. Worth deciding
+   deliberately, since a public `v1.x` implies a stability promise the internal numbering never made
+5. **GH-420 credential rotation** — still **OPEN**. Not a publication gate, but the OpenAI key was
+   *verified live* by TruffleHog and is exposed to anyone who cloned or forked the private repo.
+   This is the highest-consequence item left anywhere in this project, and only the operator can do it
 
 ## Sequencing note
 
