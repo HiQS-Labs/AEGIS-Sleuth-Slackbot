@@ -33,6 +33,32 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.259 - 2026-07-28
+Housekeeping: my project plan had six places still describing yesterday's state — an item marked
+"not written" that I'd since written, a couple of stale numbers. All corrected. Nothing about the
+software changed.
+
+**Technical:** Doc consistency only, no code. Six stale passages in
+`PROJECT/1-INBOX/GH-423-PUBLIC-REPO-CUTOVER.md`:
+- Phase 4's `FRONTDOOR.md` item still read **"OPEN … Not written"** — it was written and merged
+- The 2026-07-28 movement note still said artifact readiness fell **99% → 96%**; the real figure
+  after F 90→75 is **99% → 94%**. Rewritten to cover all three moves (I +2.5, G −2.5, F −1.5)
+- Open question 4 cited `1.4.255` as current; it was `1.4.258`
+- Heading still read "What the remaining **3.5%** actually is" (now 5%)
+- The GH-420 exclusion paragraph still ended "it isn't blocking, and it isn't done" — it is closed,
+  as an **accepted risk, not rotated**
+- Frontmatter `related:` still described GH-420 as "still OPEN and urgent"
+
+**Three of the six were drift I introduced today while fixing drift**, which is worth recording
+rather than quietly repairing. Editing a scorecard in place means every derived figure and every
+cross-reference is a second edit you owe, and the ones that rot are the *narrative* lines — headings,
+summary callouts, frontmatter — because no check reads them. `FRONTDOOR.md`'s findings each have a
+command that fires when they regress; a sentence saying "artifact readiness fell 99% → 96%" has
+nothing watching it. That asymmetry is the argument for the board, not the prose.
+
+Phases 0–6 are now fully ticked; only Phase 7 (cutover) remains unticked, correctly, as out of scope
+per decision E11. Public repo and this branch are in sync with zero open PRs.
+
 ## 1.4.258 - 2026-07-28
 I checked whether my own setup scripts still work when someone clones me to a totally different
 folder — including one with a space in its name, and even running from the filesystem root. They all
