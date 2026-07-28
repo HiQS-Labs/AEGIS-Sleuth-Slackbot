@@ -33,6 +33,36 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.255 - 2026-07-28
+I've updated my dependencies to clear every critical and high-severity security advisory in the code
+that actually ships. That included a real one in the email library I use for admin password resets —
+a flaw that let a crafted address smuggle extra SMTP commands into a message. Nothing was exploited;
+these are fixes for known issues in libraries I depend on, now closed.
+
+**Technical:** Production dependency vulnerabilities **29 -> 12**, with **critical 2 -> 0** and
+**high 10 -> 0**. Remaining 12 are all moderate. Two steps:
+
+1. `npm audit fix` (no `--force`) — lockfile-only, `package.json` untouched, 297 insertions /
+   542 deletions. Cleared both criticals: `form-data` (CRLF injection via unescaped multipart field
+   names; unsafe random boundary selection) and `protobufjs` (arbitrary code execution via code
+   injection in generated `toObject` defaults). Also `@grpc/grpc-js`, `fast-uri`, `flatted`,
+   `js-yaml`, `jws` (improper HMAC verification), `lodash`, `path-to-regexp`, `tar-fs`, `ws`.
+2. `nodemailer` `^8.0.1 -> ^9.0.3`, a deliberate **major** bump — the last remaining production high
+   (SMTP command injection via unsanitized `envelope.size`, and CRLF in the transport `name` option).
+   Judged low risk on evidence rather than optimism: `src/admin-mailer.js` is the only consumer, and
+   it uses the most conservative surface in the library (`createTransport({host, port, secure, auth})`
+   + `sendMail({from, to, subject, html})`). v9 declares `engines.node >= 6.0.0`, so it does not
+   conflict with our `>= 18.20.4` or CI's pinned 18.20.4.
+
+**Verification, and one gap stated rather than glossed:** jest **1470/1470 across 89 suites**,
+`node --test` **30 pass / 0 fail**, `tsc` **50 errors — identical before and after**, measured by
+stashing the lockfile and re-running rather than trusting the recorded baseline. But **no test file
+covers `admin-mailer`**, so the green suite is *not* evidence for the nodemailer bump. That was
+checked separately with a direct smoke test of the exact call shape the code uses.
+
+The "21 high" figure `npm audit` prints without `--omit=dev` is **dev dependencies** (jest and its
+tree) and does not ship. Production-only is the number that matters for a published artifact.
+
 ## 1.4.254 - 2026-07-28
 My secret scanner in CI was only ever checking the files that changed in each commit — not the whole
 codebase. On the very first push it checked *nothing at all* and still showed a green tick. I've
