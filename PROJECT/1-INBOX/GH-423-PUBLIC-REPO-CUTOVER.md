@@ -143,13 +143,33 @@ Read-only. Empty output where noted means that dimension holds.
 # claiming "expect 0 unverified", so it filtered out of the printout the very thing it asked
 # you to confirm. (The summary counter reports them either way -- read that line, not silence.)
 trufflehog git "file://$PWD" --results=verified,unverified,unknown --no-update
-#   expect: verified_secrets: 0   <- this is the gate
-#   expect: unverified_secrets: 2 <- both are DECOYS, and both are supposed to be there:
-#     docs/server-installation-guide.md:288  https://your-email:your-token@github.com  (doc placeholder)
-#     utils/sanitize-scan.sh:263             xoxb-1234567890-9876543210-xxxSECRETxxx   (the scanner's
-#         OWN canary -- the fake token it greps for to prove grep works before it scans anything)
-#   A count other than 2, or any verified finding, is a real result. Do NOT suppress these two:
-#   a scanner configured to ignore its own canary cannot tell you it is still working.
+#
+# THE GATE IS `verified_secrets: 0`. Nothing else.
+#
+# Do NOT pin an expected unverified count here. The first version of this block said "expect 2" and
+# was stale within one commit: documenting the two decoys (in CHANGELOG + this file) quoted their
+# literal strings, which the detectors then found too -- 2 became 8 in CI. A brittle magic number
+# goes stale on any doc edit and trains the reader to ignore the line. Check the INVARIANT instead:
+# every unverified finding must resolve to a known placeholder. Two real ones exist in the code --
+#   docs/server-installation-guide.md  https://your-email:your-token@github.com  (doc placeholder)
+#   utils/sanitize-scan.sh             xoxb-1234567890-9876543210-xxxSECRETxxx   (the scanner's OWN
+#       canary -- the fake token it greps for to prove grep works before it scans anything)
+# -- and the rest are docs quoting those two. Anything in a file that is NOT documentation or the
+# scanner itself is a real result, whatever the total says.
+#
+# List them by file rather than eyeballing the count:
+trufflehog git "file://$PWD" --results=verified,unverified,unknown --no-update --json 2>/dev/null \
+  | python3 -c 'import sys,json,collections
+c=collections.Counter()
+for l in sys.stdin:
+    l=l.strip()
+    if l.startswith("{"):
+        d=json.loads(l)
+        c[(d.get("DetectorName"), d.get("SourceMetadata",{}).get("Data",{}).get("Git",{}).get("file"))]+=1
+[print(f"{n}x  {det:8} {f}") for (det,f),n in sorted(c.items(), key=lambda x:-x[1])]'
+#
+# Do NOT suppress the canary: a scanner configured to ignore its own canary can no longer tell you
+# it is still working -- which is the exact failure this project has now hit three times.
 
 # B — scope: nothing quarantined has crept back
 git ls-files | wc -l                                                # expect: ~427

@@ -58,13 +58,21 @@ The action already ships a whole-repo path — it resolves `schedule` and `workf
 (`cron: '0 9 * * 1'` + manual dispatch) and **verified by running it**: 5,435,279 bytes over 751
 chunks against 5,430,106 bytes of tracked content, **0 verified secrets**.
 
-Two unverified findings surfaced, both decoys, both deliberately left in place:
+Two unverified findings surfaced in the code, both decoys, both deliberately left in place:
 - `docs/server-installation-guide.md:288` — `https://your-email:your-token@github.com`, a doc placeholder
 - `utils/sanitize-scan.sh:263` — `xoxb-1234567890-9876543210-xxxSECRETxxx`, the scanner's **own canary**,
   the fake token it greps for to prove grep works before it scans anything
 
 Suppressing them was rejected: a scanner configured to ignore its own canary can no longer report
 that it is working.
+
+A follow-on effect worth recording, because it invalidated the first fix I wrote: documenting those
+two decoys **quoted their literal strings**, so the detectors found the documentation too — the
+unverified count went 2 → 8 within one commit. The re-score block originally pinned "expect 2",
+which was stale immediately. Replaced with the invariant that actually holds: **the gate is
+`verified_secrets: 0`**, and every unverified finding must resolve to a known placeholder in either
+documentation or the scanner itself. A pinned count goes stale on any doc edit and trains the
+reader to ignore the line.
 
 Also corrected two things that were wrong in the record rather than in the code:
 - `GH-423`'s re-score command was `trufflehog filesystem . --results=verified,unknown` while asserting
