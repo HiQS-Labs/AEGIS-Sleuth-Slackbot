@@ -10,21 +10,21 @@ root `*.md` files changes — those are what a newcomer actually touches.
 
 | | |
 |---|---|
-| **Last audited** | 2026-07-28, against `main` at a **fresh anonymous clone** (not a working copy) at a foreign path with no spaces |
-| **Method** | `/front-door` walk — clone → docs → install → auth → first success, plus a secret sweep |
-| **Verdict** | ⚠️ **Bumpy** — an agent-assisted newcomer reaches a running process. The two install-path blockers found in this audit are fixed; what remains is an incomplete env-var story and unlabelled internal docs. **No leaked secrets:** full 60-rule scan CLEAN over 433 files, TruffleHog full-tree `verified_secrets: 0`. |
+| **Last audited** | 2026-07-29, after docs/package adoption polish on `fix-compile-errors` |
+| **Method** | `/front-door` walk — clone → docs → install → auth → first success, plus prior secret sweep |
+| **Verdict** | ✅ **Improved** — [`docs/getting-started.md`](docs/getting-started.md) is the canonical linear onboarding path; README Quick start table links every step. Live Slack first-run still unverified by an outsider (FD-06). |
 
 ## Health at a glance
 
 | Dimension | | Note |
 |---|---|---|
 | 🔑 Leaked secrets | ✅ | 0 verified secrets across the full tree (5,445,696 bytes / 756 chunks in CI). Only `.env.example` is tracked; no `.env`. No real Slack team ID anywhere |
-| One front door | ⚠️ | README is clearly canonical and has a TOC + Documentation map — but 17 root `*.md` files exist and 8 of them are internal-process docs the map never mentions |
+| One front door | ✅ | README → [`docs/getting-started.md`](docs/getting-started.md) for first run; internal docs listed separately |
 | Install path | ✅ | Clone command is a real, anonymously-verified URL (was a placeholder — FD-02) |
 | Auth & access | ✅ | Honest about the walls: a Slack app you create, and an AI key you pay for. Neither is hidden |
 | First success works | ⚠️ | `@Sleuth help` is a real checkpoint, but **no outsider has completed a live first run** |
-| Config discoverability | 🚧 | `.env.example` documents **1** variable; `src/` reads **31** |
-| Doc ↔ code drift | ✅ | `package.json` metadata now points at the real repo (was `your-org/your-repo` — FD-01) |
+| Config discoverability | ⚠️ | `.env.example` + README Configuration reference cover host-level vars; optional `SLEUTH_*` flags remain in code comments only |
+| Doc ↔ code drift | ✅ | `WEB_API_BEARER_TOKEN` is consistent in README, `docs/web-api.md`, and macOS guide; server install uses Web API for workspaces |
 
 ## Findings
 
@@ -32,8 +32,8 @@ root `*.md` files changes — those are what a newcomer actually touches.
 |---|---|---|---|---|
 | FD-01 | Drift | 🟠 | ✅ FIXED | `package.json` `repository`, `bugs` and `homepage` all pointed at `your-org/your-repo`, breaking GitHub's sidebar links and "report an issue" on a *published* repo. Now `hiqs-suite/aegis-sleuth-slack-bot` |
 | FD-02 | Install | 🟠 | ✅ FIXED | The first install command was `git clone <your-fork-or-clone-url> sleuth` — a placeholder that fails as written, naming the directory `sleuth` rather than `aegis`. Now the real public URL, verified by cloning from it anonymously |
-| FD-03 | Config | 🟠 | ⬜ OPEN | `.env.example` defines **1** variable (`ADMIN_ENCRYPTION_KEY`) while `src/` reads **31** distinct `process.env` keys, 11 of them `SLEUTH_*`. The README's Configuration reference is prose, not a list. A newcomer has no single place to learn what is configurable |
-| FD-04 | Front door | 🟡 | ⬜ OPEN | 17 root `*.md` files. The Documentation map lists 9; it never mentions `ROUTER.md`, `SENTINEL.md`, `CLAUDE.md`, `ROADMAP.md`, `GUIDING-PRINCIPLES.md`, `ARCHITECTURE-DECISIONS.md` or `RELEASES.md`. These are internal-process docs; a newcomer opening `ROUTER.md` first learns nothing about running the app. Either list them as internal, or move them under `PROJECT/` |
+| FD-03 | Config | 🟠 | ⚠️ IMPROVED | `.env.example` now documents host-level vars (`ADMIN_ENCRYPTION_KEY`, `WEB_API_BEARER_TOKEN`, `WEB_API_PORT`) and README adds a Configuration reference table. Optional `SLEUTH_*` feature flags remain undocumented in `.env.example` by design — see commented lines in the template |
+| FD-04 | Front door | 🟡 | ✅ FIXED | README Documentation map now includes an **Internal / agent docs** subsection listing `ROUTER.md`, `CLAUDE.md`, `SENTINEL.md`, `ROADMAP.md`, `GUIDING-PRINCIPLES.md`, `ARCHITECTURE-DECISIONS.md`, `RELEASES.md`, and `FRONTDOOR.md` |
 | FD-05 | Sanitization | — | ✅ **CLOSED — won't fix (already decided, E5)** | Raised as "`neochrome` survives as a workspace identifier in 97 files". **Withdrawn: this was re-litigating a settled decision.** The private denylist carries the rule *deliberately disabled*, with the reason inline — "NeochromeTeam is the copyright holder's own org and is KEPT (E5)" — so E5 had already refined D6, and the finding read D6 alone. On the merits there is also no vulnerability: `NEOCHROME_TEAM_ID` is a variable *name*; a Slack team ID is not a credential (every workspace member sees it, it appears in URLs), the gate is fail-closed, and changing the value requires controlling the server env. Redacting `Client A`–`G` protects **third parties who never consented**; the vendor's own name is the vendor's to disclose. Operator confirmed 2026-07-28 |
 | FD-06 | First success | 🟡 | ⬜ OPEN | No outsider has completed a first run against live Slack + a live AI key. The fresh-clone test proves it *builds and tests*, which is not the same thing. This is the open half of rubric dimension F |
 

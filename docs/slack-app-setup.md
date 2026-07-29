@@ -1,5 +1,7 @@
 # Creating a Slack app for AEGIS
 
+> **Context:** this doc is step 3 of [Getting Started](getting-started.md). Complete steps 1–2 there first.
+
 AEGIS needs a Slack app with **Socket Mode** enabled. Use the app-manifest route unless you have a
 reason not to — it configures every scope and event subscription in one step.
 

@@ -7,6 +7,8 @@ const readline = require('readline');
 const { Writable } = require('stream');
 const AdminAuth = require('../src/admin-auth');
 
+require('../src/load-env-file').LoadEnvFile();
+
 // define defaults used by setup prompts.
 const DEFAULT_ADMIN_EMAIL = 'devops@neochro.me';
 const DEFAULT_ADMIN_BASE_URL = 'http://localhost:2020';

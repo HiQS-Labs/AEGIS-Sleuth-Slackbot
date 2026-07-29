@@ -10,6 +10,9 @@ or AEGIS closes it itself when the linked GitHub issue is merged.
 AEGIS has been in daily production use for about 2.5 years by a working team, across multiple
 Slack workspaces. It is multi-tenant, self-hosted, and stores its data on disk you control.
 
+> **New here?** Follow **[Getting Started](docs/getting-started.md)** — a step-by-step guide from
+> clone to your first `@Bot help` reply (~30–45 min). Everything below is reference material.
+
 > **Heads up:** this project was called **Sleuth** internally until July 2026, and you will see that
 > name throughout the code, the settings, and the release history. That is deliberate, not leftover
 > mess — see [A note on the name](#a-note-on-the-name--formerly-sleuth).
@@ -18,6 +21,7 @@ Slack workspaces. It is multi-tenant, self-hosted, and stores its data on disk y
 
 ## Table of contents
 
+- [Quick start](#quick-start)
 - [What it does](#what-it-does)
 - [A note on the name — formerly Sleuth](#a-note-on-the-name--formerly-sleuth)
 - [Maturity — an honest read](#maturity--an-honest-read)
@@ -32,6 +36,21 @@ Slack workspaces. It is multi-tenant, self-hosted, and stores its data on disk y
 - [Security](#security)
 - [Documentation map](#documentation-map)
 - [License](#license)
+
+---
+
+## Quick start
+
+| Step | Action | Guide |
+|---|---|---|
+| 1 | Install Node 18.20.4+, clone repo, `npm ci` | [Getting Started §1](docs/getting-started.md#step-1--clone-and-install) |
+| 2 | Copy `.env.example` → `.env`, set `ADMIN_ENCRYPTION_KEY` | [§2](docs/getting-started.md#step-2--create-your-env-file) |
+| 3 | Create a Slack app (Socket Mode) | [§3](docs/getting-started.md#step-3--create-a-slack-app) · [manifest](docs/slack-app-setup.md) |
+| 4 | `npm run dev` | [§4](docs/getting-started.md#step-4--start-aegis) |
+| 5 | `POST /workspace` with Slack + AI credentials | [§5](docs/getting-started.md#step-5--register-your-workspace) |
+| 6 | Restart, then `@YourBot help` in Slack | [§6](docs/getting-started.md#step-6--restart-and-verify-in-slack) |
+
+**Full checklist of requirements** (software, accounts, credentials): [Getting Started — What you need](docs/getting-started.md#what-you-need-before-you-start).
 
 ---
 
@@ -71,7 +90,7 @@ the old name in a lot of places. Nothing is broken, and none of it is an oversig
 
 | Where you'll see `Sleuth` | Why it stayed |
 |---|---|
-| **Environment variables** — `SLEUTH_API_TOKEN`, `SLEUTH_DATA_DIR`, and ~32 others | Renaming these would break every existing deployment's `.env` for no functional gain. They are configuration keys, not branding. |
+| **Environment variables** — `SLEUTH_DATA_DIR`, `SLEUTH_RAG_GITHUB_PAT`, and other `SLEUTH_*` keys | Renaming these would break every existing deployment's `.env` for no functional gain. They are configuration keys, not branding. The Web API bearer is `WEB_API_BEARER_TOKEN` (not `SLEUTH_API_TOKEN`). |
 | **Code identifiers** — `SleuthAuditWriteID`, `IsSleuthAuthoredMessage`, and similar | Renaming symbols across the codebase is a large, purely cosmetic diff. It would make `git blame` useless and every open patch conflict, while changing nothing a user can observe. |
 | **Paths and service names** — `sleuth-app`, `sleuth-app.service`, `/root/sleuth-app` | These are install locations and systemd unit names on running servers. Changing them is a migration, not a rename. |
 | **`@Sleuth` in Slack examples** | This is how the bot is mentioned in the workspaces it already runs in. You name your own Slack app whatever you like — the code responds to mentions of *your* app, not to the literal string. |
@@ -108,19 +127,27 @@ deployment under light load. Nothing here has been load-tested.
 
 ## Requirements
 
-- **Node.js 18.20.4+** (18 LTS is the floor; newer LTS releases work)
-- **A Slack workspace** where you can install an app
-- **An API key** for at least one of OpenAI, Anthropic, or Google Gemini
-- **Linux with `systemd`** for the always-on deployment (macOS works for development)
+**Full checklist with build tools, accounts, and every credential:** [Getting Started](docs/getting-started.md#what-you-need-before-you-start).
 
-AEGIS must stay running to listen for Slack events — it is a long-lived process, not a cron job.
+| Category | Requirement |
+|---|---|
+| **Runtime** | Node.js **18.20.4+** (20 or 22 LTS recommended), npm, git |
+| **Build tools** | Xcode CLT (macOS) or `build-essential` (Linux) — needed for `better-sqlite3` |
+| **Slack** | A workspace where you can install apps; Socket Mode app with bot + app-level tokens |
+| **AI** | API key from OpenAI, Anthropic, or Google Gemini (at least one) |
+| **Production** | Linux + `systemd` for always-on deploy; set `WEB_API_BEARER_TOKEN` before exposing port 2020 |
+
+AEGIS is a **long-lived process** — it must stay running to receive Slack events (not a cron job).
 
 ## Install
+
+> **Prefer the linear guide:** [docs/getting-started.md](docs/getting-started.md) walks through install,
+> Slack setup, workspace registration, and verification in order.
 
 ```bash
 git clone https://github.com/hiqs-suite/aegis-sleuth-slack-bot.git aegis
 cd aegis
-npm install
+npm ci
 ```
 
 Copy the environment template and fill it in:
@@ -129,69 +156,34 @@ Copy the environment template and fill it in:
 cp .env.example .env
 ```
 
-`.env` holds host-level configuration only. **Per-workspace secrets (Slack tokens, AI keys) are not
-stored here** — they are supplied per workspace through the Web API, described below.
+See [Getting Started §2](docs/getting-started.md#step-2--create-your-env-file) for what to put in `.env`.
 
-Generate the admin encryption key referenced in `.env.example`:
+`.env` holds **host-level** settings only. Slack tokens and AI keys go through the Web API (below).
 
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+`npm run dev` and `node src/app.js` load `.env` automatically. Admin setup scripts do too.
 
 ## Create a Slack app
 
-AEGIS needs a Slack app with Socket Mode enabled. The fastest route is the app manifest.
+**Step-by-step with ready-to-paste manifest:** [`docs/slack-app-setup.md`](docs/slack-app-setup.md)
 
-**Full walkthrough, both methods, with the ready-to-paste manifest:**
-[`docs/slack-app-setup.md`](docs/slack-app-setup.md). In short:
-
-1. Go to <https://api.slack.com/apps> → **Create New App** → **From an app manifest**.
-2. Pick your workspace and paste the manifest from that guide.
-3. **Basic Information** → **App-Level Tokens** → generate a token with `connections:write`.
-   This is your `LIVE_APP_TOKEN` (`xapp-…`).
-4. **Install App** → install to your workspace → copy the **Bot User OAuth Token**
-   (`xoxb-…`). This is your `LIVE_TOKEN`.
-5. **Basic Information** → copy the **Signing Secret**. This is your `LIVE_SIGNING_SECRET`.
-6. **Event Subscriptions** → enable, and subscribe to the bot events: `app_mention`,
-   `message.channels`, `message.groups`, `message.im`, `reaction_added`.
-7. Invite the bot to the channels it should watch.
-
-You now have the three Slack credentials AEGIS needs.
+You need three credentials: `LIVE_TOKEN` (`xoxb-…`), `LIVE_SIGNING_SECRET`, and `LIVE_APP_TOKEN` (`xapp-…` with `connections:write`). Enable Socket Mode. Invite the bot to your reminder channel.
 
 ## Configure a workspace
 
-Workspaces are created through the [Web API](docs/web-api.md) rather than a config file, so you can
-add or update them without a redeploy.
+**Copy-paste commands and troubleshooting:** [Getting Started §5](docs/getting-started.md#step-5--register-your-workspace)
 
-> **Never paste real credentials into a file you might commit.** Keep them in your environment or a
-> secrets manager and interpolate, as below.
+Workspaces are registered via `POST /workspace` (not by editing JSON files):
 
 ```bash
 curl -X POST "http://localhost:2020/workspace" \
-  -H "Authorization: Bearer $SLEUTH_API_TOKEN" \
+  -H "Authorization: Bearer ${WEB_API_BEARER_TOKEN:-test}" \
   -H "Content-Type: application/json" \
-  -d '{
-    "WORKSPACE_NAME": "your-workspace",
-    "ADMIN_EMAIL": "admin@example.com",
-    "LIVE_TOKEN": "'"$SLACK_BOT_TOKEN"'",
-    "LIVE_SIGNING_SECRET": "'"$SLACK_SIGNING_SECRET"'",
-    "LIVE_APP_TOKEN": "'"$SLACK_APP_TOKEN"'",
-    "OPENAI_API_KEY": "'"$OPENAI_API_KEY"'",
-    "REMINDER_CHANNEL_NAME": "your-reminder-channel",
-    "MAIN_TIMEZONE": "America/Los_Angeles",
-    "SNOOZE_DAYS": ["Saturday", "Sunday"],
-    "STARTUP_MESSAGE": "yes"
-  }'
+  -d '{ ... }'   # see getting-started.md for the full example
 ```
 
-A successful call returns `{"success":true,"data":"Workspace saved."}`. An HTML response almost
-always means malformed JSON — usually a quote or comma lost while pasting keys.
+Success: `{"success":true,"data":"Workspace saved."}`
 
-AEGIS does not hot-reload workspace configuration. **Restart after any workspace change:**
-
-```bash
-sudo systemctl restart sleuth-app.service
-```
+**Restart the app** after registering (`Ctrl+C` → `npm run dev` locally).
 
 ### Workspace fields
 
@@ -221,7 +213,7 @@ npm run dev     # development, with reload
 node src/app.js # production process
 ```
 
-Then, in Slack: `@Sleuth help`.
+Then verify in Slack: `@YourBotName help` — see [Getting Started §6](docs/getting-started.md#step-6--restart-and-verify-in-slack).
 
 ## Running as a service
 
@@ -240,7 +232,20 @@ macOS development setup: [`macos-install-guide.md`](./macos-install-guide.md).
 
 ## Configuration reference
 
-> Environment variables are prefixed **`SLEUTH_`**, not `AEGIS_`. That is intentional — see
+Host-level settings live in [`.env.example`](.env.example) (copy to `.env`). The table below lists
+what most self-hosters need; optional feature flags are commented in the example file.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `ADMIN_ENCRYPTION_KEY` | For admin panel | 64-char hex key; encrypts SMTP credentials at rest |
+| `WEB_API_BEARER_TOKEN` | Production | Bearer token for the REST API. Dev fallback is `test` if unset |
+| `WEB_API_PORT` | — | Web API listen port (default `2020`) |
+| `NEW_RELIC_LICENSE_KEY` | — | Enables New Relic APM when set |
+
+Workspace fields (`LIVE_TOKEN`, `OPENAI_API_KEY`, etc.) are configured through
+[`POST /workspace`](docs/web-api.md), not in `.env`.
+
+> Environment variables are often prefixed **`SLEUTH_`** for historical reasons — see
 > [A note on the name](#a-note-on-the-name--formerly-sleuth).
 
 **AI models.** The default is a small, cheap model; date extraction uses a stronger one, because
@@ -305,6 +310,8 @@ policy, supported versions and scope: [`SECURITY.md`](./SECURITY.md).
 
 | Doc | What it covers |
 |---|---|
+| **[`docs/getting-started.md`](docs/getting-started.md)** | **Start here** — full requirements checklist + step-by-step first run |
+| [`docs/slack-app-setup.md`](docs/slack-app-setup.md) | Slack app manifest and credential collection |
 | [`docs/web-api.md`](docs/web-api.md) | Web API endpoints — workspace management |
 | [`docs/server-installation-guide.md`](docs/server-installation-guide.md) | Full Linux server install |
 | [`macos-install-guide.md`](./macos-install-guide.md) | macOS development setup |
@@ -314,6 +321,20 @@ policy, supported versions and scope: [`SECURITY.md`](./SECURITY.md).
 | [`HONEST.md`](./HONEST.md) | Ground-truth maturity assessment — the source for the table above |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | How to contribute — **read the inbound licensing section** |
 | [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability, and operator responsibilities |
+
+**Internal / agent docs** (not the install path — for contributors and AI agents):
+
+| Doc | What it covers |
+|---|---|
+| [`ROUTER.md`](./ROUTER.md) | Agent startup order and canonical file pointers |
+| [`CLAUDE.md`](./CLAUDE.md) | Pointer to `AGENTS.md` for Claude Code |
+| [`SENTINEL.md`](./SENTINEL.md) | Sentinel / monitoring notes (internal) |
+| [`AGENTS.md`](./AGENTS.md) | Architecture contracts and non-negotiables for code changes |
+| [`ROADMAP.md`](./ROADMAP.md) | In-progress and shipped work ledger |
+| [`GUIDING-PRINCIPLES.md`](./GUIDING-PRINCIPLES.md) | Doc-governance north star |
+| [`ARCHITECTURE-DECISIONS.md`](./ARCHITECTURE-DECISIONS.md) | Graph-derived architecture snapshot |
+| [`RELEASES.md`](./RELEASES.md) | Forward-looking release planning |
+| [`FRONTDOOR.md`](./FRONTDOOR.md) | Onboarding health board (re-runnable checks) |
 
 ## Contributing
 

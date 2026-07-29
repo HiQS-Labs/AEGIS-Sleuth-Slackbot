@@ -1,24 +1,28 @@
 # AEGIS App Installation Guide for macOS
 
+> **Prefer the main path:** [docs/getting-started.md](docs/getting-started.md) is the canonical
+> step-by-step guide for all platforms. This document adds macOS-specific notes (Homebrew, GitHub Desktop).
+
 This guide provides step-by-step instructions to install the AEGIS Node.js application on a macOS machine, including common troubleshooting steps and instructions for using the GitHub Desktop application.
 
 ## Table of Contents
 
-1.  [Prerequisites](https://www.google.com/search?q=%23prerequisites)
-2.  [Step 1: Install Xcode Command Line Tools](https://www.google.com/search?q=%23step-1-install-xcode-command-line-tools)
-3.  [Step 2: Install Homebrew and Node.js](https://www.google.com/search?q=%23step-2-install-homebrew-and-nodejs)
-4.  [Step 3: Download the Application using GitHub Desktop](https://www.google.com/search?q=%23step-3-download-the-application-using-github-desktop)
-5.  [Step 4: Create and Configure the Slack App](https://www.google.com/search?q=%23step-4-create-and-configure-the-slack-app)
-6.  [Step 5: Configure and Run the Application](https://www.google.com/search?q=%23step-5-configure-and-run-the-application)
-7.  [Troubleshooting](https://www.google.com/search?q=%23troubleshooting)
-8.  [How to Switch Branches for Testing](https://www.google.com/search?q=%23how-to-switch-branches-for-testing-with-github-desktop)
-9.  [Frequently Asked Questions (FAQ)](https://www.google.com/search?q=%23frequently-asked-questions-faq)
+1. [Prerequisites](#prerequisites)
+2. [Step 1: Install Xcode Command Line Tools](#step-1-install-xcode-command-line-tools)
+3. [Step 2: Install Homebrew and Node.js](#step-2-install-homebrew-and-nodejs)
+4. [Step 3: Download the Application using GitHub Desktop](#step-3-download-the-application-using-github-desktop)
+5. [Step 4: Create and Configure the Slack App](#step-4-create-and-configure-the-slack-app)
+6. [Step 5: Configure and Run the Application](#step-5-configure-and-run-the-application)
+7. [Troubleshooting](#troubleshooting)
+8. [How to Switch Branches for Testing](#how-to-switch-branches-for-testing-with-github-desktop)
+9. [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
 
 ## Prerequisites
 
   * A Mac running macOS.
   * Your GitHub account credentials.
-  * An OpenAI API key.
+  * An OpenAI API key (or Anthropic/Gemini — see [Getting Started](docs/getting-started.md#what-you-need-before-you-start)).
+  * Steps 1–2 from [Getting Started](docs/getting-started.md) completed if you use the terminal path instead of GitHub Desktop.
 
 ## Step 1: Install Xcode Command Line Tools
 
@@ -144,7 +148,7 @@ You need to create a corresponding app in your Slack workspace to get the necess
       * Use the `curl` command below to send your credentials to the app. **Replace all placeholder values** with your actual credentials.
         ```bash
         curl -X POST "http://localhost:2020/workspace" \
-        -H "Authorization: Bearer $SLEUTH_API_TOKEN" \
+        -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" \
         -H "Content-Type: application/json" -d '{
             "WORKSPACE_NAME": "your-workspace-name",
             "ADMIN_EMAIL": "your-email@example.com",

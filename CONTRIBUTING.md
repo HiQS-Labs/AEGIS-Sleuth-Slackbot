@@ -11,13 +11,19 @@ opening a pull request — it is short, and it is the part that actually matters
 
 ## Development setup
 
-Node **>= 18.20.4** (see `engines` in `package.json`).
+**New contributors:** start with [docs/getting-started.md](docs/getting-started.md) for the full
+requirements checklist and first-run steps.
+
+Node **>= 18.20.4** (20 or 22 LTS recommended; see `engines` in `package.json`).
 
 ```bash
 npm ci
 cp .env.example .env     # placeholders only — never commit real credentials
 npm test
 ```
+
+`npm run dev` and `node src/app.js` load `.env` from the repo root automatically. For admin setup,
+`npm run admin:setup` does the same (requires `ADMIN_ENCRYPTION_KEY` in `.env`).
 
 `npm test` runs the Jest suite plus the `node --test` suites. It should be fully green before you
 open a pull request; if a test is failing on `main`, say so in the PR rather than working around it.
