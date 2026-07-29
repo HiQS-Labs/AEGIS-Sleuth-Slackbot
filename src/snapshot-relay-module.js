@@ -33,8 +33,8 @@ function BuildDefaultGithubClient({ pat, repo, dir, branch }) {
       }
       const entries = await res.json();
       return entries
-        .filter((ArgEntry) => ArgEntry.type === 'file' && ArgEntry.name.endsWith('.md'))
-        .map((ArgEntry) => ({ name: ArgEntry.name, sha: ArgEntry.sha }));
+        .filter((/** @type {any} */ ArgEntry) => ArgEntry.type === 'file' && ArgEntry.name.endsWith('.md'))
+        .map((/** @type {any} */ ArgEntry) => ({ name: ArgEntry.name, sha: ArgEntry.sha }));
     },
 
     /**
@@ -91,7 +91,7 @@ class SnapshotRelayModule {
 
   /**
    * Resolved config for this instance.
-   * @type {{ enabled: boolean, channelId: string, pat: string, repo: string, dir: string, branch: string, seenPath: string, pollIntervalMs: number, githubClient: object }}
+   * @type {{ enabled: boolean, channelId: string, pat: string, repo: string, dir: string, branch: string, seenPath: string, pollIntervalMs: number, githubClient: { ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> } }}
    */
   #Config;
 
@@ -126,6 +126,8 @@ class SnapshotRelayModule {
    * @param {string} [ArgConfig.seenPath]
    * @param {number} [ArgConfig.pollIntervalMs]
    * @param {object} [ArgConfig.githubClient] Injectable GitHub client (for tests).
+   * @param {() => Promise<Array<{ name: string, sha: string }>>} ArgConfig.githubClient.ListSnapshotsAsync
+   * @param {(name: string) => Promise<string>} ArgConfig.githubClient.GetContentAsync
    * @param {import('./slack-app')} [ArgConfig.slackApp]
    */
   constructor(ArgSlackApp, ArgLogger, ArgConfig = {}) {
@@ -139,14 +141,14 @@ class SnapshotRelayModule {
     //     workspace names). Env lives in the server's .env.runtime, which SURVIVES redeploys —
     //     unlike the per-workspace JSON, which a redeploy/restore can overwrite (observed
     //     2026-07-06: SNAPSHOT_RELAY_ENABLED silently reverted to false after a redeploy).
-    //  2. LEGACY (backward-compat): the `neochrome` workspace with WorkspaceInfo.SNAPSHOT_RELAY_ENABLED
-    //     === true — exact prior behavior, kept so existing config keeps working.
-    const EnvAllowlist = (process.env.SNAPSHOT_RELAY_WORKSPACES || '')
-      .split(',').map((ArgName) => ArgName.trim()).filter(Boolean);
-    const EnabledViaEnv = EnvAllowlist.includes(WorkspaceName);
-    const EnabledViaConfig = WorkspaceName === 'neochrome'
-      && this.#SlackApp.WorkspaceInfo.SNAPSHOT_RELAY_ENABLED === true;
-    const FlagEnabled = EnabledViaEnv || EnabledViaConfig;
+      // 2. LEGACY (backward-compat): the `neochrome` workspace with WorkspaceInfo.SNAPSHOT_RELAY_ENABLED
+      //     === 'true' — exact prior behavior, kept so existing config keeps working.
+      const EnvAllowlist = (process.env.SNAPSHOT_RELAY_WORKSPACES || '')
+        .split(',').map((ArgName) => ArgName.trim()).filter(Boolean);
+      const EnabledViaEnv = EnvAllowlist.includes(WorkspaceName);
+      const EnabledViaConfig = WorkspaceName === 'neochrome'
+        && this.#SlackApp.WorkspaceInfo.SNAPSHOT_RELAY_ENABLED === true;
+      const FlagEnabled = EnabledViaEnv || EnabledViaConfig;
 
     const DefaultSeenPath = path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'snapshot-relay-seen.json'));
     const DefaultPat = ArgConfig.pat ?? process.env.SLEUTH_RAG_GITHUB_PAT ?? '';
@@ -172,7 +174,7 @@ class SnapshotRelayModule {
       branch: DefaultBranch,
       seenPath: ArgConfig.seenPath ?? DefaultSeenPath,
       pollIntervalMs: ArgConfig.pollIntervalMs ?? 60000,
-      githubClient: ArgConfig.githubClient ?? BuildDefaultGithubClient(ClientConfig),
+      githubClient: ArgConfig.githubClient ?? /** @type {{ ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> }} */ (BuildDefaultGithubClient(ClientConfig)),
     };
   }
 
@@ -195,6 +197,7 @@ class SnapshotRelayModule {
     if(!HadPersistedState) {
       // FIRST-EVER run: record existing remote files as seen WITHOUT posting, so
       // enabling the relay doesn't replay backlog into the channel.
+      /** @type {Array<{ name: string, sha: string }>} */
       let RemoteFiles;
       try {
         RemoteFiles = await this.#Config.githubClient.ListSnapshotsAsync();

@@ -2331,7 +2331,7 @@ class RemindersModule {
    * Returns an empty string when there are no signals (noise budget rule: render nothing).
    * Caps at PROACTIVE_CAP signals; overflow reported as "and N more".
    *
-   * @param {ReturnType<RemindersModule['#ComputeProactiveDigestSignals']>} ArgSignals
+   * @param {Array<{ type: string, clientId: string|null, label: string, taskIds: string[], details: string }>} ArgSignals
    * @returns {string}
    */
   #RenderProactiveDigestSection(ArgSignals) {
@@ -2478,10 +2478,10 @@ class RemindersModule {
    *
    * @param {object} ArgParams
    * @param {any[]} ArgParams.queue Open-queue items (ReminderInfo-shaped plain objects).
-   * @param {object|null} ArgParams.store CompletionStore instance (or null).
+   * @param {{ GetLastCompletionMsForClientId?: (clientId: string, windowStartMs: number) => number|null }|null} ArgParams.store CompletionStore instance (or null).
    * @param {{ enabled: boolean, goneQuiet: boolean, deadlineCollision: boolean, agingWithoutOwner: boolean }} ArgParams.settings Proactive settings.
-   * @param {object} [ArgParams.workspaceInfo] WorkspaceInfo overrides (PROACTIVE_QUIET_DAYS etc.).
-   * @param {((clientId: string) => Record<string, string>)|null} [ArgParams.getClientDefaults]
+   * @param {{ PROACTIVE_QUIET_DAYS?: string, PROACTIVE_AGING_DAYS?: string }} [ArgParams.workspaceInfo] WorkspaceInfo overrides (PROACTIVE_QUIET_DAYS etc.).
+   * @param {((clientId: string) => { PROACTIVE_QUIET_DAYS?: string, DeadlineConvention?: string })|null} [ArgParams.getClientDefaults]
    *   Function returning the Defaults block for a client (used for per-client quiet-window overrides
    *   and DeadlineConvention lookups). Defaults to returning {} for every client when not provided.
    * @param {number} [ArgParams.nowMs] Injectable epoch-ms (defaults to Date.now()).
@@ -2524,20 +2524,20 @@ class RemindersModule {
         : RemindersModule.#PROACTIVE_QUIET_DAYS_DEFAULT;
       for(const [ClientId, Items] of ByClient.entries()) {
         // Per-client override takes precedence over workspace-level.
-        const ClientDefaults = GetDefaults(ClientId);
+        const ClientDefaults = /** @type {{ PROACTIVE_QUIET_DAYS?: string, DeadlineConvention?: string }} */ (GetDefaults(ClientId));
         const QuietDays = ClientDefaults.PROACTIVE_QUIET_DAYS != null
           ? Number(ClientDefaults.PROACTIVE_QUIET_DAYS)
           : WorkspaceQuietDays;
         const WindowStartMs = nowMs - QuietDays * 24 * 60 * 60 * 1000;
         const AnyRecentCreation = Items.some(
-          ArgR => ArgR.CreatedOn instanceof Date && ArgR.CreatedOn.getTime() >= WindowStartMs
+          (/** @type {any} */ ArgR) => ArgR.CreatedOn instanceof Date && ArgR.CreatedOn.getTime() >= WindowStartMs
         );
         if(AnyRecentCreation) continue;
         const AnyRecentCompletion = store
           ? store.GetLastCompletionMsForClientId(ClientId, WindowStartMs) !== null
           : false;
         if(AnyRecentCompletion) continue;
-        const TaskIds = Items.map(ArgR => ArgR.ReminderID);
+        const TaskIds = Items.map((/** @type {any} */ ArgR) => ArgR.ReminderID);
         Signals.push({
           type: 'goneQuiet',
           clientId: ClientId,
@@ -2554,12 +2554,12 @@ class RemindersModule {
     if(settings.deadlineCollision) {
       const WindowEndMs = nowMs + RemindersModule.#PROACTIVE_DEADLINE_WINDOW_MS;
       for(const [ClientId, Items] of ByClient.entries()) {
-        const ClientDefaults = GetDefaults(ClientId);
+        const ClientDefaults = /** @type {{ PROACTIVE_QUIET_DAYS?: string, DeadlineConvention?: string }} */ (GetDefaults(ClientId));
         const Convention = ClientDefaults.DeadlineConvention || null;
         if(!Convention) continue;
         const NextMs = RemindersModule.ParseDeadlineConventionNextMs(Convention, nowMs);
         if(NextMs === null || NextMs < nowMs || NextMs >= WindowEndMs) continue;
-        const TaskIds = Items.map(ArgR => ArgR.ReminderID);
+        const TaskIds = Items.map((/** @type {any} */ ArgR) => ArgR.ReminderID);
         Signals.push({
           type: 'deadlineCollision',
           clientId: ClientId,
@@ -2576,13 +2576,13 @@ class RemindersModule {
         ? Number(workspaceInfo.PROACTIVE_AGING_DAYS)
         : RemindersModule.#PROACTIVE_AGING_DAYS_DEFAULT;
       const AgingCutoffMs = nowMs - AgingDays * 24 * 60 * 60 * 1000;
-      const UnownedAging = OpenItems.filter(ArgR =>
+      const UnownedAging = OpenItems.filter((/** @type {any} */ ArgR) =>
         !ArgR.AssigneeID &&
         ArgR.CreatedOn instanceof Date &&
         ArgR.CreatedOn.getTime() < AgingCutoffMs
       );
       if(UnownedAging.length > 0) {
-        const TaskIds = UnownedAging.map(ArgR => ArgR.ReminderID);
+        const TaskIds = UnownedAging.map((/** @type {any} */ ArgR) => ArgR.ReminderID);
         Signals.push({
           type: 'agingWithoutOwner',
           clientId: null,

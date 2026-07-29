@@ -108,19 +108,20 @@ function DetermineProjectForReminder(ArgReminder, ArgClients, ArgMap) {
     : [];
   const ReminderChannel = ArgReminder.OriginalChannelName || null;
 
-  for(const Entry of Object.values(ArgMap.entries || {})) {
-    if(Entry.status !== 'confirmed') continue;
+    for(const Entry of Object.values(ArgMap.entries || {})) {
+    const TypedEntry = /** @type {{ status: 'confirmed'|'proposed', projectName: string, client: string, clientId: string|null, repos?: string[], channel?: string }} */ (Entry);
+    if(TypedEntry.status !== 'confirmed') continue;
     // Must have a project name to be useful as a structural match.
-    if(!Entry.projectName) continue;
+    if(!TypedEntry.projectName) continue;
 
     // Shared repo check.
-    if(ReminderRepos.length > 0 && Array.isArray(Entry.repos)) {
-      const EntryRepos = Entry.repos.map(ArgR => (ArgR || '').toLowerCase());
-      if(ReminderRepos.some(ArgRepo => EntryRepos.includes(ArgRepo))) return Entry;
+    if(ReminderRepos.length > 0 && Array.isArray(TypedEntry.repos)) {
+      const EntryRepos = TypedEntry.repos.map((/** @type {any} */ ArgR) => (ArgR || '').toLowerCase());
+      if(ReminderRepos.some(ArgRepo => EntryRepos.includes(ArgRepo))) return TypedEntry;
     }
 
     // Shared channel check.
-    if(ReminderChannel && Entry.channel && Entry.channel === ReminderChannel) return Entry;
+    if(ReminderChannel && TypedEntry.channel && TypedEntry.channel === ReminderChannel) return TypedEntry;
   }
 
   // No deterministic match — caller must send to LLM.
@@ -423,14 +424,14 @@ async function HandleShowMeProjectsCommandAsync(ArgSlackApp, ArgEventInfo, ArgRa
           // Only write proposed if no confirmed entry already exists.
           if(!UpdatedMap.entries[Key] || UpdatedMap.entries[Key].status !== 'confirmed') {
             const Card = BuildTaskCard(Reminder, TaskId);
-            UpdatedMap.entries[Key] = {
+            UpdatedMap.entries[Key] = /** @type {{ projectName: string, client: string, clientId: string|null, status: 'confirmed'|'proposed' }} */ ({
               projectName: Project.projectName,
               client: Project.client,
               clientId: null,
               channel: Reminder.OriginalChannelName || null,
               repos: Card.repos,
               status: 'proposed',
-            };
+            });
           }
         }
       }

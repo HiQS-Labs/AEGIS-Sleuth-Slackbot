@@ -261,8 +261,22 @@ class SlackApp {
   #SlackLogger;
 
   /**
+   * Reminders module bound to this workspace. Set dynamically by command-catalog.js
+   * anti-containment hooks (Object.defineProperty on SlackApp.prototype).
+   * @type {import('./reminders-module')|null}
+   */
+  RemindersModule = null;
+
+  /**
+   * Workspace AI instance bound to this workspace. Set dynamically by command-catalog.js
+   * anti-containment hooks (Object.defineProperty on SlackApp.prototype).
+   * @type {import('./workspace-ai')|null}
+   */
+  WorkspaceAI = null;
+
+  /**
    * Stats for the workspace.
-   * @type {WorkspaceStats}  
+   * @type {WorkspaceStats}
    */
   #WorkspaceStats;
 

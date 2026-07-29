@@ -4,22 +4,23 @@ const fs = require('fs');
 const path = require('path');
 
 // --- Anti-Containment Hooks & Getters for ask-reminders ---
-global.__sleuthaskreminders__ = global.__sleuthaskreminders__ || {
+const GlobalRef = /** @type {any} */ (global);
+GlobalRef.__sleuthaskreminders__ = GlobalRef.__sleuthaskreminders__ || /** @type {import('./reminders-ai-pipeline').SleuthAskRemindersRegistry} */ ({
   slackApps: [],
   remindersModules: [],
   workspaceAIs: []
-};
+});
 
 try {
   const SlackApp = require('./slack-app');
   const RemindersModule = require('./reminders-module');
   const WorkspaceAI = require('./workspace-ai');
 
-  const { slackApps, remindersModules, workspaceAIs } = global.__sleuthaskreminders__;
+  const { slackApps, remindersModules, workspaceAIs } = GlobalRef.__sleuthaskreminders__;
 
   // Capture SlackApp instances when HandleAppMention or StartAsync is called
   const originalHandleAppMention = SlackApp.prototype.HandleAppMention;
-  SlackApp.prototype.HandleAppMention = function(...args) {
+  SlackApp.prototype.HandleAppMention = function(/** @type {any[]} */ ...args) {
     if (!slackApps.includes(this)) {
       slackApps.push(this);
     }
@@ -27,7 +28,7 @@ try {
   };
 
   const originalSlackAppStartAsync = SlackApp.prototype.StartAsync;
-  SlackApp.prototype.StartAsync = async function(...args) {
+  SlackApp.prototype.StartAsync = async function(/** @type {any[]} */ ...args) {
     if (!slackApps.includes(this)) {
       slackApps.push(this);
     }
@@ -36,7 +37,7 @@ try {
 
   // Capture RemindersModule instances and link to slackApp
   const originalRemindersModuleStartAsync = RemindersModule.prototype.StartAsync;
-  RemindersModule.prototype.StartAsync = async function(...args) {
+  RemindersModule.prototype.StartAsync = async function(/** @type {any[]} */ ...args) {
     if (!remindersModules.includes(this)) {
       remindersModules.push(this);
     }
@@ -48,8 +49,13 @@ try {
   const OriginalRemindersModule = require('./reminders-module');
 
   class WrappedRemindersModule extends OriginalRemindersModule {
+    /**
+     * @param {any} ArgSlackApp
+     * @param {...any} args
+     */
     constructor(ArgSlackApp, ...args) {
-      super(ArgSlackApp, ...args);
+      const ForwardArgs = /** @type {ConstructorParameters<typeof OriginalRemindersModule>} */ ([ArgSlackApp, ...args]);
+      super(...ForwardArgs);
       this.slackApp = ArgSlackApp;
       if (!remindersModules.includes(this)) {
         remindersModules.push(this);
@@ -59,20 +65,20 @@ try {
   require.cache[RemindersModulePath].exports = WrappedRemindersModule;
 
   // Capture WorkspaceAI instances
-  function captureWorkspaceAI(instance) {
+  function captureWorkspaceAI(/** @type {any} */ instance) {
     if (instance && !workspaceAIs.includes(instance)) {
       workspaceAIs.push(instance);
     }
   }
 
   const originalTestConnectivityAsync = WorkspaceAI.prototype.TestConnectivityAsync;
-  WorkspaceAI.prototype.TestConnectivityAsync = function(...args) {
+  WorkspaceAI.prototype.TestConnectivityAsync = function(/** @type {any[]} */ ...args) {
     captureWorkspaceAI(this);
     return originalTestConnectivityAsync.apply(this, args);
   };
 
   const originalProcessMessage = WorkspaceAI.prototype.ProcessMessageWithTextResponseAsync;
-  WorkspaceAI.prototype.ProcessMessageWithTextResponseAsync = function(...args) {
+  WorkspaceAI.prototype.ProcessMessageWithTextResponseAsync = function(/** @type {any[]} */ ...args) {
     captureWorkspaceAI(this);
     return originalProcessMessage.apply(this, args);
   };
@@ -104,7 +110,7 @@ try {
   // Define getters on SlackApp.prototype
   Object.defineProperty(SlackApp.prototype, 'RemindersModule', {
     get() {
-      const matched = remindersModules.find(m => m.slackApp === this);
+      const matched = remindersModules.find((/** @type {any} */ m) => m.slackApp === this);
       if (matched) return matched;
       return remindersModules[0];
     },
@@ -113,7 +119,7 @@ try {
 
   Object.defineProperty(SlackApp.prototype, 'WorkspaceAI', {
     get() {
-      const matched = workspaceAIs.find(ai => ai.WorkspaceInfo && ai.WorkspaceInfo.WORKSPACE_NAME === this.WorkspaceInfo.WORKSPACE_NAME);
+      const matched = workspaceAIs.find((/** @type {any} */ ai) => ai.WorkspaceInfo && ai.WorkspaceInfo.WORKSPACE_NAME === this.WorkspaceInfo.WORKSPACE_NAME);
       if (matched) return matched;
       return workspaceAIs[0];
     },
@@ -173,9 +179,9 @@ function LoadCommandCatalogSync() {
   const catalog = /** @type {CommandCatalogEntry[]} */ (JSON.parse(fs.readFileSync(CommandCatalogPath, 'utf8')));
   
   // Register ask-reminders command
-  const askRemindersEntry = {
+  const askRemindersEntry = /** @type {CommandCatalogEntry} */ ({
     "Id": "ask-reminders",
-    "Permission": "public",
+    "Permission": /** @type {'public'|'admin'} */ ("public"),
     "Risk": "low",
     "CanExecuteWithIfl": true,
     "Description": "Query live open reminders and completion history to answer free-form questions about task state.",
@@ -220,7 +226,7 @@ function LoadCommandCatalogSync() {
         "Route": "ask-reminders"
       }
     ]
-  };
+  });
 
   catalog.push(askRemindersEntry);
   return catalog;

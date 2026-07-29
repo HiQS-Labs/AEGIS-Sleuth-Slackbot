@@ -68,11 +68,12 @@ function ResolveAliasArgSpec(ArgSpec, ArgEventInfo, ArgCaptures) {
  */
 function RegisterCatalogRegexAliases(ArgRouter, ArgCatalogEntries, ArgLogger, ArgSlackApp) {
   // Make sure global.__sleuthaskreminders__ is initialized
-  global.__sleuthaskreminders__ = global.__sleuthaskreminders__ || {
+  const GlobalRef = /** @type {any} */ (global);
+  GlobalRef.__sleuthaskreminders__ = GlobalRef.__sleuthaskreminders__ || /** @type {import('./reminders-ai-pipeline').SleuthAskRemindersRegistry} */ ({
     slackApps: [],
     remindersModules: [],
     workspaceAIs: []
-  };
+  });
 
   if(!Array.isArray(ArgCatalogEntries)) return 0;
   const Logger = ArgLogger ?? console;
@@ -93,9 +94,9 @@ function RegisterCatalogRegexAliases(ArgRouter, ArgCatalogEntries, ArgLogger, Ar
           // Prefer the per-workspace SlackApp the caller passed (correct multi-tenant binding).
           // Fall back to the legacy global registry only when no app was passed — that path resolves
           // to slackApps[0] (the first-loaded workspace) for every workspace, which is the #384 bug.
-          const slackApps = global.__sleuthaskreminders__.slackApps; // ISOLATION-OK: legacy no-app-passed fallback only; the primary path uses the ArgSlackApp closure passed in above (see #384 fix).
+          const slackApps = /** @type {any[]} */ ((/** @type {any} */ (global).__sleuthaskreminders__).slackApps); // ISOLATION-OK: legacy no-app-passed fallback only; the primary path uses the ArgSlackApp closure passed in above (see #384 fix).
           const slackApp = ArgSlackApp
-            || slackApps.find(app => app.Logger === ArgLogger)
+            || slackApps.find((/** @type {any} */ app) => app.Logger === ArgLogger)
             || slackApps[0];
           if (!slackApp) {
             throw new Error('ask-reminders: SlackApp instance not found');
@@ -137,7 +138,7 @@ function RegisterCatalogRegexAliases(ArgRouter, ArgCatalogEntries, ArgLogger, Ar
     }
 
     for (const alias of requiredAliases) {
-      const exists = askRemindersEntry.RegexAliases.some(a => a.Pattern === alias.Pattern);
+      const exists = askRemindersEntry.RegexAliases.some((/** @type {any} */ a) => a.Pattern === alias.Pattern);
       if (!exists) {
         askRemindersEntry.RegexAliases.push(alias);
       }

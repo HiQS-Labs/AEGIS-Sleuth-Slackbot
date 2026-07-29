@@ -4,6 +4,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const readline = require('readline');
+const { Writable } = require('stream');
 const AdminAuth = require('../src/admin-auth');
 
 // define defaults used by setup prompts.
@@ -15,20 +16,17 @@ const DEFAULT_ADMIN_BASE_URL = 'http://localhost:2020';
  * @returns {readline.Interface}
  */
 function CreateReadlineInterface() {
-  const MutableOutput = {
-    muted: false,
+  // a real Writable is required: with terminal:true, readline subscribes to
+  // output events (e.g. 'resize'), which a plain object does not support.
+  const MutableOutput = new Writable({
     write(ArgChunk, ArgEncoding, ArgCallback) {
       if(!this.muted)
-        return process.stdout.write(ArgChunk, ArgEncoding, ArgCallback);
+        process.stdout.write(ArgChunk, ArgEncoding);
 
-      if(typeof ArgCallback === 'function')
-        ArgCallback();
-
-      return true;
+      ArgCallback();
     },
-    isTTY: process.stdout.isTTY,
-    columns: process.stdout.columns,
-  };
+  });
+  MutableOutput.muted = false;
 
   return readline.createInterface({
     input: process.stdin,
