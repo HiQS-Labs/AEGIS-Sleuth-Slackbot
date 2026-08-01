@@ -16,6 +16,7 @@ what to run, and which files are canonical.
 - `GUIDING-PRINCIPLES.md` = the doc-governance north star that PDDA's checks answer to (not Sleuth's
   product principles — those live in `AGENTS.md` / `ARCHITECTURE-DECISIONS.md`)
 - `README.md` = human-facing repo/product overview
+- `docs/getting-started.md` = human first-run onboarding (requirements checklist + clone → Slack → verify)
 - `ARCHITECTURE.md` = living canonical system design; `ARCHITECTURE-DECISIONS.md` = graph-derived
   snapshot of past decisions (regenerated via `codebase-memory-mcp`, not hand-authored — see its file
   header for regen steps)

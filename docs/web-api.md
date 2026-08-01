@@ -16,9 +16,10 @@ request will be forbidden with the following response:
 }
 ```
 
-For local development, AEGIS still falls back to the legacy token `test` when no environment override is configured.
-For production, set `WEB_API_BEARER_TOKEN` so external consumers do not depend on that fallback. AEGIS also accepts
-an optional `WEB_API_PORT` override; if unset it listens on port `2020`.
+For local development, AEGIS still falls back to the legacy token `test` when `WEB_API_BEARER_TOKEN` is unset.
+For production, set `WEB_API_BEARER_TOKEN` to a long random value. Use it in curl examples as
+`Authorization: Bearer $WEB_API_BEARER_TOKEN`. AEGIS also accepts an optional `WEB_API_PORT`
+override; if unset it listens on port `2020`.
 
 ## POST /workspace
 
@@ -31,7 +32,7 @@ Unused optional AI-key fields may be omitted. If they are submitted as blank str
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspace" -Method Post -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 } -Body (@{
     WORKSPACE_NAME = "example_workspace"
@@ -61,7 +62,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/workspace" -Method Post -Headers @
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X POST "http://localhost:2020/workspace" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json" -d '{
+curl -X POST "http://localhost:2020/workspace" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json" -d '{
     "WORKSPACE_NAME": "example_workspace",
     "ADMIN_EMAIL": "admin@example.com",
     "LIVE_TOKEN": "live_token",
@@ -104,7 +105,7 @@ Retrieves a list of all workspace names.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspaces" -Method Get -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -112,7 +113,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/workspaces" -Method Get -Headers @
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X GET "http://localhost:2020/workspaces" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X GET "http://localhost:2020/workspaces" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Example Response
@@ -133,7 +134,7 @@ Checks if a workspace with the given name exists.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace/exists" -Method Get -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -141,7 +142,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace/exists
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X GET "http://localhost:2020/workspace/example_workspace/exists" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X GET "http://localhost:2020/workspace/example_workspace/exists" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Example Response
@@ -162,7 +163,7 @@ Retrieves the information for a workspace with the given name.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace" -Method Get -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -170,7 +171,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace" -Meth
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X GET "http://localhost:2020/workspace/example_workspace" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X GET "http://localhost:2020/workspace/example_workspace" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Example Response
@@ -212,7 +213,7 @@ Deletes the workspace with the given name.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace" -Method Delete -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -220,7 +221,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace" -Meth
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X DELETE "http://localhost:2020/workspace/example_workspace" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X DELETE "http://localhost:2020/workspace/example_workspace" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Example Response
@@ -253,14 +254,14 @@ External consumers can opt into a more stable export envelope by adding `?format
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X GET "http://localhost:2020/workspace/example_workspace/reminders" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X GET "http://localhost:2020/workspace/example_workspace/reminders" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace/reminders" -Method Get -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -449,7 +450,7 @@ Retrieves usage statistics for the workspace with the given name.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace/stats" -Method Get -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -457,7 +458,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/workspace/example_workspace/stats"
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X GET "http://localhost:2020/workspace/example_workspace/stats" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X GET "http://localhost:2020/workspace/example_workspace/stats" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Example Response
@@ -487,7 +488,7 @@ Saves the last manually entered file path for later retrieval.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/settings/last-file-path" -Method Post -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 } -Body (@{ path = "C:\\data\\file.json" } | ConvertTo-Json)
 ```
@@ -495,7 +496,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/settings/last-file-path" -Method P
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X POST "http://localhost:2020/settings/last-file-path" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json" -d '{"path":"/data/file.json"}'
+curl -X POST "http://localhost:2020/settings/last-file-path" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json" -d '{"path":"/data/file.json"}'
 ```
 
 ### Example Response
@@ -516,7 +517,7 @@ Retrieves the last manually entered file path.
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:2020/settings/last-file-path" -Method Get -Headers @{
-    "Authorization" = "Bearer $SLEUTH_API_TOKEN"
+    "Authorization" = "Bearer $WEB_API_BEARER_TOKEN"
     "Content-Type" = "application/json"
 }
 ```
@@ -524,7 +525,7 @@ Invoke-RestMethod -Uri "http://localhost:2020/settings/last-file-path" -Method G
 ### Mac/Linux (cURL)
 
 ```bash
-curl -X GET "http://localhost:2020/settings/last-file-path" -H "Authorization: Bearer $SLEUTH_API_TOKEN" -H "Content-Type: application/json"
+curl -X GET "http://localhost:2020/settings/last-file-path" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json"
 ```
 
 ### Example Response

@@ -1,5 +1,8 @@
 # AEGIS App Server Installation Guide
 
+> **First time with AEGIS?** Run through [Getting Started](getting-started.md) on your laptop first
+> (clone → Slack app → workspace registration). This guide is for **24/7 production** on a Linux server.
+
 This is the canonical deployment and SSH operations guide for AEGIS. Use this document as the
 single source of truth for:
 
@@ -97,30 +100,44 @@ The script will:
 
 ### Step 5: Configure Workspace
 
-After installation, you need to configure a workspace for Slack integration:
+After installation, register your Slack workspace through the Web API (preferred — same as local dev).
+The app must be running and reachable on port 2020.
 
-1. **Create workspace configuration file**:
+1. **Set a production bearer token** (if not already in `/root/sleuth-app/.env.runtime`):
    ```bash
-   nano /root/sleuth-app/data/runtime/workspaces/your-workspace_workspace.json
+   cat >/root/sleuth-app/.env.runtime <<'EOF'
+   WEB_API_BEARER_TOKEN=replace-with-a-long-random-token
+   WEB_API_PORT=2020
+   EOF
+   chmod 600 /root/sleuth-app/.env.runtime
+   systemctl restart sleuth-app
    ```
 
-2. **Add workspace configuration**:
-   ```json
-   {
-     "WORKSPACE_NAME": "your-workspace",
-     "ADMIN_EMAIL": "admin@yourcompany.com",
-     "LIVE_TOKEN": "xoxb-your-bot-token",
-     "LIVE_SIGNING_SECRET": "your-signing-secret",
-     "LIVE_APP_TOKEN": "xapp-your-app-token",
-     "OPENAI_API_KEY": "sk-your-openai-key",
-    "REMINDER_CHANNEL_NAME": "general",
-    "MAIN_TIMEZONE": "America/New_York",
-    "SNOOZE_DAYS": ["Saturday", "Sunday"],
-    "NOTION_TOKEN": "ntn_your-notion-token"
-  }
-  ```
+2. **Create the workspace** (replace placeholders; keep secrets out of shell history where possible):
+   ```bash
+   curl -X POST "http://localhost:2020/workspace" \
+     -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "WORKSPACE_NAME": "your-workspace",
+       "ADMIN_EMAIL": "admin@yourcompany.com",
+       "LIVE_TOKEN": "xoxb-your-bot-token",
+       "LIVE_SIGNING_SECRET": "your-signing-secret",
+       "LIVE_APP_TOKEN": "xapp-your-app-token",
+       "OPENAI_API_KEY": "sk-your-openai-key",
+       "REMINDER_CHANNEL_NAME": "general",
+       "MAIN_TIMEZONE": "America/New_York",
+       "SNOOZE_DAYS": ["Saturday", "Sunday"]
+     }'
+   ```
 
-`SNOOZE_DAYS` lists days when reminders are not posted unless they were scheduled manually.
+3. **Restart the app** so it loads the new workspace:
+   ```bash
+   systemctl restart sleuth-app
+   ```
+
+> **Emergency recovery only:** you may hand-edit `data/runtime/workspaces/your-workspace_workspace.json`
+> if the Web API is unreachable. Prefer the API for normal operation — see [`docs/web-api.md`](docs/web-api.md).
 
 ### Step 6: Start the Application
 
@@ -163,33 +180,21 @@ fallback for production integrations.
 
 ## Routine Deployments
 
-Subsequent deployments can be done by pulling the latest changes from the repository and restarting
-the service:
+Subsequent deployments pull the latest code and restart the service:
 
 ```bash
-systemctl stop sleuth-app   # stop the service before pulling the latest changes.
-cd /root/sleuth-app         # change to the app directory.
-git pull                    # pull the latest changes from the repository.
-npm install                 # restore the dependencies.
-systemctl daemon-reload     # reload the service configuration (in case it has changed).
-systemctl start sleuth-app  # start the service.
+systemctl stop sleuth-app
+cd /root/sleuth-app
+git pull
+npm ci --omit=dev
+systemctl daemon-reload
+systemctl start sleuth-app
+systemctl status sleuth-app
 ```
 
-We automate subsequent deployments using GitHub Actions. The workflow runs on a self-hosted runner
-installed on the target machine, so `main` / `development` merges normally deploy without requiring
-manual SSH.
-
-### GitHub Actions Workflow
-
-Ensure your `.github/workflows/deploy.yml` includes the correct runner label:
-
-```yaml
-jobs:
-  deploy:
-    runs-on: [self-hosted, experimental]  # Use your SERVER_ENV value
-    steps:
-      # Your deployment steps
-```
+You may automate this with your own deploy tool (DeployHQ, Ansible, a private CI runner, etc.).
+The steps above are the canonical contract — wire your automation to run them on the server.
+Do not commit deploy credentials or server-specific tokens to this public repository.
 
 ### SSH Access Setup
 

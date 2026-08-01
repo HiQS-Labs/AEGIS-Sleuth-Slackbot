@@ -41,6 +41,14 @@ const VALID_WORKSPACE_NAME_REGEX = /^[a-zA-Z0-9_\-]+$/;
  * @property {string} [WPDBTK_RAG_DEFAULT_SOURCE] Default source identifier to send with `ask-woo` requests.
  * @property {string} [DEFAULT_MODEL_NAME]    Optional persisted general-purpose chat model. Set by `switch-models:default='...'`. If absent, WorkspaceAI uses 'gpt-4o-mini'.
  * @property {string} [COMPLEX_MODEL_NAME]    Optional persisted complex/date-extraction model. Set by `switch-models:complex='...'`. If absent, WorkspaceAI uses 'gpt-4o'.
+ * @property {string} [PROACTIVE_DIGEST_ENABLED] Set to 'false' to disable the proactive digest section (default: on).
+ * @property {string} [PROACTIVE_DIGEST_GONE_QUIET] Set to 'false' to disable the gone-quiet proactive signal (default: on).
+ * @property {string} [PROACTIVE_DIGEST_DEADLINE] Set to 'false' to disable the deadline-collision proactive signal (default: on).
+ * @property {string} [PROACTIVE_DIGEST_AGING] Set to 'false' to disable the aging-without-owner proactive signal (default: on).
+ * @property {string} [PROACTIVE_QUIET_DAYS] Workspace-level gone-quiet window in days (default: 14).
+ * @property {string} [PROACTIVE_AGING_DAYS] Workspace-level aging-without-owner window in days (default: 30).
+ * @property {boolean} [SNAPSHOT_RELAY_ENABLED] Legacy enable flag for the snapshot relay (default: off; prefer SNAPSHOT_RELAY_WORKSPACES env allowlist).
+ * @property {string} [WorkspaceID] Optional workspace identifier used by show-me-projects grouping (defaults to WORKSPACE_NAME when absent).
  */
 
 /**
@@ -418,7 +426,7 @@ class Workspaces {
       return TargetWorkspace;
     } catch(error) {
       // if we couldn't read the file, parse it, or if it's missing required fields, throw an error.
-      throw new Error(`Failed to load workspace info: ${error.message}`);
+      throw new Error(`Failed to load workspace info: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -470,7 +478,7 @@ class Workspaces {
       // if an error occurred, report it. NOTE: for now, we still report the error
       // even if the file doesn't exist, since this may indicate broken expectations
       // on the part of the caller.
-      throw new Error(`Failed to delete workspace: ${error.message}`);
+      throw new Error(`Failed to delete workspace: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

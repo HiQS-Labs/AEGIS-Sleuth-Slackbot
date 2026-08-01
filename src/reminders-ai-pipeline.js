@@ -31,6 +31,30 @@ const DateUtils = require('./date-utils');
  */
 
 /**
+ * Represents a multi-task extraction candidate from thread analysis.
+ * @typedef {Object} MultiTaskCandidate
+ * @property {number} taskIndex
+ * @property {string} title
+ * @property {number[]} sourceMessageNumbers
+ * @property {string[]} sourceTs
+ * @property {string|null} assigneeID
+ * @property {string|null} deadline
+ * @property {'explicit'|'convention'|'blank'} deadlineResolution
+ * @property {'high'|'low'} confidence
+ * @property {string|null} flag
+ * @property {string|null} duplicateOpenReminderID
+ */
+
+/** @typedef {{ slackApps: any[], remindersModules: any[], workspaceAIs: any[] }} SleuthAskRemindersRegistry */
+
+/**
+ * Result of analyzing a thread into candidate tasks.
+ * @typedef {Object} MultiTaskExtractionResult
+ * @property {MultiTaskCandidate[]} candidates
+ * @property {string} rationale
+ */
+
+/**
  * Information about a reminder extracted from a message by the GPT model.
  * @typedef {Object} GptReminderInfo
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.

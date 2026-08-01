@@ -1,4 +1,7 @@
 
+// load repo-root .env before New Relic reads process.env.
+require('./load-env-file').LoadEnvFile();
+
 // setup New Relic monitoring first (see newrelic.js in project root for configuration).
 require('newrelic');
 
