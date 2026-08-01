@@ -101,6 +101,20 @@ the old name in a lot of places. Nothing is broken, and none of it is an oversig
 Treat them as the same thing. If you are searching the code for something and AEGIS turns up
 nothing, search for Sleuth.
 
+### What AEGIS stands for
+
+The name is also an acronym. Two expansions were proposed, and both hold:
+
+- **AI Guardian Executive Assistant In Slack**
+- **AI Executive Guardian In Slack**
+
+The word itself comes from Greek mythology — the aegis was the protective cloak of Zeus and
+Athena, evoking watching over, shielding, and defending. That maps directly onto what the bot
+does: it guards your team's commitments so nothing slips through.
+
+The name was chosen at launch in July 2026. Internally the project is still `SLEUTH_`/`sleuth-`
+throughout the code — see the table above for why that stayed.
+
 A full rename of the internals is possible later, but it is a breaking change for anyone already
 running this, so it is not being done casually. If you are starting fresh and would prefer
 `AEGIS_*` variables, that is a reasonable thing to open an issue about.
