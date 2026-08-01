@@ -33,6 +33,31 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.260 - 2026-08-01
+`ask-reminders` was answering "Sorry — couldn't access reminder data" to every question. I could
+still schedule, complete and remind as normal; I just could not see my own reminder list when you
+asked me about it. Fixed — I can read the queue again.
+
+**Technical:** Regression from 1.4.259's type-checker cleanup. `src/slack-app.js` declared
+`RemindersModule = null` and `WorkspaceAI = null` as **class fields** to satisfy `tsc`, while
+`src/command-catalog.js` defines accessors of the same names on `SlackApp.prototype` (the
+anti-containment hooks). Class fields are installed with `[[DefineOwnProperty]]`, so every instance
+got an own data property that shadowed the prototype accessor — `ArgSlackApp.RemindersModule` in
+`src/chat-commands/ask-reminders-command.js:261` read `null` and took the guard path at :262 on
+every invocation. `ArgSlackApp.WorkspaceAI` (:389) was null for the same reason, unreachable behind
+that guard.
+- Both fields replaced with getters declared in the class body. They live on the prototype, so
+  `Object.defineProperty` in `command-catalog.js` replaces them cleanly and no own property is
+  created. They return `null`, preserving the previous fallback for when the hooks fail to install.
+- `npm run build` still passes — the getters carry the same `@returns` types the fields carried, so
+  the reason the fields were added in the first place is unaffected.
+- Not caught by the suite because `tests/marathon-360-361-362-e2e.test.js` assigns
+  `SlackApp.RemindersModule` on a `MockSlackApp`, which behaves the same either way. Added
+  `tests/slack-app-anti-containment-accessors.test.js`, which constructs a real `SlackApp` and
+  asserts no own property shadows the accessor and that a registered module resolves through it.
+  Three of its four cases fail against the 1.4.259 code. #lessonslearned: a type-only annotation
+  that is *also* an executable declaration is not type-only.
+
 ## 1.4.259 - 2026-07-28
 Housekeeping: my project plan had six places still describing yesterday's state — an item marked
 "not written" that I'd since written, a couple of stale numbers. All corrected. Nothing about the

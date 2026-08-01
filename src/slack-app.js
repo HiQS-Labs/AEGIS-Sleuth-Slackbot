@@ -261,18 +261,30 @@ class SlackApp {
   #SlackLogger;
 
   /**
-   * Reminders module bound to this workspace. Set dynamically by command-catalog.js
-   * anti-containment hooks (Object.defineProperty on SlackApp.prototype).
-   * @type {import('./reminders-module')|null}
+   * Reminders module bound to this workspace.
+   *
+   * Declared as a getter, not a field: command-catalog.js replaces this accessor on
+   * SlackApp.prototype with one that resolves the module bound to this workspace. A class
+   * field would install an own property on every instance, which shadows that prototype
+   * accessor and makes every read return null. This getter is the fallback that applies
+   * only when the anti-containment hooks failed to install.
+   *
+   * @returns {import('./reminders-module')|null}
    */
-  RemindersModule = null;
+  get RemindersModule() {
+    return null;
+  }
 
   /**
-   * Workspace AI instance bound to this workspace. Set dynamically by command-catalog.js
-   * anti-containment hooks (Object.defineProperty on SlackApp.prototype).
-   * @type {import('./workspace-ai')|null}
+   * Workspace AI instance bound to this workspace.
+   *
+   * Declared as a getter for the same reason as RemindersModule above — see that comment.
+   *
+   * @returns {import('./workspace-ai')|null}
    */
-  WorkspaceAI = null;
+  get WorkspaceAI() {
+    return null;
+  }
 
   /**
    * Stats for the workspace.
