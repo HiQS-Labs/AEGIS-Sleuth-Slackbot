@@ -471,7 +471,23 @@ far below the noise floor (`/ponytail`).
 cutover ever makes this ledger authoritative and high-volume, revisit — the decision is correct for
 today's load, not for all loads.
 
+**Post-review revision (agy Phase 4 code QA).** All six DoD criteria passed with citations. Agy
+endorsed choosing the *slowest* non-baseline shape, and added a useful point on the macOS caveat:
+the relative penalty of `open`/`close` versus `fsync` **shrinks further on Linux**, because `fsync`
+dominates more there — so the ordering is safe, not merely assumed.
+
+Its sweep of `event-store.js` found three pre-existing issues:
+
+| Finding | Disposition |
+|---|---|
+| **[Should]** `NormalizeEvent` keeps a shallow reference to the caller's `payload`, and `JSON.stringify` ran *inside* the write chain — so a caller mutating `event.payload` after `append()` writes the mutated value | **Implemented.** Reproduced first: a post-`append()` mutation really did reach disk. **And this phase made it worse** — the chain link went from an unsynced `fs.appendFile` (~0.1 ms) to an fsync'd append (~5.7 ms), widening the window ~57x. That makes it in-scope, not merely nearby. Now serialized synchronously at call time, which is the semantics callers expect and cheaper than deep-cloning. A circular payload resolves `{ok:false}` rather than throwing, preserving the never-reject contract. |
+| **[Nit]** `fs.mkdir(RootDir, {recursive:true})` ran on every append | **Implemented.** Memoized per store, resetting on failure so a later append retries instead of caching a rejection. Merely wasteful when an append was one unsynced syscall; not free now that the path is deliberately slower. |
+| **[Nit]** `Raw.split('\n')` loads the whole ledger into memory on read | **Declined for this phase.** Agy itself marked it "no action strictly required". It is a read-path scaling concern, not a durability defect, and this issue's scope is durability. Parked for triage rather than folded in silently. |
+
 ### QA gate — Phase 4
+- [x] Payload is snapshotted at call time, not write time — regression test asserts a post-`append`
+      mutation does **not** reach disk
+- [x] An unserializable (circular) payload resolves `{ok:false}` instead of throwing
 - [x] Candidate shapes benchmarked and the numbers recorded here **before** one was chosen — four
       candidates, not three (a no-fsync baseline was added so the others have a reference)
 - [x] Chosen shape is the simplest the measurement justifies, not the most sophisticated
