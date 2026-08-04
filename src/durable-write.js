@@ -212,33 +212,20 @@ function WriteFileDurableSync(ArgFilePath, ArgContents, ArgOptions) {
   }
 }
 
-/**
- * Append to a file and `fsync` it before resolving, so the appended bytes are on disk rather than
- * sitting in the page cache.
- *
- * Append is already far safer than a full-file rewrite — a torn append damages only the final
- * record, which `event-store.js`'s reader already skips — so this buys recency, not integrity.
- * No temp file or rename is involved: renaming would defeat the point of an append-only log.
- * @param {string} ArgFilePath Absolute path of the log file.
- * @param {string|Buffer} ArgContents Bytes to append, including any trailing newline.
- * @returns {Promise<void>}
- */
-async function AppendFileDurableAsync(ArgFilePath, ArgContents) {
-  let Handle = null;
-  try {
-    Handle = await fs.open(ArgFilePath, 'a');
-    await Handle.appendFile(ArgContents, 'utf8');
-    await Handle.sync();
-  } finally {
-    if(Handle) {
-      try {
-        await Handle.close();
-      } catch(error) {
-        // Ignore: data is already synced by this point.
-      }
-    }
-  }
-}
+// A durable-append primitive for the Phase 4 event ledger deliberately does NOT live here yet.
+//
+// An earlier draft shipped one that opened, fsync'd, and closed the file on every call. The agy
+// Phase 1 review flagged it, and the remedy is right even though the stated reason is not: at this
+// system's real volume — a handful of reminder-lifecycle events per day, on a deployment HONEST.md
+// describes as light-load — open/fsync/close per append is not a bottleneck, and calling it one
+// would be an unmeasured claim in the opposite direction.
+//
+// The defensible reason to defer is narrower and stronger: nothing in Phases 2, 3, or 5 appends,
+// and Phase 4 already requires MEASURING the fsync-per-append cost before choosing between
+// sync-per-append, batched sync, and a handle-holding writer. Publishing the API now would fix its
+// shape before the measurement that determines it.
+//
+// Phase 4 adds it here, once measured. See PROJECT/2-WORKING/GH-12-DURABILITY-HARDENING.md.
 
 /**
  * Age after which an abandoned temp file is considered stale and safe to remove. Comfortably longer
@@ -246,6 +233,16 @@ async function AppendFileDurableAsync(ArgFilePath, ArgContents) {
  * @type {number}
  */
 const STALE_TEMP_MS = 60 * 60 * 1000;
+
+/**
+ * Shape of the suffix BuildTempPath appends: `<pid>.<counter>.<8 hex chars>.tmp`.
+ *
+ * Matching the store's basename as a bare prefix is not enough to identify our own temps: sweeping
+ * `store.json` would also match `store.json.bak`'s temps, since `store.json.bak.123.1.abcd1234.tmp`
+ * starts with `store.json.`. Anchoring the remainder keeps each store's sweep to its own files.
+ * @type {RegExp}
+ */
+const TEMP_SUFFIX_PATTERN = /^\d+\.\d+\.[0-9a-f]{8}\.tmp$/;
 
 /**
  * Remove temp files stranded beside a store by an earlier hard kill.
@@ -271,7 +268,8 @@ async function SweepStaleTempsAsync(ArgFilePath, ArgOptions) {
     const Entries = await fs.readdir(DirPath);
     const Cutoff = Date.now() - STALE_TEMP_MS;
     for(const Entry of Entries) {
-      if(!Entry.startsWith(Prefix) || !Entry.endsWith('.tmp')) continue;
+      if(!Entry.startsWith(Prefix)) continue;
+      if(!TEMP_SUFFIX_PATTERN.test(Entry.slice(Prefix.length))) continue;
       const Candidate = path.join(DirPath, Entry);
       try {
         const Stats = await fs.stat(Candidate);
@@ -291,7 +289,6 @@ async function SweepStaleTempsAsync(ArgFilePath, ArgOptions) {
 module.exports = {
   WriteFileDurableAsync,
   WriteFileDurableSync,
-  AppendFileDurableAsync,
   SweepStaleTempsAsync,
   BuildTempPath,
   STALE_TEMP_MS,

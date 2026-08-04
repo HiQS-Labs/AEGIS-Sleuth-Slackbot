@@ -172,8 +172,11 @@ New `src/durable-write.js`:
 - `WriteFileDurableSync(ArgFilePath, ArgContents)` — same temp → `fsyncSync` → `renameSync` → dir
   `fsyncSync` sequence, for `client-mapping.js:362` in Phase 5, which is sync today. Providing the
   variant keeps Phase 5 mechanical instead of forcing an async refactor of that call path.
-- `AppendFileDurableAsync(ArgFilePath, ArgLine)` — `fs.open(path,'a')` → `write` → `sync` → `close`,
-  for the ledger in Phase 4.
+- **No append primitive ships in this phase.** *(Changed after the agy Phase 1 code review.)* An
+  earlier draft included `AppendFileDurableAsync`. Nothing in Phases 2, 3, or 5 appends, and Phase 4
+  must *measure* the fsync-per-append cost before choosing between sync-per-append, batched sync,
+  and a handle-holding writer — so publishing the API here would fix its shape before the
+  measurement that determines it. Phase 4 adds it.
 - Directory `fsync` must tolerate `EPERM`/`EISDIR`/`ENOSYS` (non-POSIX filesystems) by degrading to
   a warning, never throwing — a durability *improvement* must never become a new crash source.
 
@@ -210,6 +213,14 @@ mid-write (untrappable, so no shutdown hook can mask it) and inspects the store:
 
 That 6/40 is the number that makes the harness trustworthy: it goes red on the broken path, so its
 green on the fixed path means something.
+
+**Post-review revision (agy Phase 1 code QA, `relay-system/2026-08-04/gh12-p1-code-qa.md`).** Agy
+passed 5 of 7 criteria with citations and returned two findings:
+
+| Finding | Disposition |
+|---|---|
+| **[Should]** `SweepStaleTempsAsync` over-sweeps — a bare `startsWith(basename + '.')` also matches a store whose name *extends* ours, so sweeping `store.json` would eat `store.json.bak`'s temps | **Implemented.** Real bug, and my own sibling test could never have caught it (it used `theirs.json`, which shares no prefix). Now anchors the remainder against `TEMP_SUFFIX_PATTERN` (`<pid>.<counter>.<8 hex>.tmp`). Proven behavioural: old logic sweeps the neighbour temp, new logic does not. Three regression tests added, incl. "never deletes the store itself". |
+| **[Blocker]** `AppendFileDurableAsync` opens/fsyncs/closes per call — "massive performance bottleneck… extreme I/O contention". Fix: drop it from Phase 1 | **Implemented, reason corrected.** Dropped. But the stated rationale does not hold at this system's real volume (a handful of lifecycle events/day on a deployment `HONEST.md` calls light-load); calling it a bottleneck is an unmeasured claim in the opposite direction, and Phase 4 exists precisely to measure it. The defensible reason is narrower: nothing in Phases 2/3/5 appends, so shipping the API now fixes its shape before the measurement that determines it. |
 
 **Gap the harness found in this phase's own work:** the durable run reported `leftover-temps=14`.
 `SIGKILL` cannot be trapped, so a crash always strands its temp. Harmless to readers — the store is
@@ -294,9 +305,20 @@ it without touching the chaining logic.
 
 ## Phase 4 — Tier 3: the event ledger
 
-Adopt `AppendFileDurableAsync` in [`event-store.js`](../../src/event-store.js#L114-L123)
-`AppendDurable`, and update the now-stale comment at
-[line 14](../../src/event-store.js#L14) that documents the absence of `fsync`.
+**Measure first, then choose the primitive's shape, then add it.** Phase 1 deliberately ships no
+append helper (agy Phase 1 review): nothing before this phase appends, so publishing the API earlier
+would have fixed its shape before this measurement.
+
+1. Benchmark three candidates against the real ledger write path — sync-per-append, batched sync
+   (sync every N appends or every N ms), and a handle-holding writer that keeps one open descriptor
+   per workspace. Record the numbers in this doc, including the unflattering ones.
+2. Weigh them against actual load, not an imagined one: `HONEST.md` describes a light-load, single
+   deployment, and the ledger sees a handful of reminder-lifecycle events per day. A handle-holding
+   writer trades fd exhaustion risk and reopen-on-rotation complexity for throughput this system may
+   not need. Pick the simplest shape the measurement justifies (`/ponytail`).
+3. Add the chosen primitive to `src/durable-write.js`, adopt it in
+   [`event-store.js`](../../src/event-store.js#L114-L123) `AppendDurable`, and update the now-stale
+   comment at [line 14](../../src/event-store.js#L14) documenting the absence of `fsync`.
 
 **Explicit cost note:** an `fsync` per append is a real per-event latency cost. The ledger is
 non-authoritative and best-effort by contract, so if the cost measures badly this phase may
@@ -307,6 +329,8 @@ The `append` contract must not change: still **never rejects**, still resolves `
 so a caller's reminder transition is never blocked.
 
 ### QA gate — Phase 4
+- [ ] Three candidate shapes benchmarked and the numbers recorded here before one is chosen
+- [ ] Chosen shape is the simplest the measurement justifies, not the most sophisticated
 - [ ] `append` still never rejects, under fsync failure too
 - [ ] Torn-final-line tolerance in `readAll` still passes
 - [ ] Per-workspace write-chain isolation preserved

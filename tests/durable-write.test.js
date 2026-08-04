@@ -8,7 +8,6 @@ const path = require('path');
 const {
   WriteFileDurableAsync,
   WriteFileDurableSync,
-  AppendFileDurableAsync,
   SweepStaleTempsAsync,
   BuildTempPath,
   STALE_TEMP_MS,
@@ -205,31 +204,43 @@ describe('SweepStaleTempsAsync', () => {
     expect(fsSync.existsSync(TheirStray)).toBe(true);
   });
 
+  // Regression for the over-sweep the agy Phase 1 review found. A bare `startsWith(basename + '.')`
+  // check matches a store whose name merely EXTENDS ours: sweeping `store.json` would have eaten
+  // `store.json.bak`'s temps. The original sibling test above used `theirs.json`, which shares no
+  // prefix, so it could never have caught this.
+  test('never touches temps of a store whose name extends ours', async () => {
+    const Mine = path.join(WorkDir, 'store.json');
+    const Neighbour = path.join(WorkDir, 'store.json.bak');
+    const NeighbourStray = BuildTempPath(Neighbour);
+    await fs.writeFile(NeighbourStray, 'neighbour in-flight write');
+    await MakeStaleAsync(NeighbourStray);
+
+    expect(await SweepStaleTempsAsync(Mine)).toBe(0);
+    expect(fsSync.existsSync(NeighbourStray)).toBe(true);
+  });
+
+  // Only files matching our own `<pid>.<counter>.<8 hex>.tmp` shape are ours to delete.
+  test('ignores unrelated files that merely end in .tmp', async () => {
+    const Mine = path.join(WorkDir, 'store.json');
+    const Foreign = path.join(WorkDir, 'store.json.editor-swap.tmp');
+    await fs.writeFile(Foreign, 'someone else\'s scratch file');
+    await MakeStaleAsync(Foreign);
+
+    expect(await SweepStaleTempsAsync(Mine)).toBe(0);
+    expect(fsSync.existsSync(Foreign)).toBe(true);
+  });
+
+  test('never deletes the store itself', async () => {
+    const Target = path.join(WorkDir, 'store.json');
+    await WriteFileDurableAsync(Target, '{"v":1}');
+    await MakeStaleAsync(Target);
+
+    expect(await SweepStaleTempsAsync(Target)).toBe(0);
+    expect(await fs.readFile(Target, 'utf8')).toBe('{"v":1}');
+  });
+
   test('never throws when the directory is unreadable', async () => {
     await expect(SweepStaleTempsAsync(path.join(WorkDir, 'no-such-dir', 'store.json')))
       .resolves.toBe(0);
-  });
-});
-
-describe('AppendFileDurableAsync', () => {
-  test('appends without rewriting earlier records', async () => {
-    const Log = path.join(WorkDir, 'events.jsonl');
-    await AppendFileDurableAsync(Log, `${JSON.stringify({ n: 1 })}\n`);
-    await AppendFileDurableAsync(Log, `${JSON.stringify({ n: 2 })}\n`);
-
-    const Lines = (await fs.readFile(Log, 'utf8')).split('\n').filter(Boolean);
-    expect(Lines.map(ArgLine => JSON.parse(ArgLine).n)).toEqual([1, 2]);
-  });
-
-  test('creates the file when it does not exist yet', async () => {
-    const Log = path.join(WorkDir, 'fresh.jsonl');
-    await AppendFileDurableAsync(Log, 'first\n');
-    expect(await fs.readFile(Log, 'utf8')).toBe('first\n');
-  });
-
-  test('never leaves a temp file — append must not go through rename', async () => {
-    const Log = path.join(WorkDir, 'events.jsonl');
-    await AppendFileDurableAsync(Log, 'line\n');
-    expect(await LeftoverTempsAsync()).toEqual([]);
   });
 });
