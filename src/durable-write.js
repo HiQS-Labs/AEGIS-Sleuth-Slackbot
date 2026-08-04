@@ -217,20 +217,59 @@ function WriteFileDurableSync(ArgFilePath, ArgContents, ArgOptions) {
   }
 }
 
-// A durable-append primitive for the Phase 4 event ledger deliberately does NOT live here yet.
-//
-// An earlier draft shipped one that opened, fsync'd, and closed the file on every call. The agy
-// Phase 1 review flagged it, and the remedy is right even though the stated reason is not: at this
-// system's real volume — a handful of reminder-lifecycle events per day, on a deployment HONEST.md
-// describes as light-load — open/fsync/close per append is not a bottleneck, and calling it one
-// would be an unmeasured claim in the opposite direction.
-//
-// The defensible reason to defer is narrower and stronger: nothing in Phases 2, 3, or 5 appends,
-// and Phase 4 already requires MEASURING the fsync-per-append cost before choosing between
-// sync-per-append, batched sync, and a handle-holding writer. Publishing the API now would fix its
-// shape before the measurement that determines it.
-//
-// Phase 4 adds it here, once measured. See PROJECT/2-WORKING/GH-12-DURABILITY-HARDENING.md.
+/**
+ * Append to a file and `fsync` it before resolving, so the appended bytes are on disk rather than
+ * sitting in the page cache.
+ *
+ * **Shape chosen by measurement, not preference** (`tests/crash-injection/bench-append.js`,
+ * 500 appends, macOS dev box — Linux prod will differ in absolute terms but `fsync` dominates on
+ * both, so the ordering holds):
+ *
+ * | shape | ms/append | vs baseline |
+ * |---|---|---|
+ * | `fs.appendFile`, no fsync (the old behaviour) | 0.100 | 1.0x |
+ * | **open/fsync/close per append — this one** | 5.710 | 56.9x |
+ * | batched: hold a handle, fsync every 20 | 0.300 | 3.0x |
+ * | hold a handle, fsync every append | 5.128 | 51.1x |
+ *
+ * The 57x multiplier is real, but it multiplies a negligible number: at this ledger's actual rate
+ * (~100 reminder-lifecycle events/day) sync-per-append adds ~571 ms **per day** in total.
+ *
+ * The decisive result is the fourth row. Holding a handle open is only ~10% faster than reopening,
+ * because the cost is `fsync` itself rather than open/close — so a stateful per-workspace handle
+ * manager would buy 10% in exchange for fd-exhaustion risk, reopen-on-rotation handling, and
+ * lifecycle state. That trade is not worth making, and only measuring showed it.
+ *
+ * Batched sync is the only shape that genuinely moves the needle (3x vs 57x), but it trades away
+ * up to N events on a crash and adds flush-timing state. Not taken while the simple shape's cost
+ * is this far below the noise floor.
+ *
+ * **Revisit if the ledger ever becomes authoritative or high-volume** (the P3 event-sourced
+ * cutover): 5.7 ms/append caps throughput at roughly 175 events/sec.
+ *
+ * Append is already far safer than a full-file rewrite — a torn append damages only the final
+ * record, which `event-store.js`'s reader already skips — so this buys recency, not integrity.
+ * No temp file or rename is involved: renaming would defeat the point of an append-only log.
+ * @param {string} ArgFilePath Absolute path of the log file.
+ * @param {string|Buffer} ArgContents Bytes to append, including any trailing newline.
+ * @returns {Promise<void>}
+ */
+async function AppendFileDurableAsync(ArgFilePath, ArgContents) {
+  let Handle = null;
+  try {
+    Handle = await fs.open(ArgFilePath, 'a');
+    await Handle.appendFile(ArgContents, 'utf8');
+    await Handle.sync();
+  } finally {
+    if(Handle) {
+      try {
+        await Handle.close();
+      } catch(error) {
+        // Ignore: the data is already synced by this point.
+      }
+    }
+  }
+}
 
 /**
  * Age after which an abandoned temp file is considered stale and safe to remove. Comfortably longer
@@ -299,6 +338,7 @@ async function SweepStaleTempsAsync(ArgFilePath, ArgOptions) {
 module.exports = {
   WriteFileDurableAsync,
   WriteFileDurableSync,
+  AppendFileDurableAsync,
   SweepStaleTempsAsync,
   BuildTempPath,
   STALE_TEMP_MS,

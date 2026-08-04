@@ -438,15 +438,51 @@ committing to sync-per-append; record the number in this doc either way.
 The `append` contract must not change: still **never rejects**, still resolves `{ok:false,error}`,
 so a caller's reminder transition is never blocked.
 
+### Phase 4 results — the measurement
+
+`tests/crash-injection/bench-append.js`, 500 appends per candidate, realistic
+`ReminderCompleted` event lines. macOS dev box, so absolute numbers will differ on the Linux
+production host — but `fsync` dominates on both, so the *ordering* holds.
+
+| Shape | ms/append | vs baseline |
+|---|---|---|
+| baseline — `fs.appendFile`, no fsync (the old behaviour) | 0.100 | 1.0x |
+| **sync-per-append — open/fsync/close — CHOSEN** | **5.710** | **56.9x** |
+| batched — hold a handle, fsync every 20 | 0.300 | 3.0x |
+| handle-holding — hold a handle, fsync every append | 5.128 | 51.1x |
+
+**The measurement cut against both positions in the Phase 1 argument.**
+
+Agy was directionally right that fsync-per-append is expensive — **57x** is a large multiplier, and
+the earlier "very unlikely to be a bottleneck" framing understated it. But its proposed remedy is
+refuted by the fourth row: **holding a handle open is only ~10% faster** (5.128 vs 5.710), because
+the cost is `fsync` itself, not `open`/`close`. A stateful per-workspace handle manager would have
+bought 10% in exchange for fd-exhaustion risk, reopen-on-rotation handling, and lifecycle state.
+Only measuring showed that; either of us could have argued it indefinitely.
+
+And the multiplier multiplies a negligible number. At this ledger's real rate — roughly 100
+reminder-lifecycle events/day — sync-per-append adds **~571 ms per day, in total**.
+
+Batched sync is the only shape that genuinely moves the needle (3x vs 57x), but it trades away up
+to N events on a crash and adds flush-timing state. Not taken while the simple shape's cost is this
+far below the noise floor (`/ponytail`).
+
+**Recorded limit:** 5.7 ms/append caps throughput at roughly 175 events/sec. If the P3 event-sourced
+cutover ever makes this ledger authoritative and high-volume, revisit — the decision is correct for
+today's load, not for all loads.
+
 ### QA gate — Phase 4
-- [ ] Three candidate shapes benchmarked and the numbers recorded here before one is chosen
-- [ ] Chosen shape is the simplest the measurement justifies, not the most sophisticated
-- [ ] `append` still never rejects, under fsync failure too
-- [ ] Torn-final-line tolerance in `readAll` still passes
-- [ ] Per-workspace write-chain isolation preserved
-- [ ] Append latency measured and recorded in this doc (honest number, even if unflattering)
-- [ ] The `no fsync in this phase` comment at line 14 updated to match reality
-- [ ] `tests/event-store.test.js` + `npm run test:node` green
+- [x] Candidate shapes benchmarked and the numbers recorded here **before** one was chosen — four
+      candidates, not three (a no-fsync baseline was added so the others have a reference)
+- [x] Chosen shape is the simplest the measurement justifies, not the most sophisticated
+- [x] Append latency recorded honestly, including the unflattering 57x multiplier
+- [x] `append` still never rejects — the durable append is wrapped by the same `try/catch` that
+      resolves `{ ok:false, error }`
+- [x] Torn-final-line tolerance in `readAll` still passes (unchanged; `tests/event-store.test.js` green)
+- [x] Per-workspace write-chain isolation preserved (unchanged)
+- [x] The stale "No `fsync` in this phase" comment corrected, and it now states what the fsync
+      actually buys: **recency, not integrity** — append-only writes were already torn-tail-tolerant
+- [x] `npm test` green (1513 Jest + 30 `node --test`); `npm run build` clean
 
 ---
 

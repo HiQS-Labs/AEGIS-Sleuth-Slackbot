@@ -3,6 +3,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
+const { AppendFileDurableAsync } = require('./durable-write');
 
 /**
  * NON-authoritative, append-only event store (Phase 1 counter-view).
@@ -11,7 +12,12 @@ const crypto = require('crypto');
  * lag or be lossy and is never the source of truth. Therefore:
  *   - `append` is best-effort: it NEVER rejects/throws. Any failure resolves
  *     `{ ok:false, error }` so a caller's reminder transition is never blocked.
- *   - No `fsync` in this phase (the Phase 0 spike recorded the no-fsync reality).
+ *   - Appends ARE `fsync`'d as of GH-12 Phase 4. The Phase 0 spike recorded a
+ *     no-fsync reality that is no longer true; see `src/durable-write.js`
+ *     (`AppendFileDurableAsync`) for the benchmark that chose the shape.
+ *     This buys RECENCY, not integrity: append-only writes were already
+ *     torn-tail-tolerant on read, so the ledger's failure mode was losing the
+ *     last event, never corrupting earlier ones.
  *
  * One `<workspace>_events.jsonl` file per workspace under `rootDir`; one JSON
  * object per line. Appends are serialized PER WORKSPACE using the write-chain
@@ -115,7 +121,10 @@ function createEventStore(ArgOptions) {
     try {
       await fs.mkdir(RootDir, { recursive: true });
       const Line = `${JSON.stringify(ArgNormalized)}\n`;
-      await fs.appendFile(EventsFilePath(RootDir, ArgWorkspace), Line, 'utf8');
+      // GH-12 Phase 4: fsync the append so an event is on disk rather than in the page cache when
+      // this resolves. Still best-effort — any failure resolves { ok:false } below rather than
+      // throwing, so a reminder transition is never blocked by the side ledger.
+      await AppendFileDurableAsync(EventsFilePath(RootDir, ArgWorkspace), Line);
       return { ok: true };
     } catch(error) {
       return { ok: false, error };

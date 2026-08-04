@@ -8,6 +8,7 @@ const path = require('path');
 const {
   WriteFileDurableAsync,
   WriteFileDurableSync,
+  AppendFileDurableAsync,
   SweepStaleTempsAsync,
   BuildTempPath,
   STALE_TEMP_MS,
@@ -267,5 +268,38 @@ describe('SweepStaleTempsAsync', () => {
       return RealOpen.call(fs, ArgPath, ...ArgRest);
     });
     await expect(WriteFileDurableAsync(Target, '{"ok":true}', { Logger: HostileLogger })).resolves.toBeUndefined();
+  });
+});
+
+// Added in Phase 4, once the benchmark (tests/crash-injection/bench-append.js) had chosen the
+// shape: open 'a' -> appendFile -> fsync -> close per call. Holding a handle open measured only
+// ~10% faster because fsync dominates, so the stateful variant's complexity was not worth it.
+describe('AppendFileDurableAsync', () => {
+  test('appends without rewriting earlier records', async () => {
+    const Log = path.join(WorkDir, 'events.jsonl');
+    await AppendFileDurableAsync(Log, `${JSON.stringify({ n: 1 })}\n`);
+    await AppendFileDurableAsync(Log, `${JSON.stringify({ n: 2 })}\n`);
+
+    const Lines = (await fs.readFile(Log, 'utf8')).split('\n').filter(Boolean);
+    expect(Lines.map(ArgLine => JSON.parse(ArgLine).n)).toEqual([1, 2]);
+  });
+
+  test('creates the file when it does not exist yet', async () => {
+    const Log = path.join(WorkDir, 'fresh.jsonl');
+    await AppendFileDurableAsync(Log, 'first\n');
+    expect(await fs.readFile(Log, 'utf8')).toBe('first\n');
+  });
+
+  // Append must never go through temp+rename — that would defeat the point of an append-only log
+  // and rewrite the whole file each time.
+  test('never leaves a temp file behind', async () => {
+    const Log = path.join(WorkDir, 'events.jsonl');
+    await AppendFileDurableAsync(Log, 'line\n');
+    expect(await LeftoverTempsAsync()).toEqual([]);
+  });
+
+  test('closes its handle even when the write fails', async () => {
+    const Missing = path.join(WorkDir, 'no-such-dir', 'events.jsonl');
+    await expect(AppendFileDurableAsync(Missing, 'line\n')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
