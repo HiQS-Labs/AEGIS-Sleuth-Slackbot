@@ -40,13 +40,20 @@ function createRouterShadowStore(ArgOptions) {
   const WriteChains = new Map();
 
   /**
-   * Best-effort durable append. Never rejects — resolves a result object — so the per-workspace
-   * chain can't be poisoned and a caller is never blocked by a log error.
+   * Best-effort append. Never rejects — resolves a result object — so the per-workspace chain
+   * can't be poisoned and a caller is never blocked by a log error.
+   *
+   * **Deliberately NOT fsync'd** (GH-12), unlike `event-store.js`'s otherwise-identical append.
+   * This corpus is disposable telemetry written on the routing hot path; `AppendFileDurableAsync`
+   * costs ~5.7 ms per record and would cap this store at roughly 175 records/sec, which is a real
+   * regression to buy recency for data the module contract already declares replayable-or-
+   * droppable. A torn tail line damages only the final record and the offline replayer skips it.
+   * Renamed from `AppendDurable`: that name promised a guarantee this function does not provide.
    * @param {string} ArgWorkspace
    * @param {object} ArgLineObject
    * @returns {Promise<{ ok: boolean, error?: Error }>}
    */
-  async function AppendDurable(ArgWorkspace, ArgLineObject) {
+  async function AppendBestEffort(ArgWorkspace, ArgLineObject) {
     try {
       await fs.mkdir(RootDir, { recursive: true });
       const Line = `${JSON.stringify(ArgLineObject)}\n`;
@@ -81,7 +88,7 @@ function createRouterShadowStore(ArgOptions) {
       };
       const Prior = WriteChains.get(ArgWorkspace) || Promise.resolve({ ok: true });
       // Chain off the prior write but swallow its result so one failure can't reject the next link.
-      const Next = Prior.then(() => AppendDurable(ArgWorkspace, Line));
+      const Next = Prior.then(() => AppendBestEffort(ArgWorkspace, Line));
       WriteChains.set(ArgWorkspace, Next);
       return Next;
     },

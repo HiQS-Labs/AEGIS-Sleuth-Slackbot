@@ -24,7 +24,7 @@ The honest edges are all in the *newer, additive* work, not the load-bearing cor
 
 ## 2. Technical status (plain language)
 
-**Overall maturity:** **Proven** for the load-bearing product (2.5 years of daily production use, verified live across 7 workspaces), with a **Solid** supporting cast and a small number of **Partly built** additive edges. The mutable-JSON persistence remains the one structural caveat — durable against graceful restarts, not against a hard kill mid-write (no `fsync` anywhere). · confidence: **Confirmed**
+**Overall maturity:** **Proven** for the load-bearing product (2.5 years of daily production use, verified live across 7 workspaces), with a **Solid** supporting cast and a small number of **Partly built** additive edges. Persistence is still mutable JSON, but as of GH-12 every authoritative write is atomic and `fsync`'d (temp → fsync → rename → fsync dir), so a hard kill mid-write no longer truncates a store — measured, not assumed. The remaining structural caveat is that it has never been load-tested. · confidence: **Confirmed**
 
 ### Production reality (directly observed via SSH, 2026-06-18 ~03:26 UTC)
 
@@ -48,7 +48,7 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 | Command catalog + NL routing (54 commands) | **Solid** | Confirmed | 54 curated catalog entries; layered first-match-wins + regex aliases + LLM intent resolver, all wired into the live mention path |
 | Tri-provider AI (OpenAI · Anthropic · Gemini) | **Solid** | Confirmed | All three instantiated and callable; prefix routing (`claude-*`/`gemini-*`/`gpt-*`); provider-aware defaults. Caveat: web-search has no Anthropic path (OpenAI/Gemini only) |
 | Per-channel model switching | **Solid** | Confirmed | `set/clear/show-channel-model`; runtime-config-grounded "what model are you?" guard |
-| Durable completion history (CompletionStore) | **Solid** | Confirmed | Dedupe + 365-day prune + flush-on-shutdown + reload-survival, verified in source; wired at the FSM completion hook. Caveat: plain `fs.writeFile`, no `fsync` |
+| Durable completion history (CompletionStore) | **Solid** | Confirmed | Dedupe + 365-day prune + flush-on-shutdown + reload-survival, verified in source; wired at the FSM completion hook. Crash-atomic + `fsync`'d writes with corrupt-file quarantine (GH-12) |
 | Sourced web search (OpenAI + Gemini) | **Solid** | Confirmed | Real Responses-API + `googleSearch` tool paths; freshness auto-routing; NL aliases |
 | GitHub auto-complete sync (issue/PR → reminder) | **Solid** | Confirmed | Real 30-min polling loop against GitHub REST; auto-completes when linked items close/merge; PAT-gated; tested |
 | GitHub comment relay (Slack thread → issue comment) | **Solid** | Confirmed | Real POST to issue-comments endpoint; stop-triggers; persisted state; tested |
@@ -74,7 +74,9 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 
 ### What's thin or risky (the honest caveats)
 
-- **No `fsync` anywhere.** Both the completion store and the event ledger use plain `fs.writeFile`/`appendFile`. Durable against a graceful deploy/restart (the stated goal), **not** against a hard kill mid-write. "Crash-safe" is not a claim this codebase can make today.
+- **Crash-atomicity is proven; power-loss durability is not.** Every authoritative write now goes through one helper (temp → `fsync` → `rename` → `fsync` parent dir), and a crash-injection harness that `SIGKILL`s a writer mid-write reproduces corruption on the old path (14/100) and none on the new one (0/100, across whole-file async, whole-file sync, and JSONL append shapes). But killing a *process* does not discard the OS page cache, so what this measures is atomicity — a reader never sees a torn or truncated store. It does **not** demonstrate survival of power loss or a kernel panic, which is the other half of what `fsync` is for and which would need real power removal to test. Say "survives hard kill without corrupting its stores," not "zero data loss."
+- **Atomicity is not zero-loss, and not ordering.** An acknowledged write is on disk; an *unacknowledged* one is still lost, and the append-only ledger can lose its unsynced tail record. Concurrent saves are serialized per store by a write chain, so a stale snapshot can no longer overwrite a newer one — but that is a property of those specific stores, not a global transactional guarantee.
+- **`fsync` on macOS is weaker than on Linux.** Node's `fsync()` maps to a call that does not force a platform flush on macOS (that needs `F_FULLFSYNC`, which Node does not expose). Production is Linux, where the guarantee holds; local macOS development is the weaker case.
 - **The FSM validator is not CI-gated.** It exists and is correct, but CI runs `npm test` + an unrelated grep, never `validate:fsm`. The contract holds today by discipline, not by an enforced gate.
 - **Event-sourcing is groundwork, not a system of record.** The ledger writes in prod but is authoritative for nothing; the one read-back path is behind a default-OFF flag that isn't even deployed (prod is 1.4.197). Do not describe AEGIS as "event-sourced" in the present tense.
 - **Notion and plugins are early.** Notion is search-only, token-gated, and untested. The plugin system is a real loader with a single demo plugin — there is no plugin catalog.
@@ -109,10 +111,11 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 - "Backed by 1,100+ automated tests." ← CHANGELOG-cited; 67 test files confirmed, suite not re-run this session
 - "An append-only event ledger captures every reminder lifecycle change — groundwork for event-sourcing." ← true and live, but say *groundwork*, not *event-sourced*
 - "Instrumented with New Relic APM." ← true; do not imply a per-tenant/customer-facing observability product (personal key)
+- "Survives a hard kill without corrupting its stores — every authoritative write is atomic and `fsync`'d." ← Confirmed by crash injection (14/100 corrupt on the old path, 0/100 on the new, across all three write shapes). Say it exactly this way: it is a *corruption* guarantee, not a *loss* guarantee, and the harness proves atomicity rather than power-loss durability — never upgrade this to "crash-proof" or "zero data loss"
 
 **Don't say yet** — Unverified or contradicted by the code; would not survive scrutiny:
 - "Event-sourced, replayable system of record." ← the ledger is non-authoritative and reads drive nothing in prod
-- "Crash-proof / zero-data-loss durability." ← no `fsync` anywhere; durable only against graceful restart
+- "Zero-data-loss durability." ← atomic writes bound *corruption*, not *loss*; an unacknowledged write and the ledger's unsynced tail record can still be lost. See the scoped version under **Say with care**
 - "Proven at scale / high-volume." ← in-house single deployment, load ~0.00 — proven for *reliability and longevity*, not *scale*
 - "A plugin marketplace / ecosystem." ← one demo plugin
 - "Enterprise-grade observability." ← personal/test New Relic key
@@ -125,7 +128,7 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 > it ships today. When in doubt, phrase as "designed to" / "on the roadmap" / "in progress."
 
 - **Event-sourced core (P3) — in progress, staged rollout.** The durable, append-only event ledger is already live in production as a non-authoritative side log; a pure-replay projection and a shadow-diff parity tool are built and tested. The path forward: validate the projection against a real calendar week, flip the summarize-week read path, then graduate the ledger toward source-of-truth — each step deliberately gated. The destination is reminders you can rebuild and audit from an immutable log; today it's the foundation for that, not the finished system.
-- **Durability hardening.** Move the authoritative and ledger writes to real `fsync` + atomic rename, so the durability story extends from "survives graceful restarts" to "survives hard kills."
+- **~~Durability hardening.~~ Shipped (GH-12)** — no longer roadmap. Authoritative and ledger writes go through one atomic + `fsync`'d helper, concurrent saves are serialized so a stale snapshot cannot overwrite a newer one, and a corrupt store is quarantined rather than silently overwritten. What remains on the roadmap is the part this did *not* address: durability across real power loss, and load testing.
 - **Enforced architecture.** Promote the FSM contract validator (and event-schema validation) into CI so the invariants are gate-enforced, not discipline-enforced.
 - **A real plugin ecosystem.** The loader, security boundary, and lifecycle exist and ship with a reference plugin; the roadmap is a catalog of real first- and third-party plugins on top of it.
 - **Deeper integrations.** Notion beyond search (read/write/database queries, with tests); broader two-way tooling.

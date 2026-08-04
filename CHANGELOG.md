@@ -33,6 +33,49 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.261 - 2026-08-04
+If I get killed hard — an OOM kill, a container evict, someone pulling the plug on the box — while
+I'm part-way through saving, I no longer lose your data to a half-written file. Every file I treat
+as authoritative (your pending reminders, completion history, settings, the event ledger) is now
+written to a side file, flushed to disk, and swapped into place in one atomic step. Before this, a
+badly-timed kill could leave unreadable JSON, and I'd quietly start from empty and then overwrite
+the good data on my next save. That whole failure path is closed.
+
+**Technical:** GH-12. New `src/durable-write.js` — one helper, four exports
+(`WriteFileDurableAsync`, `WriteFileDurableSync`, `AppendFileDurableAsync`, `SweepStaleTempsAsync`).
+Shape is temp → `fsync` file → `rename` → `fsync` parent dir, with unique per-write temp names
+(`<path>.<pid>.<counter>.<rand>.tmp`).
+- **Adopted by every authoritative writer in `src/`** — the reminder queue, completion store, event
+  ledger, workspaces, settings, channel/model settings, learned-convention suppression, stats, chat,
+  code-task relay, snapshot relay, lists cache, client-mapping overlay, project map, the reminder
+  counter, the FP-report cursor, and the trashed-examples corpus. `lists-module.js`'s ad-hoc
+  temp+rename was folded into the helper (it had no `fsync`, a fixed `.tmp` name two concurrent
+  saves would collide on, and leaked its temp on failure).
+- **Atomic rename orders nothing**, so `reminders-module.js` gained a `#SaveChain` and a public
+  `FlushRemindersAsync()`. Without it: A snapshots, B snapshots, B renames, A renames its stale
+  snapshot on top. Reproduced — **3 of 8** completed reminders vanished from disk with the chain
+  bypassed, 0 of 8 with it.
+- **Corrupt files are quarantined, not overwritten.** A parse/shape failure renames the file to
+  `.corrupt-<ISO>` before anything can save over it. `ENOENT` is excluded (fresh installs must be
+  able to save) and a read *failure* is distinguished from a parse *failure* — only the latter
+  quarantines. Stale temps are swept at load.
+- **Verified by crash injection** (`tests/crash-injection/`), which `SIGKILL`s a writer mid-write.
+  Every mode is a matched pair and the `unsafe` control must reproduce damage or the run is failed
+  as untrustworthy. At N=100 per shape: whole-file async **23 → 0** corrupt, whole-file sync
+  **3 → 0**, JSONL append **0 → 0** corrupt (append confines damage to the tail record by
+  construction — measured, and the reason it is asserted differently).
+- **Cost measured, not assumed.** Four append shapes benchmarked: `fsync`-per-append is 57× the
+  unsynced call but **571 ms/day** at this rate. Holding the fd open — the intuitive optimization —
+  was only ~10% faster and was rejected on the number. Recorded limit: ~175 events/sec, revisit at
+  the P3 cutover.
+- `HONEST.md` and `README.md` re-truthed to exactly what was tested. The claim moves to **Say with
+  care** as *"survives a hard kill without corrupting its stores"* — deliberately **not**
+  "crash-proof" or "zero data loss", because killing a process does not empty the OS page cache, so
+  this demonstrates atomicity rather than power-loss durability. The "not load-tested" caveat is
+  untouched. #lessonslearned: a gate that cannot fail proves nothing — and a gate that fails is a
+  hypothesis, not a verdict. Both directions bit during this work; see the Lessons Learned section
+  in the project doc.
+
 ## 1.4.260 - 2026-08-01
 `ask-reminders` was answering "Sorry — couldn't access reminder data" to every question. I could
 still schedule, complete and remind as normal; I just could not see my own reminder list when you

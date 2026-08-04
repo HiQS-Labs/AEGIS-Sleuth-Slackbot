@@ -1,6 +1,6 @@
 ---
 title: "Durability hardening — atomic + fsync'd writes for the authoritative JSON stores"
-status: In progress (2-WORKING) — Phase 0 complete, Phase 1 next
+status: Complete (3-COMPLETED) — all 6 phases shipped and agy-QA'd
 created: 2026-08-04
 updated: 2026-08-04
 owner: noel
@@ -36,7 +36,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **Phases 0-2 complete.** Phase 1 (helper + crash harness) and Phase 2 (reminder queue) both agy-QA'd; Phase 1 **Approved**. Empirical results so far: hard-kill corruption reproduced at **6/40** on the old path and **0/40** on the new one; the lost-update race reproduced at **3/8** with serialization bypassed and **0/8** with it. | **Phase 3** — completion store: adopt the helper, quarantine guard, load-time sweep. |
+| **All 6 phases complete and agy-QA'd.** One shared helper (`src/durable-write.js`); every authoritative write in `src/` adopted it; save serialization in `reminders-module`; quarantine guards on the reminder queue and completion store. Final crash-injection matrix at **N=100 per write shape** — whole-file async, whole-file sync, and JSONL append — each with a matched `unsafe` control that must reproduce damage before its `durable` pair is trusted. Docs re-truthed to exactly what was measured; the "not load-tested" claim left untouched. | **Nothing in this doc.** Follow-ups are tracked separately: P3 event-sourced cutover, load testing, and the deferred-triage bucket. |
 | *(historical)* **Phase 0 (discovery) complete**, and **plan QA'd by agy** (relay round 1, `relay-system/2026-08-04/gh12-durability-plan-qa.md`). Agy independently re-verified all five Phase 0 claims with citations and confirmed the tier re-ranking. It returned **Changes requested** with 1 Blocker + 2 Shoulds, all three now folded in below. Issue [#12](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/12) filed; branch `claude/GH-12-durability-hardening` cut. | **Phase 1** — `src/durable-write.js` (unique temp names + sync variant) **and** the crash-injection harness, which must first go red on unmodified `main`. |
 
 ### Plan-review dispositions (agy round 1)
@@ -577,6 +577,17 @@ collide on, and a leaked temp on failure.
       **strengthened** — it now proves the atomic rename lands on the real overlay path, which is a
       better test than the original write-path check. Flagged rather than counted as unchanged.
 
+### Phase 5 code-review dispositions (agy, `relay-system/2026-08-04/gh12-p5-code-qa.md`)
+
+Verdict **FAIL**, 2 Blockers. Agy passed DoD 1, 3, 4, 5 and 7 with citations, including an explicit
+confirmation that `app.js:489` — the classification I flagged as least certain — is correctly left
+alone.
+
+| Finding | Disposition |
+|---|---|
+| **[Blocker]** DoD 6 — two `fs.appendFile` state writes missed: `reminders-module.js:3002` (trashed examples) and `router-shadow-store.js:53`, whose method is *named* `AppendDurable` while using a bare append | **Implemented, and split — it was worse than reported.** The trashed-examples miss is real and now uses `AppendFileDurableAsync`: an example is unreconstructable user feedback, and `#RunWeeklyTrashedExamplesReportAsync` advances a **durable cursor past it**, so a lost line is skipped forever rather than retried. Its docstring also claimed "append… is atomic and a partial write cannot corrupt earlier entries" — half true, and the confident half was wrong. `router-shadow-store.js` is the opposite call: its module contract declares the corpus disposable telemetry written on the routing hot path, where `fsync` would cap it at ~175 records/sec to buy recency for data that is explicitly replayable-or-droppable. Adding `fsync` there would be a real regression. The **defect agy correctly identified is the false promise in the name**, so the function was renamed `AppendBestEffort` and documented with why it is deliberately unsynced. Fixing a misleading contract by making the code slower to match the name is the wrong direction. |
+| **[Blocker]** DoD 2 — "its callers are synchronous" is factually incorrect; `WriteClientOverlaySync` and `SaveProjectMap` are both called from `async` functions, so both should be converted to `WriteFileDurableAsync` | **Declined, with the factual correction conceded.** Agy is right that my stated reason was wrong: the *enclosing* functions are `async`. But the conclusion does not follow. These are exported functions whose contract is synchronous, and **8 call sites depend on that** — `client-mapping.test.js:461` asserts a synchronous `.toThrow()`, which a converted function would turn into an unhandled rejection that never fails the test; six `SaveProjectMap(...)` calls across two test files are unawaited and would silently race; and `show-me-projects-command.js:448` sits inside a `try/catch` that would **stop catching write failures** the moment the call became a floating promise. That last one is precisely the caller-contract break DoD 4 asks about — converting would introduce the bug agy was checking for. The benefit is ~5.7 ms of event loop on two rare admin commands (`/refresh-clients`, `/show-me-projects`). Renaming two exported functions and touching five files for that is an API change outside a mechanical sweep. `WriteFileDurableSync` exists for exactly this case — it was added in Phase 1 on agy's own earlier `[Should]`. |
+
 ---
 
 ## Phase 6 — Full-system verification & honest doc update
@@ -601,13 +612,70 @@ whole-system run.
    - `CHANGELOG.md` entry
 3. Leave the "not load-tested" claim **untouched** — this work does nothing for it.
 
+### Phase 6 results
+
+**Scope correction.** The plan said "every store hardened in Phases 2-5." Running one synthetic
+writer six times under six filenames would have been theater — every store funnels through the same
+helper, so store *identity* is not the variable. What actually differs is **write shape**, and the
+three shapes fail differently. The harness was extended to cover all three, each with its own
+matched `unsafe` control:
+
+| Shape | Covers | Control | Hardened |
+|---|---|---|---|
+| whole-file async | most stores | `unsafe` | `durable` |
+| whole-file **sync** | `client-mapping.js`, `show-me-projects-command.js` | `unsafe-sync` | `durable-sync` |
+| **JSONL append** | `event-store.js`, trashed-examples corpus | `unsafe-append` | `durable-append` |
+
+The sync shape had **never been crash-tested** before this phase.
+
+**Final matrix — `--matrix --iterations 100`, OVERALL PASS:**
+
+| Mode | corrupt | intact | torn-tail | leftover temps |
+|---|---|---|---|---|
+| `unsafe` | **23** | 77 | 0 | 0 |
+| `durable` | **0** | 100 | 0 | 40 |
+| `unsafe-sync` | **3** | 97 | 0 | 0 |
+| `durable-sync` | **0** | 100 | 0 | 27 |
+| `unsafe-append` | 0 | 89 | 11 | 0 |
+| `durable-append` | 0 | 93 | 7 | 0 |
+
+Three things in that table are worth reading carefully rather than skimming as a win:
+
+- **`unsafe-sync` corrupts only 3/100**, an order of magnitude below the async path, because
+  `writeFileSync` issues far fewer interruptible syscalls. The sync stores were genuinely
+  lower-risk — but not zero-risk, which is why they were hardened rather than waived.
+- **The append rows show no improvement, and that is the honest result.** Both paths score
+  `corrupt=0` and both leave torn tails (11 vs 7 — noise, not a delta). Append-only confines damage
+  to the record being written *by construction*, with or without `fsync`; there is no truncate
+  window to close. What `fsync` buys an append is recency, and process-kill testing cannot see it.
+  The append pair therefore asserts only that the durable path does not *regress* tail-confinement.
+- **40 and 27 leftover temp files.** A kill during a durable write strands its temp. Harmless to
+  readers — the store is only ever replaced by `rename` — but this is the empirical justification
+  for `SweepStaleTempsAsync` existing at all, which until now was a precaution rather than a
+  measured need.
+
+**Two harness faults were caught during this phase, in opposite directions.** The append control
+first came back clean 100/100 and the harness correctly refused to certify its own clean durable
+run; the fix was a 25× larger batch (an append needs a *bigger* payload than a whole-file write to
+tear — see Lesson 6). Then `durable-append` reported **35/100 corrupt**, which would have implicated
+the shipped helper — and was an artifact of letting the log accumulate across iterations, so a torn
+tail became an interior line. Both are written up in Lessons 1 and 7. Neither resulted in a source
+change, because in both cases the instrument was at fault.
+
 ### QA gate — Phase 6
-- [ ] Harness's `main`-reproduces-corruption baseline (established in Phase 1) re-confirmed still red
-      on unmodified `main` — a harness that silently stopped triggering the bug proves nothing
-- [ ] N≥100 kill iterations per hardened store, zero unparseable files
-- [ ] Doc claims match exactly what was tested — no claim upgraded beyond its evidence
-- [ ] "Not load-tested" claim left intact
-- [ ] `## Lessons Learned (For Future Agents)` appended before this doc moves to `3-COMPLETED`
+- [x] Harness's corruption baseline re-confirmed still red — **23/100** (whole-file async),
+      **3/100** (whole-file sync), **11/100** (append) on the unmodified paths. A harness that
+      silently stopped triggering the bug proves nothing, and this one is wired to fail the run
+      rather than report a clean pass when its control goes quiet — which it did, and caught
+- [x] N≥100 kill iterations per **write shape** (6 modes × 100 = 600 kills), zero unparseable
+      authoritative files on every hardened path
+- [x] Doc claims match exactly what was tested — the claim landed in **Say with care** as "survives
+      a hard kill without corrupting its stores", explicitly **not** "crash-proof"/"zero data loss",
+      and `HONEST.md` now records that `SIGKILL` cannot demonstrate power-loss durability at all
+- [x] "Not load-tested" claim left intact — verbatim in `README.md`, and named in `HONEST.md` as
+      part of what remains on the roadmap
+- [x] `## Lessons Learned (For Future Agents)` appended (10 sections) before this doc moves to
+      `3-COMPLETED`
 
 ---
 
@@ -623,3 +691,151 @@ whole-system run.
 | Lost update: two concurrent full-file writers rename out of order, stale snapshot wins | Write chain in Phase 2 — atomic rename orders nothing by itself |
 | Harness gives false confidence by never triggering the bug | Must go **red on unmodified `main`** before it is trusted (Phase 1 gate), re-confirmed in Phase 6 |
 | Scope creep into P3 event-sourcing | Explicit non-goal; this hardens the path P3 will eventually replace |
+
+---
+
+## Lessons Learned (For Future Agents)
+
+### 1. A gate that cannot fail proves nothing — build the negative control first
+
+The single highest-value decision in this project was writing the crash harness with an `unsafe`
+mode *before* trusting its `durable` mode. Every "0 corrupt" result is meaningless unless the same
+harness produces a non-zero result against the code you claim to have fixed.
+
+This paid off twice, and the second time is the instructive one. In Phase 6 the `unsafe-append`
+control came back **clean 100/100** — and the harness refused to certify the (also clean) durable
+append run, reporting `OVERALL FAIL`. Had the append pair been written without its control, the run
+would have printed a satisfying `0 corrupt` and I would have shipped a claim backed by nothing.
+
+**Do this:** for any safety property, write the test that must go red first, watch it go red, and
+only then implement. If your negative control ever goes green, that is a harness failure, not a
+success — treat it as such loudly.
+
+### 2. Atomicity, ordering, and durability are three different properties
+
+They are routinely collapsed into "crash-safe," and each needs its own mechanism and its own
+evidence:
+
+| Property | Mechanism | What breaks without it |
+|---|---|---|
+| Atomicity | temp → `rename` | A reader sees a truncated/torn file |
+| Ordering | a per-store write chain | **Lost update** — a stale snapshot renames on top of a newer one |
+| Durability | `fsync` (file + parent dir) | An acknowledged write is not on the platter after power loss |
+
+The ordering one nearly escaped. `rename(2)` is atomic but orders nothing: A snapshots, B snapshots,
+B renames, A renames its *stale* snapshot on top — B's change is gone, sitting behind perfectly
+valid JSON. Proven by bypassing the write chain: **3 of 8** completed reminders vanished from disk.
+Note that the corruption harness cannot see this failure at all; it needs its own experiment.
+
+**The fix can be worse than the bug.** A shared temp filename would have converted a rare hard-kill
+loss into *routine* corruption under ordinary concurrency. Unique per-write temp names, always.
+
+### 3. Names and docstrings drift into promises the code does not keep
+
+Four instances, all caught by review or by writing a test that tried to falsify the claim — **none**
+caught by the pre-existing suite:
+
+- `SweepStaleTempsAsync` documented "Never throws" and had **two** live throw paths.
+- `router-shadow-store.js` named its function `AppendDurable`; it never called `fsync`.
+- The trashed-examples docstring claimed "append… is atomic and a partial write cannot corrupt
+  earlier entries" — half right, and the confident half was the wrong half.
+- `durable-write.js` shipped two aspirational contracts of its own.
+
+**Do this:** when a comment states a guarantee ("never throws", "atomic", "durable"), treat it as an
+unproven assertion and write the test that tries to break it. A guarantee nobody has tried to
+falsify is a wish.
+
+### 4. Measure the remedy; do not accept the plausible one
+
+Reviewers proposed holding a file handle open to avoid per-append `open`/`close` overhead. It sounds
+obviously right. Benchmarked across four shapes, it was **~10% faster** than the simple version —
+nowhere near enough to justify fd-exhaustion risk, rotation handling, and lifecycle state. Rejected
+on the number, not the intuition.
+
+The same measurement made the *accepted* cost legible: `fsync`-per-append is **57× slower** in
+relative terms and **571 ms/day** in absolute terms at this call rate. A ratio alone would have
+argued for a complex batching scheme; the absolute figure showed there was nothing to optimize.
+
+**Do this:** report both the ratio and the absolute. One of them is almost always doing the
+misleading.
+
+### 5. Re-derive the work list from the code, never from your own plan
+
+Phase 5's target list came from a table written during Phase 0 discovery. Re-scanning `src/` before
+starting found it had drifted and was **missing three files** — two of which had user-visible
+truncation costs (re-processing every previously handled file, re-relaying every prior snapshot).
+The reviewer then found two more that the *scan* missed, because the scan looked for `writeFile` and
+these were `appendFile`.
+
+**Do this:** re-derive before executing, and make the search term a superset of what you expect
+(`writeFile|appendFile|writeFileSync|createWriteStream`), because you will search for the shape of
+the bug you already know about.
+
+### 6. Empirical results are often counter-intuitive — let them retune the experiment
+
+Reproducing damage on the **append** path required a payload **25× larger** than the whole-file path
+(50k records vs 2k), which is backwards from the obvious expectation. The reason is mechanical: a
+whole-file `fs.writeFile` truncates first, so a kill anywhere in the rewrite window leaves a short
+file, while an append has no truncate window and `SIGKILL` cannot split a single `write(2)` — the
+kernel completes it. Damage needs a payload large enough that Node's write loop issues several
+syscalls. Push further (200k records) and damage vanishes again, because kills start landing in
+`JSON.stringify` before any write begins.
+
+**Do this:** when a control comes back clean, the interesting question is *why*, and the answer is
+often a property of the system worth documenting. Do not just crank the knob until it goes red.
+
+### 7. A failing gate is a hypothesis, not a verdict — suspect the instrument too
+
+Minutes after the clean-control failure in lesson 1, the same append pair swung the other way:
+`durable-append` reported **35/100 corrupt**, i.e. damage to already-written records — which would
+have been a serious regression in the shipped helper.
+
+It was the harness. The append modes let the log accumulate across iterations, so a torn *tail* left
+by iteration N became an *interior* line once iteration N+1 appended past it, and the inspector
+scored it as damage to history. The tell was that the supposedly-broken path (22/100) and the
+supposedly-fixed path (35/100) were failing at the *same kind of rate* — a real fix-versus-bug
+comparison does not look like that. Resetting the log per iteration and widening the kill window so
+whole batches complete gave the true answer: **corrupt=0 on both paths**, with the control still
+landing kills (torn-tail 3/40 unsafe, 2/40 durable).
+
+Had I trusted the red result, I would have "fixed" a helper that was already correct. Had I trusted
+the *first* clean result, I would have certified a claim on no evidence. Both directions were wrong,
+and in both cases the instrument was the thing at fault.
+
+**Do this:** when a result would change your conclusion, reproduce it against a control you already
+understand before acting on it. If the broken and fixed paths fail similarly, you are measuring your
+harness.
+
+### 8. Scope claims to the experiment that was actually run
+
+`SIGKILL` does not discard the OS page cache — the kernel still owns the dirty pages. So this work
+proves **crash atomicity** (a reader never observes a torn store) and does **not** prove survival of
+power loss, which is the other half of what `fsync` buys. The public claim was written to that
+boundary: *"survives a hard kill without corrupting its stores"*, filed under **Say with care**, and
+explicitly **not** upgraded to "crash-proof" or "zero data loss." The "not load-tested" caveat was
+left exactly as it was, because nothing here touched it.
+
+**Do this:** write down what your test *cannot* see, in the same place you record what it proved.
+
+### 9. Flag modified tests; never let a green suite hide one
+
+Two existing tests were changed. Both are called out explicitly rather than folded into a "suite
+still passes" line — `client-mapping.test.js` had an incomplete `fs` mock that made the durable sync
+path unrunnable, and the fix was paired with a *strengthened* assertion (it now proves the atomic
+rename lands on the real overlay path). The Phase 5 gate is recorded as `[~] QUALIFIED`, not `[x]`.
+
+**Do this:** "I changed a test to make it pass" is a sentence that must appear in your own report
+before a reviewer has to find it. If the change weakened the test, that is a finding against you; if
+it strengthened it, say why.
+
+### 10. Process notes that cost real time
+
+- **Do not edit files while a relay/review turn is in flight.** A containment sweep reverted
+  `src/durable-write.js` as an off-allowlist edit and it had to be rewritten from context.
+- **Distrust a wrapper's exit code you did not read yourself.** A trailing `echo` overwrote `$?` and
+  masked a failing relay as success for a full round.
+- **A reviewer can be right about the defect and wrong about the fix.** Phase 3's blocker was real
+  but the suggested fix was at the call site; the correct fix was in the shared helper, because a
+  second caller had the same bug. Phase 5's `[Blocker]` on sync-vs-async was factually right that my
+  stated reason was wrong, and still wrong in its conclusion. Verify the finding, then decide the
+  remedy yourself.

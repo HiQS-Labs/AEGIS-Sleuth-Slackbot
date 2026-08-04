@@ -17,7 +17,7 @@ const {
 const { ExtractGitHubUrls } = require('./github-url-utils');
 const { LoadClientMappingsSync, ResolveClientIdentity, GetClientDefaults, ResolveClientNameForReminder, ApplyClientPrefix } = require('./client-mapping');
 const { BuildWorkspaceSnapshot } = require('./workspace-snapshot');
-const { WriteFileDurableAsync, SweepStaleTempsAsync } = require('./durable-write');
+const { WriteFileDurableAsync, AppendFileDurableAsync, SweepStaleTempsAsync } = require('./durable-write');
 const { FindRelatedOpenReminders, BuildRelatedFootnote } = require('./connection-surfacing');
 const GitHubCommentRelay = require('./github-comment-relay');
 const SlackFormatUtils = require('./slack-format-utils');
@@ -2992,14 +2992,20 @@ class RemindersModule {
 
   /**
    * Append one false-positive training example to the workspace JSONL file.
-   * Uses append so each write is atomic and a partial write cannot corrupt earlier entries.
+   *
+   * Appending confines any torn write to the final record instead of damaging earlier entries, and
+   * the fsync (GH-12) means an acknowledged example is on disk before this resolves. Both matter
+   * here: an example is unreconstructable user feedback (someone explicitly trashed a reminder),
+   * and `#RunWeeklyTrashedExamplesReportAsync` advances a durable cursor past it — so a lost or
+   * torn line is skipped forever rather than retried. The ~5.7 ms fsync is irrelevant at this
+   * call rate (a handful of trash reactions per day).
    * @param {Object} ArgExample Structured example object from RemindersReactionHandler.
    * @returns {Promise<void>}
    */
   async #SaveTrashedExampleAsync(ArgExample) {
     if(!this.#TrashedExamplesFilePath) return;
     try {
-      await fs.appendFile(this.#TrashedExamplesFilePath, JSON.stringify(ArgExample) + '\n', 'utf8');
+      await AppendFileDurableAsync(this.#TrashedExamplesFilePath, JSON.stringify(ArgExample) + '\n');
     } catch(error) {
       this.#SlackApp.Logger.warn('trashed-example: failed to append to examples file (non-fatal):', error);
     }
