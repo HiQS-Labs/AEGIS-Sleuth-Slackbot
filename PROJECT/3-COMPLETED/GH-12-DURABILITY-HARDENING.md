@@ -657,9 +657,9 @@ Three things in that table are worth reading carefully rather than skimming as a
 **Two harness faults were caught during this phase, in opposite directions.** The append control
 first came back clean 100/100 and the harness correctly refused to certify its own clean durable
 run; the fix was a 25× larger batch (an append needs a *bigger* payload than a whole-file write to
-tear — see Lesson 6). Then `durable-append` reported **35/100 corrupt**, which would have implicated
+tear — see Lesson 7). Then `durable-append` reported **35/100 corrupt**, which would have implicated
 the shipped helper — and was an artifact of letting the log accumulate across iterations, so a torn
-tail became an interior line. Both are written up in Lessons 1 and 7. Neither resulted in a source
+tail became an interior line. Both are written up in Lessons 1 and 8. Neither resulted in a source
 change, because in both cases the instrument was at fault.
 
 ### QA gate — Phase 6
@@ -674,8 +674,32 @@ change, because in both cases the instrument was at fault.
       and `HONEST.md` now records that `SIGKILL` cannot demonstrate power-loss durability at all
 - [x] "Not load-tested" claim left intact — verbatim in `README.md`, and named in `HONEST.md` as
       part of what remains on the roadmap
-- [x] `## Lessons Learned (For Future Agents)` appended (10 sections) before this doc moves to
+- [x] `## Lessons Learned (For Future Agents)` appended (11 sections) before this doc moves to
       `3-COMPLETED`
+
+### Phase 6 QA dispositions (agy, `relay-system/2026-08-04/gh12-p6-final-qa.md`) — **APPROVED**
+
+Agy passed **all 7 DoD items** with citations, including the two the verdict was gated on:
+
+- **DoD 3b** — independently confirmed the `durable-append` 35/100 "corrupt" was the accumulation
+  artifact, not a helper defect (cited `run.js:145`, the interior-line check). This was the item
+  that mattered: had it been real, the shipped helper would have been damaging already-written
+  records.
+- **DoD 2** — verified all 8 call sites itself and agreed converting to async would break them,
+  **reversing its own Phase 5 blocker**.
+- **DoD 1** — agreed the `router-shadow-store` split was right: rename rather than `fsync`, given
+  the hot-path cost.
+
+The round-1 verdict was still `FAIL`, on two **pre-existing** defects its file sweep found. GH-268
+counts those in scope, and they were worth the round:
+
+| Finding | Disposition |
+|---|---|
+| **[Should]** `...ArgRecord` spread last, so a record's own `workspace` key overwrote the authoritative one | **Implemented, and re-graded upward.** Agy called it a `[Should]`; it is a data-integrity defect. `ShadowFilePath` derives the path from `ArgWorkspace` while the *label* came from the spread, so a record could land in one workspace's corpus labelled as another's — undetectable to the offline replayer, since both values look valid. Proven before fixing: `{ workspace: 'evil-corp' }` appended to `acme` produced a line in `acme_router-shadow.jsonl` reading `workspace=evil-corp`; now reads `acme`. |
+| **[Nit]** `fs.mkdir` on every append | **Implemented.** Now mirrors `event-store.js`'s memoized `EnsureRootDirAsync`, including reset-on-failure so a transient error retries rather than caching a rejected promise. |
+| **[Blocker] — found by me, not in the review** | Following the two above surfaced the payload-mutation defect fixed in `event-store.js` in Phase 4, still live in its twin: `JSON.stringify` ran inside the write chain, and the spread is a *shallow* copy, so a nested value shared with the caller was captured at chain-execution time. Proven: mutating `record.payload.value` right after `append()` returned wrote `MUTATED-AFTER-APPEND`; now writes `ORIGINAL`. See Lesson 5 — this is the cost of scoping a fix to a file instead of a pattern. |
+
+Round 3 verdict: **Approved**, all three verified with citations. Commit `76a83c7`.
 
 ---
 
@@ -732,7 +756,7 @@ loss into *routine* corruption under ordinary concurrency. Unique per-write temp
 
 ### 3. Names and docstrings drift into promises the code does not keep
 
-Four instances, all caught by review or by writing a test that tried to falsify the claim — **none**
+Five instances, all caught by review or by writing a test that tried to falsify the claim — **none**
 caught by the pre-existing suite:
 
 - `SweepStaleTempsAsync` documented "Never throws" and had **two** live throw paths.
@@ -740,6 +764,11 @@ caught by the pre-existing suite:
 - The trashed-examples docstring claimed "append… is atomic and a partial write cannot corrupt
   earlier entries" — half right, and the confident half was the wrong half.
 - `durable-write.js` shipped two aspirational contracts of its own.
+- `router-shadow-store.js`'s `append` docstring said it "Stamps `ts` and `workspace`". It stamped
+  them *first* and then spread the caller's record *over* them, so it stamped nothing whenever the
+  caller supplied either key — and since the file path derives from the workspace argument while
+  the label came from the spread, a record could land in one workspace's corpus labelled as
+  another's. The docstring described the intent; the code did the opposite.
 
 **Do this:** when a comment states a guarantee ("never throws", "atomic", "durable"), treat it as an
 unproven assertion and write the test that tries to break it. A guarantee nobody has tried to
@@ -759,7 +788,25 @@ argued for a complex batching scheme; the absolute figure showed there was nothi
 **Do this:** report both the ratio and the absolute. One of them is almost always doing the
 misleading.
 
-### 5. Re-derive the work list from the code, never from your own plan
+### 5. Fix the pattern, not the file — check the twin module
+
+Phase 4 found and fixed a payload-mutation bug in `event-store.js`: it serialized inside the write
+chain, and because the copy was shallow, a nested value the caller later mutated was captured as of
+chain-execution time rather than call time. I scoped that fix to the file the phase was about.
+
+`router-shadow-store.js` is that module's deliberate twin — its own header says it "Mirrors
+src/event-store.js on purpose" — and it carried the identical defect for two more phases, until a
+reviewer's sweep of an unrelated finding put me back in the file. It also turned out to be missing
+the `mkdir` memoization Phase 4 added to the twin, for exactly the same reason.
+
+A bug found in one module is evidence about a *class* of code, not about one file. The moment a fix
+lands, the question is "what else is shaped like this?" — and when a module's own docstring names
+its twin, the search is already done for you.
+
+**Do this:** after fixing a defect, grep for the pattern, not the symbol. Check anything the file
+claims to mirror.
+
+### 6. Re-derive the work list from the code, never from your own plan
 
 Phase 5's target list came from a table written during Phase 0 discovery. Re-scanning `src/` before
 starting found it had drifted and was **missing three files** — two of which had user-visible
@@ -771,7 +818,7 @@ these were `appendFile`.
 (`writeFile|appendFile|writeFileSync|createWriteStream`), because you will search for the shape of
 the bug you already know about.
 
-### 6. Empirical results are often counter-intuitive — let them retune the experiment
+### 7. Empirical results are often counter-intuitive — let them retune the experiment
 
 Reproducing damage on the **append** path required a payload **25× larger** than the whole-file path
 (50k records vs 2k), which is backwards from the obvious expectation. The reason is mechanical: a
@@ -784,7 +831,7 @@ syscalls. Push further (200k records) and damage vanishes again, because kills s
 **Do this:** when a control comes back clean, the interesting question is *why*, and the answer is
 often a property of the system worth documenting. Do not just crank the knob until it goes red.
 
-### 7. A failing gate is a hypothesis, not a verdict — suspect the instrument too
+### 8. A failing gate is a hypothesis, not a verdict — suspect the instrument too
 
 Minutes after the clean-control failure in lesson 1, the same append pair swung the other way:
 `durable-append` reported **35/100 corrupt**, i.e. damage to already-written records — which would
@@ -806,7 +853,7 @@ and in both cases the instrument was the thing at fault.
 understand before acting on it. If the broken and fixed paths fail similarly, you are measuring your
 harness.
 
-### 8. Scope claims to the experiment that was actually run
+### 9. Scope claims to the experiment that was actually run
 
 `SIGKILL` does not discard the OS page cache — the kernel still owns the dirty pages. So this work
 proves **crash atomicity** (a reader never observes a torn store) and does **not** prove survival of
@@ -817,7 +864,7 @@ left exactly as it was, because nothing here touched it.
 
 **Do this:** write down what your test *cannot* see, in the same place you record what it proved.
 
-### 9. Flag modified tests; never let a green suite hide one
+### 10. Flag modified tests; never let a green suite hide one
 
 Two existing tests were changed. Both are called out explicitly rather than folded into a "suite
 still passes" line — `client-mapping.test.js` had an incomplete `fs` mock that made the durable sync
@@ -828,7 +875,7 @@ rename lands on the real overlay path). The Phase 5 gate is recorded as `[~] QUA
 before a reviewer has to find it. If the change weakened the test, that is a finding against you; if
 it strengthened it, say why.
 
-### 10. Process notes that cost real time
+### 11. Process notes that cost real time
 
 - **Do not edit files while a relay/review turn is in flight.** A containment sweep reverted
   `src/durable-write.js` as an off-allowlist edit and it had to be rewritten from context.
