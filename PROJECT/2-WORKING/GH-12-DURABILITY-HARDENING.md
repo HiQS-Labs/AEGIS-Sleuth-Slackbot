@@ -351,12 +351,42 @@ Same two changes in `src/completion-store.js`: adopt the helper in `#PersistAsyn
 `#WriteChain` stays exactly as is — it is correct for what it does, and the helper composes inside
 it without touching the chaining logic.
 
+### Phase 3 results
+
+**Shipped:** `src/completion-store.js` (durable write, quarantine guard, load-time sweep),
+`tests/completion-store-durability.test.js` (10 tests).
+
+`LoadAsync` was restructured to separate two failures the original conflated:
+
+- **Read failure** (`ENOENT`, `EACCES`, …) → degrade to empty, **do not quarantine**. Bytes we could
+  not read are not bytes we know to be bad, and renaming a file we merely failed to open would
+  destroy a recoverable store.
+- **Parse/shape failure** → bytes exist and cannot be trusted → quarantine.
+
+The `#PruneExpired` → persist step still runs on the success path. On the quarantine path
+`#Records` is empty, so the prune is a no-op and no empty file is written back over the freed path;
+the next real `Record()` creates a fresh one.
+
+`#WriteChain` is untouched — it was already correct for ordering. The durable write adds the
+atomicity that serialization alone never provided.
+
 ### QA gate — Phase 3
-- [ ] Corrupt history file quarantined, not silently zeroed
-- [ ] `#WriteChain` serialization still holds — concurrent `Record()` calls cannot interleave
-- [ ] The chain still cannot be poisoned by a failed write (`#PersistAsync` still never rejects)
-- [ ] `FlushAsync()` still waits for the real disk write, now including the `fsync`
-- [ ] `tests/completion-store.test.js` passes unchanged; `npm test` green
+- [x] Corrupt history file quarantined, not silently zeroed — bytes asserted byte-for-byte
+- [x] **A later write cannot destroy the quarantined bytes** — the exact GH-12 cascade, asserted
+      end to end: corrupt load → `Record()` → the new file has 1 record *and* the original bytes are
+      still on disk
+- [x] Valid JSON of the wrong shape quarantined; an empty array is **not** (valid state)
+- [x] `ENOENT` first run: no quarantine, no error log, saving still works
+- [x] An unreadable (`EACCES`) file is **not** quarantined
+- [x] `#WriteChain` serialization still holds — 20 concurrent `Record()` calls, all 20 persisted
+- [x] The chain still cannot be poisoned by a failed write, and `#PersistAsync` still never rejects
+      (asserted with `rename` forced to fail, then a subsequent write succeeding)
+- [x] `FlushAsync()` still waits for the real disk write including the `fsync` (fire-and-forget
+      `Record()` then flush, as the FSM hook does)
+- [x] Stale temps swept on load, store untouched
+- [x] `tests/completion-store.test.js` passes **unchanged**; `npm test` green (1507 Jest + 30
+      `node --test`); `npm run build` clean
+- [x] Zero plain `fs.writeFile` calls remain in `completion-store.js`
 
 ---
 
