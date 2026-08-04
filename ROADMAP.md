@@ -31,6 +31,18 @@ goal: >
 
 ### In progress
 
+- **Durability hardening (GH-12)** (2026-08-04) — the authoritative JSON stores write via plain
+  `fs.writeFile` (truncate-then-rewrite, no temp file, no atomic rename, **zero `fsync` call sites in
+  `src/`**). A hard kill mid-write leaves unparseable JSON; every loader degrades that to "start
+  empty"; and `#DataLoaded` **does not guard saves**, so the next ordinary write persists the empty
+  set over the survivor data — silent, permanent loss. Phase 0 audit re-ranked the tiers against
+  `HONEST.md:128`: the **reminder queue** (`reminders-module.js:2846`, 10 call sites) is the biggest
+  blast radius and isn't named there, while the **event ledger is the safest** (append-only + already
+  torn-line-tolerant). Fix: one shared durable-write helper (temp → `fsync` → rename → `fsync` dir)
+  adopted in blast-radius order, plus a quarantine guard so a corrupt load is never overwritten.
+  6 phases, per-phase QA gates. Issue [#12](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/12).
+  → [PROJECT/2-WORKING/GH-12-DURABILITY-HARDENING.md](PROJECT/2-WORKING/GH-12-DURABILITY-HARDENING.md)
+
 - **DM support gates (GH-412)** — a plain 1:1 DM to Sleuth today silently no-ops: reminders gates on
   a per-channel enabled-Set that defaults empty, and chat's hands-free mode requires `thread_ts` (a
   DM's first message is always top-level). Root cause traced to a plumbing gap — `MessageEventInfo`
