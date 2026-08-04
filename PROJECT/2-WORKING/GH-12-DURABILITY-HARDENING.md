@@ -525,12 +525,57 @@ temp+rename into it so there is exactly one durable-write path in the codebase:
 `client-mapping.js` is the one that needs a decision rather than a mechanical swap; handle it last
 and note the choice here.
 
+### Phase 5 results
+
+**13 state writes hardened** across 12 files. The list was re-derived by scanning `src/` rather than
+trusting this doc's original table, which had drifted (it missed `code-task-relay-module.js`,
+`snapshot-relay-module.js`, and `show-me-projects-command.js`).
+
+| File | What a truncated file would cost |
+|---|---|
+| `workspaces.js:464` | workspace registry |
+| `settings-module.js:88` | per-workspace settings |
+| `reminders-channel-settings.js:81` | enabled channels |
+| `channel-model-settings.js:115` | per-channel model choice |
+| `learned-convention-suppression-store.js:188` | suppression state |
+| `stats-module.js:203` | usage stats |
+| `chat-module.js:2332` | bug-report entries |
+| `chat-module.js:2538` | thread context memory |
+| `code-task-relay-module.js:372` | seen-set → **re-processes every previously handled file** |
+| `snapshot-relay-module.js:363` | seen-set → **re-relays every previously handled snapshot** |
+| `lists-module.js:2022` | lists cache (also folded the ad-hoc temp+rename, below) |
+| `client-mapping.js:362` | client overlay — **sync** |
+| `show-me-projects-command.js:60` | project map — **sync** |
+
+**`client-mapping.js` decision (deferred here since Phase 1):** kept **synchronous**, using
+`WriteFileDurableSync`. `WriteClientOverlaySync` is `...Sync` by name and contract and its callers
+are synchronous; converting it would ripple an async refactor through them for no durability gain.
+This is exactly the call site the agy Phase 1 `[Should]` predicted would need the sync variant.
+`show-me-projects-command.js` got the same treatment for the same reason.
+
+**The ad-hoc temp+rename is gone.** `lists-module.js` held the codebase's only one, and it had three
+defects the shared helper fixes: no `fsync`, a fixed `.tmp` name that two concurrent saves would
+collide on, and a leaked temp on failure.
+
+**Left alone deliberately** — 8 remaining `writeFile`/`writeFileSync` calls, none of them state:
+4 disk **health probes** (`writeFile(TestPath, 'test')` in `app.js`, `diagnostics.js`,
+`reminders-module.js`, `stats-module.js`), 2 `os.tmpdir()` **upload temps** unlinked after use
+(`snapshot-relay-module.js`, `show-rebalance-reminders-command.js`), the helper's own fd write, and
+`app.js:489`'s nodemon restart trigger (a dev-only signal file whose mtime is the payload).
+
 ### QA gate — Phase 5
-- [ ] Exactly one durable-write path remains in `src/` — no ad-hoc temp+rename survives
-- [ ] `rg 'fs\.writeFile\(' src/` returns only diagnostics/health-probe writes, not state writes
-- [ ] `client-mapping.js`'s sync-vs-async decision recorded in this doc with its reasoning
-- [ ] Full `npm test` + `npm run build` green
-- [ ] No behavior change on any happy path — this phase is mechanical by design
+- [x] Exactly one durable-write path remains in `src/` — **no ad-hoc temp+rename survives**
+      (`rg 'fs\.rename\('` returns only the helper itself and the two quarantine renames)
+- [x] `rg 'fs\.writeFile\('` returns only health probes, upload temps, and the helper — no state
+- [x] `client-mapping.js`'s sync-vs-async decision recorded above with its reasoning
+- [x] Full `npm test` green (1513 Jest + 33 `node --test`), `npm run build` clean,
+      `npm run validate:fsm` clean
+- [x] Crash-injection re-run after the sweep: **corrupt=0/30**
+- [~] **No behaviour change on any happy path — QUALIFIED.** One existing test needed updating:
+      `client-mapping.test.js` mocks `fs` with only `readFileSync`/`mkdirSync`/`writeFileSync`, so
+      the durable sync sequence could not run against it. The mock was completed and the assertion
+      **strengthened** — it now proves the atomic rename lands on the real overlay path, which is a
+      better test than the original write-path check. Flagged rather than counted as unchanged.
 
 ---
 

@@ -13,6 +13,7 @@
 
 const fs = require('fs').promises;
 const path = require('path');
+const { WriteFileDurableAsync } = require('./durable-write');
 
 const Synthesis = require('./code-task-synthesis');
 
@@ -369,7 +370,8 @@ class CodeTaskRelayModule {
   async #SaveSeenAsync() {
     try {
       await fs.mkdir(path.dirname(this.#Config.seenPath), { recursive: true });
-      await fs.writeFile(this.#Config.seenPath, JSON.stringify([...this.#SeenFilenames], null, 2), 'utf8');
+      // Crash-atomic (GH-12): a truncated seen-set re-processes every previously handled file.
+      await WriteFileDurableAsync(this.#Config.seenPath, JSON.stringify([...this.#SeenFilenames], null, 2));
     } catch(error) {
       this.#Logger.warn('code-task-relay: failed to save seen-set (non-fatal):', error.message ?? error);
     }

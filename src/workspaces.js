@@ -2,6 +2,7 @@
 // import necessary modules.
 const path = require('path');
 const fs = require('fs').promises;
+const { WriteFileDurableAsync } = require('./durable-write');
 
 // define the suffix used for workspace file names. This helps us identify workspace files in the workspaces
 // directory, making it easier to ignore other files that may be present.
@@ -461,7 +462,7 @@ class Workspaces {
     const FileContents = JSON.stringify(NormalizedWorkspaceInfo, null, 2);
 
     // write the JSON string to the file.
-    await fs.writeFile(FilePath, FileContents, 'utf8');
+    await WriteFileDurableAsync(FilePath, FileContents); // crash-atomic (GH-12)
   }
 
   /**

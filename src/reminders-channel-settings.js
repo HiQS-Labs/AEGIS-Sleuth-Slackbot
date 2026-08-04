@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs').promises;
+const { WriteFileDurableAsync } = require('./durable-write');
 
 /**
  * Manages per-channel reminder enable/disable settings.
@@ -78,7 +79,7 @@ class RemindersChannelSettings {
 
       // convert enabled channels to JSON string and save.
       const EnabledChannelsJSON = JSON.stringify(Array.from(this.#EnabledChannels), null, 2);
-      await fs.writeFile(this.#EnabledChannelsFilePath, EnabledChannelsJSON, 'utf8');
+      await WriteFileDurableAsync(this.#EnabledChannelsFilePath, EnabledChannelsJSON); // crash-atomic (GH-12)
       this.#SlackApp.Logger.info("saved", this.#EnabledChannels.size, "enabled channels to file.");
     } catch(error) {
       // log and propagate the error if saving fails.

@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs').promises;
+const { WriteFileDurableAsync } = require('./durable-write');
 
 /**
  * GH-366 Phase 2.2 — suppression + rate-limit store for learned-convention proposals.
@@ -185,7 +186,7 @@ class LearnedConventionSuppressionStore {
   async #PersistAsync() {
     try {
       const Payload = { declines: this.#Declines, surfaced: this.#Surfaced };
-      await fs.writeFile(this.#FilePath, JSON.stringify(Payload, null, 2), 'utf8');
+      await WriteFileDurableAsync(this.#FilePath, JSON.stringify(Payload, null, 2)); // crash-atomic (GH-12)
     } catch(error) {
       this.#SlackApp.Logger.error('learned-convention-suppression-store: failed to persist state:', error);
     }

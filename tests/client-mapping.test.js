@@ -425,14 +425,24 @@ describe('WriteClientOverlaySync (#396)', () => {
     jest.resetModules();
   });
 
+  // Since GH-12 Phase 5 this goes through WriteFileDurableSync (temp -> fsync -> rename -> fsync
+  // dir) rather than a bare writeFileSync, so the fs mock has to provide the whole sync sequence.
+  // The rename assertion below is stronger than the original write-path one: it proves the atomic
+  // swap lands on the real overlay path, which is the property that actually matters.
   test('writes the overlay JSON to the per-workspace overlay path', () => {
     jest.isolateModules(() => {
       const WriteSpy = jest.fn();
       const MkdirSpy = jest.fn();
+      const RenameSpy = jest.fn();
       jest.doMock('fs', () => ({
         readFileSync: jest.fn(() => JSON.stringify({ clients: [] })),
         mkdirSync: MkdirSpy,
         writeFileSync: WriteSpy,
+        openSync: jest.fn(() => 42),
+        fsyncSync: jest.fn(),
+        closeSync: jest.fn(),
+        renameSync: RenameSpy,
+        unlinkSync: jest.fn(),
       }));
 
       const { WriteClientOverlaySync: Write } = require('../src/client-mapping');
@@ -441,6 +451,9 @@ describe('WriteClientOverlaySync (#396)', () => {
       expect(MkdirSpy).toHaveBeenCalledWith(expect.stringContaining('client-mapping-overlay'), { recursive: true });
       expect(String(WrittenPath)).toContain('acme.json');
       expect(WriteSpy.mock.calls[0][1]).toContain('"ClientID": "x"');
+      // Written to a temp, then atomically renamed onto the real overlay path.
+      expect(String(RenameSpy.mock.calls[0][0])).toContain('.tmp');
+      expect(String(RenameSpy.mock.calls[0][1])).toContain('acme.json');
     });
   });
 

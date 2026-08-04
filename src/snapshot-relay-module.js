@@ -3,6 +3,7 @@
 // import required modules.
 const fs = require('fs').promises;
 const path = require('path');
+const { WriteFileDurableAsync } = require('./durable-write');
 const os = require('os');
 
 /**
@@ -360,7 +361,8 @@ class SnapshotRelayModule {
   async #SaveSeenAsync() {
     try {
       await fs.mkdir(path.dirname(this.#Config.seenPath), { recursive: true });
-      await fs.writeFile(this.#Config.seenPath, JSON.stringify([...this.#SeenFilenames], null, 2), 'utf8');
+      // Crash-atomic (GH-12): a truncated seen-set re-relays every previously handled snapshot.
+      await WriteFileDurableAsync(this.#Config.seenPath, JSON.stringify([...this.#SeenFilenames], null, 2));
     } catch(error) {
       this.#Logger.warn('snapshot-relay: failed to save seen-set (non-fatal):', error.message ?? error);
     }

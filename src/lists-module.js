@@ -1,6 +1,7 @@
 // import required modules.
 const fs = require('fs').promises;
 const path = require('path');
+const { WriteFileDurableAsync } = require('./durable-write');
 const workspaces = require('./workspaces');
 const SlackFormatUtils = require('./slack-format-utils');
 const ListContext = require('./list-context');
@@ -2018,9 +2019,10 @@ class ListsModule {
         userLists: UserLists
       };
 
-      const TempPath = `${this.#CacheFilePath}.tmp`;
-      await fs.writeFile(TempPath, JSON.stringify(CacheData, null, 2));
-      await fs.rename(TempPath, this.#CacheFilePath);
+      // Folded into the shared helper (GH-12 Phase 5). This was the codebase's only ad-hoc
+      // temp+rename: it had no fsync, used a fixed `.tmp` name that two concurrent saves would
+      // collide on, and leaked that temp on failure. The helper fixes all three.
+      await WriteFileDurableAsync(this.#CacheFilePath, JSON.stringify(CacheData, null, 2), { Logger: this.#SlackApp.Logger });
     } catch(error) {
       this.#SlackApp.Logger.error('Error saving lists cache:', error);
     }
