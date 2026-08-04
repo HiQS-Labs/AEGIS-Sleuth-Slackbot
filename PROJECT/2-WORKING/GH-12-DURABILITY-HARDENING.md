@@ -299,6 +299,26 @@ this codebase for exactly this reason — and awaiting it in the tests' `ReadPer
 `StopAsync` now drains it too, closing a real gap: a save queued during shutdown could previously be
 dropped.
 
+**Post-review revision (agy Phase 2 code QA).** Agy passed DoD 1-6 with citations, and specifically
+resolved the open question above: production reads the reminders file **only on boot** and uses
+in-memory state thereafter ([`reminders-module.js:2770`](../../src/reminders-module.js#L2770)), so
+the durable write introduces **no window where production observes stale disk state** — awaiting the
+flush is strictly a test requirement, not a papered-over regression.
+
+Its one `[Should]` found two further truncatable writes in the same file, both already scheduled for
+Phase 5: the reminder counter and the false-positive report cursor. Pulled forward into this phase
+rather than deferred — a file that is hardened *except* for two writes is harder to reason about
+than one that is finished, and each was a one-line change. Neither is cosmetic:
+
+- **Reminder counter** — a truncated file fails to parse on boot and resets the daily-digest cursor,
+  re-sending a digest that already went out.
+- **False-positive cursor** — a truncated file resets `lineCount` to 0, re-reporting every
+  historical example in the next weekly digest.
+
+`reminders-module.js` now contains exactly one `fs.writeFile`: the disk **health probe** at
+[line 973](../../src/reminders-module.js#L973), which writes a literal `'test'` and is correctly
+not a state write.
+
 ### QA gate — Phase 2
 - [x] Corrupt reminders file → quarantined to `.corrupt-<ts>`, original bytes recoverable
       *(asserted byte-for-byte against the pre-corruption content)*
@@ -386,7 +406,8 @@ temp+rename into it so there is exactly one durable-write path in the codebase:
 |---|---|---|
 | [`workspaces.js`](../../src/workspaces.js#L464) | 464 | workspace registry |
 | [`settings-module.js`](../../src/settings-module.js#L88) | 88 | per-workspace settings |
-| [`reminders-module.js`](../../src/reminders-module.js#L3348) | 3348 | reminder counter |
+| ~~`reminders-module.js`~~ | ~~3348~~ | ~~reminder counter~~ — **done in Phase 2** (agy review: leaving truncatable writes in a file otherwise hardened is incoherent) |
+| ~~`reminders-module.js`~~ | ~~2155~~ | ~~false-positive report cursor~~ — **done in Phase 2**, same reason |
 | [`reminders-channel-settings.js`](../../src/reminders-channel-settings.js#L81) | 81 | enabled channels |
 | [`channel-model-settings.js`](../../src/channel-model-settings.js#L115) | 115 | per-channel model |
 | [`admin-auth.js`](../../src/admin-auth.js#L388) | 388 | admin config |

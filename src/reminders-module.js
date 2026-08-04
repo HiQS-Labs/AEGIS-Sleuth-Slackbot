@@ -2176,10 +2176,12 @@ class RemindersModule {
     this.#SlackApp.Logger.info(`weekly-false-positive-report: posted summary of ${Count} example(s).`);
 
     // Advance the cursor only after a successful post so a failed run retries next week.
-    await fs.writeFile(
+    // Crash-atomic (GH-12): a truncated cursor would fail to parse and reset lineCount to 0,
+    // re-reporting every historical example in next week's digest.
+    await WriteFileDurableAsync(
       this.#TrashedExamplesCursorFilePath,
       JSON.stringify({ lineCount: AllLines.length }),
-      'utf8'
+      { Logger: this.#SlackApp.Logger }
     );
   }
 
@@ -3470,7 +3472,9 @@ class RemindersModule {
         LastDailyDigestDate: this.#LastDailyDigestDate,
       });
 
-      await fs.writeFile(this.#ReminderCounterFilePath, ReminderCounterData, 'utf8');
+      // Crash-atomic (GH-12): a truncated counter file would fail to parse on the next boot and
+      // reset the daily-digest cursor, re-sending a digest that already went out.
+      await WriteFileDurableAsync(this.#ReminderCounterFilePath, ReminderCounterData, { Logger: this.#SlackApp.Logger });
       this.#SlackApp.Logger.info("saved reminder counter to file:", this.#ReminderCounterFilePath);
     } catch(error) {
       this.#SlackApp.Logger.error("failed to save reminder counter to file:", error);
