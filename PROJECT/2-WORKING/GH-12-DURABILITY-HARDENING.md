@@ -36,7 +36,8 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **Phase 0 (discovery) complete**, and **plan QA'd by agy** (relay round 1, `relay-system/2026-08-04/gh12-durability-plan-qa.md`). Agy independently re-verified all five Phase 0 claims with citations and confirmed the tier re-ranking. It returned **Changes requested** with 1 Blocker + 2 Shoulds, all three now folded in below. Issue [#12](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/12) filed; branch `claude/GH-12-durability-hardening` cut. | **Phase 1** — `src/durable-write.js` (unique temp names + sync variant) **and** the crash-injection harness, which must first go red on unmodified `main`. |
+| **Phases 0-2 complete.** Phase 1 (helper + crash harness) and Phase 2 (reminder queue) both agy-QA'd; Phase 1 **Approved**. Empirical results so far: hard-kill corruption reproduced at **6/40** on the old path and **0/40** on the new one; the lost-update race reproduced at **3/8** with serialization bypassed and **0/8** with it. | **Phase 3** — completion store: adopt the helper, quarantine guard, load-time sweep. |
+| *(historical)* **Phase 0 (discovery) complete**, and **plan QA'd by agy** (relay round 1, `relay-system/2026-08-04/gh12-durability-plan-qa.md`). Agy independently re-verified all five Phase 0 claims with citations and confirmed the tier re-ranking. It returned **Changes requested** with 1 Blocker + 2 Shoulds, all three now folded in below. Issue [#12](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/12) filed; branch `claude/GH-12-durability-hardening` cut. | **Phase 1** — `src/durable-write.js` (unique temp names + sync variant) **and** the crash-injection harness, which must first go red on unmodified `main`. |
 
 ### Plan-review dispositions (agy round 1)
 
@@ -271,17 +272,53 @@ Highest value. **Three** changes, all in `src/reminders-module.js`:
    Blocking saves outright is the wrong fix — it would brick the product on a corrupt file.
    Quarantine keeps the system running *and* keeps the data.
 
+### Phase 2 results
+
+**Shipped:** `src/reminders-module.js` (durable write + `#SaveChain` serialization + quarantine
+guard + load-time temp sweep + `FlushRemindersAsync`), `tests/reminders-durability.test.js` (6 tests).
+
+**The lost-update race is real, and the test proves it.** Rather than trust a passing suite, the
+concurrency gate was validated by temporarily bypassing `#SaveChain` and re-running: with the chain
+removed, **3 of 8 concurrently-completed reminders survived on disk** (`rem-5`, `rem-6`, `rem-7`) —
+a stale snapshot renamed on top of newer state, leaving a perfectly valid JSON file. With the chain
+restored, 0 lost. That is the failure agy called "strictly necessary" to prevent, reproduced.
+
+Both the snapshot and the write happen *inside* the chain. Snapshotting outside it would reintroduce
+the same race, since a caller could serialize the queue, wait its turn, then persist a view another
+save had already superseded.
+
+**Regression found and fixed during this phase.** Two existing fake-timer tests in
+`reminders-integration.test.js` began failing. Diagnosed by isolation rather than assumption:
+chain + plain `fs.writeFile` → 63/63 pass; chain + `WriteFileDurableAsync` → 2 fail. So the chain was
+not the cause — a durable write is ~8 syscalls where the old one was 1, and no longer completes
+inside a single `advanceTimersByTimeAsync` flush. Those tests assert on *persisted* state, so they
+were relying on an assumption that a save lands within a timer flush.
+
+Fixed by adding `FlushRemindersAsync()` — mirroring `CompletionStore.FlushAsync`, which exists in
+this codebase for exactly this reason — and awaiting it in the tests' `ReadPersistedAsync` helper.
+`StopAsync` now drains it too, closing a real gap: a save queued during shutdown could previously be
+dropped.
+
 ### QA gate — Phase 2
-- [ ] Corrupt reminders file → quarantined to `.corrupt-<ts>`, original bytes recoverable
-- [ ] First-run (`ENOENT`) still saves normally — no regression for fresh installs
-- [ ] **Concurrent saves do not lose an update** — interleave two saves, assert the later write wins
-      and neither is dropped (the gap unique temp names alone leave open)
-- [ ] Kill-mid-write leaves either the complete old queue or the complete new one, never a truncation
-      — **verified with the Phase 1 crash-injection harness**, not by inspection
-- [ ] All 10 `#SaveRemindersAsync` call sites still behave identically on the happy path, including
-      the non-awaited one at line 417
-- [ ] Existing `tests/reminders-*.test.js` pass unchanged; `npm test` green
-- [ ] `npm run validate:fsm` still clean (the FSM chokepoint is untouched)
+- [x] Corrupt reminders file → quarantined to `.corrupt-<ts>`, original bytes recoverable
+      *(asserted byte-for-byte against the pre-corruption content)*
+- [x] Valid JSON of the wrong shape quarantined too; **an empty array is NOT** — a legitimately
+      empty queue is a valid state, and quarantining it would churn a file on every idle boot
+- [x] First-run (`ENOENT`) still saves normally — no regression for fresh installs
+- [x] **Concurrent saves do not lose an update** — and the gate was proven capable of failing
+      (3/8 lost with the chain bypassed)
+- [x] Kill-mid-write leaves either the complete old queue or the complete new one — crash-injection
+      harness against a reminder-shaped payload: **corrupt=0/30**
+- [x] All `#SaveRemindersAsync` call sites still behave identically on the happy path, including the
+      non-awaited `GitHubCommentRelay` callback
+- [x] Stale temps stranded by an earlier hard kill are swept on load, store untouched
+- [x] `npm run validate:fsm` clean (the FSM chokepoint is untouched)
+- [x] `npm test` green — 1497 Jest + 30 `node --test`; `npm run build` clean
+- [~] **Existing tests pass unchanged — QUALIFIED, not met.** `reminders-integration.test.js` was
+      modified: `ReadPersistedAsync` now takes the module and awaits `FlushRemindersAsync()` first
+      (3 call sites). This is a genuine contract change, not a workaround to make a red suite green —
+      a durable write cannot be assumed to land within a timer flush — but the original gate said
+      *unchanged*, and it is not. Flagged rather than quietly re-scoped.
 
 ---
 

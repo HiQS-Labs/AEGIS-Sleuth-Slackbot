@@ -17,6 +17,7 @@ const {
 const { ExtractGitHubUrls } = require('./github-url-utils');
 const { LoadClientMappingsSync, ResolveClientIdentity, GetClientDefaults, ResolveClientNameForReminder, ApplyClientPrefix } = require('./client-mapping');
 const { BuildWorkspaceSnapshot } = require('./workspace-snapshot');
+const { WriteFileDurableAsync, SweepStaleTempsAsync } = require('./durable-write');
 const { FindRelatedOpenReminders, BuildRelatedFootnote } = require('./connection-surfacing');
 const GitHubCommentRelay = require('./github-comment-relay');
 const SlackFormatUtils = require('./slack-format-utils');
@@ -338,6 +339,24 @@ class RemindersModule {
    * @type {string|null}
    */
   #DataLoadError = null;
+
+  /**
+   * Serializes reminder-queue writes so two concurrent saves cannot lose an update.
+   *
+   * Atomic rename (GH-12) makes each save all-or-nothing, but it does not ORDER saves. Without this
+   * chain: writer A snapshots #PendingRemindersQueue, writer B snapshots it, B renames, then A
+   * renames its now-stale snapshot on top — and B's change is silently gone, leaving a perfectly
+   * valid JSON file. #SaveRemindersAsync serializes the whole snapshot-then-write pair, so a save
+   * always serializes the queue as it stands after the previous save landed.
+   *
+   * This is reachable in normal operation, not just in theory: the save callback handed to
+   * GitHubCommentRelay in the constructor is invoked without being awaited, so a relay-driven save
+   * can overlap an in-flight one from any of the other call sites.
+   *
+   * Mirrors the #WriteChain idiom already proven in src/completion-store.js.
+   * @type {Promise<void>}
+   */
+  #SaveChain = Promise.resolve();
 
   /**
    * Lists module instance for Slack Lists integration.
@@ -1102,6 +1121,11 @@ class RemindersModule {
 
     // save the reminder counter state to disk.
     await this.#SaveReminderCounterAsync();
+
+    // The queue save above awaits the chain as it stood then, but the calls after it can queue
+    // another (and GitHubCommentRelay's callback saves without awaiting). Drain once more so a
+    // save queued during shutdown is not lost.
+    await this.FlushRemindersAsync();
 
     // completion history is written fire-and-forget from the FSM hook; flush any queued write so a
     // completion recorded just before this shutdown survives the restart/deploy.
@@ -2738,14 +2762,46 @@ class RemindersModule {
       // assume success until proven otherwise
       this.#DataLoadError = null;
 
+      // Clear temp files stranded beside the store by an earlier hard kill. SIGKILL cannot run
+      // cleanup, so without this they would accumulate for the life of the deployment.
+      await SweepStaleTempsAsync(this.#ReminderFilePath, { Logger: this.#SlackApp.Logger });
+
       // read the reminders file from disk.
       const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
 
       // parse the reminders file. We need a reviver function to convert ISO date strings back to Date objects
       // otherwise they will be treated as strings and later date-related comparisons will not work as expected.
-      const Parsed = JSON.parse(RemindersJSON, (ArgKey, ArgValue) => {
-        return (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue;
-      });
+      let Parsed;
+      try {
+        Parsed = JSON.parse(RemindersJSON, (ArgKey, ArgValue) => {
+          return (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue;
+        });
+      } catch(parseError) {
+        // Unparseable bytes on disk. Historically this fell through to "start with an empty list",
+        // and because nothing gates saves on #DataLoaded the next ordinary save then wrote []
+        // straight over the survivor data — silent, permanent loss (GH-12).
+        //
+        // Quarantine instead: move the bytes aside so they remain recoverable, and let the module
+        // continue with an empty queue. Refusing to save at all would brick the workspace; deleting
+        // would destroy the only copy. Renaming does neither.
+        await this.#QuarantineRemindersFileAsync(parseError);
+        this.#PendingRemindersQueue = [];
+        this.#DataLoaded = false;
+        this.#DataLoadError = `corrupt reminders file quarantined: ${parseError.message}`;
+        this.#BuildReminderIndexes();
+        return;
+      }
+
+      if(Parsed !== null && !Array.isArray(Parsed)) {
+        // Parsed cleanly but is not the array shape this store persists. Same reasoning as above.
+        const ShapeError = new Error(`reminders file contained ${typeof Parsed}, expected an array`);
+        await this.#QuarantineRemindersFileAsync(ShapeError);
+        this.#PendingRemindersQueue = [];
+        this.#DataLoaded = false;
+        this.#DataLoadError = `corrupt reminders file quarantined: ${ShapeError.message}`;
+        this.#BuildReminderIndexes();
+        return;
+      }
 
       if(Array.isArray(Parsed) && Parsed.length > 0) {
         // backwards compatibility: self-update reminders missing AssigneeID or OriginalChannelName
@@ -2840,10 +2896,77 @@ class RemindersModule {
   }
 
   /**
-   * Save the reminders to disk asynchronously.
+   * Wait for every save queued so far to reach disk.
+   *
+   * A durable write is roughly eight syscalls (open, write, fsync, close, rename, then the parent
+   * directory) where the old `fs.writeFile` was one, so "the save has probably landed by now" is no
+   * longer a safe assumption for any caller that needs to observe the file. Mirrors
+   * `CompletionStore.FlushAsync`, which exists for the same reason.
+   *
+   * Used on shutdown so a save queued just before a restart is not dropped, and by tests that
+   * assert on persisted state.
    * @returns {Promise<void>}
    */
-  async #SaveRemindersAsync() {
+  async FlushRemindersAsync() {
+    await this.#SaveChain.catch(() => {});
+  }
+
+  /**
+   * Move a corrupt reminders file aside so its bytes stay recoverable.
+   *
+   * Deliberately NOT called for a missing file: ENOENT is the ordinary first-run case, and a fresh
+   * install must still be able to save. Only bytes that exist but cannot be trusted are quarantined.
+   *
+   * Never throws. If the rename fails the caller still continues with an empty queue — but the
+   * error is logged loudly, because in that case the next save WILL overwrite the corrupt file and
+   * the original bytes are genuinely lost.
+   * @param {Error} ArgCause Parse or shape error that triggered the quarantine.
+   * @returns {Promise<string|null>} Quarantine path, or null when the rename failed.
+   */
+  async #QuarantineRemindersFileAsync(ArgCause) {
+    const Stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const QuarantinePath = `${this.#ReminderFilePath}.corrupt-${Stamp}`;
+    try {
+      await fs.rename(this.#ReminderFilePath, QuarantinePath);
+      this.#SlackApp.Logger.error(
+        `reminders file was unreadable (${ArgCause.message}) and has been quarantined to ${QuarantinePath}. ` +
+        'Starting with an empty queue; the original bytes are preserved for recovery.'
+      );
+      return QuarantinePath;
+    } catch(renameError) {
+      this.#SlackApp.Logger.error(
+        `reminders file was unreadable (${ArgCause.message}) and could NOT be quarantined:`, renameError,
+        '— the next save will overwrite it and the original bytes will be lost.'
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Save the reminders to disk asynchronously.
+   *
+   * Queues the save behind any in-flight one (#SaveChain) so concurrent callers cannot lose an
+   * update. Both the snapshot and the write happen inside the chain: snapshotting outside it would
+   * reintroduce the very race the chain exists to close, since a caller could serialize the queue,
+   * wait its turn, and then persist a view of the world that a save in between has already
+   * superseded.
+   *
+   * Callers keep the existing contract — the returned promise rejects on write failure — so the
+   * awaiting call sites still surface errors exactly as before.
+   * @returns {Promise<void>}
+   */
+  #SaveRemindersAsync() {
+    this.#SaveChain = this.#SaveChain
+      .catch(() => {})            // a failed save must not poison later ones
+      .then(() => this.#PersistRemindersAsync());
+    return this.#SaveChain;
+  }
+
+  /**
+   * Serialize and durably persist the reminder queue. Only ever called from inside #SaveChain.
+   * @returns {Promise<void>}
+   */
+  async #PersistRemindersAsync() {
     try {
       if(!this.#ReminderFilePath) {
         this.#SlackApp.Logger.warn("skipping reminder save because reminder file path is not initialized.");
@@ -2853,8 +2976,10 @@ class RemindersModule {
       // convert the reminders queue to a JSON string.
       const RemindersJSON = JSON.stringify(this.#PendingRemindersQueue, null, 2);
 
-      // write the JSON string to the reminders file.
-      await fs.writeFile(this.#ReminderFilePath, RemindersJSON, 'utf8');
+      // Crash-atomic write (GH-12): temp -> fsync -> rename -> fsync dir. A hard kill mid-write can
+      // no longer truncate this file, which previously degraded to an empty queue on the next boot
+      // and was then made permanent by the next ordinary save.
+      await WriteFileDurableAsync(this.#ReminderFilePath, RemindersJSON, { Logger: this.#SlackApp.Logger });
       this.#SlackApp.Logger.info("saved", this.#PendingRemindersQueue.length, "reminders to file.");
     } catch(error) {
       // TODO: should we just log the error without rethrowing since reminders are saved frequently?
