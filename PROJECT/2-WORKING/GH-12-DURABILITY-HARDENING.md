@@ -195,15 +195,43 @@ the reproduction rate in this doc.
 Building it here rather than in Phase 6 means Phases 2 and 3 get a real, repeatable gate at the
 moment they land, instead of a manual spot-check deferred to the end.
 
+### Phase 1 results
+
+**Shipped:** `src/durable-write.js`, `tests/durable-write.test.js` (17 tests),
+`tests/crash-injection/{run.js,crash-writer.js}`. No existing caller touched.
+
+**The durability hole is now empirically proven, not merely argued.** The harness `SIGKILL`s a child
+mid-write (untrappable, so no shutdown hook can mask it) and inspects the store:
+
+| Mode | Result |
+|---|---|
+| `unsafe` — today's `fs.writeFile` path | **corrupt=6 / 40** (15% of hard kills left an unparseable store) |
+| `durable` — `WriteFileDurableAsync` | **corrupt=0 / 40** (38 intact, 2 not-yet-written) |
+
+That 6/40 is the number that makes the harness trustworthy: it goes red on the broken path, so its
+green on the fixed path means something.
+
+**Gap the harness found in this phase's own work:** the durable run reported `leftover-temps=14`.
+`SIGKILL` cannot be trapped, so a crash always strands its temp. Harmless to readers — the store is
+only ever replaced by an atomic rename — but unbounded over a deployment's life. Closed by adding
+`SweepStaleTempsAsync`, age-gated at 1h rather than pid-gated: a temp younger than the cutoff may
+belong to a live write in another process, and deleting that would reintroduce the exact corruption
+this module exists to prevent. Stores call it on load (Phases 2-3).
+
 ### QA gate — Phase 1
-- [ ] Helper never leaves a temp file behind, on success or failure
-- [ ] A failed write leaves the **previous** file contents fully intact (the core property)
-- [ ] **Concurrent writers to the same path never share a temp name** (the Blocker — assert directly)
-- [ ] Directory-fsync unsupported → warns, does not throw
-- [ ] Sync and async variants produce byte-identical results and the same durability sequence
-- [ ] **Harness reproduces corruption on unmodified `main`** — red before it is trusted to go green
-- [ ] No existing caller touched in this phase; `npm test` green
-- [ ] JSDoc + `Arg`-prefixed params match house style (`AGENTS.md`)
+- [x] Helper never leaves a temp file behind, on success or failure *(asserted on both paths)*
+- [x] A failed write leaves the **previous** file contents fully intact (the core property)
+- [x] **Concurrent writers to the same path never share a temp name** (the Blocker) — asserted
+      directly by spying on `fs.open` across 50 concurrent writes, plus 1000-call uniqueness on
+      `BuildTempPath`, rather than inferred from a clean run
+- [x] Directory-fsync unsupported → warns, does not throw
+- [x] Sync and async variants produce byte-identical results and the same durability sequence
+- [x] **Harness reproduces corruption on unmodified `main`** — 6/40, red before trusted green
+- [x] No existing caller touched in this phase
+- [x] JSDoc + `Arg`-prefixed params match house style (`AGENTS.md`)
+- [x] `npm test` + `npm run build` green — full suite exits 0 (Jest + `node --test` 30/30), `tsc`
+      reports no type errors. *(Note: `node_modules` was absent in this clone — pre-existing and
+      unrelated to this work; `npm install` added 603 packages before the gate could run.)*
 
 ---
 
