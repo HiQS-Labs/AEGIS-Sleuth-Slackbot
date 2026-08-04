@@ -53,7 +53,15 @@ class CompletionStore {
   async LoadAsync() {
     // Clear temps stranded beside the store by an earlier hard kill (GH-12). SIGKILL cannot run
     // cleanup, so without this they accumulate for the life of the deployment.
-    await SweepStaleTempsAsync(this.#FilePath, { Logger: this.#SlackApp.Logger });
+    //
+    // SweepStaleTempsAsync is contractually non-throwing, but this sits before the load's own
+    // error handling, so belt-and-braces: housekeeping must never be the reason a store fails to
+    // start. (agy Phase 3 review found two real escape paths in that contract.)
+    try {
+      await SweepStaleTempsAsync(this.#FilePath, { Logger: this.#SlackApp.Logger });
+    } catch(error) {
+      this.#SlackApp.Logger.warn('completion-store: temp sweep failed, continuing with load:', error);
+    }
 
     let Raw = null;
     try {

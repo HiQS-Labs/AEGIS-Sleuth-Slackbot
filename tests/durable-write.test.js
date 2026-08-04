@@ -243,4 +243,29 @@ describe('SweepStaleTempsAsync', () => {
     await expect(SweepStaleTempsAsync(path.join(WorkDir, 'no-such-dir', 'store.json')))
       .resolves.toBe(0);
   });
+
+  // Regression for the Blocker in the agy Phase 3 review. This function documents itself as
+  // never-throwing and callers rely on it — completion-store.js invokes it BEFORE its own
+  // try/catch, so an escape would stop the store loading entirely instead of degrading to empty.
+  // Two paths escaped: path.dirname/basename ran outside the try, and WarnDegraded was called
+  // from inside the catch.
+  test('never throws on a non-string path (path helpers must be inside the try)', async () => {
+    await expect(SweepStaleTempsAsync(undefined)).resolves.toBe(0);
+    await expect(SweepStaleTempsAsync(null)).resolves.toBe(0);
+    await expect(SweepStaleTempsAsync(42)).resolves.toBe(0);
+  });
+
+  test('never throws when the logger itself throws', async () => {
+    const HostileLogger = { warn: () => { throw new Error('logger blew up'); } };
+    await expect(SweepStaleTempsAsync(path.join(WorkDir, 'no-such-dir', 'store.json'), { Logger: HostileLogger }))
+      .resolves.toBe(0);
+    // Same guard on the write path, where WarnDegraded also runs inside a catch.
+    const Target = path.join(WorkDir, 'store.json');
+    const RealOpen = fs.open;
+    jest.spyOn(fs, 'open').mockImplementation((ArgPath, ...ArgRest) => {
+      if(ArgPath === WorkDir) return Promise.reject(Object.assign(new Error('EPERM'), { code: 'EPERM' }));
+      return RealOpen.call(fs, ArgPath, ...ArgRest);
+    });
+    await expect(WriteFileDurableAsync(Target, '{"ok":true}', { Logger: HostileLogger })).resolves.toBeUndefined();
+  });
 });

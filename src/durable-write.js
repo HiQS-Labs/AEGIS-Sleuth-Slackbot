@@ -66,8 +66,13 @@ function BuildTempPath(ArgFilePath) {
  * @returns {void}
  */
 function WarnDegraded(ArgLogger, ArgMessage, ArgError) {
-  if(ArgLogger && typeof ArgLogger.warn === 'function') {
-    ArgLogger.warn(`durable-write: ${ArgMessage}`, ArgError);
+  try {
+    if(ArgLogger && typeof ArgLogger.warn === 'function') {
+      ArgLogger.warn(`durable-write: ${ArgMessage}`, ArgError);
+    }
+  } catch(loggerError) {
+    // A logger that throws must not convert a degraded-but-survivable write into a hard failure.
+    // This is called from inside catch blocks, so an escape here would defeat their whole purpose.
   }
 }
 
@@ -261,10 +266,15 @@ const TEMP_SUFFIX_PATTERN = /^\d+\.\d+\.[0-9a-f]{8}\.tmp$/;
  */
 async function SweepStaleTempsAsync(ArgFilePath, ArgOptions) {
   const Logger = ArgOptions && ArgOptions.Logger;
-  const DirPath = path.dirname(ArgFilePath);
-  const Prefix = `${path.basename(ArgFilePath)}.`;
   let Removed = 0;
   try {
+    // Inside the try: `path.dirname`/`path.basename` throw a TypeError on a non-string path, and a
+    // store whose file path was never initialised must not be able to block its own load. This
+    // function's contract is that it never throws, and callers rely on that — `completion-store.js`
+    // invokes it before its own try/catch, so an escape here would prevent the store from starting
+    // at all rather than degrading to empty.
+    const DirPath = path.dirname(ArgFilePath);
+    const Prefix = `${path.basename(ArgFilePath)}.`;
     const Entries = await fs.readdir(DirPath);
     const Cutoff = Date.now() - STALE_TEMP_MS;
     for(const Entry of Entries) {

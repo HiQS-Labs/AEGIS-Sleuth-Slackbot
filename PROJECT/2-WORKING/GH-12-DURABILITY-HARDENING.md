@@ -370,7 +370,30 @@ the next real `Record()` creates a fresh one.
 `#WriteChain` is untouched — it was already correct for ordering. The durable write adds the
 atomicity that serialization alone never provided.
 
+**Post-review revision (agy Phase 3 code QA).** Agy passed criteria 1-5 with citations and raised
+one **[Blocker]**: `SweepStaleTempsAsync` is called in `LoadAsync` *before* the store's own error
+handling, so if it threw it would stop the store loading entirely rather than degrading to empty.
+
+Verified before fixing — and it was worse than reported. The helper's own docstring claims "Never
+throws", and **two** paths escaped it:
+
+| Escape | Cause |
+|---|---|
+| `path.dirname(undefined)` → `TypeError` | `path.dirname`/`path.basename` ran **outside** the try block |
+| A logger whose `warn` throws | `WarnDegraded` is invoked **from inside** catch blocks, so its own throw escaped them |
+
+Fixed in the **helper**, not at the call site as suggested: `reminders-module.js` calls it too, and
+a function documented as never-throwing should honour that for every caller rather than making each
+one defend itself. Path resolution moved inside the try; `WarnDegraded` now swallows a hostile
+logger. A defensive `try/catch` was *also* added at the `completion-store.js` call site, since
+housekeeping must never be why a store fails to start.
+
+This is the second time a documented contract in `durable-write.js` turned out to be aspirational
+(the first was the over-sweep in Phase 1). Both were found by review, not by the test suite.
+
 ### QA gate — Phase 3
+- [x] `SweepStaleTempsAsync` genuinely never throws — asserted for `undefined`/`null`/numeric paths
+      and for a logger that throws, on both the sweep and write paths
 - [x] Corrupt history file quarantined, not silently zeroed — bytes asserted byte-for-byte
 - [x] **A later write cannot destroy the quarantined bytes** — the exact GH-12 cascade, asserted
       end to end: corrupt load → `Record()` → the new file has 1 record *and* the original bytes are
