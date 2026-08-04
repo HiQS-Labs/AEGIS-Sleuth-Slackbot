@@ -36,17 +36,25 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **Phase 0 (discovery) complete** — audited every write call site in `src/`. Confirmed zero `fsync`/`fdatasync` in the tree, confirmed `#DataLoaded` does not guard saves, and re-ranked the three tiers against `HONEST.md:128` (which under-scopes Tier 1 and over-scopes Tier 3). Findings recorded below. Issue [#12](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/12) filed; branch `claude/GH-12-durability-hardening` cut. | **Phase 1** — add `src/durable-write.js` + unit tests. Pure addition, no callers changed, zero blast radius. |
+| **Phase 0 (discovery) complete**, and **plan QA'd by agy** (relay round 1, `relay-system/2026-08-04/gh12-durability-plan-qa.md`). Agy independently re-verified all five Phase 0 claims with citations and confirmed the tier re-ranking. It returned **Changes requested** with 1 Blocker + 2 Shoulds, all three now folded in below. Issue [#12](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/12) filed; branch `claude/GH-12-durability-hardening` cut. | **Phase 1** — `src/durable-write.js` (unique temp names + sync variant) **and** the crash-injection harness, which must first go red on unmodified `main`. |
+
+### Plan-review dispositions (agy round 1)
+
+| Finding | Disposition |
+|---|---|
+| **[Blocker]** static `${path}.tmp` corrupts under concurrent saves — `reminders-module.js` has no write serialization | **Implemented + extended.** Unique per-write temp names in Phase 1. Extended because the proposed fix is necessary but *not sufficient*: unique temps prevent corruption but not **lost updates** (A snapshots, B snapshots, B renames, A renames stale on top). Phase 2 also ports `completion-store`'s `#WriteChain` idiom into `reminders-module`. |
+| **[Should]** Phase 2's kill-mid-write gate depends on a harness not built until Phase 6 | **Implemented.** Harness moved to Phase 1; Phases 2-3 now gate on it as they land. Phase 6 keeps the full-scale run + doc truthing. |
+| **[Should]** `client-mapping.js:362` is `writeFileSync`; helper needs a sync variant | **Implemented.** `WriteFileDurableSync` added to Phase 1, keeping Phase 5 mechanical instead of forcing an async refactor. |
 
 ## Table of contents
 
 - [Phase 0 — Discovery & audit](#phase-0--discovery--audit) *(complete — findings inline)*
-- [Phase 1 — The shared durable-write helper](#phase-1--the-shared-durable-write-helper)
+- [Phase 1 — The shared durable-write helper + the crash-injection harness](#phase-1--the-shared-durable-write-helper--the-crash-injection-harness)
 - [Phase 2 — Tier 1: the reminder queue](#phase-2--tier-1-the-reminder-queue)
 - [Phase 3 — Tier 2: the completion store](#phase-3--tier-2-the-completion-store)
 - [Phase 4 — Tier 3: the event ledger](#phase-4--tier-3-the-event-ledger)
 - [Phase 5 — Sweep the remaining authoritative writers](#phase-5--sweep-the-remaining-authoritative-writers)
-- [Phase 6 — Crash-injection verification & honest doc update](#phase-6--crash-injection-verification--honest-doc-update)
+- [Phase 6 — Full-system verification & honest doc update](#phase-6--full-system-verification--honest-doc-update)
 
 ## Context
 
@@ -141,28 +149,59 @@ code comment, not a blocker.
 
 ---
 
-## Phase 1 — The shared durable-write helper
+## Phase 1 — The shared durable-write helper + the crash-injection harness
 
 **Pure addition. No existing caller changes. Zero blast radius.**
 
+> **Revised after the agy plan review (relay round 1).** Three changes: unique temp filenames
+> (Blocker), a sync variant (Should), and the crash-injection harness pulled forward from Phase 6
+> (Should) so Phases 2-3 have a real gate instead of a manual one.
+
 New `src/durable-write.js`:
 
-- `WriteFileDurableAsync(ArgFilePath, ArgContents)` — write `${path}.tmp` via `fs.open`/`write`/
+- `WriteFileDurableAsync(ArgFilePath, ArgContents)` — write a temp file via `fs.open`/`write`/
   `sync`/`close`, then `fs.rename` onto the target, then `fsync` the **parent directory** so the
-  rename itself is durable. Clean up the `.tmp` on any failure (the gap in `lists-module`'s version).
+  rename itself is durable. Clean up the temp on any failure (the gap in `lists-module`'s version).
+- **The temp filename MUST be unique per write** — `${path}.${process.pid}.${Counter}.${rand}.tmp`.
+  A static `${path}.tmp` is actively dangerous here: `reminders-module.js` has **no** write
+  serialization (verified — no `#WriteChain` equivalent, and
+  [line 417](../../src/reminders-module.js#L417) fires `#SaveRemindersAsync()` **without awaiting**),
+  so two concurrent saves would interleave into the same temp file and then rename the corrupted
+  result over good data. That would make this change *worse than the bug it fixes*: a rare
+  hard-kill loss becomes routine corruption under normal concurrency.
+- `WriteFileDurableSync(ArgFilePath, ArgContents)` — same temp → `fsyncSync` → `renameSync` → dir
+  `fsyncSync` sequence, for `client-mapping.js:362` in Phase 5, which is sync today. Providing the
+  variant keeps Phase 5 mechanical instead of forcing an async refactor of that call path.
 - `AppendFileDurableAsync(ArgFilePath, ArgLine)` — `fs.open(path,'a')` → `write` → `sync` → `close`,
   for the ledger in Phase 4.
 - Directory `fsync` must tolerate `EPERM`/`EISDIR`/`ENOSYS` (non-POSIX filesystems) by degrading to
   a warning, never throwing — a durability *improvement* must never become a new crash source.
 
-Tests in `tests/durable-write.test.js`: round-trip, overwrite-existing, `.tmp` cleaned up on write
-failure, target left **untouched** when the temp write fails, concurrent writers don't interleave,
-directory-fsync failure degrades rather than throws.
+Tests in `tests/durable-write.test.js` (Jest — matches `tests/completion-store.test.js`; the
+`node --test` style in `tests/event-store.test.js` is the exception, not the house default):
+round-trip, overwrite-existing, temp cleaned up on write failure, target left **untouched** when the
+temp write fails, **N concurrent writers to one path never corrupt it and never collide on a temp
+name**, directory-fsync failure degrades rather than throws, sync variant matches async semantics.
+
+### The crash-injection harness (pulled forward from Phase 6)
+
+`tests/crash-injection/` — `SIGKILL`s a child mid-write in a loop, then asserts the target file is
+always fully parseable and equals either the pre- or post-state.
+
+**It must first be pointed at unmodified `main` and reproduce the corruption.** A harness that
+cannot produce a red on the known-broken code proves nothing when it goes green on the fix. Record
+the reproduction rate in this doc.
+
+Building it here rather than in Phase 6 means Phases 2 and 3 get a real, repeatable gate at the
+moment they land, instead of a manual spot-check deferred to the end.
 
 ### QA gate — Phase 1
-- [ ] Helper never leaves a `.tmp` behind, on success or failure
+- [ ] Helper never leaves a temp file behind, on success or failure
 - [ ] A failed write leaves the **previous** file contents fully intact (the core property)
+- [ ] **Concurrent writers to the same path never share a temp name** (the Blocker — assert directly)
 - [ ] Directory-fsync unsupported → warns, does not throw
+- [ ] Sync and async variants produce byte-identical results and the same durability sequence
+- [ ] **Harness reproduces corruption on unmodified `main`** — red before it is trusted to go green
 - [ ] No existing caller touched in this phase; `npm test` green
 - [ ] JSDoc + `Arg`-prefixed params match house style (`AGENTS.md`)
 
@@ -170,10 +209,22 @@ directory-fsync failure degrades rather than throws.
 
 ## Phase 2 — Tier 1: the reminder queue
 
-Highest value. Two changes, both in `src/reminders-module.js`:
+Highest value. **Three** changes, all in `src/reminders-module.js`:
 
 1. **Adopt the helper** in `#SaveRemindersAsync` ([line 2857](../../src/reminders-module.js#L2857)).
-2. **Quarantine guard.** Distinguish *file absent* from *file present but unparseable*:
+2. **Serialize saves behind a write chain.** *(Added after the agy review — follows from its Blocker,
+   but is not fixed by that Blocker's own remedy.)* Unique temp filenames stop two concurrent saves
+   from **corrupting** each other, but they do **not** stop a **lost update**: writer A snapshots the
+   queue, writer B snapshots it, B renames, then A renames its now-stale snapshot on top — and B's
+   change is silently gone. Atomic rename makes each write all-or-nothing; it does not order them.
+
+   `completion-store.js` already solves this with `#WriteChain`
+   ([line 35](../../src/completion-store.js#L35)). `reminders-module.js` has **no equivalent** —
+   verified — and [line 417](../../src/reminders-module.js#L417) fires `#SaveRemindersAsync()`
+   **without `await`**, so overlap is reachable in normal operation, not just in theory. Port the
+   same chain idiom here.
+
+3. **Quarantine guard.** Distinguish *file absent* from *file present but unparseable*:
    - `ENOENT` (first run) → must still save normally, or a fresh install could never persist.
    - Parse failure → rename the corrupt file to `${path}.corrupt-<ISO timestamp>` **before** the
      first save is allowed, so the bytes survive for recovery and the operator gets a loud error.
@@ -184,8 +235,12 @@ Highest value. Two changes, both in `src/reminders-module.js`:
 ### QA gate — Phase 2
 - [ ] Corrupt reminders file → quarantined to `.corrupt-<ts>`, original bytes recoverable
 - [ ] First-run (`ENOENT`) still saves normally — no regression for fresh installs
+- [ ] **Concurrent saves do not lose an update** — interleave two saves, assert the later write wins
+      and neither is dropped (the gap unique temp names alone leave open)
 - [ ] Kill-mid-write leaves either the complete old queue or the complete new one, never a truncation
-- [ ] All 10 `#SaveRemindersAsync` call sites still behave identically on the happy path
+      — **verified with the Phase 1 crash-injection harness**, not by inspection
+- [ ] All 10 `#SaveRemindersAsync` call sites still behave identically on the happy path, including
+      the non-awaited one at line 417
 - [ ] Existing `tests/reminders-*.test.js` pass unchanged; `npm test` green
 - [ ] `npm run validate:fsm` still clean (the FSM chokepoint is untouched)
 
@@ -264,13 +319,17 @@ and note the choice here.
 
 ---
 
-## Phase 6 — Crash-injection verification & honest doc update
+## Phase 6 — Full-system verification & honest doc update
 
-**The phase that earns the claim.** Everything before this is untested assertion.
+**The phase that earns the claim.** Everything before this is per-phase evidence; this is the
+whole-system run.
 
-1. A crash-injection harness that `SIGKILL`s a child process mid-write, in a loop, then asserts the
-   target file is always fully parseable and equals either the pre- or post-state — never a
-   truncation. Run it against the reminder queue and the completion store.
+> The harness itself moved to **Phase 1** on the agy review's [Should] finding, so Phases 2-3 could
+> gate on it as they landed rather than deferring verification to the end. What remains here is the
+> full-scale run and the doc truthing that depends on it.
+
+1. Run the Phase 1 crash-injection harness at full scale (N≥100 iterations) against **every** store
+   hardened in Phases 2-5, not just the two it gated during development. Record the numbers here.
 2. **Only after that passes**, update the honest-positioning docs:
    - [`HONEST.md:77`](../../HONEST.md#L77) — the "No fsync anywhere" caveat
    - [`HONEST.md:115`](../../HONEST.md#L115) — move "Crash-proof / zero-data-loss durability" out of
@@ -283,8 +342,9 @@ and note the choice here.
 3. Leave the "not load-tested" claim **untouched** — this work does nothing for it.
 
 ### QA gate — Phase 6
-- [ ] Crash-injection harness actually kills mid-write (verify it reproduces corruption on `main` first — a harness that never triggers the bug proves nothing)
-- [ ] N≥100 kill iterations, zero unparseable files
+- [ ] Harness's `main`-reproduces-corruption baseline (established in Phase 1) re-confirmed still red
+      on unmodified `main` — a harness that silently stopped triggering the bug proves nothing
+- [ ] N≥100 kill iterations per hardened store, zero unparseable files
 - [ ] Doc claims match exactly what was tested — no claim upgraded beyond its evidence
 - [ ] "Not load-tested" claim left intact
 - [ ] `## Lessons Learned (For Future Agents)` appended before this doc moves to `3-COMPLETED`
@@ -299,4 +359,7 @@ and note the choice here.
 | Directory `fsync` unsupported on some FS | Degrade to warning, never throw (Phase 1 gate) |
 | Quarantine logic misfires and hides a live file | `ENOENT` explicitly excluded; quarantine renames, never deletes |
 | A durability change becomes a new crash source | Every adopter keeps its existing never-throw/never-reject contract |
+| **The fix is worse than the bug** — a shared temp path turns a rare hard-kill loss into routine corruption under concurrency (agy Blocker) | Unique per-write temp names (Phase 1) **plus** save serialization in `reminders-module` (Phase 2); both have explicit QA gates |
+| Lost update: two concurrent full-file writers rename out of order, stale snapshot wins | Write chain in Phase 2 — atomic rename orders nothing by itself |
+| Harness gives false confidence by never triggering the bug | Must go **red on unmodified `main`** before it is trusted (Phase 1 gate), re-confirmed in Phase 6 |
 | Scope creep into P3 event-sourcing | Explicit non-goal; this hardens the path P3 will eventually replace |
