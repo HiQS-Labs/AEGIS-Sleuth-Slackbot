@@ -66,6 +66,14 @@ goal: >
 
 ### Queue / parked intake
 
+- **CI deadlock + lost verified-secret scanning (GH-15)** — merging GH-14 (DeployHQ adoption) deleted
+  `.github/workflows/ci.yml`, the sole producer of the `test` status context that `main`'s branch
+  protection still requires, so every PR is permanently `BLOCKED` and needs a manual protection lift.
+  The same deletion removed TruffleHog verified-credential scanning and its weekly full-tree cadence
+  with no replacement — on a **public** repo. Fix is one restored file, one PR, no protection lift.
+  **GH-13 is blocked behind this** (modify/delete conflict on `ci.yml`). See
+  `PROJECT/1-INBOX/GH-15-CI-DEADLOCK-AND-SECRET-SCAN-REGRESSION.md`.
+
 - **Public zero-history repo + cutover (GH-423)** — stand up a brand-new public Sleuth repo with no
   commit history, full identifier scrub (155 files mention the workspace name, 91 the client name),
   redacted CHANGELOG, minimal rebuilt doc set, and AGPL-3.0 + commercial dual license
