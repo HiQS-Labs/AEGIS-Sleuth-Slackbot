@@ -47,7 +47,7 @@ function MakeEventLine(ArgIndex) {
     workspace: 'neochrome',
     type: 'ReminderCompleted',
     reminderId: `rem-${ArgIndex}`,
-    payload: { by: 'U0123456789', method: 'reaction', summary: `task ${ArgIndex}`, completedAt: '2026-08-04T12:00:00.000Z' },
+    payload: { by: 'U07ALICE99', method: 'reaction', summary: `task ${ArgIndex}`, completedAt: '2026-08-04T12:00:00.000Z' },
   })}\n`;
 }
 

@@ -39,8 +39,8 @@ function BuildRecord(ArgGeneration, ArgIndex) {
   return {
     reminderId: `rem-${ArgGeneration}-${ArgIndex}`,
     summary: `generation ${ArgGeneration} record ${ArgIndex} padding padding padding padding`,
-    assigneeID: 'U0123456789',
-    sourceChannelID: 'C0123456789',
+    assigneeID: 'U07ALICE99',
+    sourceChannelID: 'C07GENERAL9',
     dueDate: '2026-08-04T00:00:00.000Z',
     completedMs: 1785867610000 + ArgIndex,
   };
