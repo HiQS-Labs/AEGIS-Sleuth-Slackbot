@@ -57,8 +57,11 @@ prompt_selection() {
     export "$var_name"="$value"
 }
 
-echo "This script will install the Sleuth app with GitHub Actions runner."
-echo "Please have your GitHub personal access token ready."
+echo "This script will install the Sleuth app for DeployHQ deploys (no GitHub Actions runner)."
+echo "Please have your GitHub personal access token ready (repo scope for clone)."
+echo
+echo "Default DEPLOY_METHOD=deployhq. For the legacy self-hosted runner path, export"
+echo "DEPLOY_METHOD=github-actions before continuing."
 echo
 
 # Collect required information
@@ -68,10 +71,14 @@ prompt_selection "Server Environment" "SERVER_ENV" "experimental" "development" 
 prompt_input "Your Full Name (for git)" "GIT_USER_NAME"
 prompt_input "Your Email Address" "GIT_USER_EMAIL"
 
+# Default deploy method when not already set
+export DEPLOY_METHOD="${DEPLOY_METHOD:-deployhq}"
+
 echo
 echo "Configuration Summary:"
 echo "Repository: $GITHUB_REPO"
 echo "Environment: $SERVER_ENV"
+echo "Deploy method: $DEPLOY_METHOD"
 echo "Git User: $GIT_USER_NAME <$GIT_USER_EMAIL>"
 echo "Token: $(echo $GITHUB_TOKEN | sed 's/./*/g')"
 echo
@@ -120,6 +127,7 @@ echo
 echo "Quick installation completed!"
 echo
 echo "Next steps:"
-echo "1. Configure your workspace in /root/sleuth-app/data/runtime/workspaces/"
+echo "1. Register a workspace via the Web API (see docs/web-api.md)"
 echo "2. Start the service: systemctl start sleuth-app"
 echo "3. Check logs: journalctl -u sleuth-app --follow"
+echo "4. Wire DeployHQ: see docs/deployhq.md"
