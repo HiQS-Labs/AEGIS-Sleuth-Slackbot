@@ -1,0 +1,33 @@
+# DeployHQ excluded files — keep runtime data and secrets off the upload path.
+# Format: one rule per line (see https://www.deployhq.com/support/excluded-files).
+
+# Reinstall on the server via scripts/deploy.sh
+node_modules
+node_modules/**
+
+# Dev / test / agent-only trees
+tests
+tests/**
+PROJECT
+PROJECT/**
+relay-system
+relay-system/**
+SHAKEDOWN
+SHAKEDOWN/**
+mcp
+mcp/**
+
+# Critical: never overwrite server-side runtime state
+data/runtime
+data/runtime/**
+
+# Secrets and local env
+.env
+.env.*
+admin-auth.json
+
+# CI / editor noise (no GitHub Actions workflows in this repo)
+.github
+.github/**
+.git
+.git/**

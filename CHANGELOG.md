@@ -33,6 +33,17 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.261 - 2026-08-06
+I've switched how I get to your servers: **DeployHQ** now owns development and production deploys,
+and this public repo no longer uses GitHub Actions for CI. Quality gates (typecheck, tests, secret
+scan) run in DeployHQ’s build pipeline before code lands on the box.
+
+**Technical:** Added `.deploybuild.yaml`, `.deployignore`, and `scripts/deploy.sh` (canonical
+post-deploy: stop → `npm ci --omit=dev` → start). Documented the full path in `docs/deployhq.md`.
+`scripts/server-install.sh` defaults to `DEPLOY_METHOD=deployhq` (skips self-hosted runners;
+`github-actions` remains as a legacy opt-in). Removed `.github/workflows/ci.yml`. Updated
+`docs/server-installation-guide.md`, `docs/SSH.md`, `CONTRIBUTING.md`, `README.md`, and `ROUTER.md`.
+
 ## 1.4.260 - 2026-08-01
 `ask-reminders` was answering "Sorry — couldn't access reminder data" to every question. I could
 still schedule, complete and remind as normal; I just could not see my own reminder list when you

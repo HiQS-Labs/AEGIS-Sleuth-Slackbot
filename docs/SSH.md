@@ -24,9 +24,23 @@ ssh root@203.0.113.12 "command here"
 
 ## Common Operations
 
-### Deploy to Development
+### Deploy (primary: DeployHQ)
+
+Routine deploys go through **DeployHQ** — see [`docs/deployhq.md`](deployhq.md).
+Do not rely on GitHub Actions for this public repo.
+
+After DeployHQ uploads, the server runs:
+
 ```bash
-ssh sleuth-development 'cd /root/sleuth-app && git pull origin BRANCH_NAME && npm install --production && systemctl restart sleuth-app'
+bash /root/sleuth-app/scripts/deploy.sh
+```
+
+### Emergency manual deploy (fallback only)
+
+```bash
+ssh sleuth-development 'bash /root/sleuth-app/scripts/deploy.sh'
+# Or restore files first, then:
+ssh sleuth-development 'cd /root/sleuth-app && git pull origin BRANCH_NAME && bash scripts/deploy.sh'
 ```
 
 ### View Logs
@@ -64,14 +78,16 @@ ssh sleuth-development 'ls -la /root/sleuth-app/data/runtime/'
 ssh sleuth-development 'rm /root/sleuth-app/data/runtime/reminders/*_lists_cache.json'
 ```
 
-## Full Deploy Sequence
+## Full Deploy Sequence (emergency fallback)
+
+Prefer DeployHQ. If you must deploy by hand:
 
 ```bash
-# 1. Deploy code
-ssh sleuth-development 'cd /root/sleuth-app && git pull origin BRANCH_NAME && npm install --production'
+# 1. Update code + restart via canonical script
+ssh sleuth-development 'cd /root/sleuth-app && git pull origin BRANCH_NAME && bash scripts/deploy.sh'
 
-# 2. Restart and verify
-ssh sleuth-development 'systemctl restart sleuth-app && sleep 3 && journalctl --unit=sleuth-app --lines=50 --no-pager'
+# 2. Verify logs
+ssh sleuth-development 'journalctl --unit=sleuth-app --lines=50 --no-pager'
 ```
 
 ## Why Aliases Work

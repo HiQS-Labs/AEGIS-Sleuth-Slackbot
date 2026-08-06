@@ -17,6 +17,7 @@ what to run, and which files are canonical.
   product principles — those live in `AGENTS.md` / `ARCHITECTURE-DECISIONS.md`)
 - `README.md` = human-facing repo/product overview
 - `docs/getting-started.md` = human first-run onboarding (requirements checklist + clone → Slack → verify)
+- `docs/deployhq.md` = operator deploy path (DeployHQ for development + production; no GitHub Actions)
 - `ARCHITECTURE.md` = living canonical system design; `ARCHITECTURE-DECISIONS.md` = graph-derived
   snapshot of past decisions (regenerated via `codebase-memory-mcp`, not hand-authored — see its file
   header for regen steps)

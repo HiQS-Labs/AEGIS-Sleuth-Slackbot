@@ -3,15 +3,16 @@
 > **First time with AEGIS?** Run through [Getting Started](getting-started.md) on your laptop first
 > (clone → Slack app → workspace registration). This guide is for **24/7 production** on a Linux server.
 
-This is the canonical deployment and SSH operations guide for AEGIS. Use this document as the
-single source of truth for:
+This is the canonical **first-time server install** and SSH operations guide for AEGIS. Use this
+document as the single source of truth for:
 
 - first-time server installation
-- routine deployments
+- emergency / fallback manual deployments
 - operator SSH access from this machine
 - service locations and restart/logging commands
 
-Other docs should link here instead of duplicating command blocks.
+**Routine deploys** (development and production) use **DeployHQ** — see [`docs/deployhq.md`](deployhq.md).
+Other docs should link here (or to DeployHQ) instead of duplicating command blocks.
 
 ## Prerequisites
 
@@ -26,12 +27,11 @@ Other docs should link here instead of duplicating command blocks.
 Before starting, gather the following:
 
 #### 1. GitHub Information
-- **GitHub Personal Access Token** with permissions:
-  - `repo` (Full control of private repositories)
-  - `workflow` (Update GitHub Action workflows)
-  - `admin:org` (if using organization repository)
+- **GitHub Personal Access Token** with `repo` scope (needed to clone during bootstrap)
 - **Repository**: `owner/repository-name` — your fork or clone of AEGIS (canonical: `hiqs-suite/aegis-sleuth-slack-bot`)
 - **Branch**: Usually `main`, `development`, or `experimental`
+
+> A `workflow` scope is **not** required. This project deploys with DeployHQ, not GitHub Actions.
 
 #### 2. Git Configuration
 - **Your full name** (for git commits)
@@ -39,6 +39,7 @@ Before starting, gather the following:
 
 #### 3. Server Environment
 - **Environment name**: `experimental`, `development`, or `production`
+- **Deploy method**: default `deployhq` (skip self-hosted runners). Set `DEPLOY_METHOD=github-actions` only for the legacy path.
 
 #### 4. Slack App Credentials (for later workspace configuration)
 - **WORKSPACE_NAME**: Unique identifier for this workspace
@@ -76,9 +77,11 @@ chmod +x server-install.sh
 # Required environment variables
 export GITHUB_TOKEN="ghp_your_personal_access_token_here"
 export GITHUB_REPO="hiqs-suite/aegis-sleuth-slack-bot"   # or your own fork/clone
-export SERVER_ENV="experimental"  # or "development" or "production"
+export SERVER_ENV="development"  # or "production" or "experimental"
 export GIT_USER_NAME="Your Full Name"
 export GIT_USER_EMAIL="your.email@domain.com"
+# Optional — default is deployhq (no GitHub Actions runner):
+# export DEPLOY_METHOD=deployhq
 ```
 
 ### Step 4: Run the Installation
@@ -89,14 +92,12 @@ export GIT_USER_EMAIL="your.email@domain.com"
 
 The script will:
 - Update system packages
-- Install Node.js 18.20.4
-- Create github-runner user with proper permissions
-- Download and configure GitHub Actions runner
-- Clone the repository
-- Install npm dependencies
-- Configure systemd service
-- Set up permissions and git credentials
-- Generate SSH keys for server management
+- Install Node.js 18.x
+- Clone the repository to `/root/sleuth-app`
+- Install npm production dependencies
+- Configure `sleuth-app.service`
+- Generate SSH keys for operator access
+- **Skip** GitHub Actions runner install when `DEPLOY_METHOD=deployhq` (default)
 
 ### Step 5: Configure Workspace
 
@@ -157,6 +158,11 @@ App/service locations on the server:
 - App checkout: `/root/sleuth-app`
 - Service name: `sleuth-app.service`
 
+### Step 7: Wire DeployHQ
+
+Add this host as a DeployHQ server (SSH key + pre/post deploy commands). Full steps:
+[`docs/deployhq.md`](deployhq.md).
+
 ### Optional: Configure Web API Token For External Consumers
 
 If another service such as `rebalance-OS` needs to read AEGIS reminders over HTTP, create an optional runtime env file
@@ -176,11 +182,19 @@ systemctl restart sleuth-app
 If `WEB_API_BEARER_TOKEN` is omitted, AEGIS falls back to the legacy development token `test`. Do not rely on that
 fallback for production integrations.
 
-## Post-Installation Configuration
-
 ## Routine Deployments
 
-Subsequent deployments pull the latest code and restart the service:
+**Primary path:** DeployHQ — see [`docs/deployhq.md`](deployhq.md).
+
+Post-upload on the server always runs:
+
+```bash
+bash /root/sleuth-app/scripts/deploy.sh
+```
+
+### Emergency fallback (manual SSH)
+
+Only when DeployHQ is unavailable:
 
 ```bash
 systemctl stop sleuth-app
@@ -192,13 +206,11 @@ systemctl start sleuth-app
 systemctl status sleuth-app
 ```
 
-You may automate this with your own deploy tool (DeployHQ, Ansible, a private CI runner, etc.).
-The steps above are the canonical contract — wire your automation to run them on the server.
 Do not commit deploy credentials or server-specific tokens to this public repository.
 
 ### SSH Access Setup
 
-The installation generates SSH keys for server management. To set up Claude Code access:
+The installation generates SSH keys for server management. To set up operator access:
 
 1. **Copy the public key** (shown during installation)
 2. **Add to authorized_keys** on servers you want to manage:
@@ -266,17 +278,16 @@ curl -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" \
 
 ### Common Issues
 
-#### 1. GitHub Runner Registration Fails
-- **Cause**: Invalid GitHub token or repository permissions
-- **Solution**: Verify token has `repo` and `workflow` permissions
+#### 1. DeployHQ SSH Connection Fails
+- **Cause**: DeployHQ public key missing on the host, or wrong user/path
+- **Solution**: Append DeployHQ’s public key to `/root/.ssh/authorized_keys`; path must be `/root/sleuth-app`. See [`docs/deployhq.md`](deployhq.md).
 
 #### 2. Permission Denied Errors
 - **Cause**: Incorrect file permissions
-- **Solution**: Re-run permission configuration:
+- **Solution**: Ensure the app tree is owned by root (DeployHQ path):
   ```bash
-  chmod 755 /root
-  chown -R root:github-runner /root/sleuth-app
-  chmod -R g+w /root/sleuth-app
+  chown -R root:root /root/sleuth-app
+  chmod -R u+rwX,go-rwx /root/sleuth-app/data/runtime
   ```
 
 #### 3. Service Fails to Start
@@ -286,7 +297,7 @@ curl -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" \
   journalctl -u sleuth-app -n 50
   ```
 
-#### 4. Git Authentication Issues
+#### 4. Git Authentication Issues (bootstrap / emergency pull)
 - **Cause**: Incorrect git credentials
 - **Solution**: Update credentials file:
   ```bash
@@ -297,8 +308,8 @@ curl -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" \
 ### Log Locations
 
 - **Application logs**: `journalctl -u sleuth-app`
-- **GitHub runner logs**: `journalctl -u actions.runner.*`
 - **System logs**: `/var/log/syslog`
+- **DeployHQ**: deployment / build logs in the DeployHQ project UI
 
 ### Service Management
 
@@ -319,14 +330,13 @@ systemctl disable sleuth-app
 ## Security Considerations
 
 ### File Permissions
-- Application files: `root:github-runner` with group write access
-- Git credentials: `600` permissions, readable by github-runner
+- Application files: owned by `root` (DeployHQ path)
+- Runtime data (`data/runtime/`): root-only (`go-rwx`)
 - SSH keys: `600` permissions for private keys
 
 ### Network Access
 - **Port 2020**: Web API (consider firewall rules)
-- **SSH access**: Use key-based authentication only
-- **GitHub Actions**: Uses HTTPS for repository access
+- **SSH access**: Prefer key-based authentication; add the DeployHQ deploy key for automated deploys
 
 ### Credentials Management
 - Store sensitive credentials securely
@@ -344,6 +354,7 @@ Some tasks still require manual intervention:
 4. **SSL/TLS**: Set up certificates for production
 5. **Monitoring**: Configure monitoring and alerting
 6. **Backup Strategy**: Implement data backup procedures
+7. **DeployHQ**: Wire project + servers per [`docs/deployhq.md`](deployhq.md)
 
 ## Testing the Installation
 
@@ -354,24 +365,25 @@ systemctl status sleuth-app
 
 ### 2. Test Web API
 ```bash
-curl http://localhost:2020/workspaces
+curl -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" http://localhost:2020/workspaces
 ```
 
-### 3. Test GitHub Actions
-Push a commit to trigger deployment workflow.
+### 3. Test DeployHQ
+Trigger a deploy to **Development** from DeployHQ; confirm build + `scripts/deploy.sh` succeed.
 
 ### 4. Test Slack Integration
 Send a message mentioning the bot in your configured channel.
 
 ## Next Steps
 
-1. **Configure monitoring** and log aggregation
-2. **Set up backup** procedures for workspace data
-3. **Configure SSL/TLS** for production environments
-4. **Implement security hardening** measures
-5. **Document workspace-specific** configuration
+1. **Wire DeployHQ** for routine deploys ([`docs/deployhq.md`](deployhq.md))
+2. **Configure monitoring** and log aggregation
+3. **Set up backup** procedures for workspace data
+4. **Configure SSL/TLS** for production environments
+5. **Implement security hardening** measures
 
 For additional help, refer to:
 - Main documentation: `README.md`
+- Deploy path: `docs/deployhq.md`
 - API documentation: `docs/web-api.md`
 - Coding conventions: `docs/coding-conventions.md`

@@ -1,0 +1,23 @@
+# DeployHQ build pipeline — quality gate before upload (replaces GitHub Actions CI).
+# https://www.deployhq.com/support/build-pipelines/deploybuild-dot-yaml
+
+build_languages:
+  - name: "node"
+    version: "20"
+
+build_commands:
+  - description: "Install dependencies"
+    command: "npm ci"
+    halt_on_error: true
+
+  - description: "Typecheck"
+    command: "npm run build"
+    halt_on_error: true
+
+  - description: "Test suite"
+    command: "npm test"
+    halt_on_error: true
+
+  - description: "Secret and PII scan"
+    command: "./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt"
+    halt_on_error: true
