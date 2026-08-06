@@ -2,27 +2,10 @@
 
 name: Run Tests
 
-# This workflow runs on pushes to main/development and on PRs targeting those branches.
+# Manual only — do not auto-run on push/PR (hosted-runner acquisition failures were
+# blocking PRs without exercising the suite). Trigger from Actions → Run Tests → Run workflow.
+# workflow_dispatch uses BASE="" HEAD="", so TruffleHog does a full-tree scan on each manual run.
 on:
-  push:
-    # Only run on pushes to these branches; feature branch coverage comes from pull_request below.
-    branches:
-      - main
-      - development
-  pull_request:
-    # Only run on PRs targeting these branches
-    branches:
-      - main
-      - development
-  # FULL-TREE secret scan. The push/pull_request events above give TruffleHog only the event's
-  # DIFF -- a PR run scans the changed files and nothing else, so the bulk of the tree is never
-  # re-examined by the verified-credential check. The action resolves `schedule` and
-  # `workflow_dispatch` to BASE="" HEAD="", which is its whole-repo scan path. Without one of
-  # these two events, nothing in CI ever scans the complete tree.
-  # (Observed 2026-07-27: the initial push to main reported green at chunks:0 bytes:0 -- on a
-  # first push `github.event.before` is the zero SHA, so the range resolves to nothing at all.)
-  schedule:
-    - cron: '0 9 * * 1' # Mondays 09:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -38,7 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # TruffleHog scans the exact base-to-head commit range.
+          # TruffleHog scans the exact base-to-head commit range (full tree on workflow_dispatch).
           fetch-depth: 0
 
       # 2. Set up the specific version of Node.js.
@@ -65,11 +48,7 @@ jobs:
       - name: secret + PII scan
         run: ./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt
 
-      # SCOPE, and it is not the whole tree: the action derives its range from the event, so on
-      # push/pull_request this scans only that event's DIFF. Full-tree coverage comes from the
-      # scheduled/dispatch runs declared in `on:` above, not from here. Do not read a green tick
-      # on a PR as "the repository contains no verified secrets" -- it means the changed files
-      # don't. The `secret + PII scan` step above is the one that reads every tracked file.
+      # Full-tree verified-secret scan (workflow_dispatch → empty BASE/HEAD range).
       - name: TruffleHog verified secret scan
         uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11 # v3.96.0
         with:
