@@ -55,3 +55,7 @@ https://\$\{GIT_USER_EMAIL\}:\$\{GITHUB_TOKEN\}@github\.com
 # Real Slack ids are 9-11 chars of opaque base32. These spell words, which is the point.
 U07ALICE99
 U072BF6K4XYZ
+# Sequential digit placeholders used by the crash-injection harness and a few unit tests —
+# not real Slack IDs (real ones are opaque base32, not 0123456789).
+U0123456789
+C0123456789
