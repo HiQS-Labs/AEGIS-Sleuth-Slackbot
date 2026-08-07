@@ -442,9 +442,7 @@ PROJECT/PDDA-ACTIVITY.jsonl
 REPO_MAP.md
 .aider/
 /.tick
-# NOTE: `/phases` used to be listed here. It is governed by the narrowed block further down
-# ("Internal PDDA/agent phase mechanics"). Re-adding it here would silently kill that block's
-# negations, because git cannot re-include a path whose parent directory is excluded.
+/phases
 
 # Public-release sanitization scanner output (utils/sanitize-scan.sh)
 .sanitize-findings.tsv
@@ -469,15 +467,8 @@ temp/*_reminders.json
 temp/*_reminder_counter.json
 *_reminders.production.json
 
-# Internal PDDA/agent phase mechanics — dropped from the public repo (Q2b, agy concurred).
-# Narrowed 2026-08-07: marathon-drive hard-requires `git add` of phases/<lane>/RELAY.md (it is the
-# relay audit trail, not optional — same in the live harness). Track ONLY that file; every other
-# phase artifact stays ignored. Note the `phases/*` form: git cannot re-include a path whose parent
-# directory is excluded, so `phases/` would make the negations below dead letters.
-phases/*
-!phases/*/
-phases/*/*
-!phases/*/RELAY.md
+# Internal PDDA/agent phase mechanics — dropped from the public repo (Q2b, agy concurred)
+phases/
 xyz-tick/
 
 # Internal-only docs dropped from the public repo (front-door audit, 2026-07-26)
