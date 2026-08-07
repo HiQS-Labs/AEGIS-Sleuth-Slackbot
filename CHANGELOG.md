@@ -33,6 +33,33 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.262 - 2026-08-06
+Correcting yesterday's change. When I moved deploys to DeployHQ I also deleted my GitHub Actions
+workflow — and that workflow was the only thing checking my public code for leaked passwords and
+API keys that actually still work. It was also the only thing my own merge rules were waiting on, so
+every proposed change was stuck and could only be merged by switching those rules off by hand. The
+workflow is back. DeployHQ still owns deploys; nothing about how I reach your servers changed.
+
+**Technical:** Restores `.github/workflows/ci.yml` verbatim (`git checkout 5733b5f --`), reverting
+that part of 1.4.261. Two defects, one cause — `jobs.test` was the sole producer of the `test`
+status context that `main`'s branch protection still requires, so with zero workflows registered
+every PR sat at `BLOCKED` and needed a manual protection lift to merge. The same deletion removed
+both TruffleHog steps, and `.deploybuild.yaml` never carried them: it preserves `npm ci`, `npm run
+build`, `npm test`, and `utils/sanitize-scan.sh`, but nothing that verifies whether a detected
+credential is live. Full-tree coverage came only from the `schedule` + `workflow_dispatch` events
+(push/PR events give TruffleHog just the event diff), so the weekly whole-repo scan vanished too.
+- The `push:` trigger is deliberately kept. Dropping it was proposed and rejected during the agy
+  cross-model review: a merge commit can carry secrets present in **neither** parent (conflict
+  resolution), so nothing would scan them until the following Monday. 1.4.261 itself landed via
+  manual conflict resolution.
+- Verified no branch-protection change is needed to merge this: same-repo PRs resolve workflows from
+  the head ref, so the fix branch satisfies its own required check.
+- #lessonslearned: removing a CI provider and relaxing the branch protection that depends on it are
+  one change, not two. 1.4.261's note that this repo "no longer uses GitHub Actions for CI" was
+  true for deploys and wrong for gating — Actions still owns pre-merge checks and secret scanning.
+- Full diagnosis, rejected alternatives, and scope fence in
+  `PROJECT/1-INBOX/GH-15-CI-DEADLOCK-AND-SECRET-SCAN-REGRESSION.md`.
+
 ## 1.4.261 - 2026-08-06
 I've switched how I get to your servers: **DeployHQ** now owns development and production deploys,
 and this public repo no longer uses GitHub Actions for CI. Quality gates (typecheck, tests, secret
