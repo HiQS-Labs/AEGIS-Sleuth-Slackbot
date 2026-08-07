@@ -32,7 +32,11 @@ phases:
     reviewer: agy
     brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p1-gh22-multiple-assignees.md
     artifact: src/reminders-module.js,src/reminders-display-utils.js,src/lists-module.js,tests/reminders-multiple-assignees.test.js
-    turn_timeout_s: 1200
+    # Raised from 1200 after the 2026-08-07 run: agy's REVIEW turn was killed at the 1200s cap
+    # mid-review, so p1 escalated without ever getting a completed review. This is the widest
+    # artifact set in the plan (4 files, ~290 lines changed by the builder) — the reviewer needs
+    # more wall-clock than the builder did.
+    turn_timeout_s: 2400
     max_review_rounds: 3
 
   - id: p2

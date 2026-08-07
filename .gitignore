@@ -442,7 +442,9 @@ PROJECT/PDDA-ACTIVITY.jsonl
 REPO_MAP.md
 .aider/
 /.tick
-/phases
+# NOTE: `/phases` used to be listed here. It is now governed by the block further down
+# ("Internal PDDA/agent phase mechanics"). Re-adding it here would silently kill that block's
+# negations, because git cannot re-include a path whose parent directory is excluded.
 
 # Public-release sanitization scanner output (utils/sanitize-scan.sh)
 .sanitize-findings.tsv
@@ -454,7 +456,17 @@ REPO_MAP.md
 # See temp/moved-private-files/SANITIZATION-PLAN.md and moved-files.md.
 
 # Raw AI reviewer transcripts — internal harness output, high leak surface (decision E8)
-relay-system/
+#
+# NARROWED 2026-08-07 (operator decision, knowingly reversing part of E8): marathon-drive commits a
+# per-phase transcript here and HALTs the phase if it cannot. Only that file is tracked; every other
+# relay-system artifact stays ignored, so E8 still holds for ad-hoc /relay threads and preflight.
+# The published surface is builder/reviewer turn output on a PUBLIC repo — that is the accepted cost
+# of running marathons here. If that stops being acceptable, restore the bare `relay-system/` line
+# and run marathons somewhere the harness can track its own output.
+relay-system/*
+!relay-system/*/
+relay-system/*/*
+!relay-system/*/marathon-*.md
 
 # RAG index: a searchable embedding of the ENTIRE codebase + docs. Regenerable build
 # artifact, and it re-leaks anything scrubbed elsewhere. Must never be committed.
@@ -467,8 +479,22 @@ temp/*_reminders.json
 temp/*_reminder_counter.json
 *_reminders.production.json
 
-# Internal PDDA/agent phase mechanics — dropped from the public repo (Q2b, agy concurred)
-phases/
+# Internal PDDA/agent phase mechanics — dropped from the public repo (Q2b, agy concurred).
+#
+# NARROWED 2026-08-07 (operator decision, knowingly reversing part of Q2b): marathon-drive hard-
+# requires `git add` of BOTH files below — RELAY.md is the relay audit trail and ESCALATION.md is
+# written on the halt path — and it HALTs the phase if either cannot be committed. The live harness
+# behaves identically, so `xyz-sync --update` does not avoid this.
+#
+# Track ONLY those two files; all other phase artifacts stay ignored. Note the `phases/*` form: git
+# cannot re-include a path whose parent directory is excluded, so a bare `phases/` would make every
+# negation below a dead letter — and there is a second `/phases` entry up in the Aider block that
+# must stay removed for the same reason.
+phases/*
+!phases/*/
+phases/*/*
+!phases/*/RELAY.md
+!phases/*/ESCALATION.md
 xyz-tick/
 
 # Internal-only docs dropped from the public repo (front-door audit, 2026-07-26)
