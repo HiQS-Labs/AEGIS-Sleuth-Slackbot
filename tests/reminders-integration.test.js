@@ -9,6 +9,7 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const RemindersModule = require('../src/reminders-module');
+const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
 const { BuildCompactTextForReminder } = require('../src/reminders-display-utils');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
@@ -2872,6 +2873,159 @@ describe('RemindersModule integration via MockSlackApp', () => {
         await Reminders.StopAsync();
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
         jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('GH-27 thread-reply duplicate prevention', () => {
+    test('does not schedule a second copy of a root-thread task from a later reply with incidental temporal language', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('gh27_thread_reply_duplicate');
+      const ParentTS = '1786125725.780189';
+      const ReplyTS = '1786127250.350799';
+      const MockProcess = jest.fn().mockImplementation(async (ArgMessageText) => {
+        if(ArgMessageText.includes('BASE DATE:')) {
+          return {
+            year: 2026,
+            month: 8,
+            day: 7,
+            hour: 14,
+            minute: 2,
+            second: 0,
+            rationale: 'Today at the requested time.',
+          };
+        }
+        if(ArgMessageText.includes('"dedup_context"')) {
+          return {
+            recommendation: 'ignore',
+            rationale: 'Both reminders ask to post some screenshots.',
+          };
+        }
+        return {
+          recommendation: 'schedule',
+          rationale: 'Mock analyzer selected the root-thread task.',
+          reminders: [{
+            actionable_language: 'Post some screenshots',
+            scheduling_trigger: 'today',
+            reminder_message: 'Post some screenshots',
+          }],
+        };
+      });
+
+      MockWorkspaceAI.mockImplementation(() => ({
+        ProcessMessageWithJsonResponseAsync: MockProcess,
+        ProcessMessageWithTextResponseAsync: jest.fn().mockResolvedValue('mock text response'),
+        get ComplexModelName() { return 'gpt-4o'; },
+        get DefaultModelName() { return 'gpt-4o-mini'; },
+        set DefaultModelName(_) {},
+      }));
+
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo,
+        ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' },
+      });
+      const Reminders = new RemindersModule(SlackApp);
+      const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await fs.writeFile(RuntimePaths.remindersFilePath, JSON.stringify([{
+          ReminderID: '1e9e0cdc-c788-490d-abba-31f72732480d',
+          CreatedOn: '2026-08-07T18:02:13.492Z',
+          ShouldPostOn: '2026-08-07T21:02:10.000Z',
+          TargetChannelID: 'C_REMINDERS',
+          OriginalChannelID: 'C_GENERAL',
+          OriginalChannelName: 'general',
+          OriginalMessageID: ParentTS,
+          OriginalThreadTs: null,
+          OriginalSenderID: 'U_SENDER',
+          ReminderMessageText: 'Post some screenshots',
+          AssigneeID: null,
+          GitHubUrls: null,
+          IgnoreSnooze: false,
+          State: 'scheduled',
+        }], null, 2), 'utf8');
+        await fs.writeFile(RuntimePaths.enabledChannelsFilePath, JSON.stringify(['C_GENERAL']), 'utf8');
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        SlackApp.SentMessages = [];
+
+        const ReplyHandled = await SlackApp.SimulateMessageAsync({
+          channel: 'C_GENERAL',
+          user: 'U_SENDER',
+          ts: ReplyTS,
+          thread_ts: ParentTS,
+          text: 'So today the broader decision remains unchanged.',
+        });
+
+        expect(ReplyHandled).toBe(false);
+        expect(SlackApp.SentMessages.filter(ArgMessage => ArgMessage.text.includes('Slack reminder has been scheduled'))).toHaveLength(0);
+        const Persisted = JSON.parse(await fs.readFile(RuntimePaths.remindersFilePath, 'utf8'));
+        expect(Persisted).toHaveLength(1);
+        expect(Persisted[0].OriginalMessageID).toBe(ParentTS);
+        expect(MockProcess.mock.calls.some(([ArgMessageText]) => ArgMessageText.includes('"dedup_context"'))).toBe(true);
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
+
+    test('force scheduling bypasses semantic duplicate judgments but preserves exact-message protection', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('gh27_force_schedule_dedup_contract');
+      const MessageTS = '1786127250.350799';
+      ConfigureMockWorkspaceAI(MockWorkspaceAI, {
+        recommendation: 'ignore',
+        reminderMessage: 'Post some screenshots',
+        extractedDate: { year: 2026, month: 8, day: 8, hour: 14, minute: 27, second: 0 },
+      });
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo,
+        ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' },
+        ThreadMessagesById: {
+          [`C_GENERAL:${MessageTS}`]: [{
+            user: 'U_SENDER', text: 'Post some screenshots', ts: MessageTS, bot_id: undefined, reactions: [],
+          }],
+        },
+      });
+      const Reminders = new RemindersModule(SlackApp);
+      const DedupSpy = jest.spyOn(RemindersAIPipeline.prototype, 'CheckForDuplicateReminderAsync');
+
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        DedupSpy.mockResolvedValueOnce({
+          recommendation: 'ignore',
+          rationale: 'Similar task already exists in this Slack thread.',
+          matched_by: 'semantic',
+        });
+
+        const SemanticDuplicateHandled = await SlackApp.SimulateReactionAddedAsync({
+          user: 'U_OPERATOR', reaction: 'alarm_clock', item: { channel: 'C_GENERAL', ts: MessageTS },
+        });
+
+        expect(SemanticDuplicateHandled).toBe(true);
+        expect(Reminders.GetAllReminders()).toHaveLength(1);
+        expect(SlackApp.Logger.InfoMessages.some(ArgMessage =>
+          ArgMessage.includes('bypassing semantic duplicate check for force-scheduled reminder')
+        )).toBe(true);
+
+        DedupSpy.mockResolvedValueOnce({
+          recommendation: 'ignore',
+          rationale: 'Reminder with same OriginalMessageID already exists.',
+          matched_by: 'message_id',
+        });
+
+        const ExactDuplicateHandled = await SlackApp.SimulateReactionAddedAsync({
+          user: 'U_OPERATOR', reaction: 'alarm_clock', item: { channel: 'C_GENERAL', ts: MessageTS },
+        });
+
+        expect(ExactDuplicateHandled).toBe(false);
+        expect(Reminders.GetAllReminders()).toHaveLength(1);
+        expect(SlackApp.Logger.InfoMessages.some(ArgMessage =>
+          ArgMessage.includes('Force-scheduled reminder has the same OriginalMessageID. Skipping scheduling.')
+        )).toBe(true);
+      } finally {
+        DedupSpy.mockRestore();
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       }
     });
   });

@@ -31,6 +31,13 @@ goal: >
 
 ### In progress
 
+- **Thread-reply reminder deduplication (GH-27)** — implementation complete and awaiting review:
+  an incidental `today` in a later reply can
+  schedule the same root-thread task a second time because dedup compares only the reply timestamp.
+  The fix scopes semantic comparison to reminders sharing one thread identity, preserving distinct
+  follow-up work and the no-extra-AI path across unrelated threads. →
+  [PROJECT/2-WORKING/GH-27-THREAD-REMINDER-DEDUP.md](PROJECT/2-WORKING/GH-27-THREAD-REMINDER-DEDUP.md)
+
 - **Multiple reminder assignees (GH-22)** — a reminder with two people is persisted and indexed for
   only the first mention, while its confirmation says it was scheduled for both; consequently the
   second user's `show-me` omits it. Active plan defines one shared reminder with additive

@@ -5,6 +5,9 @@ You must produce only JSON output that complies with the provided JSON schema.
 You will receive JSON input with the following structure:
 1. An array of `existing_reminders` containing previously scheduled reminders.
 2. A `new_reminder` object to check for duplication against the existing reminders.
+3. When `dedup_context` is present, it contains `same_thread: true`: the reminders came from the
+   same Slack thread. This is useful context for comparing their task text, but it does **not** make
+   them duplicates by itself: a thread may legitimately create a distinct follow-up task.
 
 Each reminder object has the following properties:
 - `ReminderID`: Unique identifier.
@@ -62,4 +65,3 @@ according to the rules above.
 Your JSON output must include:
 - `recommendation`: Either `schedule` or `ignore` based on analysis.
 - `rationale`: Clear explanation of your decision, specifically quoting the similar/identical tasks involved.
-

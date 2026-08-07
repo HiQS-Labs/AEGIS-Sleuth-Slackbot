@@ -404,6 +404,7 @@ describe('RemindersAIPipeline', () => {
 
       expect(Result.recommendation).toBe('schedule');
       expect(Result.rationale).toContain('No existing reminders');
+      expect(Result.matched_by).toBeNull();
     });
 
     it('should return ignore when duplicate by OriginalMessageID', async () => {
@@ -425,6 +426,7 @@ describe('RemindersAIPipeline', () => {
 
       expect(Result.recommendation).toBe('ignore');
       expect(Result.rationale).toContain('same OriginalMessageID');
+      expect(Result.matched_by).toBe('message_id');
     });
 
     it('should return schedule when no duplicate by OriginalMessageID', async () => {
@@ -445,7 +447,82 @@ describe('RemindersAIPipeline', () => {
       const Result = await Pipeline.CheckForDuplicateReminderAsync(NewReminder);
 
       expect(Result.recommendation).toBe('schedule');
-      expect(Result.rationale).toContain('No duplicate reminder found');
+      expect(Result.rationale).toContain('same Slack thread');
+      expect(MockWorkspaceAI.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
+    });
+
+    it('should run semantic deduplication for a reply to a thread with an existing reminder', async () => {
+      const ExistingReminder = {
+        ReminderID: 'existing-root',
+        OriginalMessageID: 'thread-root',
+        OriginalThreadTs: null,
+        ReminderMessageText: 'Key task(s):\n• Post some screenshots',
+      };
+      const NewReminder = {
+        ReminderID: 'new-reply',
+        OriginalMessageID: 'thread-reply',
+        OriginalThreadTs: 'thread-root',
+        ReminderMessageText: 'Key task(s):\n• Post some screenshots',
+      };
+      GetPendingRemindersMock.mockReturnValue([ExistingReminder]);
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue({
+        recommendation: 'ignore',
+        rationale: 'Both reminders ask to post some screenshots.',
+      });
+
+      const Result = await Pipeline.CheckForDuplicateReminderAsync(NewReminder);
+
+      expect(Result.recommendation).toBe('ignore');
+      expect(Result.matched_by).toBe('semantic');
+      expect(MockWorkspaceAI.ProcessMessageWithJsonResponseAsync).toHaveBeenCalledTimes(1);
+      const DedupInput = JSON.parse(MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]);
+      expect(DedupInput.dedup_context).toEqual({ same_thread: true });
+      expect(DedupInput.existing_reminders).toEqual([ExistingReminder]);
+    });
+
+    it('should allow a distinct follow-up task in the same thread', async () => {
+      const ExistingReminder = {
+        ReminderID: 'existing-root',
+        OriginalMessageID: 'thread-root',
+        ReminderMessageText: 'Key task(s):\n• Post some screenshots',
+      };
+      const NewReminder = {
+        ReminderID: 'new-reply',
+        OriginalMessageID: 'thread-reply',
+        OriginalThreadTs: 'thread-root',
+        ReminderMessageText: 'Key task(s):\n• Review the launch checklist',
+      };
+      GetPendingRemindersMock.mockReturnValue([ExistingReminder]);
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue({
+        recommendation: 'schedule',
+        rationale: 'Review the launch checklist is distinct from posting screenshots.',
+      });
+
+      const Result = await Pipeline.CheckForDuplicateReminderAsync(NewReminder);
+
+      expect(Result.recommendation).toBe('schedule');
+      expect(Result.matched_by).toBe('semantic');
+      expect(MockWorkspaceAI.ProcessMessageWithJsonResponseAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not run semantic deduplication for a different thread', async () => {
+      const ExistingReminder = {
+        ReminderID: 'existing-root',
+        OriginalMessageID: 'first-thread-root',
+        ReminderMessageText: 'Key task(s):\n• Post some screenshots',
+      };
+      const NewReminder = {
+        ReminderID: 'new-reply',
+        OriginalMessageID: 'second-thread-reply',
+        OriginalThreadTs: 'second-thread-root',
+        ReminderMessageText: 'Key task(s):\n• Post some screenshots',
+      };
+      GetPendingRemindersMock.mockReturnValue([ExistingReminder]);
+
+      const Result = await Pipeline.CheckForDuplicateReminderAsync(NewReminder);
+
+      expect(Result.recommendation).toBe('schedule');
+      expect(MockWorkspaceAI.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
     });
   });
 });

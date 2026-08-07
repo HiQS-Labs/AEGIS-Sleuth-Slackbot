@@ -33,6 +33,21 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.266 - 2026-08-07
+I no longer create a second reminder just because a later reply in the same Slack thread happens to
+say “today.” I compare it with the task that thread already scheduled, while still allowing a reply
+to create a genuinely different follow-up reminder.
+
+**Technical:** GH-27. `RemindersAIPipeline` now derives the Slack-thread identity as
+`OriginalThreadTs ?? OriginalMessageID`: a root reminder and its replies therefore share one
+identity. The exact-message duplicate rejection remains first. When an existing open reminder is
+from that same thread, the existing semantic deduplication prompt compares only those candidates;
+unrelated threads keep the zero-extra-AI-call fast path. The prompt explicitly says thread context
+does not make two distinct tasks duplicates. Added pipeline tests for exact-message, duplicate
+root/reply, distinct same-thread follow-up, and unrelated-thread paths, plus a MockSlackApp
+production-shaped regression with the observed timestamps. The force-schedule escape hatch bypasses
+semantic duplicates but still rejects an exact same-message repeat. `package.json` is intentionally unchanged.
+
 ## 1.4.265 - 2026-08-07
 There is now a `development` branch, and it is my primary one — everyday work lands there, and
 `main` is reserved for what actually goes to production. My docs said this was how things worked
