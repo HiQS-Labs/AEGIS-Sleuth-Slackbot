@@ -192,7 +192,12 @@ Keep `npm run build` passing (`checkJs` + `noImplicitAny` workflow).
   - Reminder cancel/complete reaction flows.
   - Optional Notion search flow when `NOTION_TOKEN` exists.
   - Web API bearer auth and workspace CRUD.
-- If behavior changed, bump `package.json` version and update `CHANGELOG.md`.
+- If behavior changed, update `CHANGELOG.md`. **Do not bump `package.json`'s `version` in a feature
+  PR** — a version belongs to a *release*, not to a change. Every PR editing that one line means two
+  concurrent PRs always conflict, and when both pick the same number the texts are identical, so git
+  merges them clean while the result is wrong (GH-17; this nearly shipped a duplicate `1.4.260`).
+  The releaser sets `version` to match the newest `CHANGELOG.md` heading — see
+  [Releasing](#11-releasing).
 
 ## 9) Continuous Audit -> Fix -> Iterate Checklist
 
@@ -222,6 +227,23 @@ Keep `npm run build` passing (`checkJs` + `noImplicitAny` workflow).
 - Update `CHANGELOG.md` with migration/rollback notes for high/critical changes.
 - For reminder pipeline changes, include reviewer confirmation that snooze behavior is preserved:
   - `#ShouldSuppressForSnooze(...)` is used in the path, or a documented and approved bypass exists.
+
+## 11) Releasing
+
+The `version` in `package.json` describes what is **released**, not what is merged. Feature PRs must
+not touch it (GH-17) — they add a `CHANGELOG.md` entry only. Between a merge and a release the two
+therefore disagree on purpose, and `src/app.js` will report the older number until the release lands.
+
+At release time, and only then:
+
+1. Set `package.json`'s `version` to match the newest `## <version> - <date>` heading in
+   `CHANGELOG.md`.
+2. `npm run validate:changelog-tone` — confirms the newest block is compliant.
+3. `npm run build && npm test`.
+
+If two merged PRs both wrote the same `## <version>` heading, renumber the older one so the file
+stays in descending order before bumping. Picking the version once, here, is what stops two
+concurrent PRs from ever colliding on it.
 
 ## 12) Process Environment Flags
 

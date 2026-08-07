@@ -1,5 +1,9 @@
-# DeployHQ build pipeline — quality gate before upload (replaces GitHub Actions CI).
+# DeployHQ build pipeline — quality gate before upload.
 # https://www.deployhq.com/support/build-pipelines/deploybuild-dot-yaml
+#
+# This pipeline gates DEPLOYS. It does not replace GitHub Actions, which gates PULL REQUESTS
+# (the `test` status check main's branch protection requires) and runs the weekly full-tree
+# TruffleHog scan. Both exist on purpose, at different stages — see GH-15.
 
 build_languages:
   - name: "node"
@@ -20,4 +24,15 @@ build_commands:
 
   - description: "Secret and PII scan"
     command: "./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt"
+    halt_on_error: true
+
+  # GH-18. Lives HERE, not in GitHub Actions, on purpose: a check inside ci.yml cannot notice
+  # ci.yml being deleted (#14) — it just stops running. DeployHQ is a different system, so it
+  # still fires. Catches both the deletion (#14) and the silent trigger-stripping (#13), the
+  # latter of which git merged with no conflict at all.
+  # ESCAPE HATCH: if GitHub Actions is ever removed deliberately, delete this step in the SAME
+  # change. Failing to do so blocks every deploy — which is the coupling that caused #14. The
+  # message below says so at the moment it fires, so the fix is never a mystery.
+  - description: "Guard: CI workflow intact (GH-18)"
+    command: "test -f .github/workflows/ci.yml && grep -qE \"^[[:space:]]*pull_request:\" .github/workflows/ci.yml && grep -qE \"^[[:space:]]*schedule:\" .github/workflows/ci.yml || { echo \"GUARD FAILED (GH-18): .github/workflows/ci.yml is missing or no longer carries its pull_request: and schedule: triggers. pull_request produces the test status check that main branch protection requires; schedule runs the weekly full-tree TruffleHog scan. Restore them, or -- if GitHub Actions was removed ON PURPOSE -- delete this guard step from .deploybuild.yaml as part of the same change.\"; exit 1; }"
     halt_on_error: true
