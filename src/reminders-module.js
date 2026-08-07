@@ -1538,13 +1538,19 @@ class RemindersModule {
           continue; // skip to next reminder in the loop.
         }
       } else {
-        let DedupResult = await this.#AIPipeline.CheckForDuplicateReminderAsync(NewReminderInfo);
-        if(DedupResult.recommendation === 'ignore') {
-          ArgSlackApp.Logger.info('Duplicate reminder found by OriginalMessageID. Skipping scheduling.');
+        const DedupResult = await this.#AIPipeline.CheckForDuplicateReminderAsync(NewReminderInfo);
+        if(DedupResult.recommendation === 'ignore' && DedupResult.matched_by === 'message_id') {
+          ArgSlackApp.Logger.info('Force-scheduled reminder has the same OriginalMessageID. Skipping scheduling.');
           continue; // skip to next reminder in the loop.
         }
-        // log that we're bypassing duplicate checking due to force scheduling.
-        ArgSlackApp.Logger.info(`bypassing duplicate check for force-scheduled reminder ${NewReminderInfo.ReminderID}`);
+        if(DedupResult.recommendation === 'ignore') {
+          ArgSlackApp.Logger.info(
+            `bypassing semantic duplicate check for force-scheduled reminder ${NewReminderInfo.ReminderID}:`,
+            DedupResult.rationale
+          );
+        } else {
+          ArgSlackApp.Logger.info(`no duplicate found for force-scheduled reminder ${NewReminderInfo.ReminderID}`);
+        }
       }
 
       // queue the reminder to be posted at the appropriate time.
