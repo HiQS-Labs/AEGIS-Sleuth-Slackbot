@@ -33,6 +33,29 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.265 - 2026-08-07
+There is now a `development` branch, and it is my primary one — everyday work lands there, and
+`main` is reserved for what actually goes to production. My docs said this was how things worked
+before the branch existed, so I have made the docs and the reality agree.
+
+**Technical:** Docs-only; no code change. `development` cut from `main` at `ddc44e2` and set as the
+repo default. This completes a split the repo had already written down but never created:
+`docs/deployhq.md` already mapped the development server to the `development` branch and production
+to `main`, and `.github/workflows/ci.yml` already listed both branches in its `push` and
+`pull_request` filters — so no workflow change was needed.
+- Branch contract added to `CONTRIBUTING.md` (new "Branches" section), `ROUTER.md`, `AGENTS.md`
+  (new §10b), and `README.md` -> Development.
+- `development` is deliberately **unprotected** — an explicit operator call. CI runs on it but does
+  not block; the enforced `test` gate stays on `main`, so the `development` -> `main` PR is where
+  unverified work is caught. Recorded here because "merged to development" does not mean "tests
+  passed", and that is exactly the kind of thing that is obvious now and forgotten in a month.
+- Fixed two doc claims that GH-15 had already made false: `CONTRIBUTING.md` still said "this public
+  repo has no GitHub Actions CI", and `ROUTER.md` + `README.md` described the deploy path as "no
+  GitHub Actions" without scoping it to deploys. Actions does run PR/push CI and the secret scans.
+  The unscoped phrasing is the same misreading that led to CI being deleted in the first place.
+- One consequence worth knowing: GitHub runs `schedule` triggers from the default branch only, so
+  the weekly full-tree TruffleHog scan now runs against `development` rather than `main`.
+
 ## 1.4.264 - 2026-08-06
 Housekeeping on how my own changes get merged. Two proposed changes at the same time used to trip
 over each other every single time, because both edited the same version line — and twice this week

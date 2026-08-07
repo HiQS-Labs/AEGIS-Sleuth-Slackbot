@@ -284,6 +284,12 @@ is no fallback key.
 
 ## Development
 
+**Branches:** `development` is the primary branch and the repo default — cut work from it and open
+pull requests into it. `main` is the release branch: protected, requires the `test` check, and
+production deploys from it. `development` is intentionally unprotected, so CI runs there without
+blocking. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contract and
+[`docs/deployhq.md`](docs/deployhq.md) for the matching deploy split.
+
 ```bash
 npm test                 # full suite
 npm run test:watch
@@ -332,7 +338,7 @@ policy, supported versions and scope: [`SECURITY.md`](./SECURITY.md).
 | **[`docs/getting-started.md`](docs/getting-started.md)** | **Start here** — full requirements checklist + step-by-step first run |
 | [`docs/slack-app-setup.md`](docs/slack-app-setup.md) | Slack app manifest and credential collection |
 | [`docs/web-api.md`](docs/web-api.md) | Web API endpoints — workspace management |
-| [`docs/deployhq.md`](docs/deployhq.md) | **Deploy path** — DeployHQ for development and production (no GitHub Actions) |
+| [`docs/deployhq.md`](docs/deployhq.md) | **Deploy path** — DeployHQ for development and production (deploys do not use GitHub Actions; Actions still runs CI + secret scans) |
 | [`docs/server-installation-guide.md`](docs/server-installation-guide.md) | Full Linux server install |
 | [`macos-install-guide.md`](./macos-install-guide.md) | macOS development setup |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Generated architecture reference |
