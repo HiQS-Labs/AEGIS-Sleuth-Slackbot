@@ -37,6 +37,25 @@ goal: >
   `AssigneeIDs`, legacy `AssigneeID` compatibility, membership-aware views/exports, and per-user
   Slack List fan-out. → [PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md](PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md)
 
+- **sanitize-scan.sh cannot run from a linked worktree (GH-25)** — the public repo's secret/PII gate
+  dies with `FATAL: … is not a git repository` (exit 2) in any `git worktree`, because
+  `utils/sanitize-scan.sh:80` tests `[ -d .git ]` and `.git` is a *file* in a linked worktree. CI and
+  DeployHQ are unaffected (`actions/checkout` makes a real `.git/`), so the cost is that the gate
+  cannot be run locally before pushing. One-line fix (`git rev-parse --git-dir`); the fail-closed
+  exit-2 contract must be preserved. Preflight **ready**. Phase p2 of the "Roundup" marathon. →
+  [PROJECT/2-WORKING/GH-25-SANITIZE-SCAN-WORKTREE.md](PROJECT/2-WORKING/GH-25-SANITIZE-SCAN-WORKTREE.md)
+
+- **RELEASES.md fixture error + Codename absorption (GH-26)** — `pdda.sh releases` has never reported
+  `errors=0`: a leftover `<!--test-->` fixture with an empty `Release:` keeps it red, which also
+  causes `pdda-doc-ready` to be skipped entirely. Second defect in the same file: a block's fields
+  are attributed to the *previous* block when they precede its own `Release:` line, so
+  `Codename: "Silverlining"` attaches to the fixture — observed live when a new block rendered as
+  `1.5.0 ("Silverlining")`. Worked around in PR #23 by appending last; the trap is still there and is
+  silent. Fix is delete-the-fixture plus a warn when a field precedes `Release:`. **Note:**
+  `utils/pdda/*` is synced from a canonical PDDA repo, so the check change must be pushed upstream or
+  the next `pdda-sync.sh push` overwrites it. Preflight **ready**. Phase p3 of "Roundup". →
+  [PROJECT/2-WORKING/GH-26-RELEASES-PARSING.md](PROJECT/2-WORKING/GH-26-RELEASES-PARSING.md)
+
 - **DM support gates (GH-412)** — a plain 1:1 DM to Sleuth today silently no-ops: reminders gates on
   a per-channel enabled-Set that defaults empty, and chat's hands-free mode requires `thread_ts` (a
   DM's first message is always top-level). Root cause traced to a plumbing gap — `MessageEventInfo`

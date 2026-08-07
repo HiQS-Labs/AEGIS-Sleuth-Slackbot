@@ -51,3 +51,33 @@ Description: Finish P3 Event-Sourced Core — the authority flip that has never 
   stop-and-re-decide checkpoint: reaching that checkpoint is a deliverable, not a gate to
   coast through. Step (1) alone is human-gated and could ship as 1.5.0 on its own.
   Plan: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md
+
+Release: 1.4.270
+Iterations: 1.4.270-1.4.279
+Status: Draft
+Codename: "Roundup"
+Milestone: Every open bug closed — correctness first, then the tooling that hides bugs
+Target Date:
+GH_URL:
+Front-door reviewed: No
+Shakedown reviewed: No
+License file: No
+Description: Clear the open-issue board. Three issues, deliberately ordered
+  user-facing-correctness first, then the tooling that makes bugs hard to see.
+  GH-22 (multiple reminder assignees) is the only user-visible defect: a reminder naming
+  two people is persisted and indexed for the first mention only, while its confirmation
+  claims both were scheduled, so the second person's `show-me` silently omits it. Plan
+  exists (additive AssigneeIDs, legacy AssigneeID compatibility, membership-aware
+  views/exports, per-user Slack List fan-out); implementation has not started.
+  GH-25 (sanitize-scan.sh cannot run from a linked worktree) and GH-26 (RELEASES.md
+  <!--test--> fixture errors every releases check, plus Codename absorbed by the preceding
+  block) are both tooling defects that make other problems harder to see rather than
+  breaking the product. GH-26 is what currently keeps `pdda.sh releases` from ever
+  reaching errors=0, which in turn skips `pdda-doc-ready` entirely.
+  Deliberately NOT included: the snapshot->Slack relay missing_scope failure (see
+  PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md). It is real and live since 2026-06-18, but
+  the fix is a Slack app admin re-granting a file-upload scope — an ops action with no code
+  change, so it cannot be a marathon phase.
+  Done when: GH-22, GH-25 and GH-26 are closed, `pdda.sh releases` reports errors=0, and
+  the full suite is green.
+  Plan: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md

@@ -248,3 +248,49 @@ preserved additive data rather than deleting the new field.
 - 2026-08-07: Promoted GH-22 directly to `2-WORKING` at the user's request for a full execution
   plan. Recorded an additive shared-reminder design to protect existing JSON, export, API, MCP,
   Lists, and rollback consumers before implementation begins.
+
+## Acceptance
+
+The first four are copied verbatim from issue #22; the rest are additions declared below.
+
+- [ ] A reminder mentioning two intended assignees appears in both users' `show-me` results.
+- [ ] A single-assignee and legacy reminder retain their existing behavior.
+- [ ] Tests cover multi-assignee creation, `show-me` filtering, persistence reload, and confirmation text.
+- [ ] `npm run build` and relevant reminder/show-me tests pass.
+- [ ] The confirmation message names exactly the users actually scheduled.
+- [ ] A reminder written by the new code remains readable by code that knows only `AssigneeID`.
+- [ ] Per-user Slack List fan-out reflects every assignee.
+- [ ] A regression test exists that fails against pre-fix code for the original symptom.
+- [ ] `npm test` and `npm run validate:fsm` are green.
+
+## Acceptance — deviations from the issue
+
+- [added] The confirmation message names exactly the users actually scheduled. — reason: the reported symptom is a mismatch between the confirmation and what was persisted; without this the bug can be "fixed" while the misleading message survives.
+- [added] A reminder written by the new code remains readable by code that knows only `AssigneeID`. — reason: `AssigneeID` is on disk in every live workspace, so the change must be backward and forward compatible to permit rollback.
+- [added] Per-user Slack List fan-out reflects every assignee. — reason: named in the plan doc's design and in the issue's goals, but absent from its acceptance list.
+- [added] A regression test exists that fails against pre-fix code for the original symptom. — reason: the issue asks for test coverage but not for a test that demonstrably reproduces the bug; a test written after the fix can pass without ever having exercised it.
+- [added] `npm test` and `npm run validate:fsm` are green. — reason: the issue names only `npm run build` and the reminder tests, but reminder writes go through FSM chokepoints checked by `scripts/validate-fsm-invariants.js`, so the FSM gate is load-bearing here.
+
+## Swarm Preflight Contract
+
+```json
+{
+  "target":      { "repo": ".", "ref": "development" },
+  "gate":        "npm test",
+  "fix_probes":  [ { "type": "path_absent", "path": "tests/reminders-multiple-assignees.test.js" } ],
+  "artifacts":   [
+    "src/reminders-module.js",
+    "src/reminders-display-utils.js",
+    "src/lists-module.js"
+  ]
+}
+```
+
+`ref` is `development`, not `main` — `development` is the primary branch (see `CONTRIBUTING.md` ->
+"Branches"). `gate` is `npm test` because this repo has no root-level `validate.sh`, which is the
+harness default.
+
+`artifacts[]` lists only files that **already exist** at `target.ref`; preflight verifies each one is
+present and fails the candidate otherwise. The new regression test is therefore *not* an artifact —
+it is the `fix_probe`. `path_absent` on `tests/reminders-multiple-assignees.test.js` flips exactly
+when the fix ships with its regression test, and not before.

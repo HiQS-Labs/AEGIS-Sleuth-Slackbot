@@ -1,0 +1,69 @@
+# MARATHON.yaml — "Ledger" (RELEASES.md → Release 1.5.0), Phase 3 ONLY.
+#
+# Run:
+#   .xyz/relay-automation/marathon.sh --plan PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON.yaml \
+#     --pre-advance-cmd "npm test"
+#
+# ALWAYS --dry-run first.
+#
+# --pre-advance-cmd IS REQUIRED. This repo has no root-level validate.sh, which is the default
+# pre-advance gate. Without the override the marathon fails fast rather than silently skipping the
+# gate — supply `npm test` (1513 tests, ~7s) as the real gate.
+#
+# ── PRECONDITION, NOT A PHASE ────────────────────────────────────────────────────────────────
+# Phase 3 may only start "after the Phase 2 cutover gate" (P3-EVENT-SOURCED-CORE.md § Phase 3).
+# That cutover is a HUMAN-GATED OPS ACTION and deliberately absent from this plan:
+#
+#   1. run `scripts/baseline-import.js --write` on prod
+#   2. flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`
+#
+# It is an operator decision with no code change, so it cannot be a marathon phase. Do not fire this
+# plan until it is done — otherwise Phase 3 builds a read-model over a substrate nobody reads.
+#
+# ── SCOPE CEILING ────────────────────────────────────────────────────────────────────────────
+# This marathon stops at the end of Phase 3. Phases 4-6 (boot-rebuild, migrate projections, retire
+# mutable writes) sit behind the stop-and-re-decide checkpoint from the Codex direction review
+# (2026-06-16) and must return as a FRESH proposal with evidence — not as a continuation of this
+# plan. Adding them here would be exactly the "coasting through the gate" the checkpoint exists to
+# prevent. Phase 7 is out of scope for release 1.5.0 entirely.
+#
+# Every phase below is strictly ADDITIVE: no reminder write-path change, no new authority boundary,
+# and no dependency from core reminder scheduling on entity resolution.
+
+name: ledger-p3-entity-linking
+
+phases:
+  - id: p1
+    name: Normalized projection inputs for entity linking
+    reviewer: agy
+    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p1-projection-inputs.md
+    artifact: src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js
+    turn_timeout_s: 900
+    max_review_rounds: 2
+
+  - id: p2
+    name: Candidate generation and multi-signal scoring
+    reviewer: agy
+    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p2-candidates-and-scoring.md
+    artifact: src/entity-linking.js,tests/entity-linking.test.js
+    turn_timeout_s: 900
+    max_review_rounds: 2
+    depends_on: p1
+
+  - id: p3
+    name: Clustering into canonical entities and alias table
+    reviewer: agy
+    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p3-clustering.md
+    artifact: src/entity-read-model.js,tests/entity-read-model.test.js
+    turn_timeout_s: 900
+    max_review_rounds: 2
+    depends_on: p2
+
+  - id: p4
+    name: Diagnostics, low-confidence queue, human override lane
+    reviewer: agy
+    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p4-diagnostics-and-override.md
+    artifact: scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js
+    turn_timeout_s: 900
+    max_review_rounds: 2
+    depends_on: p3
