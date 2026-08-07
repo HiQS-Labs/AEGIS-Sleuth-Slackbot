@@ -606,6 +606,15 @@ Minimum behavior:
 - **QA-gate field check** (optional fields): `warn` if `Front-door reviewed`, `Shakedown reviewed`,
   or `License file` is set but its value isn't exactly `Yes` or `No` (case-insensitive); a blank
   value is fine (not yet answered)
+- **iteration-band check** (optional field): `warn` if `Iterations` is set but isn't a well-formed
+  `<lo>-<hi>` band — both sides plain dotted-numeric, `lo` no greater than `hi`. Strict on purpose:
+  a band nobody can evaluate is worse than no band, because the duplicate check below silently
+  stops covering that release
+- **in-band duplicate check**: `warn` if a block's `Release:` version falls inside a *different*
+  block's reserved `Iterations` band. This is the admission rule made mechanical — a version inside
+  a band is already accounted for, so a block for it is by definition a duplicate. Only plain
+  dotted-numeric versions are tested; a prerelease or date-shaped version is left to human judgment
+  rather than guessed at
 - **never blocks, even in `full` mode** — this check does not gate its exit code at all, regardless
   of findings. The one `error` above (empty `Release:` value) is a malformed-doc guard, surfaced
   loudly so it isn't missed, but deliberately cannot fail a build
@@ -615,20 +624,47 @@ simplification over the old per-tag-doc check's issue/tag cross-checks against `
 
 #### RELEASES.md — release ledger
 
-`RELEASES.md` is a first-class root file, like `ROADMAP.md`/`CHANGELOG.md` — a single
-forward-looking planning ledger for major releases, not a lifecycle bucket of per-tag docs.
-Marathon plans and other forward planning cross-reference it for target release names/dates. It is
-not a history of what shipped — that's `CHANGELOG.md`; lessons learned belong there at ship time,
-not duplicated here.
+**`RELEASES.md` is an optional planning aid.** It is not a required artifact, not a checklist, and
+not something to keep topped up. An empty file, a stale file, or no file at all are all valid
+states — `pdda.sh releases` skips a missing file entirely ("RELEASES.md not found — nothing to
+check") and never blocks, even in `full` mode.
+
+**Do not proactively offer to fill it in, populate it, bring it current, or add a release that has
+already shipped. Do not treat a sparse file as an incomplete one.** Edit it only when an operator
+explicitly asks for release *planning*.
+
+That instruction is aimed at the reader who is likeliest to erode this file, which is increasingly
+an LLM maintainer. The failure mode is not one bad decision; it is a long series of individually
+reasonable offers to help — "want me to add the release you just shipped?" — that in aggregate turn
+a planning aid into a second, hand-maintained history of what shipped. Two sources of truth for the
+same fact is the defect, and it arrives one helpful suggestion at a time. `CHANGELOG.md` is the
+history. This file is not.
+
+What it *is*: a first-class root file, like `ROADMAP.md`/`CHANGELOG.md` — a single forward-looking
+planning ledger for major releases, not a lifecycle bucket of per-tag docs. Marathon plans and other
+forward planning cross-reference it for target release names/dates.
+
+**The admission rule.** A block earns its place by being worth *planning toward* — a named arc with
+a theme, usually carrying a target date and a milestone. If the only thing that can go in
+`Description:` is a restatement of what changed, it belongs in `CHANGELOG.md` and nowhere else.
+Everything below the threshold goes in an `Iterations:` band (see the field docs) rather than getting
+its own block.
+
+The test is the theme, not the paperwork: `Target Date:` and `Milestone:` are optional fields and
+their absence never disqualifies a block. A release can be worth planning toward before anyone knows
+when it lands.
 
 Format — one flat `Label: value` block per release, blank line between blocks (blank lines are
-just visual spacing; a new block starts at the next `Release:` line):
+just visual spacing; a new block starts at the next `Release:` line). Field order is not parsed and
+every field except `Release:` is optional, so a real block is usually shorter than this:
 
 ```text
 Release: 1.0.0
+Iterations: 1.0.0-1.0.4
 Status: Draft
 Target Date: 2026-07-31
 Codename: n/a
+Milestone:
 Description:
 GH_URL:
 Front-door reviewed:
@@ -642,9 +678,47 @@ Fields:
   an operator finds useful). **`Status: Shipped` is the sole "already shipped" signal** — both
   `pdda.sh releases`'s overdue nudge and `pdda.sh releases-current`'s "in progress" filter key off
   it exclusively. This is a rough signal, not a gated lifecycle — no fixed vocabulary is enforced.
+- `Iterations:` (optional) — a **reserved band of version numbers**, written `<lo>-<hi>` (e.g.
+  `0.2.0-0.2.4`). Versions inside a band ship freely and are recorded in `CHANGELOG.md` only; they
+  **never get a block here**, and the band deliberately does not enumerate them. Absence of the
+  field means no band is reserved.
+
+  **The band's owner is the one exception.** A band is written on the block it belongs to, and that
+  block's own `Release:` is the band's `<lo>` — so the owner sits inside its own band and keeps its
+  block. Every *other* version in the range is covered by the band and gets none. `pdda.sh releases`
+  identifies the owner by line, not by version text, so a second block that merely repeats the
+  owner's version is still caught as the duplicate it is.
+
+  This is what gives the admission rule an answer instead of an argument. "Where does 0.2.3 go?"
+  resolved case-by-case is resolved by adding a row, every time; with a band it has a written
+  answer, and `pdda.sh releases` can check it — a version inside an existing band is already
+  accounted for, so a block for it is by definition a duplicate. That is testable in a way "is this
+  release meaningful?" never will be.
+
+  **When a band is exhausted** — `0.2.5` is needed and the band ends at `0.2.4` — **widen the band.
+  Do not start enumerating, and do not add a block.** Promote to the next release only when the work
+  genuinely became a new arc with its own theme, never merely because the numbers ran out; a version
+  number driven by an accounting artifact is the convention rotting rather than holding.
+
+  Rejected alternative, recorded so it isn't re-proposed: persisting `Iteration 1:` … `Iteration 5:`
+  labels per release. That is 20–25 named rows across a five-release horizon, each an invitation to
+  fill in what shipped — the same drift, arriving as structure instead of as appended blocks. One
+  optional field beats five required ones.
 - `Target Date:` (optional) — `YYYY-MM-DD`; `pdda.sh releases` warns once this passes and `Status`
   doesn't read `Shipped`
 - `Codename:` (optional) — `n/a` is fine
+- `Milestone:` (optional) — free-text, unvalidated, the **release → issue-set join key**. It holds a
+  GitHub milestone *title*, so a release's scope can be queried rather than hand-maintained here:
+
+  ```bash
+  gh issue list --milestone "Quicksilver" --state open --json number,title,labels
+  ```
+
+  That query *is* release-driven work selection, with no second cache and no issue list copied into
+  this file — which is why the field is worth having and why it stays a pointer. Unvalidated for the
+  same reason as `Status:`: checking a title against GitHub would need a `gh` call, and this check is
+  deliberately network-free. **Not warned on when absent** — a release with no milestone is a normal
+  state, and a nudge here would recreate exactly the fill-it-in pressure this section exists to stop.
 - `Description:` (optional) — one line for now; grows into something richer only if needed
 - `GH_URL:` (optional) — populated once *a* GitHub Release object exists, including a draft (see
   `/release` skill). **This means "a Release object exists," not "shipped"** — a draft's `GH_URL`
@@ -663,10 +737,16 @@ gated lifecycle) rather than reintroducing the old rigid `Draft → RC → Publi
 QA-gate fields are the second: a real pre-release checklist need (open-sourcing a release means a
 front-door pass, a shakedown pass, and a `LICENSE` file all need to be true before shipping) that,
 unlike `Status`, has an unambiguous right answer — so they're validated `Yes`/`No` rather than free-text.
+`Iterations:` and `Milestone:` are the third pair, and both are additive: the parser ignores labels
+it doesn't know, absence means "not reserved" / "no milestone", and neither produces a finding in a
+ledger that has never used them. A repo can adopt them, or never hear of them, with no migration.
 
 Two skills operate on this file: `/release-plan` **authors** entries (interviews the operator,
 proposes a canonical version by cross-referencing `CHANGELOG.md`, previews, appends on confirmation)
-and `/release` **publishes** an existing entry to GitHub once its `Status` is ready to ship.
+and `/release` **publishes** an existing entry to GitHub once its `Status` is ready to ship. Both are
+operator-triggered by design and neither should be offered unprompted — a skill that exists to keep a
+file populated is the most efficient possible way to violate the optionality rule at the top of this
+section.
 
 #### `pdda.sh releases-current`
 

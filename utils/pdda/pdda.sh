@@ -652,12 +652,15 @@ check_issue_doc_sync() {
 #   (1) error — a "Release:" block has an empty version
 #   (2) warn  — Target Date is set but not a valid YYYY-MM-DD date
 #   (3) warn  — Target Date has passed and GH_URL is still empty (looks overdue/unshipped)
+#   (4) warn  — Iterations is set but isn't a well-formed "<lo>-<hi>" version band
+#   (5) warn  — a block's version falls inside another block's reserved Iterations band
 check_releases() {
   pdda_reset_counts
   local CHECK_NAME="pdda-check-releases" rc=0
   local RELEASES_FILE_EFF="${PDDA_RELEASES_FILE:-$PDDA_REPO_ROOT/RELEASES.md}"
   local release status target_date codename description gh_url line_no target_epoch today_epoch
   local status_lc front_door shakedown license_file qa_field qa_label qa_value qa_value_lc
+  local iterations milestone rows bands="" band_release band_lo band_hi band_line release_trimmed
 
   if [ ! -f "$RELEASES_FILE_EFF" ]; then
     pdda_record_finding info "$CHECK_NAME" "$RELEASES_FILE_EFF" 0 \
@@ -666,13 +669,64 @@ check_releases() {
     return "$(pdda_gated_exit 0)"
   fi
 
+  # A ledger with no blocks at all (header-only, or empty) is a VALID state under this contract —
+  # sparse is fine — so it reports exactly as clean as it did before this field pair existed. The
+  # guard exists because the here-doc loops below would otherwise see one empty line and fake a
+  # "block near line 0 has no version" error; it deliberately records NO finding of its own.
+  rows="$(pdda_releases_list "$RELEASES_FILE_EFF")"
+  if [ -z "$rows" ]; then
+    pdda_emit_summary "$CHECK_NAME" 0
+    return "$(pdda_gated_exit 0)"
+  fi
+
+  # Pass 1 — validate each Iterations band and remember the well-formed ones. A band reserves patch
+  # numbers that deliberately never get their own block (PROJECT/PDDA.md "RELEASES.md — release
+  # ledger"), which is what lets pass 2 test the admission rule mechanically instead of rhetorically.
   while IFS=$'\037' read -r release status target_date codename description gh_url \
-    front_door shakedown license_file line_no; do
+    front_door shakedown license_file iterations milestone line_no; do
+    iterations="$(pdda_trim "$iterations")"
+    [ -n "$iterations" ] || continue
+    if pdda_is_iteration_band "$iterations"; then
+      bands="${bands}${release}"$'\037'"${iterations%%-*}"$'\037'"${iterations#*-}"$'\037'"${line_no}"$'\n'
+    else
+      pdda_record_finding warn "$CHECK_NAME" "$RELEASES_FILE_EFF" "$line_no" \
+        "release '$release' Iterations '$iterations' is not a valid <lo>-<hi> version band (e.g. 0.2.0-0.2.4)" \
+        "fix-iterations-band"
+    fi
+  done <<EOF
+$rows
+EOF
+
+  while IFS=$'\037' read -r release status target_date codename description gh_url \
+    front_door shakedown license_file iterations milestone line_no; do
     if [ -z "$(pdda_trim "$release")" ]; then
       pdda_record_finding error "$CHECK_NAME" "$RELEASES_FILE_EFF" "$line_no" \
         "a 'Release:' block near line $line_no has no version" "fix-release-value"
       rc=1
       continue
+    fi
+
+    # Admission rule, made mechanical: a version inside another block's reserved band is already
+    # accounted for by that band, so a second block for it is by definition a duplicate. Only plain
+    # dotted-numeric versions are testable this way; anything else is left to human judgment.
+    #
+    # A band's OWNER is inside its own band by construction (0.2.0 owns 0.2.0-0.2.4), so it must not
+    # flag itself. Identity is the block's LINE, not its version text: comparing versions would let a
+    # second, genuinely duplicate `Release: 0.2.0` block hide behind the owner's identical value —
+    # exactly the case the check exists to catch.
+    release_trimmed="$(pdda_trim "$release")"
+    if pdda_is_dotted_version "$release_trimmed"; then
+      while IFS=$'\037' read -r band_release band_lo band_hi band_line; do
+        [ -n "$band_release" ] || continue
+        [ "$band_line" != "$line_no" ] || continue
+        [ "$(pdda_vercmp "$release_trimmed" "$band_lo")" != "-1" ] || continue
+        [ "$(pdda_vercmp "$release_trimmed" "$band_hi")" != "1" ] || continue
+        pdda_record_finding warn "$CHECK_NAME" "$RELEASES_FILE_EFF" "$line_no" \
+          "release '$release_trimmed' is inside the Iterations band $band_lo-$band_hi reserved by release '$(pdda_trim "$band_release")' (line $band_line) — already accounted for; record it in CHANGELOG.md instead of giving it a block" \
+          "in-band-release-block"
+      done <<EOF
+$bands
+EOF
     fi
 
     # Front-door reviewed / Shakedown reviewed / License file: optional pre-release QA-gate
@@ -714,7 +768,9 @@ check_releases() {
         "release '$release' Target Date '$target_date' has passed and Status isn't Shipped — overdue" \
         "overdue-release"
     fi
-  done < <(pdda_releases_list "$RELEASES_FILE_EFF")
+  done <<EOF
+$rows
+EOF
 
   pdda_emit_summary "$CHECK_NAME" "$rc"
   # Warn-only in spirit — never blocks, even in full mode (see PROJECT/PDDA.md section J). The one
@@ -732,7 +788,7 @@ check_releases() {
 cmd_releases_current() {
   local RELEASES_FILE_EFF="${PDDA_RELEASES_FILE:-$PDDA_REPO_ROOT/RELEASES.md}"
   local release status target_date codename description gh_url line_no status_lc any=0
-  local front_door shakedown license_file
+  local front_door shakedown license_file iterations milestone
 
   if [ ! -f "$RELEASES_FILE_EFF" ]; then
     printf '%s not found — nothing to report\n' "$(pdda_relpath "$RELEASES_FILE_EFF")"
@@ -741,7 +797,7 @@ cmd_releases_current() {
 
   printf 'PDDA releases-current — in-progress entries in %s\n' "$(pdda_relpath "$RELEASES_FILE_EFF")"
   while IFS=$'\037' read -r release status target_date codename description gh_url \
-    front_door shakedown license_file line_no; do
+    front_door shakedown license_file iterations milestone line_no; do
     [ -n "$(pdda_trim "$release")" ] || continue
     status_lc="$(printf '%s' "$(pdda_trim "$status")" | tr '[:upper:]' '[:lower:]')"
     [ "$status_lc" != "shipped" ] || continue
@@ -750,7 +806,9 @@ cmd_releases_current() {
     printf '\n• %s' "$release"
     [ -n "$codename" ] && printf ' (%s)' "$codename"
     printf ' — %s\n' "${status:-no Status set}"
+    [ -n "$iterations" ] && printf '    Iterations: %s (reserved; these ship without their own block)\n' "$iterations"
     [ -n "$target_date" ] && printf '    Target Date: %s\n' "$target_date"
+    [ -n "$milestone" ] && printf '    Milestone: %s\n' "$milestone"
     [ -n "$description" ] && printf '    %s\n' "$description"
     [ -n "$gh_url" ] && printf '    %s\n' "$gh_url"
   done < <(pdda_releases_list "$RELEASES_FILE_EFF")
@@ -821,7 +879,7 @@ _pdda_gov_scannable_lines() {
 # run, and those never look like (a) or (b): they carry arguments. `` `.xyz/utils/marathon-plan.sh
 # --help` `` and a bare `utils/pdda/pdda-sync.sh push` inside a ```bash fence both name a real file, yet
 # neither closes its span right after the suffix. A router can therefore point every agent at a script
-# that does not exist and no check would ever see it — which is exactly how the ClientB-Analytics install
+# that does not exist and no check would ever see it — which is exactly how the LTVera-Pandas install
 # shipped a router full of scripts its target never received.
 #
 # Scope of (c) is deliberately narrow: the token must open the span or the line, which is where a shell
@@ -875,8 +933,28 @@ _pdda_gov_extract_refs() {
 # folders) aren't precise path claims, so only a filename absent everywhere counts as truly dead. A
 # ref WITH a directory component stays a precise claim: if that exact path is wrong, that IS the bug
 # (e.g. a doc pointing at PROJECT/2-WORKING/X.md after X.md was completed and moved to 3-COMPLETED/).
+# Escape a literal string so it can be handed to `find -name` without being read as a glob pattern
+# (backslash and the four fnmatch metacharacters). Used only for GH-34-safe bare-filename lookups.
+_pdda_gov_glob_escape() {
+  local s="$1" out="" i c
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      '\'|'*'|'?'|'['|']') out+="\\$c" ;;
+      *) out+="$c" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# Derive a bare name's cache key (a checksum of the name; collisions are possible and handled by the
+# caller, which always verifies the stored name before trusting the stored path).
+_pdda_gov_cache_key() {
+  printf '%s' "$1" | cksum | awk '{print $1}'
+}
+
 _pdda_gov_resolve_ref() {
-  local ref="$1" from_dir="$2" path candidate found p
+  local ref="$1" from_dir="$2" cache_dir="${3:-}" path candidate found p esc key name_file path_file cached_name cache_hit
   path="${ref%%#*}"
   case "$path" in
     http://*|https://*|//*) return 1 ;;
@@ -886,14 +964,45 @@ _pdda_gov_resolve_ref() {
     *)
       candidate="$PDDA_REPO_ROOT/$path"
       if [ ! -f "$candidate" ]; then
-        # basename match must be LITERAL, not a glob: `find -name "$path"` would read a markdown-link
-        # ref of `build[1].sh` (whose extraction class admits [ ] * ?) as a pattern and resolve it
-        # against a DIFFERENT file `build1.sh`, scoring a dead ref live. Compare basenames as strings.
-        # First traversal match wins, preserving the previous `| head -1` semantics. GH-34.
         found=""
-        while IFS= read -r -d '' p; do
-          if [ "${p##*/}" = "$path" ]; then found="$p"; break; fi
-        done < <(find "$PDDA_REPO_ROOT" -not -path '*/.git/*' -print0 2>/dev/null)
+        cache_hit=0
+        if [ -n "$cache_dir" ] && [ -d "$cache_dir" ]; then
+          # GH-48 (round 4): check_governance already ran ONE whole-tree `find` for every unique bare
+          # name across the whole run and populated this cache — a pure read here, no traversal. Each
+          # entry is TWO files (the verbatim looked-up name + its resolved path/"-" sentinel), never one
+          # file with an internal delimiter — the cache key is a 32-bit checksum, which *can* collide
+          # for two different names, and a delimiter-based format would then either merge or corrupt
+          # both entries. Two whole-file reads instead: read the stored name back and compare it to
+          # `$path` before trusting the stored path.
+          key="$(_pdda_gov_cache_key "$path")"
+          name_file="$cache_dir/$key.name"
+          path_file="$cache_dir/$key.path"
+          if [ -f "$name_file" ]; then
+            cached_name="$(cat "$name_file" 2>/dev/null)"
+            if [ "$cached_name" = "$path" ]; then
+              found="$(cat "$path_file" 2>/dev/null)"
+              [ "$found" = "-" ] && found=""
+              cache_hit=1
+            fi
+            # else: a genuine collision (this key's slot holds a DIFFERENT name) — fall through to the
+            # single-name scan below rather than treating $path as confirmed-dead. Round 4 review caught
+            # that the previous version stopped here and silently reported a real, colliding file dead.
+          fi
+        fi
+        if [ "$cache_hit" != "1" ]; then
+          # Either no usable batch cache (mktemp/find failed building it, check_governance didn't build
+          # one, or this specific key collided with a different name) — fall back to a single-name
+          # `find` so `$path` still resolves correctly. Slower than the batch cache for this one name,
+          # but correctness-preserving; the batch cache is what the speed fix actually relies on for the
+          # common (no collision, cache built fine) case. `$path` is glob-escaped (GH-34) so it still
+          # can't be misread as a pattern, and no `-type` filter is applied (first traversal match wins,
+          # any type — see check_governance's batch build for the full rationale, identical here).
+          esc="$(_pdda_gov_glob_escape "$path")"
+          found=""
+          while IFS= read -r -d '' p; do
+            found="$p"; break
+          done < <(find "$PDDA_REPO_ROOT" -not -path '*/.git/*' -name "$esc" -print0 2>/dev/null)
+        fi
         [ -n "$found" ] && candidate="$found"
       fi
       ;;
@@ -927,6 +1036,87 @@ check_governance() {
   # warn-only: markdown-reference extraction from free-form prose is inherently more heuristic than
   # the mechanical checks above (frontmatter, status-table), so a false flag costs one ignorable line
   # rather than blocking a build even in full mode — same calibration as check_stale/check_changelog.
+  # GH-48 (round 4): batch-resolve every unique bare (no-directory-component) reference across ALL
+  # scanned docs in exactly ONE whole-tree `find` call, before doing anything else — the DoD is one
+  # traversal per check_governance run, not one per unique name (a per-name `find`, even memoized,
+  # still multiplies with the number of DISTINCT dead names on a doc set with many different missing
+  # bare mentions). Pass 1 below just extracts and collects candidate names (cheap text processing on
+  # a handful of small governance docs — re-running it is not the expensive part, the tree walk is);
+  # pass 2, further down, is the existing per-ref loop, unchanged except it now reads a fully-populated
+  # cache instead of resolving anything itself.
+  local gov_ref_cache_dir="" gov_names_file="" gov_uniq_names_file=""
+  local gov_find_args gov_name gov_p gov_bn gov_key
+  gov_ref_cache_dir="$(mktemp -d 2>/dev/null || true)"
+  if [ -n "$gov_ref_cache_dir" ]; then
+    gov_names_file="$(mktemp 2>/dev/null || true)"
+    if [ -n "$gov_names_file" ]; then
+      for doc in $present_docs; do
+        abs_file="$PDDA_REPO_ROOT/$doc"
+        is_shipped_doc=0
+        case " $shipped_docs " in *" $doc "*) is_shipped_doc=1 ;; esac
+        while IFS=$'\t' read -r line_no text; do
+          [ -n "$line_no" ] || continue
+          while IFS= read -r ref; do
+            [ -n "$ref" ] || continue
+            if [ "$is_shipped_doc" -eq 1 ]; then
+              ref_path="${ref%%#*}"
+              while :; do
+                case "$ref_path" in
+                  ../*) ref_path="${ref_path#../}" ;;
+                  ./*) ref_path="${ref_path#./}" ;;
+                  *) break ;;
+                esac
+              done
+              case " $ref_exempt " in *" $ref_path "*) continue ;; esac
+            fi
+            case "$ref" in
+              http://*|https://*|//*|/*|./*|../*|*/*) continue ;;   # not a bare-name fallback candidate
+            esac
+            ref_path="${ref%%#*}"
+            [ -f "$PDDA_REPO_ROOT/$ref_path" ] && continue          # resolves directly, no lookup needed
+            printf '%s\n' "$ref_path" >> "$gov_names_file"
+          done <<< "$(_pdda_gov_extract_refs "$text")"
+        done < <(_pdda_gov_scannable_lines "$abs_file")
+      done
+      if [ -s "$gov_names_file" ]; then
+        gov_uniq_names_file="$(mktemp 2>/dev/null || true)"
+        if [ -n "$gov_uniq_names_file" ]; then
+          LC_ALL=C sort -u "$gov_names_file" > "$gov_uniq_names_file"
+          gov_find_args=()
+          while IFS= read -r gov_name; do
+            [ -n "$gov_name" ] || continue
+            [ ${#gov_find_args[@]} -gt 0 ] && gov_find_args+=(-o)
+            gov_find_args+=(-name "$(_pdda_gov_glob_escape "$gov_name")")
+          done < "$gov_uniq_names_file"
+          if [ ${#gov_find_args[@]} -gt 0 ]; then
+            while IFS= read -r -d '' gov_p; do
+              gov_bn="${gov_p##*/}"
+              gov_key="$(_pdda_gov_cache_key "$gov_bn")"
+              [ -f "$gov_ref_cache_dir/$gov_key.name" ] && continue   # first traversal match wins
+              printf '%s' "$gov_bn" > "$gov_ref_cache_dir/$gov_key.name"
+              printf '%s' "$gov_p"  > "$gov_ref_cache_dir/$gov_key.path"
+            done < <(find "$PDDA_REPO_ROOT" -not -path '*/.git/*' \( "${gov_find_args[@]}" \) -print0 2>/dev/null)
+          fi
+          # GH-48 (round 5 follow-up): `find` only ever reports MATCHES, so a genuinely dead name never
+          # got a cache entry above — every confirmed-dead reference still re-triggered its own fallback
+          # `find` in _pdda_gov_resolve_ref, the exact per-name traversal cost this fix exists to remove.
+          # Second pass: any unique name still without an entry after the batch find truly has no match
+          # anywhere (or lost a same-key collision to a different name, in which case it correctly falls
+          # back on lookup regardless — same as a live colliding name) — cache it as a verified "-" miss
+          # so a repeat mention of the same dead name doesn't re-scan either.
+          while IFS= read -r gov_name; do
+            [ -n "$gov_name" ] || continue
+            gov_key="$(_pdda_gov_cache_key "$gov_name")"
+            [ -f "$gov_ref_cache_dir/$gov_key.name" ] && continue
+            printf '%s' "$gov_name" > "$gov_ref_cache_dir/$gov_key.name"
+            printf '%s' "-"         > "$gov_ref_cache_dir/$gov_key.path"
+          done < "$gov_uniq_names_file"
+          rm -f "$gov_uniq_names_file"
+        fi
+      fi
+      rm -f "$gov_names_file"
+    fi
+  fi
   for doc in $present_docs; do
     abs_file="$PDDA_REPO_ROOT/$doc"
     from_dir="$(dirname "$abs_file")"
@@ -949,13 +1139,14 @@ check_governance() {
           done
           case " $ref_exempt " in *" $ref_path "*) continue ;; esac
         fi
-        resolved="$(_pdda_gov_resolve_ref "$ref" "$from_dir")" || continue
+        resolved="$(_pdda_gov_resolve_ref "$ref" "$from_dir" "$gov_ref_cache_dir")" || continue
         [ -f "$resolved" ] && continue
         pdda_record_finding warn "$CHECK_NAME" "$abs_file" "$line_no" \
           "dead reference '$ref' — no file at $(pdda_relpath "$resolved")" "fix-dead-reference"
       done <<< "$(_pdda_gov_extract_refs "$text")"
     done < <(_pdda_gov_scannable_lines "$abs_file")
   done
+  [ -n "$gov_ref_cache_dir" ] && rm -rf "$gov_ref_cache_dir"
 
   # --- (2) orphan governance docs: a present doc the index doc never points at --------------------
   index_abs="$PDDA_REPO_ROOT/$index_doc"
