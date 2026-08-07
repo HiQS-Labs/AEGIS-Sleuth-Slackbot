@@ -269,9 +269,16 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
       (24 * 60 * 60 * 1000)
   );
 
-  const TaggedUser = ArgReminder.AssigneeID
-    ? `<@${ArgReminder.AssigneeID}>`
-    : `<@${ArgReminder.OriginalSenderID}>`;
+  // AssigneeIDs is normalized by RemindersModule before display. Keep the singular legacy fallback
+  // so a caller rendering an old in-memory record still tags its established owner.
+  const AssigneeIDs = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
+    ? ArgReminder.AssigneeIDs
+    : [ArgReminder.AssigneeID || ArgReminder.OriginalSenderID];
+  const TaggedUser = AssigneeIDs
+    .filter(ArgAssigneeID => typeof ArgAssigneeID === 'string' && ArgAssigneeID.length > 0
+      && ArgAssigneeID !== ArgSlackApp.BotUserID)
+    .map(ArgAssigneeID => `<@${ArgAssigneeID}>`)
+    .join(', ');
 
   const CompactLine = BuildCompactReminderLine({
     Label: ArgLabel,

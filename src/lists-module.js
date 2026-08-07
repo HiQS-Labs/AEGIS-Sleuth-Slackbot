@@ -1253,11 +1253,17 @@ class ListsModule {
       });
     }
 
-    // mirror into the assignee's durable per-user list, if they have one registered.
-    const AssigneeID = ArgReminder.AssigneeID || ArgReminder.OriginalSenderID;
-    const UserContext = AssigneeID ? this.#UserContexts.get(AssigneeID) : null;
-    if(UserContext && UserContext.IsReady && !UserContext.ItemCache.has(ArgReminder.ReminderID)) {
-      await this.#CreateListItemAsync(UserContext, ArgReminder, { UpdateCache: true });
+    // Fan one shared reminder out into every registered assignee context. Each context cache is
+    // keyed by reminder ID, so this remains one row per list and one lifecycle across all owners.
+    const AssigneeIDs = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
+      ? [...new Set(ArgReminder.AssigneeIDs)]
+      : [ArgReminder.AssigneeID || ArgReminder.OriginalSenderID];
+    for(const AssigneeID of AssigneeIDs) {
+      if(typeof AssigneeID !== 'string' || !AssigneeID || AssigneeID === this.#SlackApp.BotUserID) continue;
+      const UserContext = this.#UserContexts.get(AssigneeID);
+      if(UserContext && UserContext.IsReady && !UserContext.ItemCache.has(ArgReminder.ReminderID)) {
+        await this.#CreateListItemAsync(UserContext, ArgReminder, { UpdateCache: true });
+      }
     }
 
     return SharedOk;
@@ -2541,11 +2547,16 @@ class ListsModule {
 
     // if the reminder is assigned to a different user with their own registered list, mirror
     // there too. Without this, a row in Alice's list assigned to Bob never appears in Bob's list.
-    const AssigneeID = NewReminder.AssigneeID || NewReminder.OriginalSenderID;
-    const AssigneeContext = AssigneeID ? this.#UserContexts.get(AssigneeID) : null;
-    if(AssigneeContext && AssigneeContext !== ArgContext && AssigneeContext.IsReady
-      && !AssigneeContext.ItemCache.has(NewReminder.ReminderID)) {
-      await this.#CreateListItemAsync(AssigneeContext, NewReminder, { UpdateCache: true });
+    const AssigneeIDs = Array.isArray(NewReminder.AssigneeIDs) && NewReminder.AssigneeIDs.length > 0
+      ? [...new Set(NewReminder.AssigneeIDs)]
+      : [NewReminder.AssigneeID || NewReminder.OriginalSenderID];
+    for(const AssigneeID of AssigneeIDs) {
+      if(typeof AssigneeID !== 'string' || !AssigneeID || AssigneeID === this.#SlackApp.BotUserID) continue;
+      const AssigneeContext = this.#UserContexts.get(AssigneeID);
+      if(AssigneeContext && AssigneeContext !== ArgContext && AssigneeContext.IsReady
+        && !AssigneeContext.ItemCache.has(NewReminder.ReminderID)) {
+        await this.#CreateListItemAsync(AssigneeContext, NewReminder, { UpdateCache: true });
+      }
     }
 
     this.#SlackApp.Logger.info(

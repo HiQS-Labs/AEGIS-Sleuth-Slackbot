@@ -107,3 +107,10 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+- Updated `src/reminders-module.js` with an additive authoritative `AssigneeIDs` contract, legacy `AssigneeID` mirror, load-time normalization, per-assignee indexing/digest candidates, multi-mention scheduling, and accurate shared-work confirmation text. `ReminderCreated` now includes additive `assigneeIds`.
+- Updated `src/reminders-display-utils.js` to render every normalized owner and `src/lists-module.js` to fan one shared reminder to every registered assignee List (while retaining one row per list/reminder ID).
+- Added `tests/reminders-multiple-assignees.test.js`; the focused test passes via `npx jest --runInBand tests/reminders-multiple-assignees.test.js`, covering two-owner creation/persistence/confirmation, legacy normalization, bot/duplicate filtering, membership, and compact rendering.
+- Breadcrumb/scope finding: `src/chat-commands/show-me-context.js` still performs the pre-existing singular `AssigneeID === userId` filter. It is outside this turn's explicit editable paths, so the required second-assignee `show-me` regression cannot be wired to the canonical membership helper without expanded edit permission. I did not introduce a proxy/duplicate-record workaround because it would violate the plan's one-shared-reminder lifecycle.
