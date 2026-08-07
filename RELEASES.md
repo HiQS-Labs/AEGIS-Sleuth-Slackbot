@@ -28,29 +28,54 @@ Release: 1.5.0
 Iterations: 1.5.0-1.5.9
 Status: Draft
 Codename: "Ledger"
-Milestone: The event log is the source of truth — mutable writes retired
+Milestone: The log is authoritative for reminders, mutable writes retired, every switch still flips back
 Target Date:
 GH_URL:
 Front-door reviewed: No
 Shakedown reviewed: No
 License file: No
-Description: Finish P3 Event-Sourced Core — the authority flip that has never happened.
-  Today the log is written but never read as truth: 4 reminder-domain event types, 3 of
-  ~10 modules dual-writing, 1 projection (summarize-week) shipped behind a default-OFF
-  flag, no boot-time rebuild, and client/project mapping still a plain mutable store.
-  Phases 0-2 are done and validated against real prod data — the GH-355 baseline import
-  took the prod shadow-diff from 11 mismatches to 0, leaving only a documented +/-1ms
-  completedMs divergence. So the remaining work is cutover and consolidation, not
-  discovery.
+Description: Take P3 Event-Sourced Core through the authority flip, for the reminders
+  domain, behind reversible switches. Today the log is written but never read as truth:
+  4 reminder-domain event types, 1 projection (summarize-week) shipped behind a
+  default-OFF flag, no boot-time rebuild, and client/project mapping still a plain
+  mutable store. Phases 0-2 are done and validated against real prod data — the GH-355
+  baseline import took the prod shadow-diff from 11 mismatches to 0, leaving only a
+  documented +/-1ms completedMs divergence. The remaining work is cutover, not discovery.
+  Scope decision (operator, 2026-08-07): proceed aggressively through Phases 3, 4 and 5
+  rather than stopping at Phase 3 — on the condition that every authority flip is a
+  switch that can be flipped back. That condition is the gate now, replacing the earlier
+  stop-and-re-decide checkpoint for these phases.
+  REVERSIBILITY CONTRACT — binding on every phase in this release:
+  (a) every flip is an env var, default OFF, unset = today's behavior byte-for-byte;
+  (b) mutable JSON writes CONTINUE at every phase, so the fallback is never stale;
+  (c) any projection error falls back to the authoritative store, logged, never surfaced
+      to the user — the pattern already shipped at reminders-app-mention-handler.js:1250;
+  (d) each phase ships a TESTED rollback, not a claimed one: a test that flips the switch
+      off and asserts correct behavior. A rollback path never exercised is not a rollback.
+  (e) staged rollout, one workspace first, per the Phase 4 spec.
   Done when: (1) SUMMARIZE_WEEK_COMPLETED_SOURCE=projection runs live on prod after the
-  baseline import; (2) Phase 3 entity-linking read-model exists in code — today
-  client-mapping.js references EventStore zero times; (3) Phase 4 rebuilds projections
-  from the log at boot; (4) Phase 5 migrates the remaining projections; (5) Phase 6
-  retires mutable writes.
-  Phase 7 (fork unlock) is explicitly OUT of scope. Phases 4-6 keep their
-  stop-and-re-decide checkpoint: reaching that checkpoint is a deliverable, not a gate to
-  coast through. Step (1) alone is human-gated and could ship as 1.5.0 on its own.
+  baseline import; (2) Phase 3 entity-linking read-model exists — client-mapping.js
+  references EventStore zero times today; (3) Phase 4 rebuilds reminder/completion state
+  from the log at boot, behind a flag, with JSON still written as the escape hatch;
+  (4) Phase 5 migrates _reminders.json, _completed.json and the rebalance export to
+  folds, with a parity harness proving byte-compatibility before each cutover.
+  (5) Phase 6a retires the MUTABLE write path — CompletionStore collapses into a
+  projection, the bespoke durability queue and FlushAsync shutdown coupling are deleted,
+  and snapshotting/compaction lands. The JSON keeps being produced, but as a DERIVED
+  snapshot written through durable-write.js rather than by mutable in-place writes. That
+  is what keeps it reversible: the fallback file stays fresh and legacy-loadable, so
+  rollback is still a flag flip, while the old machinery is genuinely gone.
+  HELD as its own later release — Phase 6b: dropping the derived writer entirely, so no
+  on-disk fallback exists at all. That is the only genuinely one-way step in Phase 6, and
+  it is separated out deliberately rather than bundled with the cleanup that does not need
+  to be one-way. It should only be taken after 6a has soaked in production and snapshot
+  restore has been exercised for real.
+  Phase 7 (fork unlock) remains out of scope.
+  Note on scope of the words "full event sourcing": P3 covers the REMINDERS/COMPLETION
+  domain. chat, settings, stats, github-sync, notion and snapshot-relay emit no events and
+  are not part of this release.
   Plan: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md
+  Marathon: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON.yaml
 
 Release: 1.4.270
 Iterations: 1.4.270-1.4.279
