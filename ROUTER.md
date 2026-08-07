@@ -3,6 +3,13 @@
 This file is the first entry point for an AI agent working in this repo: it tells you what to read,
 what to run, and which files are canonical.
 
+## Branches
+
+`development` is the **primary branch** (the repo default). Cut work from it and target PRs at it.
+`main` is the **release branch** — protected, requires the `test` check, and production deploys from
+it. `development` is intentionally unprotected: CI runs there but does not block. Full contract in
+`CONTRIBUTING.md` -> "Branches"; deploy split in `docs/deployhq.md`.
+
 ## Role split
 
 - `ROUTER.md` = startup order and canonical entry points
@@ -17,7 +24,8 @@ what to run, and which files are canonical.
   product principles — those live in `AGENTS.md` / `ARCHITECTURE-DECISIONS.md`)
 - `README.md` = human-facing repo/product overview
 - `docs/getting-started.md` = human first-run onboarding (requirements checklist + clone → Slack → verify)
-- `docs/deployhq.md` = operator deploy path (DeployHQ for development + production; no GitHub Actions)
+- `docs/deployhq.md` = operator deploy path (DeployHQ for development + production; deploys do not
+  use GitHub Actions — Actions still runs PR/push CI and the secret scans, see GH-15)
 - `ARCHITECTURE.md` = living canonical system design; `ARCHITECTURE-DECISIONS.md` = graph-derived
   snapshot of past decisions (regenerated via `codebase-memory-mcp`, not hand-authored — see its file
   header for regen steps)

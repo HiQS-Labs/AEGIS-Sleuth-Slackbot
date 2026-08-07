@@ -228,6 +228,18 @@ Keep `npm run build` passing (`checkJs` + `noImplicitAny` workflow).
 - For reminder pipeline changes, include reviewer confirmation that snooze behavior is preserved:
   - `#ShouldSuppressForSnooze(...)` is used in the path, or a documented and approved bypass exists.
 
+## 10b) Branches
+
+`development` is the **primary branch** and the repo default. Cut feature branches from it and open
+PRs into it.
+
+`main` is the **release branch**: protected, requires the `test` status check, and production
+deploys from it. Promote by opening a PR from `development` into `main`.
+
+`development` is deliberately **unprotected** — CI runs on it but nothing blocks a merge. Do not
+read a merged commit on `development` as a passing one; check the run. The enforced gate is the
+`development` -> `main` PR, so anything unverified accumulates until then.
+
 ## 11) Releasing
 
 The `version` in `package.json` describes what is **released**, not what is merged. Feature PRs must
