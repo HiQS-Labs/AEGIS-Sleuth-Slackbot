@@ -33,6 +33,35 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.264 - 2026-08-06
+Housekeeping on how my own changes get merged. Two proposed changes at the same time used to trip
+over each other every single time, because both edited the same version line — and twice this week
+they picked the same number, which looks identical and so merges "cleanly" while being wrong. From
+now on that number is set once, when a release actually goes out. I also added a tripwire so the
+safety checks on my public code can't be switched off again without somebody being told.
+
+**Technical:** Two process fixes, no runtime behavior change.
+- **GH-17** — feature PRs no longer bump `package.json`'s `version`; `AGENTS.md` §8 now says so and a
+  new §11 (Releasing) puts the bump at release time, matched to the newest `CHANGELOG.md` heading.
+  A version describes a *release*, not a change. Consequence, stated deliberately: `src/app.js:123`
+  reports `PackageJson.version`, so between a merge and a release it reports the previous number —
+  which is the honest answer, since that is what is deployed. `package-lock.json` has already been
+  9 versions behind with no ill effect. `CHANGELOG.md` still collides on the insert anchor; the
+  fragment-file fix for that is deliberately deferred and noted in GH-17 so it does not sprawl.
+- **GH-18** — `.deploybuild.yaml` gained one step asserting `.github/workflows/ci.yml` exists and
+  still carries its `pull_request:` and `schedule:` triggers. It lives in DeployHQ rather than in
+  GitHub Actions for a specific reason: a check inside `ci.yml` cannot notice `ci.yml` being deleted
+  (1.4.261) — it simply stops running. A different system still fires. Verified in four directions,
+  not just the happy one: passes on the current tree, fails on a stripped copy, fails on a missing
+  file, and fails against the *real* `workflow_dispatch`-only version from GH-12's branch that git
+  had merged with no conflict at all.
+- The guard carries its own escape hatch in the failure message: if Actions is ever removed on
+  purpose, delete the step in the same change. #lessonslearned: 1.4.261 broke because removing a
+  provider and relaxing the rule depending on it were treated as two changes instead of one — a
+  guard that recreates that coupling silently would be the same bug wearing a hat, so this one says
+  out loud, at the moment it fires, what to do about it.
+- This entry deliberately ships with **no `package.json` bump** — the first change to follow GH-17.
+
 ## 1.4.263 - 2026-08-06
 If I get killed hard — an OOM kill, a container evict, someone pulling the plug on the box — while
 I'm part-way through saving, I no longer lose your data to a half-written file. Every file I treat
