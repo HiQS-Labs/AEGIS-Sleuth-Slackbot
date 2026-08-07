@@ -97,7 +97,32 @@ pdda_trim() {
 }
 
 pdda_json_escape() {
-  node -e 'process.stdout.write(JSON.stringify(process.argv[1]).slice(1, -1))' "$1"
+  if command -v node >/dev/null 2>&1; then
+    node -e 'process.stdout.write(JSON.stringify(process.argv[1]).slice(1, -1))' "$1"
+  else
+    # GH-48: node isn't guaranteed on PATH (e.g. a launchd/cron caller with a minimal PATH) — degrade
+    # to a pure-shell escape instead of silently emitting nothing (which corrupted activity-log JSON).
+    local s="$1" out="" i c ord
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    s="${s//$'\b'/\\b}"
+    s="${s//$'\f'/\\f}"
+    # JSON forbids any other raw C0 control byte (0x00-0x1F) in a string literal too — a real path or
+    # message is very unlikely to carry one, but the degrade path must still emit valid JSON when it
+    # does, not just for the common cases above. \0 can't occur (bash strings can't hold a NUL byte).
+    for (( i = 0; i < ${#s}; i++ )); do
+      c="${s:i:1}"
+      ord="$(printf '%d' "'$c" 2>/dev/null)"
+      if [ -n "$ord" ] && [ "$ord" -lt 32 ]; then
+        printf -v c '\\u%04x' "$ord"
+      fi
+      out+="$c"
+    done
+    printf '%s' "$out"
+  fi
 }
 
 # Build one JSON object (the canonical finding shape) and print it to stdout.
@@ -428,32 +453,45 @@ pdda_write_gh_state_cache() {  # <table>
 
 # List releases as rows of
 #   <release><US><status><US><target_date><US><codename><US><description><US><gh_url><US>
-#   <front_door><US><shakedown><US><license_file><US><line>
+#   <front_door><US><shakedown><US><license_file><US><iterations><US><milestone><US><line>
 # (US = ASCII unit separator 0x1F, not tab — bash's `read` collapses empty fields around literal
 # tabs since tab counts as "IFS whitespace" regardless of IFS's contents, which would silently
 # misalign every block with a blank Description/GH_URL, i.e. the common case here). One row per
 # block, in file order. Prints nothing (silently) if the file doesn't exist.
 #
+# THIS ROW SHAPE IS INTERNAL, AND ADDING A FIELD IS A BREAKING CHANGE. Callers read it positionally
+# with `read -r`, and there is no position that is safe to extend: a new field before <line> shifts
+# <line> onto the wrong variable, and one after it makes bash's last-variable-absorbs-the-rest rule
+# fold the extras into <line>. So <line> stays last as a record terminator, and every reader must be
+# updated in the SAME change — `check_releases` and `cmd_releases_current` are the only two, and
+# test/pdda-releases-iterations.sh pins the field count so a future addition can't drift silently.
+# The stable, external surface for other tooling is `pdda.sh releases-current`, not this helper.
+#
 # `Status:` is free-text (Draft/Working/Shipped/... — whatever an operator writes) and unvalidated
 # by design: it's a rough, non-authoritative signal for "what's in progress," not a gated lifecycle
-# field. `Front-door reviewed:`/`Shakedown reviewed:`/`License file:` are optional Yes/No QA-gate
-# fields (`pdda.sh releases` warns on a non-Yes/No value). See PROJECT/PDDA.md "RELEASES.md —
-# release ledger".
+# field. `Milestone:` is free-text for the same reason — it carries a GitHub milestone *title* so a
+# release's scope can be queried (`gh issue list --milestone "<title>"`) instead of hand-listed here.
+# `Front-door reviewed:`/`Shakedown reviewed:`/`License file:` are optional Yes/No QA-gate fields,
+# and `Iterations:` is an optional reserved version band (`pdda.sh releases` warns on a malformed
+# value for either). See PROJECT/PDDA.md "RELEASES.md — release ledger".
 pdda_releases_list() {
   local file="$1"
   [ -f "$file" ] || return 0
   awk '
     function flush() {
       if (has_release) {
-        printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%d\n", release, status, target_date, codename, description, gh_url, front_door, shakedown, license_file, release_line
+        printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%d\n", release, status, target_date, codename, description, gh_url, front_door, shakedown, license_file, iterations, milestone, release_line
       }
       release=""; status=""; target_date=""; codename=""; description=""; gh_url=""
-      front_door=""; shakedown=""; license_file=""; release_line=0; has_release=0
+      front_door=""; shakedown=""; license_file=""; iterations=""; milestone=""
+      release_line=0; has_release=0
     }
     /^Release:/             { flush(); v=$0; sub(/^Release:[[:space:]]*/, "", v); release=v; has_release=1; release_line=NR; next }
     /^Status:/              { v=$0; sub(/^Status:[[:space:]]*/, "", v); status=v; next }
+    /^Iterations:/          { v=$0; sub(/^Iterations:[[:space:]]*/, "", v); iterations=v; next }
     /^Target Date:/         { v=$0; sub(/^Target Date:[[:space:]]*/, "", v); target_date=v; next }
     /^Codename:/             { v=$0; sub(/^Codename:[[:space:]]*/, "", v); codename=v; next }
+    /^Milestone:/           { v=$0; sub(/^Milestone:[[:space:]]*/, "", v); milestone=v; next }
     /^Description:/         { v=$0; sub(/^Description:[[:space:]]*/, "", v); description=v; next }
     /^GH_URL:/               { v=$0; sub(/^GH_URL:[[:space:]]*/, "", v); gh_url=v; next }
     /^Front-door reviewed:/ { v=$0; sub(/^Front-door reviewed:[[:space:]]*/, "", v); front_door=v; next }
@@ -461,4 +499,46 @@ pdda_releases_list() {
     /^License file:/        { v=$0; sub(/^License file:[[:space:]]*/, "", v); license_file=v; next }
     END { flush() }
   ' "$file"
+}
+
+# Compare two dotted-numeric versions; echoes -1 / 0 / 1 for a<b / a==b / a>b. Missing and
+# non-numeric components read as 0. Deliberately NOT a semver implementation — it exists only to
+# answer "does this version fall inside a reserved Iterations band", and callers gate it behind
+# pdda_is_dotted_version so prerelease/date-shaped values never reach it.
+pdda_vercmp() {
+  awk -v a="$1" -v b="$2" '
+    BEGIN {
+      na = split(a, x, "."); nb = split(b, y, ".")
+      n = (na > nb ? na : nb)
+      for (i = 1; i <= n; i++) {
+        ai = (i <= na ? x[i] + 0 : 0); bi = (i <= nb ? y[i] + 0 : 0)
+        if (ai < bi) { print -1; exit }
+        if (ai > bi) { print  1; exit }
+      }
+      print 0
+    }'
+}
+
+# True if the value is a plain dotted-numeric version (1, 1.2, 0.2.14 — not v1.2.3, not 1.0.0-rc1).
+pdda_is_dotted_version() {
+  case "$1" in
+    "" | *[!0-9.]* | .* | *. | *..*) return 1 ;;
+  esac
+  return 0
+}
+
+# True if the value is a well-formed reserved-iteration band: exactly "<lo>-<hi>", both plain
+# dotted-numeric versions, lo <= hi. Strict on purpose — a band is only useful if the containment
+# test in `pdda.sh releases` can be trusted, so anything ambiguous (a prerelease hyphen, a reversed
+# range) warns rather than being silently half-parsed. See PROJECT/PDDA.md "RELEASES.md — release
+# ledger" → `Iterations:`.
+pdda_is_iteration_band() {
+  local band="$1" lo hi
+  case "$band" in *-*) ;; *) return 1 ;; esac
+  lo="${band%%-*}"
+  hi="${band#*-}"
+  pdda_is_dotted_version "$lo" || return 1
+  pdda_is_dotted_version "$hi" || return 1
+  [ "$(pdda_vercmp "$lo" "$hi")" != "1" ] || return 1
+  return 0
 }

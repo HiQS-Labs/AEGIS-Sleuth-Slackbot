@@ -8,7 +8,7 @@ any such copy can find the canonical repo without guessing.
 ## Canonical repo
 
 - name: `pdda`
-- remote: `https://github.com/<pdda-org>/pdda` (private; ask the maintainers for access)
+- remote: `https://github.com/Hypercart-Dev-Tools/pdda`
 - canonical paths inside it: `utils/pdda/` (this runtime), `PROJECT/PDDA.md` (the document contract)
 
 ## Is *this* copy the canonical repo?
@@ -46,7 +46,7 @@ that hangs.
 3. If neither finds it (different machine, CI, fresh checkout), clone it fresh:
 
    ```
-   git clone https://github.com/<pdda-org>/pdda.git
+   git clone https://github.com/Hypercart-Dev-Tools/pdda.git
    ```
 
 Machine-local registries such as `${XDG_CONFIG_HOME:-$HOME/.config}/xyz/registry.tsv` or

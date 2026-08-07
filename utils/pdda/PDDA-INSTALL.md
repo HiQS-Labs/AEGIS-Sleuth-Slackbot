@@ -116,6 +116,7 @@ utils/pdda/pdda-catchup.sh
 utils/pdda/pdda-gh-refresh.sh
 utils/pdda/pdda-edit-doc-hook.sh
 utils/pdda/pdda-stop-doc-health.sh
+utils/pdda/PDDA-SOURCE.md
 ```
 
 The shipped runtime lives in its own `utils/pdda/` subfolder so it never mixes with a target repo's
@@ -132,7 +133,10 @@ consumers — chiefly the `Stop` hook — have last-known state without anyone r
 `utils/pdda/pdda-stop-doc-health.sh` (tier 2, a `Stop` consolidated full-scan) are the optional
 doc-health hooks — installs receive the scripts but **opt in by wiring them in their own
 `.claude/settings.json`** (see PROJECT/PDDA.md → "Doc-health hooks"); nothing is written into the
-target's hook config automatically.
+target's hook config automatically. `utils/pdda/PDDA-SOURCE.md` is a static resolver doc, not a
+script — it ships with every install (and rides along into any nested vendored copy, e.g.
+`.xyz/utils/pdda/`) so an agent standing in a copy can trace back to this canonical repo; see that
+file for the lookup recipe.
 
 ## Files to create in the target repo
 
@@ -147,6 +151,7 @@ PROJECT/4-MISC/
 utils/pdda/
 ROADMAP.md
 CHANGELOG.md
+RELEASES.md
 PROJECT/PDDA-ACTIVITY.jsonl
 ```
 
@@ -168,7 +173,7 @@ Create a fresh empty file instead.
 
 1. Create the target directories listed above. -> expect `PROJECT/` and `utils/` to exist.
 2. Copy the canonical install-set files verbatim to the same relative paths in the target repo. -> expect `PROJECT/PDDA.md` and all shipped `utils/pdda-*.sh` files to exist.
-3. Create baseline `ROADMAP.md` and `CHANGELOG.md` files if the target repo does not already have them. -> expect the roadmap contract to have a file to guard and the changelog check to warn less.
+3. Create baseline `ROADMAP.md`, `CHANGELOG.md`, and `RELEASES.md` files if the target repo does not already have them. -> expect the roadmap contract to have a file to guard, the changelog check to warn less, and a release-planning ledger to exist. `RELEASES.md` is the one optional member of that set: `pdda.sh releases` skips a missing file and never blocks, so a repo that never plans a release arc can delete it and stay green. It is seeded only so the format is discoverable — not as a file to keep populated (see `PROJECT/PDDA.md` -> "RELEASES.md — release ledger").
 4. Create an empty `PROJECT/PDDA-ACTIVITY.jsonl` if it does not exist. -> expect a zero- or low-byte log file, not this repo's historical log.
 4a. Add `PROJECT/PDDA-ACTIVITY.jsonl` and `.pdda-gh-state.tsv` to the target's `.gitignore` (and `git rm --cached` any that are already tracked). -> expect the churning runtime state to stop dirtying `git status` on every run.
 4b. Record the install in the per-user, machine-local registry `${XDG_CONFIG_HOME:-$HOME/.config}/pdda/registry.tsv` (one tab-delimited row per target: `target · last_install_utc · mode · source_commit · startup_docs`; latest install wins). -> expect `pdda-sync.sh` to read this to find copies that are behind. Machine-local, never committed; `--no-register` or `PDDA_REGISTRY` adjust it.
@@ -299,6 +304,7 @@ utils/pdda/pdda-sync.sh register [--mode observe|light|full] [--with-startup-doc
 utils/pdda/pdda-sync.sh push [/path/to/repo]
 utils/pdda/pdda-sync.sh push --dry-run        # preview copies AND deletions, write nothing
 utils/pdda/pdda-sync.sh push --no-delete      # copy/update only, skip canonical-side deletions
+utils/pdda/pdda-sync.sh push --force-resync   # overwrite DIVERGED targets (each backed up first)
 
 utils/pdda/pdda-sync.sh list                  # registered targets + mode/source-commit/sync state
 utils/pdda/pdda-sync.sh status [/path/to/repo]# read-only: current/behind/diverged/missing/to-delete
@@ -311,9 +317,18 @@ utils/pdda/pdda-sync.sh uninstall-agent
 ```
 
 **Safety:** `push` only overwrites a file when the canonical repo's copy has genuinely advanced (content hash, not
-mtime), so deliberate local edits between releases are preserved; any overwrite of a *diverged* target
-and any canonical-side deletion is backed up first under `temp/pdda-sync-backups/` (kept to the last
-`PDDA_SYNC_BACKUPS`, default 5). A dirty canonical repo is refused (`--allow-dirty` to override). Canonical-side deletions
+mtime), so deliberate local edits between releases are preserved. **A preserved file is reported as
+`diverged`, never as a skip** — a target that changed out-of-band (a manual edit, a `git checkout`, an
+agent-harness containment revert) would otherwise stay stale indefinitely behind a summary line that
+reads clean (GH-59). `push DONE` carries a `diverged=N` count and warns in words when it is non-zero;
+`--force-resync` overwrites them. Note the scope of that promise: **preservation lasts only while
+canonical has not advanced for that file.** Once it does, the normal update overwrites the local copy
+(after backing it up) — `diverged` is a "you have unreconciled local content" signal, not an
+indefinite hold. Any overwrite whose target is **not** provably a previous push of ours — no recorded
+stamp, or content changed since that stamp — is backed up first, as is any canonical-side deletion,
+under `temp/pdda-sync-backups/` (kept to the last `PDDA_SYNC_BACKUPS`, default 5; a routine
+already-in-sync update is deliberately *not* backed up, so those five slots keep holding the
+snapshots that actually contain unrecoverable local content). A dirty canonical repo is refused (`--allow-dirty` to override). Canonical-side deletions
 mirror to targets, but a **manifest-poisoning guard** aborts the delete phase before touching any target
 if a declared source root resolves to zero files, the manifest is empty, or it shrank past
 `PDDA_SYNC_MAX_SHRINK`% (default 25) — override only with `--force-delete`.
