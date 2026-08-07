@@ -246,6 +246,7 @@ sudo systemctl status sleuth-app.service
 ```
 
 Full walkthrough: [`docs/server-installation-guide.md`](docs/server-installation-guide.md).
+Routine deploys (dev + production): [`docs/deployhq.md`](docs/deployhq.md) — DeployHQ, not GitHub Actions.
 macOS development setup: [`macos-install-guide.md`](./macos-install-guide.md).
 
 ## Configuration reference
@@ -331,6 +332,7 @@ policy, supported versions and scope: [`SECURITY.md`](./SECURITY.md).
 | **[`docs/getting-started.md`](docs/getting-started.md)** | **Start here** — full requirements checklist + step-by-step first run |
 | [`docs/slack-app-setup.md`](docs/slack-app-setup.md) | Slack app manifest and credential collection |
 | [`docs/web-api.md`](docs/web-api.md) | Web API endpoints — workspace management |
+| [`docs/deployhq.md`](docs/deployhq.md) | **Deploy path** — DeployHQ for development and production (no GitHub Actions) |
 | [`docs/server-installation-guide.md`](docs/server-installation-guide.md) | Full Linux server install |
 | [`macos-install-guide.md`](./macos-install-guide.md) | macOS development setup |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Generated architecture reference |

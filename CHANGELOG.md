@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 1.4.261 - 2026-08-04
+## 1.4.263 - 2026-08-06
 If I get killed hard — an OOM kill, a container evict, someone pulling the plug on the box — while
 I'm part-way through saving, I no longer lose your data to a half-written file. Every file I treat
 as authoritative (your pending reminders, completion history, settings, the event ledger) is now
@@ -75,6 +75,44 @@ Shape is temp → `fsync` file → `rename` → `fsync` parent dir, with unique 
   untouched. #lessonslearned: a gate that cannot fail proves nothing — and a gate that fails is a
   hypothesis, not a verdict. Both directions bit during this work; see the Lessons Learned section
   in the project doc.
+
+## 1.4.262 - 2026-08-06
+Correcting yesterday's change. When I moved deploys to DeployHQ I also deleted my GitHub Actions
+workflow — and that workflow was the only thing checking my public code for leaked passwords and
+API keys that actually still work. It was also the only thing my own merge rules were waiting on, so
+every proposed change was stuck and could only be merged by switching those rules off by hand. The
+workflow is back. DeployHQ still owns deploys; nothing about how I reach your servers changed.
+
+**Technical:** Restores `.github/workflows/ci.yml` verbatim (`git checkout 5733b5f --`), reverting
+that part of 1.4.261. Two defects, one cause — `jobs.test` was the sole producer of the `test`
+status context that `main`'s branch protection still requires, so with zero workflows registered
+every PR sat at `BLOCKED` and needed a manual protection lift to merge. The same deletion removed
+both TruffleHog steps, and `.deploybuild.yaml` never carried them: it preserves `npm ci`, `npm run
+build`, `npm test`, and `utils/sanitize-scan.sh`, but nothing that verifies whether a detected
+credential is live. Full-tree coverage came only from the `schedule` + `workflow_dispatch` events
+(push/PR events give TruffleHog just the event diff), so the weekly whole-repo scan vanished too.
+- The `push:` trigger is deliberately kept. Dropping it was proposed and rejected during the agy
+  cross-model review: a merge commit can carry secrets present in **neither** parent (conflict
+  resolution), so nothing would scan them until the following Monday. 1.4.261 itself landed via
+  manual conflict resolution.
+- Verified no branch-protection change is needed to merge this: same-repo PRs resolve workflows from
+  the head ref, so the fix branch satisfies its own required check.
+- #lessonslearned: removing a CI provider and relaxing the branch protection that depends on it are
+  one change, not two. 1.4.261's note that this repo "no longer uses GitHub Actions for CI" was
+  true for deploys and wrong for gating — Actions still owns pre-merge checks and secret scanning.
+- Full diagnosis, rejected alternatives, and scope fence in
+  `PROJECT/1-INBOX/GH-15-CI-DEADLOCK-AND-SECRET-SCAN-REGRESSION.md`.
+
+## 1.4.261 - 2026-08-06
+I've switched how I get to your servers: **DeployHQ** now owns development and production deploys,
+and this public repo no longer uses GitHub Actions for CI. Quality gates (typecheck, tests, secret
+scan) run in DeployHQ’s build pipeline before code lands on the box.
+
+**Technical:** Added `.deploybuild.yaml`, `.deployignore`, and `scripts/deploy.sh` (canonical
+post-deploy: stop → `npm ci --omit=dev` → start). Documented the full path in `docs/deployhq.md`.
+`scripts/server-install.sh` defaults to `DEPLOY_METHOD=deployhq` (skips self-hosted runners;
+`github-actions` remains as a legacy opt-in). Removed `.github/workflows/ci.yml`. Updated
+`docs/server-installation-guide.md`, `docs/SSH.md`, `CONTRIBUTING.md`, `README.md`, and `ROUTER.md`.
 
 ## 1.4.260 - 2026-08-01
 `ask-reminders` was answering "Sorry — couldn't access reminder data" to every question. I could

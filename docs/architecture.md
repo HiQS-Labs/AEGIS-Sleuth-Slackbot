@@ -526,14 +526,13 @@ WantedBy=multi-user.target
 
 ### Deployment Process
 
-1. **GitHub Actions**: Automated deployment on push to main
-2. **Self-hosted Runner**: Executes deployment scripts
-3. **Service Management**: 
+1. **DeployHQ**: Build pipeline (`.deploybuild.yaml`) then SSH upload to `/root/sleuth-app` — see [`docs/deployhq.md`](deployhq.md)
+2. **Post-deploy**: `scripts/deploy.sh` on the server
+3. **Service Management**:
    - Stop service
-   - Pull latest code
-   - Install dependencies
+   - Install production dependencies (`npm ci --omit=dev`)
    - Restart service
-4. **Notification**: Posts update message to all workspace reminder channels
+4. **Notification**: Posts update message to all workspace reminder channels (when startup messages are enabled)
 
 ### Monitoring & Logging
 

@@ -29,12 +29,20 @@ npm test
 open a pull request; if a test is failing on `main`, say so in the PR rather than working around it.
 
 There are also standing validation gates (`npm run validate:*`) covering prompt catalogs, FSM
-invariants, workspace isolation, reminder rendering, and changelog tone. CI runs them.
+invariants, workspace isolation, reminder rendering, and changelog tone. **Run them locally** —
+this public repo has no GitHub Actions CI. DeployHQ’s build pipeline (`.deploybuild.yaml`) is the
+gate on deploys to development and production; see [`docs/deployhq.md`](docs/deployhq.md).
+
+Install local git hooks so the secret scan runs before commit:
+
+```bash
+npm run hooks:install
+```
 
 ### The secret gate
 
-`utils/sanitize-scan.sh` runs in CI and blocks credentials, real infrastructure addresses, and
-personal data from entering the tree. Run it locally before pushing:
+`utils/sanitize-scan.sh` blocks credentials, real infrastructure addresses, and personal data from
+entering the tree. Run it locally before pushing (DeployHQ also runs it on every deploy):
 
 ```bash
 ./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt
