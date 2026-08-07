@@ -2,7 +2,7 @@
 title: Sleuth Roadmap
 status: Active
 created: 2026-06-21
-updated: 2026-07-23
+updated: 2026-08-07
 branch: development
 goal: >
   Lightweight, manually-maintained ledger of Sleuth work — what's in progress, what's next,
@@ -30,6 +30,12 @@ goal: >
      can feed that tool directly. Same content as before — reformatted, not rewritten. -->
 
 ### In progress
+
+- **Multiple reminder assignees (GH-22)** — a reminder with two people is persisted and indexed for
+  only the first mention, while its confirmation says it was scheduled for both; consequently the
+  second user's `show-me` omits it. Active plan defines one shared reminder with additive
+  `AssigneeIDs`, legacy `AssigneeID` compatibility, membership-aware views/exports, and per-user
+  Slack List fan-out. → [PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md](PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md)
 
 - **DM support gates (GH-412)** — a plain 1:1 DM to Sleuth today silently no-ops: reminders gates on
   a per-channel enabled-Set that defaults empty, and chat's hands-free mode requires `thread_ts` (a
