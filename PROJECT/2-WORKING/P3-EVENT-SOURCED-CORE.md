@@ -15,6 +15,7 @@ risk: 2
 effort: 4
 phases: 8
 related:
+  - RELEASES.md -> Release 1.5.0 "Ledger" — the finish-line goal post for this plan (band 1.5.0-1.5.9)
   - PROJECT/RELAY/summarize-week-completion-review.md
   - PROJECT/RELAY/p3-event-sourced-core-review.md
   - PROJECT/2-WORKING/P1-SPLIT.md
