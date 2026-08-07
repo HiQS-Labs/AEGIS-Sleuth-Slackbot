@@ -1,6 +1,7 @@
 
 // import required modules.
 const fs = require('fs').promises;
+const { WriteFileDurableAsync } = require('./durable-write');
 const path = require('path');
 
 /**
@@ -85,7 +86,7 @@ class SettingsModule {
    */
   async SaveAsync() {
     const Data = JSON.stringify(this.Settings, null, 2);
-    await fs.writeFile(this.#SettingsFilePath, Data, 'utf8');
+    await WriteFileDurableAsync(this.#SettingsFilePath, Data); // crash-atomic (GH-12)
   }
 
   /**

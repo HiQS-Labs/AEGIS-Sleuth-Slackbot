@@ -132,9 +132,13 @@ We would rather you find this here than discover it later.
 | Plugin system | **Early** — real loader, one reference plugin |
 | Append-only event ledger | **Groundwork.** It writes in production but is authoritative for nothing. AEGIS is *not* an event-sourced system today |
 
-**The one structural caveat you should weigh:** persistence is mutable JSON with no `fsync`
-anywhere. That is durable against a graceful restart or deploy — the design goal — but **not**
-against a hard kill mid-write. AEGIS cannot claim crash-safety, and we do not.
+**The structural caveat you should weigh:** persistence is mutable JSON. Every authoritative write
+is now atomic and `fsync`'d — temp file, `fsync`, `rename`, `fsync` the parent directory — so a hard
+kill mid-write can no longer truncate a store. That is verified by a crash-injection harness that
+`SIGKILL`s a writer mid-write: the old path corrupts 14 times in 100, the new path zero. Read that
+as a *corruption* guarantee, not a *loss* guarantee — an unacknowledged write can still be lost, and
+killing a process does not empty the OS page cache, so this demonstrates atomicity rather than
+survival of actual power loss.
 
 AEGIS is proven for *reliability and longevity*, not for *scale*: it is a single in-house
 deployment under light load. Nothing here has been load-tested.

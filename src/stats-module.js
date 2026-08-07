@@ -1,6 +1,7 @@
 
 // import required modules.
 const fs = require('fs').promises;
+const { WriteFileDurableAsync } = require('./durable-write');
 const path = require('path');
 
 /**
@@ -200,7 +201,7 @@ class StatsModule {
       const StatsData = JSON.stringify(this.Stats, null, 2);
 
       // write the stats to disk.
-      await fs.writeFile(this.#StatsFilePath, StatsData, 'utf8');
+      await WriteFileDurableAsync(this.#StatsFilePath, StatsData); // crash-atomic (GH-12)
     } catch(error) {
       this.#SlackApp.Logger.error("failed to save stats file:", error);
       throw error;

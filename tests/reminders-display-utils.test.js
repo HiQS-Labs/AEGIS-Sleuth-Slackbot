@@ -34,7 +34,7 @@ describe('TruncateCompactSummary', () => {
   test('does not sever a Slack token (<@mention> / <url|label>) mid-bracket', () => {
     // place a long mention token straddling the cut boundary.
     const Prefix = 'x'.repeat(MAX_COMPACT_SUMMARY_LENGTH - 5);
-    const Long = `${Prefix} <@U0123456789|alice> tail`;
+    const Long = `${Prefix} <@U07ALICE99|alice> tail`;
     const Result = TruncateCompactSummary(Long);
     // either the whole token survives, or it is dropped entirely — never a dangling '<'.
     const OpenCount = (Result.match(/</g) || []).length;

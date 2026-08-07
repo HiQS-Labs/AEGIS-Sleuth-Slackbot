@@ -211,3 +211,48 @@ test('readAll skips unknown event types (forward-compatible)', async (t) => {
   const Events = await Store.readAll('ws');
   assert.deepStrictEqual(Events.map(e => e.id), ['evt_known'], 'unknown type skipped, never thrown');
 });
+
+// GH-12 Phase 4 (agy review). NormalizeEvent keeps a shallow reference to the caller's payload, so
+// serializing inside the write chain captured whatever the object looked like when the chain got
+// there — not what the caller submitted. Pre-existing, but Phase 4 widened the window ~57x by
+// making each chain link an fsync'd append (~5.7ms) instead of an unsynced one (~0.1ms).
+test('append snapshots the payload at call time, not at write time', async () => {
+  const RootDir = await MakeRootDir();
+  const Store = createEventStore({ rootDir: RootDir });
+
+  const Event = MakeCreated({ id: 'evt_snap', reminderId: 'rem_snap' });
+  Event.payload.text = 'ORIGINAL';
+  const Pending = Store.append('ws', Event);
+  // Caller mutates synchronously, before the chain reaches the write.
+  Event.payload.text = 'MUTATED-AFTER-APPEND';
+  await Pending;
+
+  const Events = await Store.readAll('ws');
+  assert.strictEqual(Events[0].payload.text, 'ORIGINAL', 'must persist the value submitted, not a later mutation');
+});
+
+// append() must never reject at the call site, so an unserializable payload resolves { ok:false }.
+test('a circular payload resolves ok:false instead of throwing', async () => {
+  const RootDir = await MakeRootDir();
+  const Store = createEventStore({ rootDir: RootDir });
+
+  const Event = MakeCreated({ id: 'evt_circ', reminderId: 'rem_circ' });
+  Event.payload.self = Event.payload;
+
+  const Result = await Store.append('ws', Event);
+  assert.strictEqual(Result.ok, false, 'unserializable payload must not be written');
+  assert.ok(Result.error, 'and must report an error rather than throwing');
+});
+
+// The root directory is created once per store, not once per append — it sits on the fsync'd
+// hot path now, so an avoidable syscall there is no longer free.
+test('appends still work after the root dir is created once', async () => {
+  const RootDir = await MakeRootDir();
+  const Store = createEventStore({ rootDir: RootDir });
+
+  await Store.append('ws', MakeCreated({ id: 'evt_a', reminderId: 'rem_a' }));
+  await Store.append('ws', MakeCreated({ id: 'evt_b', reminderId: 'rem_b' }));
+
+  const Events = await Store.readAll('ws');
+  assert.deepStrictEqual(Events.map(e => e.id), ['evt_a', 'evt_b']);
+});

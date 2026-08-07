@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { WriteFileDurableSync } = require('../durable-write');
 const SlackFormatUtils = require('../slack-format-utils');
 const {
   ResolveMentionToUserId,
@@ -57,7 +58,8 @@ function SaveProjectMap(ArgWorkspaceId, ArgMap) {
   if(!ArgWorkspaceId) return;
   try {
     fs.mkdirSync(RUNTIME_MAP_DIR, { recursive: true });
-    fs.writeFileSync(GetProjectMapPath(ArgWorkspaceId), JSON.stringify(ArgMap, null, 2), 'utf8');
+    // Crash-atomic (GH-12); sync variant because SaveProjectMap is a synchronous helper.
+    WriteFileDurableSync(GetProjectMapPath(ArgWorkspaceId), JSON.stringify(ArgMap, null, 2));
   } catch(_) {
     // fail open — a write failure must never block show-me-projects.
   }

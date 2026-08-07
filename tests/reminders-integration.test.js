@@ -2744,10 +2744,18 @@ describe('RemindersModule integration via MockSlackApp', () => {
 
     /**
      * Read persisted reminders back from disk with date revival.
+     *
+     * Flushes the module's save chain first. Since GH-12 a save is a crash-atomic write — roughly
+     * eight syscalls (open, write, fsync, close, rename, then the parent directory) where it used to
+     * be a single `fs.writeFile` — so it no longer reliably completes inside one
+     * `advanceTimersByTimeAsync` flush. These assertions are about persisted state, so they must
+     * await durability explicitly rather than assume it.
+     * @param {any} ArgModule Reminders module whose pending saves must land first.
      * @param {string} ArgFilePath Path to the reminders JSON file.
      * @returns {Promise<import('../src/reminders-module').ReminderInfo[]>}
      */
-    async function ReadPersistedAsync(ArgFilePath) {
+    async function ReadPersistedAsync(ArgModule, ArgFilePath) {
+      await ArgModule.FlushRemindersAsync();
       const Raw = await fs.readFile(ArgFilePath, 'utf8');
       return JSON.parse(Raw, (ArgKey, ArgValue) =>
         (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue
@@ -2793,13 +2801,13 @@ describe('RemindersModule integration via MockSlackApp', () => {
         // ── BEFORE due: one natural cycle at now = Base + 30s < DueAt -> no post, still scheduled.
         await jest.advanceTimersByTimeAsync(ReminderCheckIntervalMs);
         expect(SlackApp.SentMessages.filter(m => m.text.includes('Timer-driven due boundary task'))).toHaveLength(0);
-        let Persisted = await ReadPersistedAsync(RuntimePaths.remindersFilePath);
+        let Persisted = await ReadPersistedAsync(Reminders, RuntimePaths.remindersFilePath);
         expect(Persisted[0].State).toBe('scheduled');
 
         // ── AFTER due: second natural cycle at now = Base + 60s >= DueAt -> posts, then reschedules.
         await jest.advanceTimersByTimeAsync(ReminderCheckIntervalMs);
         expect(SlackApp.SentMessages.filter(m => m.text.includes('Timer-driven due boundary task'))).toHaveLength(1);
-        Persisted = await ReadPersistedAsync(RuntimePaths.remindersFilePath);
+        Persisted = await ReadPersistedAsync(Reminders, RuntimePaths.remindersFilePath);
         expect(Persisted[0].State).toBe('scheduled'); // posted -> rescheduled to next day -> scheduled.
         expect(Persisted[0].ShouldPostOn.getTime()).toBeGreaterThan(DueAt.getTime());
       } finally {
@@ -2856,7 +2864,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
         // IgnoreSnooze reminder: posts despite the snooze day.
         expect(SlackApp.SentMessages.filter(m => m.text.includes('Urgent weekend task'))).toHaveLength(1);
 
-        const Persisted = await ReadPersistedAsync(RuntimePaths.remindersFilePath);
+        const Persisted = await ReadPersistedAsync(Reminders, RuntimePaths.remindersFilePath);
         const Snoozed = Persisted.find(r => r.ReminderID === 'timer-snooze-0001-0001-000000000001');
         expect(Snoozed.State).toBe('scheduled');
         expect(Snoozed.ShouldPostOn.getTime()).toBeGreaterThan(BaseTime.getTime());

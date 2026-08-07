@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs').promises;
+const { WriteFileDurableAsync } = require('./durable-write');
 
 /**
  * Manages per-channel OpenAI model overrides for chat replies.
@@ -112,7 +113,7 @@ class ChannelModelSettings {
       // convert the Map to a plain object and write JSON.
       const PlainObject = Object.fromEntries(this.#ModelsByChannel);
       const FileText = JSON.stringify(PlainObject, null, 2);
-      await fs.writeFile(this.#FilePath, FileText, 'utf8');
+      await WriteFileDurableAsync(this.#FilePath, FileText); // crash-atomic (GH-12)
       this.#SlackApp.Logger.info("saved", this.#ModelsByChannel.size, "channel model overrides to file.");
     } catch(error) {
       // log and propagate the error if saving fails.

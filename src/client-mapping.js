@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { WriteFileDurableSync } = require('./durable-write');
 
 // ponytail: env override so tests can point at their own fixture instead of overwriting the real
 // file. The previous hack wrote the fixture over data/static/client-channel-mapping.json and
@@ -359,7 +360,10 @@ function WriteClientOverlaySync(ArgWorkspaceName, ArgOverlay) {
   }
   fs.mkdirSync(OverlayDirPath, { recursive: true });
   const OverlayPath = path.join(OverlayDirPath, `${ArgWorkspaceName}.json`);
-  fs.writeFileSync(OverlayPath, `${JSON.stringify(ArgOverlay, null, 2)}\n`, 'utf8');
+  // Crash-atomic (GH-12). Kept SYNCHRONOUS deliberately: this function is `...Sync` by name and
+  // contract, and its callers are synchronous. WriteFileDurableSync exists precisely so this call
+  // site gains durability without an async refactor rippling through them.
+  WriteFileDurableSync(OverlayPath, `${JSON.stringify(ArgOverlay, null, 2)}\n`);
   ReloadClientMappings(ArgWorkspaceName);
   return OverlayPath;
 }

@@ -1,4 +1,5 @@
 const fs = require('fs').promises;
+const { WriteFileDurableAsync, SweepStaleTempsAsync } = require('./durable-write');
 
 /**
  * Sleuth-owned record of completed reminders, independent of Slack Lists.
@@ -50,14 +51,44 @@ class CompletionStore {
    * @returns {Promise<void>}
    */
   async LoadAsync() {
+    // Clear temps stranded beside the store by an earlier hard kill (GH-12). SIGKILL cannot run
+    // cleanup, so without this they accumulate for the life of the deployment.
+    //
+    // SweepStaleTempsAsync is contractually non-throwing, but this sits before the load's own
+    // error handling, so belt-and-braces: housekeeping must never be the reason a store fails to
+    // start. (agy Phase 3 review found two real escape paths in that contract.)
     try {
-      const Raw = await fs.readFile(this.#FilePath, 'utf8');
-      const Parsed = JSON.parse(Raw);
-      this.#Records = Array.isArray(Parsed) ? Parsed.filter(IsValidRecord) : [];
+      await SweepStaleTempsAsync(this.#FilePath, { Logger: this.#SlackApp.Logger });
     } catch(error) {
+      this.#SlackApp.Logger.warn('completion-store: temp sweep failed, continuing with load:', error);
+    }
+
+    let Raw = null;
+    try {
+      Raw = await fs.readFile(this.#FilePath, 'utf8');
+    } catch(error) {
+      // A missing file is the ordinary first-run case and must stay silently recoverable — a fresh
+      // workspace has to be able to save. Any other read failure also degrades to empty, but is
+      // logged. Neither is quarantined: bytes we could not read are not bytes we know to be bad.
       if(!error || error.code !== 'ENOENT') {
         this.#SlackApp.Logger.error('completion-store: failed to load history, starting empty:', error);
       }
+      this.#Records = [];
+      return;
+    }
+
+    try {
+      const Parsed = JSON.parse(Raw);
+      if(!Array.isArray(Parsed)) {
+        throw new Error(`expected a JSON array, found ${Parsed === null ? 'null' : typeof Parsed}`);
+      }
+      this.#Records = Parsed.filter(IsValidRecord);
+    } catch(error) {
+      // Bytes exist but cannot be trusted. Previously this degraded to an empty set and the next
+      // Record() call persisted that empty set straight over the survivor data — up to a year of
+      // completion history gone silently (GH-12). Move the bytes aside first so they stay
+      // recoverable, then continue empty rather than blocking the store.
+      await this.#QuarantineCorruptFileAsync(error);
       this.#Records = [];
     }
     // Make load-time pruning durable: if anything aged out, write the pruned set back now rather
@@ -190,10 +221,39 @@ class CompletionStore {
     return this.#WriteChain;
   }
 
+  /**
+   * Move a corrupt history file aside so its bytes stay recoverable.
+   *
+   * Never throws: a failed quarantine must not stop the store from loading. It is logged loudly
+   * though, because in that case the next Record() will overwrite the file and the bytes are
+   * genuinely lost.
+   * @param {Error} ArgCause Parse or shape error that triggered the quarantine.
+   * @returns {Promise<void>}
+   */
+  async #QuarantineCorruptFileAsync(ArgCause) {
+    const Stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const QuarantinePath = `${this.#FilePath}.corrupt-${Stamp}`;
+    try {
+      await fs.rename(this.#FilePath, QuarantinePath);
+      this.#SlackApp.Logger.error(
+        `completion-store: history file was unreadable (${ArgCause.message}) and has been quarantined to ` +
+        `${QuarantinePath}. Starting empty; the original bytes are preserved for recovery.`
+      );
+    } catch(renameError) {
+      this.#SlackApp.Logger.error(
+        `completion-store: history file was unreadable (${ArgCause.message}) and could NOT be quarantined:`,
+        renameError, '— the next write will overwrite it and the original bytes will be lost.'
+      );
+    }
+  }
+
   /** @returns {Promise<void>} */
   async #PersistAsync() {
     try {
-      await fs.writeFile(this.#FilePath, JSON.stringify(this.#Records, null, 2), 'utf8');
+      // Crash-atomic (GH-12): temp -> fsync -> rename -> fsync dir. #WriteChain above already
+      // serializes writers; this adds the atomicity that serialization alone does not provide.
+      // Still never rejects, so the chain cannot be poisoned by a failed save.
+      await WriteFileDurableAsync(this.#FilePath, JSON.stringify(this.#Records, null, 2), { Logger: this.#SlackApp.Logger });
     } catch(error) {
       this.#SlackApp.Logger.error('completion-store: failed to persist history:', error);
     }

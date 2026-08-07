@@ -2,6 +2,7 @@
 // import required modules.
 const fs = require('fs').promises;
 const path = require('path');
+const { WriteFileDurableAsync } = require('./durable-write');
 const SlackApp = require('./slack-app');
 const WorkspaceAI = require('./workspace-ai');
 const Workspaces = require('./workspaces');
@@ -2329,7 +2330,7 @@ class ChatModule {
   async #SaveBugReportsAsync(ArgEntries) {
     const FilePath = this.#GetBugReportsFilePath();
     await fs.mkdir(path.dirname(FilePath), { recursive: true });
-    await fs.writeFile(FilePath, JSON.stringify(ArgEntries, null, 2), 'utf8');
+    await WriteFileDurableAsync(FilePath, JSON.stringify(ArgEntries, null, 2)); // crash-atomic (GH-12)
   }
 
   /**
@@ -2535,7 +2536,7 @@ class ChatModule {
     try {
       const FilePath = this.#GetThreadMemoryFilePath();
       await fs.mkdir(path.dirname(FilePath), { recursive: true });
-      await fs.writeFile(FilePath, JSON.stringify(Object.fromEntries(this.#ThreadContextMemory)), 'utf8');
+      await WriteFileDurableAsync(FilePath, JSON.stringify(Object.fromEntries(this.#ThreadContextMemory))); // crash-atomic (GH-12)
     } catch(error) {
       this.#SlackApp.Logger.error('failed to save thread context memory:', error);
     }

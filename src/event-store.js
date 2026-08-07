@@ -3,6 +3,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
+const { AppendFileDurableAsync } = require('./durable-write');
 
 /**
  * NON-authoritative, append-only event store (Phase 1 counter-view).
@@ -11,7 +12,12 @@ const crypto = require('crypto');
  * lag or be lossy and is never the source of truth. Therefore:
  *   - `append` is best-effort: it NEVER rejects/throws. Any failure resolves
  *     `{ ok:false, error }` so a caller's reminder transition is never blocked.
- *   - No `fsync` in this phase (the Phase 0 spike recorded the no-fsync reality).
+ *   - Appends ARE `fsync`'d as of GH-12 Phase 4. The Phase 0 spike recorded a
+ *     no-fsync reality that is no longer true; see `src/durable-write.js`
+ *     (`AppendFileDurableAsync`) for the benchmark that chose the shape.
+ *     This buys RECENCY, not integrity: append-only writes were already
+ *     torn-tail-tolerant on read, so the ledger's failure mode was losing the
+ *     last event, never corrupting earlier ones.
  *
  * One `<workspace>_events.jsonl` file per workspace under `rootDir`; one JSON
  * object per line. Appends are serialized PER WORKSPACE using the write-chain
@@ -104,18 +110,47 @@ function createEventStore(ArgOptions) {
   const WriteChains = new Map();
 
   /**
+   * Memoized `mkdir -p` of the root directory.
+   *
+   * This used to run on every append. That was merely wasteful when an append was one unsynced
+   * syscall; since GH-12 Phase 4 added `fsync` the append path is deliberately slower, so keeping
+   * an avoidable syscall on it is no longer free. Reset on failure so a later append retries
+   * rather than caching a rejection forever.
+   * `fs.mkdir` with `recursive: true` resolves the first directory created, or `undefined` when it
+   * already existed — neither is used, but the type has to admit both.
+   * @type {Promise<string|undefined>|null}
+   */
+  let RootDirReady = null;
+
+  /** @returns {Promise<any>} */
+  function EnsureRootDirAsync() {
+    if(!RootDirReady) {
+      RootDirReady = fs.mkdir(RootDir, { recursive: true }).catch(ArgError => {
+        RootDirReady = null;
+        throw ArgError;
+      });
+    }
+    return RootDirReady;
+  }
+
+  /**
    * Best-effort durable append. Mirrors completion-store's #PersistAsync in that
    * it NEVER rejects — it resolves a result object — so the per-workspace chain
    * can't be poisoned and a caller's transition is never blocked by a log error.
+   *
+   * Takes an already-serialized line rather than the event object: see `append` for why that
+   * matters.
    * @param {string} ArgWorkspace
-   * @param {object} ArgNormalized
+   * @param {string} ArgLine Serialized event, newline-terminated.
    * @returns {Promise<{ ok: boolean, error?: Error }>}
    */
-  async function AppendDurable(ArgWorkspace, ArgNormalized) {
+  async function AppendDurable(ArgWorkspace, ArgLine) {
     try {
-      await fs.mkdir(RootDir, { recursive: true });
-      const Line = `${JSON.stringify(ArgNormalized)}\n`;
-      await fs.appendFile(EventsFilePath(RootDir, ArgWorkspace), Line, 'utf8');
+      await EnsureRootDirAsync();
+      // GH-12 Phase 4: fsync the append so an event is on disk rather than in the page cache when
+      // this resolves. Still best-effort — any failure resolves { ok:false } below rather than
+      // throwing, so a reminder transition is never blocked by the side ledger.
+      await AppendFileDurableAsync(EventsFilePath(RootDir, ArgWorkspace), ArgLine);
       return { ok: true };
     } catch(error) {
       return { ok: false, error };
@@ -148,10 +183,30 @@ function createEventStore(ArgOptions) {
         return Promise.resolve({ ok: false, error: new Error('event-store: invalid event shape, not written') });
       }
 
+      // Serialize NOW, synchronously, rather than inside the chain.
+      //
+      // NormalizeEvent keeps a shallow reference to the caller's `payload`, so serializing later
+      // would capture whatever the object looks like when the chain reaches it — not what the
+      // caller passed. A caller mutating `event.payload` right after calling append() would write
+      // the mutated value. Verified reproducible before this fix.
+      //
+      // Pre-existing, but GH-12 Phase 4 widened the window by ~57x: the chain link went from one
+      // unsynced `fs.appendFile` (~0.1 ms) to an fsync'd append (~5.7 ms). Serializing at call
+      // time captures the event as it was when submitted, which is the semantics callers expect,
+      // and is cheaper than deep-cloning.
+      let Line;
+      try {
+        Line = `${JSON.stringify(Normalized)}\n`;
+      } catch(error) {
+        // A circular or otherwise unserializable payload must not reject — this store never throws
+        // at the call site.
+        return Promise.resolve({ ok: false, error });
+      }
+
       const Prior = WriteChains.get(ArgWorkspace) || Promise.resolve({ ok: true });
       // Chain off the prior write but swallow its result so one failure can't
       // reject the next link — matches completion-store's poison-proof chain.
-      const Next = Prior.then(() => AppendDurable(ArgWorkspace, Normalized));
+      const Next = Prior.then(() => AppendDurable(ArgWorkspace, Line));
       WriteChains.set(ArgWorkspace, Next);
       return Next;
     },
