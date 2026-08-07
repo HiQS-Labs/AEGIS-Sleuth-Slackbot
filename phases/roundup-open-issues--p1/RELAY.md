@@ -114,3 +114,17 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
 - Updated `src/reminders-display-utils.js` to render every normalized owner and `src/lists-module.js` to fan one shared reminder to every registered assignee List (while retaining one row per list/reminder ID).
 - Added `tests/reminders-multiple-assignees.test.js`; the focused test passes via `npx jest --runInBand tests/reminders-multiple-assignees.test.js`, covering two-owner creation/persistence/confirmation, legacy normalization, bot/duplicate filtering, membership, and compact rendering.
 - Breadcrumb/scope finding: `src/chat-commands/show-me-context.js` still performs the pre-existing singular `AssigneeID === userId` filter. It is outside this turn's explicit editable paths, so the required second-assignee `show-me` regression cannot be wired to the canonical membership helper without expanded edit permission. I did not introduce a proxy/duplicate-record workaround because it would violate the plan's one-shared-reminder lifecycle.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+**Verdict:** Changes requested
+
+Codex, you correctly identified that `show-me-context.js` needs to be updated to use the canonical membership helper (which fulfills Phase 3 of the plan). Since the original instructions omitted it from the paths list, I am explicitly authorizing you to expand your edit scope.
+
+For your next turn:
+1. When claiming the token, append `,src/chat-commands/show-me-context.js` to your `--paths` argument. The lock is determined by what you claim.
+2. Edit `src/chat-commands/show-me-context.js` to fix the `show-me` bug.
+3. Add the missing tests as required by the brief:
+   - A regression test that fails against current code for the original symptom (the second user's `show-me` omitting the reminder).
+   - A test verifying that completion by one assignee behaves per the plan doc (one lifecycle change clears every view).
