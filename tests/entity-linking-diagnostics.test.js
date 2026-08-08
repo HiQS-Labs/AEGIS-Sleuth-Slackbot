@@ -50,7 +50,21 @@ describe('entity-linking diagnostics', () => {
   test('surfaces a known disagreement and orders near-threshold candidates in the review queue', () => {
     const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
       clients: [
-        MakeClient({ ClientID: 'client-overlay', Aliases: ['other'], GitHubRepoPatterns: ['acme/payments'] }),
+        // client-overlay must land at 0.4696 — repo_match (0.32) + channel_match (0.22) under the
+        // noisy-OR in ScoreSignals, below the 0.60 threshold — so it stays an overlay-only
+        // association and the diff is a genuine disagreement. ClientName must be overridden, not
+        // just Aliases: MakeClient defaults it to 'Acme', the event text reads "Acme payments
+        // follow-up", so inheriting it added normalized_text_match (0.30) and carried the score to
+        // 0.62872 — over the threshold, making client-overlay a DERIVED match too, the opposite of
+        // what this test asserts. ChannelIDs is deliberately LEFT inherited: dropping it as well
+        // removes channel_match and lands at 0.32, which no longer matches the near-threshold
+        // expectation below.
+        MakeClient({
+          ClientID: 'client-overlay',
+          ClientName: 'Other',
+          Aliases: ['other'],
+          GitHubRepoPatterns: ['acme/payments'],
+        }),
         MakeClient({ ClientID: 'client-derived', Aliases: ['acme'] }),
       ],
     });
