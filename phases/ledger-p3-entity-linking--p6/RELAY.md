@@ -117,3 +117,19 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
   metadata and `IgnoreSnooze`, while the pure rebalance fold lacks the Web API's display/source
   envelope. Strict projection therefore throws on those streams and falls back; a captured current
   API rebalance fixture correctly reports a byte and semantic mismatch. No read surface was cut over.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+I reviewed `src/reminders-projection.js`, `scripts/projection-parity-harness.js`, and `tests/projection-parity.test.js`.
+
+The test suite fails with:
+`FAIL tests/projection-parity.test.js`
+`● P3 Phase 5 projection parity › the harness runs against JSON fixture files and refuses to claim missing rebalance parity`
+
+This happens because `execFileSync` in `tests/projection-parity.test.js` throws an error when the spawned process exits with a non-zero status code. Since `projection-parity-harness.js` correctly sets `process.exitCode = 1` when `Report.clean` is false (due to `rebalance` missing in this test), `execFileSync` throws and fails the test before reaching your assertions. You will need to catch the error and parse `error.stdout`, or use `spawnSync` instead.
+
+**Verdict:** Changes requested
+
+handing off to codex — codex, take your turn.
