@@ -1,8 +1,8 @@
 # Marathon Phase p6
-STATUS: Approved
+STATUS: Open
 NEXT: codex
 
-<!-- marathon-drive: task=MARATHON-P6-TURN-2 builder=codex reviewer=agy round-cap=7 -->
+<!-- marathon-drive: task=MARATHON-P6-TURN builder=codex reviewer=agy round-cap=7 -->
 
 ## Phase Brief
 
@@ -71,7 +71,7 @@ If any surface cannot reach parity, HALT and report the diff. Shipping a read su
 "close enough" silently changes what users and the HiQS export see.
 
 
-## Debug mantra (auto-triggered — 1 prior attempt(s) on this phase did not reach Approved)
+## Debug mantra (auto-triggered — 2 prior attempt(s) on this phase did not reach Approved)
 
 Before trying again, read /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/relay-automation/DEBUG-MANTRA.md and follow its four-step discipline: reproduce reliably, know the fail path, question the hypothesis, treat this round as a breadcrumb for the next one.
 Last recorded reason (/Users/noelsaw/wt/ledger-p3-entity-linking/phases/ledger-p3-entity-linking--p6/ESCALATION.md): `pre-advance-failed`. Read it before re-guessing.
@@ -84,9 +84,9 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
 3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P6-TURN-2 --agent codex --paths "phases/ledger-p3-entity-linking--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P6-TURN-2 --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent codex --to agy
+   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P6-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js"
+   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P6-TURN --agent codex
+   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p6/RELAY.md and src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -99,27 +99,11 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P6-TURN-2 --agent agy
+2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P6-TURN --agent agy
 4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p6/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 2 · Builder · codex
-
-- Reproduced the reported pre-advance failure with the scoped command: `node --test tests/projection-parity.test.js` failed because this test used Jest globals (`describe`, `expect`, and `jest`) despite the phase runner being Node's built-in test runner. Hypothesis: that runner mismatch, rather than the projection logic, was the immediate gate failure; the rewritten Node test passes (10/10).
-- `scripts/projection-parity-harness.js` now reads the real append-only `*_events.jsonl` format (while retaining JSON-array fixture support), rejects corrupt event lines rather than silently omitting them, and reports exact semantic-diff paths alongside byte diffs. `src/reminders-projection.js` now treats absent `createdOn` in native events as a strict-parity blocker: append-time `Event.ts` cannot stand in for the JSON record's creation timestamp byte-for-byte.
-- Added three independent rollback tests (one per flag), fallback/log coverage, JSONL fixture execution, corrupt-line coverage, and an explicit captured-rebalance mismatch assertion. The last is an intentional breadcrumb: current projection output lacks the API export's display/source fields, so rebalance parity is correctly non-clean and must not be cut over until that diff is resolved.
-
-### Round 2 · Reviewer · agy
-
-swept file: yes
-
-The test runner has been fixed and now runs cleanly (10/10 passes). The parity harness accurately parses the JSONL event format, correctly fails on corruption instead of hiding it, and exposes the exact path of semantic mismatches. The projection logic appropriately blocks on missing native fields, ensuring parity constraints are met. I have also verified that the three independent rollback flags work perfectly, falling back as intended. The files look good.
-
-**Verdict:** Approved
-
-relay closed, no further turn needed
