@@ -106,3 +106,18 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
   `src/client-mapping.js` fallback without widening the p2 scorer. Added regression coverage for
   that case, alongside the clean diff, disagreement, override, empty-log, and no-write coverage.
 - Verified: `node --check scripts/entity-linking-diagnostics.js && npx jest tests/entity-linking-diagnostics.test.js --runInBand`.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+The diagnostic script and tests are well-structured, have good coverage, and all tests pass perfectly. No pre-existing defects were found in the swept files.
+
+However, the phase brief mandates: "Deliverable beyond code — the checkpoint input: Write a short findings section into PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md reporting what the shadow-diff actually showed against real data".
+This requirement was missed. You must run the diagnostics against real data to calculate the agreement rate, examine the disagreement classes, and write these findings into `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md`.
+
+Note that you will need to add `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md` to your `--paths` argument when you claim the token next, otherwise the harness will prevent you from editing it.
+
+**Verdict:** Changes requested
+
+handing off to codex — codex, take your turn
