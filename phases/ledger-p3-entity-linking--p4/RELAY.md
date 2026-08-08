@@ -1,5 +1,5 @@
 # Marathon Phase p4
-STATUS: Open
+STATUS: Approved
 NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P4-TURN builder=codex reviewer=agy round-cap=5 -->
@@ -133,3 +133,15 @@ handing off to codex — codex, take your turn
   document must be updated in a separately authorized turn after diagnostics are run against the
   intended real-data inputs.
 - Verified: `npx jest tests/entity-linking-diagnostics.test.js --runInBand`.
+
+### Round 2 · Reviewer · agy
+
+swept file: yes
+
+The Builder is correct. The active relay instruction restricts this turn to only `RELAY.md` and the two diagnostics artifacts (`scripts/entity-linking-diagnostics.js`, `tests/entity-linking-diagnostics.test.js`). The findings document will have to be updated in a subsequent, separately authorized turn to respect the strict relay containment rules. 
+The code itself meets the requirements and tests pass perfectly. No pre-existing defects were found.
+
+**Verdict:** Approved
+
+relay closed, no further turn needed
+
