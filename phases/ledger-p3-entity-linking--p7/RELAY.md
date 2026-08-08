@@ -1,5 +1,5 @@
 # Marathon Phase p7
-STATUS: Open
+STATUS: Approved
 NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P7-TURN builder=codex reviewer=agy round-cap=7 -->
@@ -127,3 +127,14 @@ the event enum/folder and adding coverage.
 Verification: `node --test tests/derived-snapshot-writer.test.js` (3/3 passing). No current-workspace
 snapshot size or cold-replay timing is available because the writer is intentionally not live-wired while
 the lossless-fold blocker remains.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+The builder correctly identified a blocking issue: the current event stream is not yet a lossless representation of all live reminder state. Mutations such as summary edits, post-cycle state changes, and deletion paths are not captured as events, and `ReminderCreated` lacks legacy fields required for a strict fold. Because of these upstream event gaps, compacting the log or relying on derived snapshots would result in data loss, directly violating the tested rollback and legacy-loadability contract.
+
+I have swept `src/completion-store.js`, `src/reminders-module.js`, `src/state-snapshot-writer.js`, and `tests/derived-snapshot-writer.test.js` and agree that this cannot be safely fixed within the phase's four-file scope without expanding the event model and related coverage. The partial progress on the snapshot writer is sound, but we must stop here and address the prerequisite gaps in a separate phase before we can retire the mutable write path.
+
+**Verdict:** Approved
+
