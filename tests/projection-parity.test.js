@@ -302,3 +302,129 @@ test('a relay-capable stream rehydrates BOTH relay flags, not just validates the
   assert.equal(Folded.reminders[0].GitHubRelayStopped, true, 'a stopped relay must stay stopped across a fold');
   assert.equal(Folded.reminders[0].GitHubRelayStarted, true, 'an already-started relay must not read as first-use');
 });
+
+// --- schema v2: ThreadRelayStateChanged, ReminderStateChanged, authoritative completedMs ---
+
+/** The synthetic envelope the relay writes: thread-scoped state, no reminder of its own. */
+function ThreadRelayEvent(ArgThreadKey, ArgStarted, ArgStopped, ArgOverrides = {}) {
+  return {
+    v: 2,
+    id: `evt-relay-${ArgThreadKey}-${ArgStopped ? 'stop' : 'start'}`,
+    ts: '2026-08-04T12:00:00.000Z',
+    type: 'ThreadRelayStateChanged',
+    reminderId: `thread:${ArgThreadKey}`,
+    payload: { threadKey: ArgThreadKey, relayStarted: ArgStarted, relayStopped: ArgStopped },
+    ...ArgOverrides,
+  };
+}
+
+test('a thread-scoped relay event applies to every reminder in the thread and mints no reminder of its own', () => {
+  // Two reminders share thread 123.000 (BaselineEvent's originalThreadTs).
+  const Second = BaselineEvent({
+    id: 'evt-baseline-2',
+    reminderId: 'rem-2',
+    payload: { ...BaselineEvent().payload, text: 'Second reminder in the same thread' },
+  });
+  const Folded = FoldReminderReadModels([BaselineEvent(), Second, ThreadRelayEvent('123.000', true, true)], { strict: true });
+
+  // The `thread:123.000` envelope must NOT become a third record.
+  assert.equal(Folded.reminders.length, 2, 'the synthetic thread id must not fold into a reminder');
+  assert.deepEqual(Folded.reminders.map(ArgR => ArgR.ReminderID).sort(), ['rem-1', 'rem-2']);
+  for(const Reminder of Folded.reminders) {
+    assert.equal(Reminder.GitHubRelayStopped, true, `${Reminder.ReminderID} shares the thread's stopped state`);
+    assert.equal(Reminder.GitHubRelayStarted, true, `${Reminder.ReminderID} shares the thread's started state`);
+  }
+});
+
+test('a reminder created AFTER the relay event still inherits its thread state', () => {
+  // The case that decided the design: fanning out per-reminder at emission time cannot cover a
+  // reminder that does not exist yet. Applying by thread key after the fold does.
+  const Later = BaselineEvent({
+    id: 'evt-baseline-late',
+    ts: '2026-08-05T12:00:00.000Z',
+    reminderId: 'rem-late',
+    payload: { ...BaselineEvent().payload, text: 'Joined an already-stopped thread' },
+  });
+  const Folded = FoldReminderReadModels([ThreadRelayEvent('123.000', true, true), BaselineEvent(), Later], { strict: true });
+  const Late = Folded.reminders.find(ArgR => ArgR.ReminderID === 'rem-late');
+  assert.ok(Late, 'the later reminder must still be projected');
+  assert.equal(Late.GitHubRelayStopped, true, 'a reminder joining a stopped thread must not resume the relay');
+});
+
+test('a relay event for a different thread leaves this reminder alone', () => {
+  const Folded = FoldReminderReadModels([BaselineEvent(), ThreadRelayEvent('999.999', true, true)], { strict: true });
+  assert.equal(Folded.reminders.length, 1);
+  assert.equal(Folded.reminders[0].GitHubRelayStopped, false, 'another thread must not stop this one');
+});
+
+test('the last relay event for a thread wins', () => {
+  const Folded = FoldReminderReadModels([
+    BaselineEvent(),
+    ThreadRelayEvent('123.000', true, false, { id: 'evt-relay-a', ts: '2026-08-04T12:00:00.000Z' }),
+    ThreadRelayEvent('123.000', true, true, { id: 'evt-relay-b', ts: '2026-08-04T13:00:00.000Z' }),
+  ], { strict: true });
+  assert.equal(Folded.reminders[0].GitHubRelayStopped, true);
+});
+
+test('ReminderStateChanged folds the states the specific events never emitted', () => {
+  // Before v2 the fold had no event for `overdue`, so an overdue reminder replayed as `scheduled` —
+  // and production persists at least `overdue`, so this was never hypothetical.
+  const Folded = FoldReminderReadModels([
+    BaselineEvent(),
+    {
+      v: 2, id: 'evt-overdue', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderStateChanged', reminderId: 'rem-1',
+      payload: { fromState: 'scheduled', toState: 'overdue', reason: 'due-passed' },
+    },
+  ], { strict: true });
+  assert.equal(Folded.reminders.length, 1);
+  assert.equal(Folded.reminders[0].State, 'overdue');
+});
+
+test('an unrecognised toState is ignored rather than written through', () => {
+  const Folded = FoldReminderReadModels([
+    BaselineEvent(),
+    {
+      v: 2, id: 'evt-garbage', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderStateChanged', reminderId: 'rem-1',
+      payload: { fromState: 'scheduled', toState: 'teleported', reason: null },
+    },
+  ], { strict: true });
+  assert.equal(Folded.reminders[0].State, 'scheduled', 'a state the JSON store could never hold must not be projected');
+});
+
+test('a v2 completion projects the AUTHORITATIVE completedMs, not a re-parse of the ISO instant', () => {
+  // This is the defect that blocked COMPLETED_READ_SOURCE: the stored CompletionRecord took its own
+  // Date.now(), so a re-parsed ISO string could never be the same number. v2 carries it verbatim.
+  const CompletedMs = 1785756789123;
+  const Folded = FoldReminderReadModels([
+    BaselineEvent(),
+    {
+      v: 2, id: 'evt-completed-v2', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderCompleted', reminderId: 'rem-1',
+      payload: {
+        by: 'U_OWNER', method: 'reaction', summary: 'Ship it',
+        completedAt: new Date(CompletedMs).toISOString(), completedMs: CompletedMs,
+        sourceChannelId: 'C_SOURCE', dueDate: '2026-08-02T12:00:00.000Z', clientId: 'acme',
+      },
+    },
+  ], { strict: true });
+  assert.equal(Folded.completed.length, 1);
+  assert.equal(Folded.completed[0].completedMs, CompletedMs, 'the projected instant must be the stored one, not a re-derivation');
+  assert.equal(Folded.completed[0].sourceChannelID, 'C_SOURCE');
+  assert.equal(Folded.completed[0].clientId, 'acme');
+});
+
+test('a v1 completion still folds via the ISO fallback', () => {
+  // v1 events carry no completedMs. They must keep working — the version gate is on writes only.
+  const Folded = FoldReminderReadModels([
+    BaselineEvent(),
+    {
+      id: 'evt-completed-v1', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderCompleted', reminderId: 'rem-1',
+      payload: { by: 'U_OWNER', method: 'reaction', summary: 'Ship it', completedAt: '2026-08-03T12:00:00.000Z' },
+    },
+  ], { strict: true });
+  assert.equal(Folded.completed.length, 1);
+  assert.equal(Folded.completed[0].completedMs, Date.parse('2026-08-03T12:00:00.000Z'));
+});

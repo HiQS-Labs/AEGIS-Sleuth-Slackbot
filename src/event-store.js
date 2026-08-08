@@ -76,6 +76,12 @@ const REQUIRED_PAYLOAD_KEYS_V2 = {
     // ledger quietly undo GH-22's multi-assignee support. Caught by agy in consult.
     'assigneeIds',
     'clientId',
+    // Relay state's STARTING value. ThreadRelayStateChanged carries every later change, but a fold
+    // still needs the initial one — and `undefined` is not it: github-comment-relay.js:102 refuses
+    // to relay when GitHubRelayStopped is set, so a stream that omits the field would RESUME a relay
+    // a user deliberately stopped. Always false for a native creation (a reminder that has never
+    // existed cannot have relayed), but written explicitly so the fold reads a fact, not a default.
+    'gitHubRelayStarted', 'gitHubRelayStopped',
   ],
   ReminderScheduled: [
     ...REQUIRED_PAYLOAD_KEYS.ReminderScheduled,
@@ -98,6 +104,10 @@ const REQUIRED_PAYLOAD_KEYS_V2 = {
     ...REQUIRED_PAYLOAD_KEYS.BaselineReminderImported,
     'createdOn', 'originalSenderId', 'originalMessageId', 'originalThreadTs',
     'originalChannelName', 'ignoreSnooze', 'assigneeIds', 'clientId',
+    // Unlike a native creation, an IMPORT can legitimately carry `true` here — the JSON record it
+    // reads may describe a thread whose relay already started or was stopped months ago. This is
+    // exactly what the enrich mode exists to backfill.
+    'gitHubRelayStarted', 'gitHubRelayStopped',
   ],
   // Generic transition event. #EmitTransitionEvent previously mapped only four states and skipped
   // due/overdue/posting/posted/rescheduled/failed/dead-letter, so a fold silently retained
@@ -109,6 +119,12 @@ const REQUIRED_PAYLOAD_KEYS_V2 = {
   // invents a cardinality the domain lacks and breaks when a new reminder joins an existing thread.
   // agy's design won: emit once with the thread identity, let the fold apply it to every reminder
   // sharing that thread. Thread identity is GH-27's `OriginalThreadTs ?? OriginalMessageID`.
+  //
+  // `reminderId` is structurally required by every event, so this one carries the synthetic
+  // `thread:<threadKey>` rather than an arbitrary member reminder. Picking a member would be a lie
+  // about scope AND a dangling reference once that reminder completes, while the synthetic key keeps
+  // the envelope invariant intact and stays self-describing on disk. The fold dispatches on `type`
+  // before any id lookup, so it never manufactures a reminder from one.
   ThreadRelayStateChanged: ['threadKey', 'relayStarted', 'relayStopped'],
 };
 

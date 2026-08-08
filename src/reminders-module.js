@@ -435,7 +435,10 @@ class RemindersModule {
     this.#GitHubCommentRelay = new GitHubCommentRelay(
       this.#SlackApp,
       () => this.#PendingRemindersQueue,
-      () => this.#SaveRemindersAsync()
+      () => this.#SaveRemindersAsync(),
+      // Ledger hook. The relay owns the only path that mutates GitHubRelayStarted/Stopped, so this
+      // is the one place a thread's relay state can change after creation.
+      (ArgThreadKey, ArgState) => this.#EmitThreadRelayStateChanged(ArgThreadKey, ArgState)
     );
 
     // add handlers for message and app mention events.
@@ -563,6 +566,36 @@ class RemindersModule {
     // Lazy rebuild happens on the next GetWorkspaceSnapshot() call — no work on the FSM hot path.
     this.#WorkspaceSnapshot = null;
 
+    this.#AppendLedgerEvent(ArgType, ArgReminder.ReminderID, ArgPayload);
+  }
+
+  /**
+   * Append one thread-scoped relay-state event. Separate from #EmitLifecycleEvent because relay
+   * state belongs to a THREAD, not a reminder: one Slack thread can carry several reminders, and a
+   * new one can join a thread that is already relaying. The envelope still needs a `reminderId`, so
+   * this carries the synthetic `thread:<key>` rather than naming an arbitrary member — see
+   * src/event-store.js for why. Does NOT invalidate the routing snapshot: relay state is not an
+   * input to mention routing.
+   * @param {string} ArgThreadKey `OriginalThreadTs ?? OriginalMessageID` for the thread (GH-27).
+   * @param {{ relayStarted: boolean, relayStopped: boolean }} ArgState Resulting thread state.
+   */
+  #EmitThreadRelayStateChanged(ArgThreadKey, ArgState) {
+    if(typeof ArgThreadKey !== 'string' || ArgThreadKey.length === 0) return;
+    this.#AppendLedgerEvent('ThreadRelayStateChanged', `thread:${ArgThreadKey}`, {
+      threadKey: ArgThreadKey,
+      relayStarted: Boolean(ArgState && ArgState.relayStarted),
+      relayStopped: Boolean(ArgState && ArgState.relayStopped),
+    });
+  }
+
+  /**
+   * The low-level, best-effort ledger append shared by every emitter. No-op before the store is
+   * initialized. Fire-and-forget and non-throwing, per the contract described on #EmitLifecycleEvent.
+   * @param {string} ArgType One of the closed event-enum types.
+   * @param {string} ArgReminderId Envelope id — a real ReminderID, or a synthetic scope key.
+   * @param {object} ArgPayload Fully-formed payload for ArgType.
+   */
+  #AppendLedgerEvent(ArgType, ArgReminderId, ArgPayload) {
     if(!this.#EventStore || !this.#EventWorkspace) {
       return;
     }
@@ -573,13 +606,13 @@ class RemindersModule {
         // NormalizeEvent, which treats a missing `v` as v1.
         v: CURRENT_SCHEMA_VERSION,
         type: ArgType,
-        reminderId: ArgReminder.ReminderID,
+        reminderId: ArgReminderId,
         payload: ArgPayload,
       }).then(
         (ArgResult) => {
           if(ArgResult && ArgResult.ok === false) {
             this.#SlackApp.Logger.warn(
-              `[event-ledger] append failed (non-fatal): ${ArgType} ${ArgReminder.ReminderID}`,
+              `[event-ledger] append failed (non-fatal): ${ArgType} ${ArgReminderId}`,
               ArgResult.error
             );
           }
@@ -675,6 +708,12 @@ class RemindersModule {
       originalThreadTs: Reminder.OriginalThreadTs || null,
       originalChannelName: Reminder.OriginalChannelName || null,
       ignoreSnooze: Boolean(Reminder.IgnoreSnooze),
+      // Relay state's starting value. Always false for a native creation — a reminder that has
+      // never existed cannot have relayed — but written as a fact rather than left to a default,
+      // because `undefined` reads as "not stopped" and would resume a relay a user had stopped.
+      // Every later change arrives as a thread-scoped ThreadRelayStateChanged.
+      gitHubRelayStarted: Boolean(Reminder.GitHubRelayStarted),
+      gitHubRelayStopped: Boolean(Reminder.GitHubRelayStopped),
     });
 
     // A reminder is BORN State=Scheduled (the factory sets it; there is no transition INTO Scheduled

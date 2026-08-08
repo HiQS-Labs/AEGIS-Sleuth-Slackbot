@@ -31,9 +31,13 @@
  * @property {boolean} [GitHubRelayStarted]
  * @property {boolean} [GitHubRelayStopped]
  * @property {string|null} [completedAt]
+ * @property {number|null} [completedMs]
  * @property {string|null} [completedBy]
  * @property {string|null} [completionMethod]
  * @property {string|null} [completionSummary]
+ * @property {string|null} [completionSourceChannelID]
+ * @property {string|null} [completionDueDate]
+ * @property {string|null} [completionClientId]
  */
 
 /**
@@ -48,6 +52,18 @@
  */
 
 const TERMINAL_STATES = new Set(['completed', 'cancelled', 'canceled']);
+
+/**
+ * The states a `ReminderStateChanged.toState` may fold to — RemindersModule.ReminderState's values
+ * (src/reminders-module.js:131-143), duplicated rather than imported so the projection stays free of
+ * a dependency on the module it is meant to replace. Anything outside this set is ignored: a fold
+ * that writes an unrecognised state would produce a record the JSON store could never hold, which is
+ * worse than keeping the last known-good one.
+ */
+const PROJECTABLE_STATES = new Set([
+  'scheduled', 'due', 'overdue', 'snoozed', 'posting', 'posted',
+  'rescheduled', 'failed', 'completed', 'canceled', 'dead-letter',
+]);
 const PROJECTION_FLAGS = new Set([
   'REMINDERS_READ_SOURCE',
   'COMPLETED_READ_SOURCE',
@@ -255,6 +271,13 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
   const Order = [];
   /** @type {string[]} */
   const MissingFields = [];
+  /**
+   * Last relay state seen per thread. Applied AFTER the main loop, not during it, so a reminder
+   * created later than the relay event still picks the state up — a reminder joining an
+   * already-relaying thread is the exact case that motivated the thread-scoped design.
+   * @type {Map<string, { relayStarted: boolean, relayStopped: boolean }>}
+   */
+  const ThreadRelayState = new Map();
 
   for(const Event of Events) {
     if(!Event || typeof Event !== 'object' || Array.isArray(Event)) continue;
@@ -263,6 +286,19 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
     const Payload = Event.payload && typeof Event.payload === 'object' && !Array.isArray(Event.payload)
       ? Event.payload
       : {};
+
+    // Dispatched BEFORE any id lookup: this event's `reminderId` is the synthetic `thread:<key>`,
+    // so letting it fall through would either be ignored or, worse, manufacture a reminder.
+    if(Event.type === 'ThreadRelayStateChanged') {
+      const ThreadKey = GetStringOrNull(Payload.threadKey);
+      if(ThreadKey !== null) {
+        ThreadRelayState.set(ThreadKey, {
+          relayStarted: Boolean(Payload.relayStarted),
+          relayStopped: Boolean(Payload.relayStopped),
+        });
+      }
+      continue;
+    }
 
     if(Event.type === 'ReminderCreated' || Event.type === 'BaselineReminderImported') {
       if(!ById.has(ReminderId)) {
@@ -300,8 +336,44 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
       Reminder.completedBy = GetStringOrNull(Payload.by);
       Reminder.completionMethod = GetStringOrNull(Payload.method);
       Reminder.completionSummary = GetStringOrNull(Payload.summary);
+      // v2 carries the AUTHORITATIVE completedMs — the same number the CompletionRecord stored,
+      // not a second clock read. Where it is present the projection reproduces that value exactly;
+      // v1 events fall back to re-parsing the ISO instant below, which is why COMPLETED_READ_SOURCE
+      // needed the schema change and not merely a stricter check.
+      Reminder.completedMs = typeof Payload.completedMs === 'number' && Number.isFinite(Payload.completedMs)
+        ? Payload.completedMs
+        : null;
+      // v2 also carries these verbatim rather than leaving the fold to re-derive them from whichever
+      // channel field happened to survive.
+      if(Object.prototype.hasOwnProperty.call(Payload, 'sourceChannelId'))
+        Reminder.completionSourceChannelID = GetStringOrNull(Payload.sourceChannelId);
+      if(Object.prototype.hasOwnProperty.call(Payload, 'dueDate'))
+        Reminder.completionDueDate = GetStringOrNull(Payload.dueDate);
+      if(Object.prototype.hasOwnProperty.call(Payload, 'clientId'))
+        Reminder.completionClientId = GetStringOrNull(Payload.clientId);
     } else if(Event.type === 'ReminderCancelled') {
       Reminder.State = 'canceled';
+    } else if(Event.type === 'ReminderStateChanged') {
+      // v2 generic transition. Emitted for EVERY state change, including the seven the specific
+      // events skip, so a reminder that went overdue no longer folds back as `scheduled`. It is
+      // emitted in ADDITION to a specific event, and always after it, so for the four mapped states
+      // this simply re-asserts the same value.
+      const ToState = GetStringOrNull(Payload.toState);
+      if(ToState !== null && PROJECTABLE_STATES.has(ToState)) Reminder.State = ToState;
+    }
+  }
+
+  // Relay state is thread-scoped: apply each thread's last known state to every reminder that
+  // belongs to it, whenever that reminder was created. Thread identity is GH-27's
+  // `OriginalThreadTs ?? OriginalMessageID` — the same key github-comment-relay.js matches on.
+  if(ThreadRelayState.size > 0) {
+    for(const Reminder of ById.values()) {
+      const ThreadKey = Reminder.OriginalThreadTs || Reminder.OriginalMessageID;
+      if(!ThreadKey) continue;
+      const State = ThreadRelayState.get(ThreadKey);
+      if(!State) continue;
+      Reminder.GitHubRelayStarted = State.relayStarted;
+      Reminder.GitHubRelayStopped = State.relayStopped;
     }
   }
 
@@ -315,16 +387,27 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
     const Reminder = ById.get(ReminderId);
     if(!Reminder) continue;
     if(Reminder.State === 'completed') {
-      const CompletedMs = Date.parse(Reminder.completedAt || '');
+      // Prefer the authoritative number the v2 event carried; re-parsing the ISO instant is the v1
+      // fallback and loses sub-second identity with the stored CompletionRecord.
+      const CompletedMs = typeof Reminder.completedMs === 'number'
+        ? Reminder.completedMs
+        : Date.parse(Reminder.completedAt || '');
       if(Number.isFinite(CompletedMs)) {
         Completed.push({
           reminderId: Reminder.ReminderID,
           summary: Reminder.completionSummary || Reminder.ReminderMessageText || null,
           assigneeID: Reminder.AssigneeID || null,
-          sourceChannelID: Reminder.OriginalChannelID || Reminder.TargetChannelID || null,
-          dueDate: Reminder.ShouldPostOn || null,
+          // v2 carries what the completion actually recorded; the `||` chains are the v1 re-derivation.
+          sourceChannelID: Reminder.completionSourceChannelID !== undefined
+            ? Reminder.completionSourceChannelID
+            : (Reminder.OriginalChannelID || Reminder.TargetChannelID || null),
+          dueDate: Reminder.completionDueDate !== undefined
+            ? Reminder.completionDueDate
+            : (Reminder.ShouldPostOn || null),
           completedMs: CompletedMs,
-          clientId: Reminder.clientId || null,
+          clientId: Reminder.completionClientId !== undefined
+            ? Reminder.completionClientId
+            : (Reminder.clientId || null),
         });
       }
       continue;
