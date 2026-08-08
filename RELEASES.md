@@ -40,7 +40,10 @@ Description: Take P3 Event-Sourced Core through the authority flip, for the remi
   default-OFF flag, no boot-time rebuild, and client/project mapping still a plain
   mutable store. Phases 0-2 are done and validated against real prod data — the GH-355
   baseline import took the prod shadow-diff from 11 mismatches to 0, leaving only a
-  documented +/-1ms completedMs divergence. The remaining work is cutover, not discovery.
+  documented +/-1ms completedMs divergence. For PHASE 2 specifically the remaining work is
+  cutover, not discovery — one human-gated prod flip. That does NOT generalise to the rest
+  of the release: Phase 4 is blocked on event-schema discovery (see the scope check below),
+  so "cutover, not discovery" describes the Phase 2 flag only, never Phases 4-6.
   Scope decision (operator, 2026-08-07): proceed aggressively through Phases 3, 4 and 5
   rather than stopping at Phase 3 — on the condition that every authority flip is a
   switch that can be flipped back. That condition is the gate now, replacing the earlier

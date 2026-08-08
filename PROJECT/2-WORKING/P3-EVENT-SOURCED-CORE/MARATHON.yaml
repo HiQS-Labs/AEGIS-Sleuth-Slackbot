@@ -182,7 +182,13 @@ phases:
     # snapshots by default ... plus a truncated log so replay stays bounded", and event-store.js is
     # the log owner (it holds append/readAll). Without it in the lane, snapshotting and compaction
     # are unreachable and the phase would again report done having built only half of itself.
-    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js
+    # Codex round 2 caught two more: this phase retires CompletionStore and the FlushAsync shutdown
+    # coupling, but tests/reminders-fsm-invariants.test.js:317-320,373-387 asserts every completion
+    # is captured TO CompletionStore and that "StopAsync flushes the fire-and-forget write", and
+    # tests/reminders-event-emission.test.js:108-111 asserts a completion stays readable through
+    # that store. Retiring the store makes those expectations stale BY DESIGN — without them in the
+    # lane, containment blocks the update and the phase cannot keep its own gate green.
+    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
     depends_on: p6
