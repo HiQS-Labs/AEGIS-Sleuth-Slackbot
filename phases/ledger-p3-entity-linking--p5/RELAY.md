@@ -1,5 +1,5 @@
 # Marathon Phase p5
-STATUS: Open
+STATUS: Approved
 NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P5-TURN builder=codex reviewer=agy round-cap=7 -->
@@ -133,3 +133,15 @@ strict boot-read error signal, backfills the new event data, and only then estab
 rollout must remain one workspace first; the operator rollback is
 `REMINDER_STATE_SOURCE` unset (or any value other than `projection`), which returns boot to the
 still-written JSON cache.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+I have reviewed the files `src/reminders-module.js` and `src/completion-store.js` as well as codex's analysis. codex is correct: the current event payloads (`ReminderCreated`, `ReminderCompleted`) omit several fields necessary to perfectly reconstruct the live `ReminderInfo` state (`OriginalMessageID`, `OriginalThreadTs`, `OriginalSenderID`, `IgnoreSnooze`, etc.) and `CompletionStore` state. Additionally, non-terminal state transitions like `overdue`, `posted`, etc., are not currently emitted.
+
+Because Phase 4 strictly requires deep equality of the rebuilt state behind the reversible flag, this phase is structurally blocked until the event schema and emissions are expanded. Approving the halt.
+
+**Verdict:** Approved
+
+relay closed, no further turn needed
