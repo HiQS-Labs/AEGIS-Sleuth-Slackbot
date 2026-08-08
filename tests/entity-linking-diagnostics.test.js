@@ -47,6 +47,24 @@ describe('entity-linking diagnostics', () => {
     expect(Report.highConfidenceDisagreements).toEqual([]);
   });
 
+  test('does not mistake equal-sized but different association sets for an agreement', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
+      clients: [
+        MakeClient({ ClientID: 'client-overlay', ClientName: 'Other', Aliases: ['other'], GitHubRepoPatterns: ['acme/payments'] }),
+        MakeClient({ ClientID: 'client-derived', Aliases: ['acme'] }),
+      ],
+    });
+
+    expect(Report.shadowDiff).toEqual(expect.objectContaining({
+      agreements: [],
+      disagreements: [{
+        taskId: 'task-1',
+        derivedClientIds: ['client-derived'],
+        overlayClientIds: ['client-overlay'],
+      }],
+    }));
+  });
+
   test('surfaces a known disagreement and orders near-threshold candidates in the review queue', () => {
     const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
       clients: [
@@ -74,7 +92,13 @@ describe('entity-linking diagnostics', () => {
       derivedClientIds: ['client-derived'],
       overlayClientIds: ['client-overlay'],
     }]);
-    expect(Report.highConfidenceDisagreements).toEqual(Report.shadowDiff.disagreements);
+    expect(Report.highConfidenceDisagreements).toEqual([{
+      taskId: 'task-1',
+      kind: 'conflicting_associations',
+      derivedClientIds: ['client-derived'],
+      overlayClientIds: ['client-overlay'],
+      confidence: 0.62872,
+    }]);
     expect(Report.lowConfidenceQueue).toEqual(expect.arrayContaining([
       expect.objectContaining({ to: { type: 'client', id: 'client-overlay' }, confidence: 0.4696 }),
     ]));
@@ -110,6 +134,49 @@ describe('entity-linking diagnostics', () => {
       kind: 'overlay_only',
       derivedClientIds: [],
       overlayClientIds: ['client-acme'],
+    }]);
+    expect(Report.highConfidenceDisagreements).toEqual([{
+      taskId: 'task-1',
+      kind: 'possible_false_split',
+      derivedClientIds: [],
+      overlayClientIds: ['client-acme'],
+      confidence: null,
+    }]);
+  });
+
+  test('an alias override is replayed as derived evidence without changing the client input', () => {
+    const Clients = [MakeClient({ Aliases: [], ChannelIDs: [], GitHubRepoPatterns: [] })];
+    const Before = JSON.stringify(Clients);
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent({ payload: { text: 'Northstar follow-up', sourceChannelId: null, githubUrls: [] } })], {
+      clients: Clients,
+      overrides: { aliases: [{ alias: 'northstar', target: { type: 'client', id: 'client-acme' } }] },
+      threshold: 0.25,
+    });
+
+    expect(Report.derivedAssociations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ to: { type: 'client', id: 'client-acme' }, confidence: 0.3 }),
+    ]));
+    expect(JSON.stringify(Clients)).toBe(Before);
+  });
+
+  test('reports a derived-only accepted link as a possible false merge ordered by confidence', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent({ payload: { text: 'Acme follow-up', sourceChannelId: null, githubUrls: [] } })], {
+      clients: [MakeClient({ ChannelIDs: [], GitHubRepoPatterns: [] })],
+      threshold: 0.25,
+    });
+
+    expect(Report.shadowDiff.gaps).toEqual([{
+      taskId: 'task-1',
+      kind: 'derived_only',
+      derivedClientIds: ['client-acme'],
+      overlayClientIds: [],
+    }]);
+    expect(Report.highConfidenceDisagreements).toEqual([{
+      taskId: 'task-1',
+      kind: 'possible_false_merge',
+      derivedClientIds: ['client-acme'],
+      overlayClientIds: [],
+      confidence: 0.3,
     }]);
   });
 

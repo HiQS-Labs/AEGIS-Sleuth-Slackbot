@@ -98,3 +98,14 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+Implemented the read-only diagnostics and focused test coverage in the permitted artifact lane.
+The report now distinguishes exact set agreement from equal-count-but-different associations and
+emits confidence-ordered false-merge, false-split, and conflicting-association review examples.
+The tests cover clean and known diffs, merge/split/alias override replay without input mutation, an
+empty log, and CLI no-write behavior. The prior failure was reproduced as a containment-only issue
+(not a test failure); no files outside this relay and its two artifacts were edited. Verified with
+the focused Jest file via the pinned checkout dependency path: 9 tests passed; both touched files
+also pass `node --check`.

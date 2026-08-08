@@ -247,7 +247,7 @@ function BuildShadowDiff(ArgTasks, ArgDerived, ArgOverlay) {
     const Common = Derived.filter(ArgClientId => Overlay.includes(ArgClientId));
     if(Derived.length === 0 && Overlay.length === 0) {
       Gaps.push({ taskId: TaskId, kind: 'unlinked', derivedClientIds: [], overlayClientIds: [] });
-    } else if(Common.length > 0 && Derived.length === Overlay.length) {
+    } else if(Common.length === Derived.length && Derived.length === Overlay.length) {
       Agreements.push({ taskId: TaskId, clientIds: Common });
     } else if(Derived.length > 0 && Overlay.length > 0) {
       Disagreements.push({ taskId: TaskId, derivedClientIds: Derived, overlayClientIds: Overlay });
@@ -261,6 +261,49 @@ function BuildShadowDiff(ArgTasks, ArgDerived, ArgOverlay) {
     }
   }
   return { agreements: Agreements, disagreements: Disagreements, gaps: Gaps };
+}
+
+/**
+ * Turn every non-agreement with a derived or overlay association into a reviewable example. A
+ * derived-only link is a possible false merge, an overlay-only link is a possible false split,
+ * and conflicting targets expose both sides of the disagreement. Confidence is attached only to
+ * derived evidence: the mapping overlay is deterministic, not a scored candidate.
+ * @param {{ disagreements: any[], gaps: any[] }} ArgShadowDiff
+ * @param {any[]} ArgDerivedAssociations
+ * @returns {any[]}
+ */
+function BuildHighConfidenceDisagreements(ArgShadowDiff, ArgDerivedAssociations) {
+  const ConfidenceByAssociation = new Map(GetArray(ArgDerivedAssociations).map(ArgAssociation => [
+    GetAssociationKey(ArgAssociation),
+    typeof ArgAssociation.confidence === 'number' ? ArgAssociation.confidence : null,
+  ]));
+  const GetConfidence = ArgExample => {
+    const Confidences = GetArray(ArgExample.derivedClientIds)
+      .map(ArgClientId => ConfidenceByAssociation.get(GetAssociationKey({
+        edgeType: 'task_to_client',
+        from: { type: 'task', id: ArgExample.taskId },
+        to: { type: 'client', id: ArgClientId },
+      })))
+      .filter(ArgConfidence => typeof ArgConfidence === 'number');
+    return Confidences.length === 0 ? null : Math.max(...Confidences);
+  };
+  const Examples = [
+    ...GetArray(ArgShadowDiff.disagreements).map(ArgDifference => ({
+      ...ArgDifference,
+      kind: 'conflicting_associations',
+      confidence: GetConfidence(ArgDifference),
+    })),
+    ...GetArray(ArgShadowDiff.gaps)
+      .filter(ArgGap => ArgGap.kind !== 'unlinked')
+      .map(ArgGap => ({
+        ...ArgGap,
+        kind: ArgGap.kind === 'derived_only' ? 'possible_false_merge' : 'possible_false_split',
+        confidence: GetConfidence(ArgGap),
+      })),
+  ];
+  return Examples.sort((ArgLeft, ArgRight) => (ArgRight.confidence ?? -1) - (ArgLeft.confidence ?? -1)
+    || CompareStrings(ArgLeft.taskId, ArgRight.taskId)
+    || CompareStrings(ArgLeft.kind, ArgRight.kind));
 }
 
 /**
@@ -333,7 +376,7 @@ function BuildEntityLinkingDiagnostics(ArgEvents, ArgOptions = {}) {
     derivedAssociations: DerivedAssociations,
     overlayAssociations: OverlayAssociations,
     shadowDiff: ShadowDiff,
-    highConfidenceDisagreements: ShadowDiff.disagreements,
+    highConfidenceDisagreements: BuildHighConfidenceDisagreements(ShadowDiff, DerivedAssociations),
     lowConfidenceQueue: BuildLowConfidenceQueue(CandidateEdges, Threshold),
     traces: BuildTraces(AppliedEdges, GetStringOrNull(ArgOptions.taskId), Threshold),
     appliedOverrides: Overrides,
@@ -409,6 +452,7 @@ function RunCLI(ArgArgs, ArgIo = fs) {
 module.exports = {
   ApplyAssociationOverrides,
   BuildEntityLinkingDiagnostics,
+  BuildHighConfidenceDisagreements,
   BuildShadowDiff,
   NormalizeOverrides,
   RunCLI,
