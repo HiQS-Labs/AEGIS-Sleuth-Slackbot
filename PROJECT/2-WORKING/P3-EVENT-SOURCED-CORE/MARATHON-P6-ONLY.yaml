@@ -15,8 +15,13 @@
 # hypothetical — PR #30 failed with **281 findings across 39 files** for exactly this reason.
 # After a run, before pushing:
 #   node -e "const{execSync}=require('child_process'),fs=require('fs');
-#     for(const f of execSync('git ls-files phases relay-system',{encoding:'utf8'}).trim().split('\n').filter(Boolean))
+#     for(const f of execSync('git ls-files --cached --others --exclude-standard phases relay-system',{encoding:'utf8'}).trim().split('\n').filter(Boolean))
 #       fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(/\/Users\/[a-z0-9._-]+\//gi,'<home>/'));"
+#
+# NOTE the `--cached --others --exclude-standard`. A bare `git ls-files` lists only TRACKED files and
+# silently skips a freshly-rendered RELAY.md that is about to be `git add`ed — which is precisely how
+# 7 findings survived the first scrub of PR #30 and failed CI a second time. The relay file a run
+# just created is new; scrub the working tree, not the index.
 # Better long-term fix (not done): teach the harness to render repo-relative paths. Tracked as a
 # triage item; do not let it silently block another PR.
 #
