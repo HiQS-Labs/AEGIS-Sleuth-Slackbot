@@ -14,6 +14,7 @@ const {
   BuildParityReport,
   CompareBytes,
   CompareSemantics,
+  SerializeCanonical,
 } = require('../scripts/projection-parity-harness');
 
 const HarnessPath = path.join(__dirname, '..', 'scripts', 'projection-parity-harness.js');
@@ -74,6 +75,11 @@ describe('P3 Phase 5 projection parity', () => {
       flagName: ArgFlagName, environment: { [ArgFlagName]: 'projection' }, ReadAuthoritativeAsync, ReadProjectionAsync,
     });
     expect(On).toEqual({ value: 'projection', source: 'projection' });
+
+    const RolledBack = await ReadWithProjectionFallbackAsync({
+      flagName: ArgFlagName, environment: {}, ReadAuthoritativeAsync, ReadProjectionAsync,
+    });
+    expect(RolledBack).toEqual({ value: 'json', source: 'authoritative' });
   });
 
   test('a projection error logs and returns the authoritative value', async () => {
@@ -100,9 +106,9 @@ describe('P3 Phase 5 projection parity', () => {
     const Root = fs.mkdtempSync(path.join(os.tmpdir(), 'projection-parity-'));
     const Events = [BaselineEvent()];
     const Folded = FoldReminderReadModels(Events, { strict: true });
-    fs.writeFileSync(path.join(Root, 'events.json'), JSON.stringify(Events, null, 2) + '\n');
-    fs.writeFileSync(path.join(Root, 'reminders.json'), JSON.stringify(Folded.reminders, null, 2) + '\n');
-    fs.writeFileSync(path.join(Root, 'completed.json'), JSON.stringify(Folded.completed, null, 2) + '\n');
+    fs.writeFileSync(path.join(Root, 'events.json'), SerializeCanonical(Events));
+    fs.writeFileSync(path.join(Root, 'reminders.json'), SerializeCanonical(Folded.reminders));
+    fs.writeFileSync(path.join(Root, 'completed.json'), SerializeCanonical(Folded.completed));
     try {
       const Result = spawnSync(process.execPath, [HarnessPath,
         '--workspace', 'acme', '--events', path.join(Root, 'events.json'), '--reminders', path.join(Root, 'reminders.json'),

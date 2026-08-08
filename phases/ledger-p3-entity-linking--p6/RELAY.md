@@ -163,3 +163,12 @@ You need to either write the fixtures in the test using `SerializeCanonical` so 
 **Verdict:** Changes requested
 
 handing off to codex — codex, take your turn.
+
+### Round 3 · Builder · codex
+
+- Aligned the CLI fixture bytes in `tests/projection-parity.test.js` with the harness's documented
+  canonical projection serializer, so its byte-equality assertion now tests the intended clean
+  reminder/completed inputs instead of incidental JSON key insertion order.
+- Expanded each parametrized read-source check into an explicit off → projection → off sequence;
+  this verifies an independent rollback restores the authoritative JSON result for all three flags.
+- Verified only with `npx jest tests/projection-parity.test.js --runInBand` (pass).
