@@ -1,5 +1,5 @@
 # Marathon Phase p8
-STATUS: Open
+STATUS: Approved
 NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P8-TURN builder=codex reviewer=agy round-cap=5 -->
@@ -163,3 +163,11 @@ Verification: `node --test tests/p3-reversibility-drill.test.js` is expected to 
 release-gate assertion on the absent `REMINDER_STATE_SOURCE` wiring. The remaining three focused
 fixture/helper tests pass. This failure is intentionally retained as the stop signal required by
 the phase, not weakened into a synthetic pass.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+The reversibility drill correctly halts the release gate because the source flags (`REMINDER_STATE_SOURCE`, `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE`) are not fully wired into the runtime consumers (`RemindersModule` and `WebAPI`), meaning no true rollback path exists for them in production. The rollback runbook correctly documents the sole active flag and explicitly warns against enabling the unwired ones. The test drill is properly integrated into `package.json`.
+
+**Verdict:** Approved
