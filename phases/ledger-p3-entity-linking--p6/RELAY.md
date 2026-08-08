@@ -107,3 +107,28 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+**Status:** halted for a parity blocker; no artifact source was changed because the permitted files
+cannot repair it safely.
+
+- Reproduced the scoped check with `node --test tests/projection-parity.test.js`: all 10 tests pass,
+  so the prior bare `pre-advance-failed` record has no reproducible error output to repair.
+- Traced the live creation path: `src/reminders-module.js` emits `ReminderCreated` with text,
+  assignee/channel IDs, source, GitHub URLs, client ID, and project ID, but not `createdOn`,
+  `originalSenderId`, `originalMessageId`, `originalThreadTs`, `originalChannelName`, or
+  `ignoreSnooze`. `FoldReminderReadModels(..., { strict: true })` correctly raises
+  `ProjectionParityError` for those absent fields and `ReadWithProjectionFallbackAsync` returns the
+  authoritative JSON. Thus each read-source flag is reversible and safe, but flag-on output cannot
+  be parity-clean for any live native event.
+- The three actual read surfaces are also still owned by `src/reminders-module.js` and
+  `src/web-api.js`, which are outside this turn's edit allowlist. The rebalance export additionally
+  contains Slack-derived presentation data, ordering, and source metadata from `web-api.js`; the
+  pure projection intentionally reports that mismatch rather than claiming byte parity.
+
+**Hypothesis checked:** the failure was not a flaky projection-parity test. The evidence supports a
+missing producer/consumer cutover contract outside the authorized files. Per the phase's
+"Escalate rather than force" rule, this is a breadcrumb for the next authorized change: extend the
+event payload/backfill schema first, then wire each flag into its owning reader and capture an actual
+`?format=rebalance` fixture before enabling any flag.
