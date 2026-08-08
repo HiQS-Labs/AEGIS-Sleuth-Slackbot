@@ -20,6 +20,10 @@ function BaselineEvent(ArgOverrides = {}) {
       text: 'Ship the derived snapshot', assigneeId: 'U_OWNER', assigneeIds: ['U_OWNER'],
       sourceChannelId: 'C_SOURCE', targetChannelId: 'C_TARGET', dueAt: '2026-08-02T12:00:00.000Z',
       state: 'scheduled', githubUrls: ['https://github.com/acme/repo/pull/1'],
+      // Required for strict parity once a reminder carries GitHub URLs (QA 2026-08-08):
+      // github-comment-relay.js:102 refuses to relay when GitHubRelayStopped is set, so a fold that
+      // cannot restore these would resume a relay a user stopped. Models a post-schema-expansion event.
+      gitHubRelayStarted: false, gitHubRelayStopped: false,
       createdOn: '2026-08-01T12:00:00.000Z', originalSenderId: 'U_SENDER',
       originalMessageId: '123.456', originalThreadTs: '123.000', originalChannelName: 'engineering',
       ignoreSnooze: false, clientId: 'acme', projectId: 'ledger',

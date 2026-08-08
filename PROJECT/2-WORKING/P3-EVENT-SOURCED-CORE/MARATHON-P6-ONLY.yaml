@@ -50,7 +50,14 @@
 #
 #   CONVERTED  reminder queue read      REMINDERS_READ_SOURCE   (src/reminders-module.js)
 #   CONVERTED  ?format=rebalance export REBALANCE_EXPORT_SOURCE (src/web-api.js)
-#   HALTED     completed-store read     COMPLETED_READ_SOURCE   — see below
+#   BLOCKED    completed-store read     COMPLETED_READ_SOURCE   — see below (CORRECTED after QA)
+#
+# CORRECTION (QA, 2026-08-08): this file previously said the completed-store surface was "HALTED,
+# not shipped". That was WRONG and I propagated it. The HALT happened in the RETRY round, but round 1
+# had already shipped the flag and wired it live at src/web-api.js:409. Codex QA caught it. The flag
+# is now in BLOCKED_PROJECTION_FLAGS (src/reminders-projection.js) so it can never select the
+# projection, with a loud warning if an operator sets it and a test asserting the projection is not
+# even read. Reality now matches the documentation.
 #
 # The completed-store cutover cannot be lossless: `GitHubRelayStarted` and `GitHubRelayStopped`
 # are persisted ReminderInfo fields (src/reminders-module.js:87-88) but are NOT in the event-store's

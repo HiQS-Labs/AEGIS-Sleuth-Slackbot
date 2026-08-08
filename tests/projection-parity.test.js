@@ -8,6 +8,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
   BuildProjectedRebalanceExport,
+  FindMissingNativeReminderFields,
+  FindMissingRelayStateFields,
   FoldReminderReadModels,
   ProjectionParityError,
   ReadWithProjectionFallbackAsync,
@@ -35,6 +37,11 @@ function BaselineEvent(ArgOverrides = {}) {
       state: 'scheduled', githubUrls: ['https://github.com/acme/repo/pull/1'],
       originalSenderId: 'U_SENDER', originalMessageId: '123.456', originalThreadTs: '123.000',
       originalChannelName: 'engineering', ignoreSnooze: false, clientId: 'acme', projectId: 'ledger',
+      // Required for strict parity (QA 2026-08-08): github-comment-relay.js:102 refuses to relay
+      // when GitHubRelayStopped is set, so a fold that cannot restore these would resume a relay a
+      // user stopped. This fixture therefore models a POST-schema-expansion event — the shape a
+      // stream must have to be projectable. Tests asserting REJECTION build payloads without them.
+      gitHubRelayStarted: false, gitHubRelayStopped: false,
     },
     ...ArgOverrides,
   };
@@ -64,6 +71,8 @@ test('strict projection refuses a native event with fields the ledger never capt
   delete Native.payload.originalThreadTs;
   delete Native.payload.originalChannelName;
   delete Native.payload.ignoreSnooze;
+  delete Native.payload.gitHubRelayStarted;
+  delete Native.payload.gitHubRelayStopped;
   assert.throws(() => FoldReminderReadModels([Native], { strict: true }), ProjectionParityError);
 });
 
@@ -90,8 +99,23 @@ test('REMINDERS_READ_SOURCE is independently reversible', async () => {
   await AssertIndependentlyReversibleAsync('REMINDERS_READ_SOURCE');
 });
 
-test('COMPLETED_READ_SOURCE is independently reversible', async () => {
-  await AssertIndependentlyReversibleAsync('COMPLETED_READ_SOURCE');
+// REPLACED 2026-08-08 (QA finding). This asserted COMPLETED_READ_SOURCE was independently
+// reversible — i.e. that flag-ON serves the projection. That is exactly the behaviour that must NOT
+// exist: the fold's completedMs can never match the authoritative Date.now() stamp, so serving it
+// would hand out subtly wrong completion timestamps. The flag is now BLOCKED, and the assertion
+// below is the inverse of the original. See the blocked-flag test at the bottom of this file.
+test('COMPLETED_READ_SOURCE stays on the authoritative store in BOTH flag states', async () => {
+  for(const FlagValue of [undefined, 'projection']) {
+    const Result = await ReadWithProjectionFallbackAsync({
+      flagName: 'COMPLETED_READ_SOURCE',
+      environment: FlagValue === undefined ? {} : { COMPLETED_READ_SOURCE: FlagValue },
+      Logger: { warn: () => {} },
+      ReadAuthoritativeAsync: async () => 'json',
+      ReadProjectionAsync: async () => 'projection',
+    });
+    assert.equal(Result.source, 'authoritative', `flag=${String(FlagValue)} must stay authoritative`);
+    assert.equal(Result.value, 'json');
+  }
 });
 
 test('REBALANCE_EXPORT_SOURCE is independently reversible', async () => {
@@ -177,4 +201,65 @@ test('the harness proves byte-compatible rebalance captures separately from fold
   assert.equal(Report.byteDiffs.rebalance.equal, true);
   assert.equal(Report.semanticDiffs.rebalance.equal, true);
   assert.equal(Report.clean, true);
+});
+
+// ── QA findings, 2026-08-08 ─────────────────────────────────────────────────────────────────
+// These assert the cutover CANNOT serve known-lossy data, which is the opposite of the usual
+// "flag works" test. A reversibility test that only proves OFF behaves like today would pass
+// happily while the ON path served wrong records.
+
+test('COMPLETED_READ_SOURCE cannot select the projection even when explicitly enabled', async () => {
+  const Warnings = [];
+  let ProjectionRead = false;
+  const Result = await ReadWithProjectionFallbackAsync({
+    flagName: 'COMPLETED_READ_SOURCE',
+    environment: { COMPLETED_READ_SOURCE: 'projection' },
+    Logger: { warn: (/** @type {string} */ ArgMessage) => Warnings.push(ArgMessage) },
+    ReadAuthoritativeAsync: async () => ['authoritative'],
+    ReadProjectionAsync: async () => { ProjectionRead = true; return ['projection']; },
+  });
+
+  // The authoritative completedMs is stamped with Date.now() while the event carries a separately
+  // sampled ISO instant, so the two can never be byte-identical. Blocked until a schema change
+  // carries the authoritative value verbatim.
+  assert.equal(Result.source, 'authoritative');
+  assert.deepEqual(Result.value, ['authoritative']);
+  assert.equal(ProjectionRead, false, 'the lossy projection must not even be read');
+  assert.equal(Warnings.length, 1, 'a blocked flag must warn loudly, not fail silently');
+  assert.match(Warnings[0], /BLOCKED/);
+});
+
+test('relay-state parity applies to BASELINE events too, not just native creations', () => {
+  // baseline-import.js emits neither relay flag, and production's stream is largely
+  // BaselineReminderImported after GH-355 — so a check gated on ReminderCreated alone would exempt
+  // the one stream that actually matters. This asserts the baseline path is covered.
+  const BaselineEvents = [{
+    id: 'evt-1', ts: '2026-08-01T12:00:00.000Z', type: 'BaselineReminderImported',
+    workspace: 'ws', reminderId: 'rem-1',
+    payload: {
+      text: 'x', dueAt: '2026-08-02T12:00:00.000Z', state: 'scheduled',
+      createdOn: '2026-08-01T12:00:00.000Z', originalSenderId: 'U1', originalMessageId: '1.0',
+      originalThreadTs: null, originalChannelName: 'general', ignoreSnooze: false,
+      githubUrls: ['https://github.com/acme/repo/pull/1'],
+    },
+  }];
+  assert.throws(() => FoldReminderReadModels(BaselineEvents, { strict: true }), ProjectionParityError);
+});
+
+test('strict parity rejects a native stream missing the GitHub relay state fields', () => {
+  // github-comment-relay.js:102 refuses to relay when GitHubRelayStopped is set. A fold that cannot
+  // restore it would RESUME a relay the user deliberately stopped — a behavioural regression, not a
+  // cosmetic diff. Strict parity must therefore treat the absence as disqualifying.
+  const Missing = FindMissingRelayStateFields({
+    githubUrls: ['https://github.com/acme/repo/pull/1'],
+    createdOn: '2026-08-01T00:00:00.000Z',
+    originalSenderId: 'U_SENDER',
+    originalMessageId: '1.0001',
+    originalThreadTs: null,
+    originalChannelName: 'general',
+    ignoreSnooze: false,
+  });
+
+  assert.ok(Missing.includes('GitHubRelayStarted'), 'GitHubRelayStarted must be required for parity');
+  assert.ok(Missing.includes('GitHubRelayStopped'), 'GitHubRelayStopped must be required for parity');
 });

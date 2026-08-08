@@ -52,6 +52,25 @@ const PROJECTION_FLAGS = new Set([
   'REBALANCE_EXPORT_SOURCE',
 ]);
 
+/**
+ * Flags that are RECOGNISED but must never select the projection, because their fold is known-lossy
+ * in a way strict field-presence cannot detect. Kept in PROJECTION_FLAGS so call sites stay valid
+ * and the authoritative read still works — this forces the fallback rather than throwing.
+ *
+ * COMPLETED_READ_SOURCE: the authoritative record stamps `completedMs` with `Date.now()`
+ * (src/reminders-module.js:569-576), while the event carries a separately sampled ISO instant
+ * (src/reminders-module.js:496-502) that the fold re-parses (this file, ~line 197+). The two
+ * timestamps are taken at different moments, so the projected value can never be byte-identical to
+ * the stored one. That is a design mismatch, not a missing field, so no strict check can rescue it —
+ * it needs a schema change that carries the authoritative completedMs verbatim.
+ *
+ * Remove an entry ONLY together with the schema work that makes its fold lossless, and with a test
+ * proving parity on real data.
+ */
+const BLOCKED_PROJECTION_FLAGS = new Set([
+  'COMPLETED_READ_SOURCE',
+]);
+
 class ProjectionParityError extends Error {
   /**
    * @param {string[]} ArgMissingFields
@@ -107,6 +126,42 @@ function FindMissingNativeReminderFields(ArgPayload) {
     ['OriginalThreadTs', 'originalThreadTs'],
     ['OriginalChannelName', 'originalChannelName'],
     ['IgnoreSnooze', 'ignoreSnooze'],
+  ];
+  return Fields
+    .filter(([, PayloadKey]) => !Object.prototype.hasOwnProperty.call(Payload, PayloadKey))
+    .map(([ReminderField]) => ReminderField);
+}
+
+/**
+ * Relay-state fields required from ANY reminder-producing event, native or baseline.
+ *
+ * Kept separate from FindMissingNativeReminderFields on purpose. That check runs only for
+ * `ReminderCreated`, which is correct for fields a baseline import genuinely supplies — but these
+ * two are supplied by NEITHER. `scripts/baseline-import.js` does not emit them, and after GH-355
+ * production's stream is largely `BaselineReminderImported`, so checking only the native path would
+ * let the exact real-world stream pass strict parity and serve a lossy fold.
+ *
+ * Why it matters behaviourally rather than cosmetically: `github-comment-relay.js:102` refuses to
+ * relay when `GitHubRelayStopped` is set. A flag-on read from a stream lacking it would RESUME a
+ * relay a user deliberately stopped, and treat an already-started relay as first-use. The fold
+ * cannot restore what was never evented, so strict parity must reject and fall back.
+ *
+ * Self-healing: the moment the schema expansion emits these, the check passes and the projection
+ * becomes eligible without further code change.
+ * @param {any} ArgPayload
+ * @returns {string[]}
+ */
+function FindMissingRelayStateFields(ArgPayload) {
+  const Payload = ArgPayload && typeof ArgPayload === 'object' ? ArgPayload : {};
+  // SCOPED to reminders that can actually relay. github-comment-relay only ever consults these
+  // flags for a reminder carrying GitHub URLs, so demanding them everywhere would reject streams
+  // that are provably lossless — an over-broad check is its own kind of wrong, and this one
+  // initially failed three unrelated suites before being narrowed.
+  const CanRelay = Array.isArray(Payload.githubUrls) && Payload.githubUrls.length > 0;
+  if(!CanRelay) return [];
+  const Fields = [
+    ['GitHubRelayStarted', 'gitHubRelayStarted'],
+    ['GitHubRelayStopped', 'gitHubRelayStopped'],
   ];
   return Fields
     .filter(([, PayloadKey]) => !Object.prototype.hasOwnProperty.call(Payload, PayloadKey))
@@ -181,6 +236,13 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
           const Missing = `${ReminderId}.${Field}`;
           if(!MissingFields.includes(Missing)) MissingFields.push(Missing);
         }
+      }
+      // Applied to BOTH event types, unlike the check above: baseline-import.js does not emit the
+      // relay flags either, and production's stream is largely BaselineReminderImported after
+      // GH-355 — so gating this on ReminderCreated alone would exempt the one stream that matters.
+      for(const Field of FindMissingRelayStateFields(Payload)) {
+        const Missing = `${ReminderId}.${Field}`;
+        if(!MissingFields.includes(Missing)) MissingFields.push(Missing);
       }
       continue;
     }
@@ -288,6 +350,15 @@ async function ReadWithProjectionFallbackAsync(ArgOptions) {
   }
   const Environment = ArgOptions.environment || process.env;
   const WantsProjection = String(Environment[ArgOptions.flagName] || '').trim().toLowerCase() === 'projection';
+  if(WantsProjection && BLOCKED_PROJECTION_FLAGS.has(ArgOptions.flagName)) {
+    // Loud, not silent: an operator who sets a blocked flag has asked for the projection and is
+    // getting the authoritative store instead. Failing quietly here would look like the cutover
+    // working when it is deliberately inert.
+    ArgOptions.Logger?.warn?.(
+      `[reminders-projection] ${ArgOptions.flagName} is set to 'projection' but is BLOCKED — its fold is known-lossy. Serving the authoritative store.`
+    );
+    return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
+  }
   if(!WantsProjection) {
     return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
   }
@@ -305,7 +376,9 @@ async function ReadWithProjectionFallbackAsync(ArgOptions) {
 }
 
 module.exports = {
+  BLOCKED_PROJECTION_FLAGS,
   BuildProjectedRebalanceExport,
+  FindMissingRelayStateFields,
   FindMissingNativeReminderFields,
   FoldReminderReadModels,
   ProjectionParityError,

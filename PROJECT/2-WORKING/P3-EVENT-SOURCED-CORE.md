@@ -87,7 +87,7 @@ surfaces and correctly **halted on the third**:
 |---|---|---|---|
 | reminder queue | `REMINDERS_READ_SOURCE` | `src/reminders-module.js` | **converted** |
 | `?format=rebalance` export | `REBALANCE_EXPORT_SOURCE` | `src/web-api.js` | **converted** |
-| completed store | `COMPLETED_READ_SOURCE` | `src/reminders-module.js` | **HALTED** |
+| completed store | `COMPLETED_READ_SOURCE` | `src/web-api.js` | **BLOCKED** (shipped live in round 1, then blocked after QA) |
 
 `src/reminders-module.js` now imports `reminders-projection` — the integration three earlier
 phases never achieved, because the file was not in their lane.
