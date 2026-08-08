@@ -1,5 +1,5 @@
 # Marathon Phase p2
-STATUS: Open
+STATUS: Approved
 NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=codex reviewer=agy round-cap=5 -->
@@ -104,3 +104,10 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Reviewer · agy
+swept file: yes
+
+I reviewed the whole files `src/entity-linking.js` and `tests/entity-linking.test.js`. The implementation matches the phase brief perfectly. It correctly uses blocking for candidate generation, accurately scores the candidates across multi-signals, appropriately stores provenance on every edge, and guarantees deterministic and pure outputs without mutating the original states. The tests provide comprehensive coverage of all scenarios and boundaries discussed in the specifications.
+
+**Verdict:** Approved
