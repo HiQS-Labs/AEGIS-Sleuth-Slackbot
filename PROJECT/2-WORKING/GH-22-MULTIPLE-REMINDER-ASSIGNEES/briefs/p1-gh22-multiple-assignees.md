@@ -33,6 +33,21 @@ disk-format change on live data, so:
 - `AGENTS.md` §10 requires compatibility/backfill logic for disk-persisted data changes. This is
   exactly that case.
 
+## Do not change the SINGLE-assignee confirmation copy
+
+Observed on the 2026-08-07 run: the builder rewrote the confirmation to
+`"... has been scheduled as shared work for <@U>."` for **every** reminder, including
+single-assignee ones, and `tests/reminders-integration.test.js` failed because it still asserts the
+existing wording.
+
+That test is **correct and must not be edited to match the new string.** GH-22 asks for multi-assignee
+support; it does not ask to reword the single-assignee case, and "as shared work" reads wrong for one
+person. If a reminder has exactly one assignee, its confirmation must be byte-identical to today's.
+
+New wording is allowed **only** on the multi-assignee path, and only where a test asserts it
+deliberately. If you believe the single-assignee copy must change, HALT and say so rather than
+editing the existing assertion — that is a product decision, not a test fix.
+
 ## The FSM constraint
 
 Reminder state changes go through the three named write chokepoints

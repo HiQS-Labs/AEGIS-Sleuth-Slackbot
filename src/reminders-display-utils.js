@@ -271,6 +271,7 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
 
   // AssigneeIDs is normalized by RemindersModule before display. Keep the singular legacy fallback
   // so a caller rendering an old in-memory record still tags its established owner.
+  /** @type {(string|null|undefined)[]} */
   const AssigneeIDs = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
     ? ArgReminder.AssigneeIDs
     : [ArgReminder.AssigneeID || ArgReminder.OriginalSenderID];

@@ -204,7 +204,7 @@ async function HandleShowMeCommandAsync(ArgSlackApp, ArgEventInfo, ArgRawMention
     return;
   }
 
-  const UserReminders = GetActiveRemindersForUser(ArgDeps.RemindersModule, TargetUserId);
+  const UserReminders = GetActiveRemindersForUser(ArgDeps.RemindersModule, TargetUserId, ArgSlackApp.BotUserID ?? null);
 
   if(UserReminders.length === 0) {
     await ArgSlackApp.PostMessageTextAsync(

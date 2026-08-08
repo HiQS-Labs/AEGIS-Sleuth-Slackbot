@@ -659,6 +659,7 @@ class RemindersModule {
     const Candidates = HasArray
       ? ArgReminder.AssigneeIDs
       : [ArgReminder.AssigneeID];
+    /** @type {string[]} */
     const AssigneeIDs = [];
     for(const Candidate of Candidates) {
       if(typeof Candidate !== 'string') continue;
@@ -1854,7 +1855,12 @@ class RemindersModule {
       ? TargetUsers.map(ArgID => `<@${ArgID}>`).join(', ')
       : `<@${ArgUserID}>`;
 
-    let FeedbackMessage = `${ReminderCountText} been scheduled as shared work for ${TargetUsersText}.`;
+    // "as shared work" is MULTI-ASSIGNEE COPY ONLY. GH-22 adds shared assignment; it does not reword
+    // the single-assignee case, where that phrasing reads wrong for one person and breaks the
+    // existing confirmation contract asserted in tests/reminders-integration.test.js. One assignee
+    // (or none, falling back to the sender) must stay byte-identical to the pre-GH-22 wording.
+    const SharedWorkText = TargetUsers.length > 1 ? ' as shared work' : '';
+    let FeedbackMessage = `${ReminderCountText} been scheduled${SharedWorkText} for ${TargetUsersText}.`;
     const GitHubMonitoringFeedback = RemindersModule.BuildGitHubMonitoringFeedback(ArgScheduledReminders);
     if(GitHubMonitoringFeedback)
       FeedbackMessage += `\n${GitHubMonitoringFeedback}`;

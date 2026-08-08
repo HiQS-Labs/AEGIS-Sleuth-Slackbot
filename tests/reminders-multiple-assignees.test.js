@@ -8,6 +8,7 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 const RemindersModule = require('../src/reminders-module');
 const { BuildCompactTextForReminder } = require('../src/reminders-display-utils');
+const { GetActiveRemindersForUser } = require('../src/chat-commands/show-me-context');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 const RuntimeDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
@@ -158,5 +159,87 @@ describe('multiple reminder assignees', () => {
       AssigneeIDs: ['U_ALICE', 'U_BOB'],
     }, 'A');
     expect(Text).toContain('<@U_ALICE>, <@U_BOB>');
+  });
+
+  // GH-22 regression, the original reported symptom. This is the test that must FAIL against the
+  // pre-fix code: show-me's shared read path filtered with `Reminder.AssigneeID === userId`, which
+  // only ever matched the FIRST assignee, so the second person's show-me silently omitted work
+  // genuinely assigned to them. Driven through the real creation flow, not a hand-built record, so
+  // it also proves normalization and the read path agree on what "assigned" means.
+  test('show-me surfaces one shared reminder for EVERY assignee, not just the first', async () => {
+    const WorkspaceInfo = MakeWorkspaceInfo('showme');
+    ConfigureMockWorkspaceAI(MockWorkspaceAI, {
+      reminderMessage: 'review the release notes',
+      extractedDate: { year: 2030, month: 1, day: 1, hour: 9, minute: 0, second: 0 },
+    });
+    const SlackApp = new MockSlackApp({ WorkspaceInfo });
+    const Reminders = new RemindersModule(SlackApp);
+
+    try {
+      await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
+      await Reminders.StartAsync();
+      await SlackApp.SimulateMessageAsync({
+        channel: 'D_MULTI',
+        channel_type: 'im',
+        user: 'U_SENDER',
+        text: '<@U_ALICE> <@U_BOB> please review the release notes tomorrow',
+      });
+
+      const Stored = Reminders.GetAllReminders();
+      expect(Stored).toHaveLength(1);
+      const SharedID = Stored[0].ReminderID;
+
+      const AliceView = GetActiveRemindersForUser(Reminders, 'U_ALICE', SlackApp.BotUserID ?? null);
+      const BobView = GetActiveRemindersForUser(Reminders, 'U_BOB', SlackApp.BotUserID ?? null);
+
+      // Alice is AssigneeID[0] — she saw it before the fix too.
+      expect(AliceView.map(ArgReminder => ArgReminder.ReminderID)).toEqual([SharedID]);
+      // Bob is the second assignee — this is the assertion the old singular compare failed.
+      expect(BobView.map(ArgReminder => ArgReminder.ReminderID)).toEqual([SharedID]);
+      // One shared reminder, not a per-assignee copy (per the plan doc's non-goals).
+      expect(AliceView[0]).toBe(BobView[0]);
+      // Nobody else picks it up.
+      expect(GetActiveRemindersForUser(Reminders, 'U_OTHER', SlackApp.BotUserID ?? null)).toEqual([]);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
+    }
+  });
+
+  // Per-assignee completion state is an explicit NON-goal in the plan doc: there is ONE reminder with
+  // one lifecycle, so whoever ticks it off closes it for everyone. Completion takes only a reminder
+  // ID — no user — which is the design saying the same thing.
+  test('completion by one assignee clears the shared reminder from every assignee view', async () => {
+    const WorkspaceInfo = MakeWorkspaceInfo('complete');
+    ConfigureMockWorkspaceAI(MockWorkspaceAI, {
+      reminderMessage: 'review the release notes',
+      extractedDate: { year: 2030, month: 1, day: 1, hour: 9, minute: 0, second: 0 },
+    });
+    const SlackApp = new MockSlackApp({ WorkspaceInfo });
+    const Reminders = new RemindersModule(SlackApp);
+
+    try {
+      await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
+      await Reminders.StartAsync();
+      await SlackApp.SimulateMessageAsync({
+        channel: 'D_MULTI',
+        channel_type: 'im',
+        user: 'U_SENDER',
+        text: '<@U_ALICE> <@U_BOB> please review the release notes tomorrow',
+      });
+
+      const SharedID = Reminders.GetAllReminders()[0].ReminderID;
+      expect(GetActiveRemindersForUser(Reminders, 'U_ALICE', SlackApp.BotUserID ?? null)).toHaveLength(1);
+      expect(GetActiveRemindersForUser(Reminders, 'U_BOB', SlackApp.BotUserID ?? null)).toHaveLength(1);
+
+      // Bob ticks the checkbox on HIS per-user Slack List — the second assignee, not the first.
+      expect(await Reminders.CompleteReminderFromListAsync(SharedID, 'completed by U_BOB')).toBe(true);
+
+      expect(GetActiveRemindersForUser(Reminders, 'U_ALICE', SlackApp.BotUserID ?? null)).toEqual([]);
+      expect(GetActiveRemindersForUser(Reminders, 'U_BOB', SlackApp.BotUserID ?? null)).toEqual([]);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
+    }
   });
 });

@@ -29,7 +29,7 @@ name: roundup-open-issues
 phases:
   - id: p1
     name: "GH-22 — multiple assignees for one reminder"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p1-gh22-multiple-assignees.md
     artifact: src/reminders-module.js,src/reminders-display-utils.js,src/lists-module.js,tests/reminders-multiple-assignees.test.js
     # Raised from 1200 after the 2026-08-07 run: agy's REVIEW turn was killed at the 1200s cap
@@ -41,7 +41,7 @@ phases:
 
   - id: p2
     name: "GH-25 — sanitize-scan.sh cannot run from a linked worktree"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p2-gh25-worktree-scan.md
     artifact: utils/sanitize-scan.sh
     turn_timeout_s: 600
@@ -50,7 +50,7 @@ phases:
 
   - id: p3
     name: "GH-26 — RELEASES.md fixture error + Codename absorbed by preceding block"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p3-gh26-releases-parsing.md
     artifact: RELEASES.md,utils/pdda/pdda.sh,utils/pdda/pdda-lib.sh
     turn_timeout_s: 900

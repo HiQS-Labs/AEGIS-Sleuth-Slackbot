@@ -31,11 +31,15 @@ goal: >
 
 ### In progress
 
-- **Multiple reminder assignees (GH-22)** — a reminder with two people is persisted and indexed for
-  only the first mention, while its confirmation says it was scheduled for both; consequently the
-  second user's `show-me` omits it. Active plan defines one shared reminder with additive
-  `AssigneeIDs`, legacy `AssigneeID` compatibility, membership-aware views/exports, and per-user
-  Slack List fan-out. → [PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md](PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md)
+- **Multiple reminder assignees (GH-22)** — implementation complete, in PR review for `development`.
+  One shared reminder now carries an additive authoritative `AssigneeIDs` array with the legacy
+  `AssigneeID` kept as a first-value mirror, normalized on load, so old records stay readable and a
+  rollback stays possible. Membership-aware `show-me`/`show-me-projects`, per-assignee display, and
+  per-user Slack List fan-out follow from one canonical helper (`RemindersModule.IsAssignedTo`) rather
+  than repeated singular compares — the singular compare in `show-me-context.js` *was* the reported
+  bug, and it sat outside the marathon's declared artifact paths, which is why two automated rounds
+  never reached it. Confirmation copy is unchanged for a single assignee. Gates: 1524 Jest + 33 Node
+  green, `validate:fsm` OK, `tsc` clean. → [PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md](PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md)
 
 - **sanitize-scan.sh cannot run from a linked worktree (GH-25)** — the public repo's secret/PII gate
   dies with `FATAL: … is not a git repository` (exit 2) in any `git worktree`, because
