@@ -59,6 +59,16 @@ jobs:
       - name: Run Jest tests
         run: npm test
 
+      # Type check and FSM invariants. Neither ran in CI until 2026-08-08, which is how 62 tsc
+      # errors once accumulated unnoticed and how two more slipped in on the very commit that added
+      # these steps. `npm test` covers jest + node --test only; these are the other two thirds of
+      # the gate every contributor is expected to run locally.
+      - name: Type check (tsc --noEmit via checkJs)
+        run: npm run build
+
+      - name: FSM invariants
+        run: npm run validate:fsm
+
       # 5. Secret / PII gate for the public tree. Fails the build on any finding, and exits 2
       # (never 0) if it cannot verify its own tooling — so a broken scanner can never be
       # mistaken for a clean tree.

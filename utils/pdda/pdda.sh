@@ -402,7 +402,13 @@ check_changelog() {
     return "$(pdda_gated_exit "$rc")"
   fi
 
-  cl_line="$(grep -Em1 '^##[[:space:]]+(\[[^][]*\][[:space:]]*[-–][[:space:]]*)?[0-9]{4}-[0-9]{2}-[0-9]{2}' "$PDDA_CHANGELOG" 2>/dev/null || true)"
+  # The version prefix may be BARE (`## 1.4.267 - 2026-08-08`), bracketed (`## [1.5.0] - ...`), or
+  # absent (`## 2026-07-13`). Only the bracketed and bare-date forms were accepted before, so on a
+  # changelog using the bare-version style this skipped every current entry and matched the first
+  # legacy bare-date heading far down the file — reporting the newest entry as 2026-07-13 while the
+  # top of the file said 2026-08-07. A freshness check that silently reads the wrong entry is worse
+  # than no check, because it reports a clean-looking staleness gap either way.
+  cl_line="$(grep -Em1 '^##[[:space:]]+((\[[^][]*\]|[0-9][0-9A-Za-z.+-]*)[[:space:]]*[-–][[:space:]]*)?[0-9]{4}-[0-9]{2}-[0-9]{2}' "$PDDA_CHANGELOG" 2>/dev/null || true)"
   cl_date="$(printf '%s' "$cl_line" | grep -Eo '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)"
 
   if [ -z "$cl_date" ] || ! pdda_is_real_date "$cl_date"; then
