@@ -168,7 +168,13 @@ phases:
     artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
-    depends_on: p5
+    # RE-POINTED p5 -> p4 (2026-08-08). p5 (Phase 4, boot-rebuild) HALTED and is deferred behind its
+    # own schema-expansion proposal, so `depends_on: p5` made this lane permanently unopenable — the
+    # documented "re-run p6/p7" sequence could never execute. Depending on p4 is not a workaround, it
+    # is correct: Phase 5 converts reads to projections BEHIND FLAGS WITH FALLBACK to the
+    # authoritative store, which is the strangler pattern Phase 2 already shipped for summarize-week
+    # without any boot-time rebuild. Nothing in Phase 5 requires the log to be authoritative at boot.
+    depends_on: p4
 
   - id: p7
     name: "Phase 6a — retire the mutable write path, keep a derived snapshot"
@@ -188,7 +194,12 @@ phases:
     # tests/reminders-event-emission.test.js:108-111 asserts a completion stays readable through
     # that store. Retiring the store makes those expectations stale BY DESIGN — without them in the
     # lane, containment blocks the update and the phase cannot keep its own gate green.
-    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js
+    # Codex round 3 added the two DIRECT unit suites for the store being retired:
+    # tests/completion-store.test.js:147 ("FlushAsync resolves after the most recent queued write has
+    # reached disk") and tests/completion-store-durability.test.js:196 ("FlushAsync waits for the
+    # durable write, including its fsync"). p7 removes FlushAsync, so both are stale by design and
+    # containment would freeze them. That is the FOURTH distinct set of files this lane was missing.
+    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
     depends_on: p6
