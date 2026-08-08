@@ -105,8 +105,8 @@ be enabled until that report is clean.
 
 ## Debug mantra (auto-triggered — 1 prior attempt(s) on this phase did not reach Approved)
 
-Before trying again, read /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/relay-automation/DEBUG-MANTRA.md and follow its four-step discipline: reproduce reliably, know the fail path, question the hypothesis, treat this round as a breadcrumb for the next one.
-Last recorded reason (/Users/noelsaw/wt/ledger-p3-phase5-read-cutover/phases/ledger-p3-phase5-read-cutover--p6/ESCALATION.md): `containment-violation (off-lane edit reverted by a turn-taker)`. Read it before re-guessing.
+Before trying again, read <home>/wt/ledger-p3-phase5-read-cutover/.xyz/relay-automation/DEBUG-MANTRA.md and follow its four-step discipline: reproduce reliably, know the fail path, question the hypothesis, treat this round as a breadcrumb for the next one.
+Last recorded reason (<home>/wt/ledger-p3-phase5-read-cutover/phases/ledger-p3-phase5-read-cutover--p6/ESCALATION.md): `containment-violation (off-lane edit reverted by a turn-taker)`. Read it before re-guessing.
 
 ---
 
@@ -115,10 +115,10 @@ Last recorded reason (/Users/noelsaw/wt/ledger-p3-phase5-read-cutover/phases/led
 You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick claim MARATHON-P6-TURN-2 --agent codex --paths "phases/ledger-p3-phase5-read-cutover--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js"
-   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick ping MARATHON-P6-TURN-2 --agent codex
-   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent codex --to agy
+3. Use this exact tick binary (run it from any directory): <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick
+   - <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick claim MARATHON-P6-TURN-2 --agent codex --paths "phases/ledger-p3-phase5-read-cutover--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js"
+   - <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick ping MARATHON-P6-TURN-2 --agent codex
+   - <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-phase5-read-cutover--p6/RELAY.md and src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -131,9 +131,9 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick done MARATHON-P6-TURN-2 --agent agy
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested` then: <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick done MARATHON-P6-TURN-2 --agent agy
+4. Use this exact tick binary (run it from any directory) for all token operations: <home>/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-phase5-read-cutover--p6/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
