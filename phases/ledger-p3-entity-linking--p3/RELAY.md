@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: codex
+NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=codex reviewer=agy round-cap=5 -->
 
@@ -60,6 +60,20 @@ that cheap.
 Diagnostics/review tooling (p4), human override lane (p4), wiring any feature to consume this.
 Consumers (`summarize-week` grouping, `search reminders`, HiQS exports, P2-TASK-BUCKETING) come
 after Phase 3 and only if the checkpoint re-decision approves continuing.
+
+### Round 1 · Builder · codex
+
+- Added `src/entity-read-model.js`: a pure union-find read model that preserves all valid endpoints,
+  merges only edges at `ENTITY_CLUSTER_CONFIDENCE_THRESHOLD` (0.60), and derives each canonical ID
+  from sorted typed cluster members via SHA-256 rather than edge order or a counter.
+- Emits sorted cluster members, raw-surface alias records with normalized lookup forms and retained
+  link confidence, plus accepted-edge and source-event provenance. Optional explicit entities remain
+  visible as singleton clusters.
+- Added `tests/entity-read-model.test.js` for false merge, false split, edge-order independence,
+  empty input, and an explicit single-item cluster.
+- Verification: targeted `npx jest tests/entity-read-model.test.js --runInBand` was invoked; this
+  worktree has no local `./node_modules/.bin/jest`. A direct targeted Node assertion suite passed
+  the false-merge, false-split, alias-retention, and order-independence cases.
 
 
 ---
