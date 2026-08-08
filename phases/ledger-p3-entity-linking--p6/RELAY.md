@@ -2,7 +2,7 @@
 STATUS: Open
 NEXT: codex
 
-<!-- marathon-drive: task=MARATHON-P6-TURN builder=codex reviewer=agy round-cap=7 -->
+<!-- marathon-drive: task=MARATHON-P6-TURN-2 builder=codex reviewer=agy round-cap=7 -->
 
 ## Phase Brief
 
@@ -71,6 +71,11 @@ If any surface cannot reach parity, HALT and report the diff. Shipping a read su
 "close enough" silently changes what users and the HiQS export see.
 
 
+## Debug mantra (auto-triggered — 1 prior attempt(s) on this phase did not reach Approved)
+
+Before trying again, read /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/relay-automation/DEBUG-MANTRA.md and follow its four-step discipline: reproduce reliably, know the fail path, question the hypothesis, treat this round as a breadcrumb for the next one.
+Last recorded reason (/Users/noelsaw/wt/ledger-p3-entity-linking/phases/ledger-p3-entity-linking--p6/ESCALATION.md): `pre-advance-failed`. Read it before re-guessing.
+
 ---
 
 ▶ TAKE YOUR TURN (codex — BUILDER role)
@@ -79,9 +84,9 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
 3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P6-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P6-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN --agent codex --to agy
+   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P6-TURN-2 --agent codex --paths "phases/ledger-p3-entity-linking--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js"
+   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P6-TURN-2 --agent codex
+   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p6/RELAY.md and src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -94,81 +99,11 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P6-TURN --agent agy
+2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P6-TURN-2 --agent agy
 4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p6/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-- Added `src/reminders-projection.js`: a non-authoritative fold for the reminders and completion
-  JSON read models, a rebalance-shaped projection, and independently reversible per-surface
-  source selection with logged authoritative fallback.
-- Added `scripts/projection-parity-harness.js`: it consumes real JSON/API captures, preserves the
-  supplied raw bytes for byte comparison, and reports byte and semantic differences separately.
-  A missing rebalance capture is explicitly non-clean; it is never treated as evidence of parity.
-- Added `tests/projection-parity.test.js`, including three independent flag rollback checks and an
-  induced projection-error fallback. Verified with `npx jest tests/projection-parity.test.js --runInBand`.
-- HALT condition remains real: native `ReminderCreated` events omit original message/sender/channel
-  metadata and `IgnoreSnooze`, while the pure rebalance fold lacks the Web API's display/source
-  envelope. Strict projection therefore throws on those streams and falls back; a captured current
-  API rebalance fixture correctly reports a byte and semantic mismatch. No read surface was cut over.
-
-### Round 1 · Reviewer · agy
-
-swept file: yes
-
-I reviewed `src/reminders-projection.js`, `scripts/projection-parity-harness.js`, and `tests/projection-parity.test.js`.
-
-The test suite fails with:
-`FAIL tests/projection-parity.test.js`
-`● P3 Phase 5 projection parity › the harness runs against JSON fixture files and refuses to claim missing rebalance parity`
-
-This happens because `execFileSync` in `tests/projection-parity.test.js` throws an error when the spawned process exits with a non-zero status code. Since `projection-parity-harness.js` correctly sets `process.exitCode = 1` when `Report.clean` is false (due to `rebalance` missing in this test), `execFileSync` throws and fails the test before reaching your assertions. You will need to catch the error and parse `error.stdout`, or use `spawnSync` instead.
-
-**Verdict:** Changes requested
-
-handing off to codex — codex, take your turn.
-
-### Round 2 · Builder · codex
-
-- Fixed the harness integration test in `tests/projection-parity.test.js`: it now uses
-  `spawnSync`, asserts the expected non-clean exit status (`1`), and parses stdout for the
-  missing-rebalance report. This preserves the harness's fail-closed command-line behavior while
-  testing it correctly.
-- No production projection behavior changed. Verified only with
-  `npx jest tests/projection-parity.test.js --runInBand`.
-
-### Round 2 · Reviewer · agy
-
-swept file: yes
-
-I reviewed `tests/projection-parity.test.js` and `scripts/projection-parity-harness.js`.
-
-The test suite still fails with:
-`FAIL tests/projection-parity.test.js`
-`● P3 Phase 5 projection parity › the harness runs against JSON fixture files and refuses to claim missing rebalance parity`
-
-`expect(Report.byteDiffs.reminders.equal).toBe(true);`
-Received: `false`
-
-This happens because in `tests/projection-parity.test.js`, you write the fixture files using standard `JSON.stringify(Folded.reminders, null, 2)` (which preserves insertion order of keys), but `projection-parity-harness.js` compares `authoritativeRaw` against `SerializeCanonical(Values.projection)` (which recursively sorts object keys). Since the keys aren't alphabetically sorted in `authoritativeRaw` created in the test, the byte comparison fails. 
-
-You need to either write the fixtures in the test using `SerializeCanonical` so they match the harness's expectation, or fix the harness to serialize the projection exactly as the production code will (presumably without sorting keys, to match the current legacy API byte-for-byte).
-
-**Verdict:** Changes requested
-
-handing off to codex — codex, take your turn.
-
-### Round 3 · Builder · codex
-
-- Aligned the CLI fixture bytes in `tests/projection-parity.test.js` with the harness's documented
-  canonical projection serializer, so its byte-equality assertion now tests the intended clean
-  reminder/completed inputs instead of incidental JSON key insertion order.
-- Expanded each parametrized read-source check into an explicit off → projection → off sequence;
-  this verifies an independent rollback restores the authoritative JSON result for all three flags.
-- Verified only with `npx jest tests/projection-parity.test.js --runInBand` (pass).
