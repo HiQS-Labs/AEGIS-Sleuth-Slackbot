@@ -40,11 +40,33 @@ Description: Take P3 Event-Sourced Core through the authority flip, for the remi
   default-OFF flag, no boot-time rebuild, and client/project mapping still a plain
   mutable store. Phases 0-2 are done and validated against real prod data — the GH-355
   baseline import took the prod shadow-diff from 11 mismatches to 0, leaving only a
-  documented +/-1ms completedMs divergence. The remaining work is cutover, not discovery.
+  documented +/-1ms completedMs divergence. For PHASE 2 specifically the remaining work is
+  cutover, not discovery — one human-gated prod flip. That does NOT generalise to the rest
+  of the release: Phase 4 is blocked on event-schema discovery (see the scope check below),
+  so "cutover, not discovery" describes the Phase 2 flag only, never Phases 4-6.
   Scope decision (operator, 2026-08-07): proceed aggressively through Phases 3, 4 and 5
   rather than stopping at Phase 3 — on the condition that every authority flip is a
   switch that can be flipped back. That condition is the gate now, replacing the earlier
   stop-and-re-decide checkpoint for these phases.
+  SCOPE REALITY CHECK (2026-08-08, after the ledger-p3-entity-linking marathon):
+  Phase 3 is DELIVERED — the entity-linking read-model (projection inputs, multi-signal
+  scoring, canonical clustering, diagnostics CLI) is additive, tested, and touches no
+  write path or authority boundary. Phase 4 is NOT reachable in this release as scoped:
+  the ledger cannot reconstruct boot state, because ReminderCreated omits
+  OriginalMessageID / OriginalThreadTs / OriginalSenderID / IgnoreSnooze, most lifecycle
+  transitions are never emitted, ReminderCompleted lacks sourceChannelID / dueDate /
+  clientId, and event-store.readAll() cannot signal a read error to trigger the required
+  fallback. Phase 4 needs a schema-expansion proposal of its own FIRST. Phases 5 and 6a
+  produced modules that convert no reads — their marathon lanes excluded
+  src/reminders-module.js and src/web-api.js, so the work could not be integrated; the
+  artifact lists are corrected. Of those two only PHASE 5 (p6) is re-runnable: Phase 6a
+  is blocked with Phase 4, because its rollback criterion is "flip REMINDER_STATE_SOURCE
+  off after running on the log", which needs the log-authoritative boot Phase 4 was to
+  deliver, and that flag exists nowhere in src/. The reversibility drill asserts those
+  same seams and waits with them. Runnable tranche for this release: Phase 3 (done) plus
+  Phase 5's read cutovers. The reversibility drill
+  correctly refuses to certify any switch that has no owning reader, which is how all of
+  this was caught rather than shipped. Treat "the log is authoritative" as NOT YET MET.
   REVERSIBILITY CONTRACT — binding on every phase in this release:
   (a) every flip is an env var, default OFF, unset = today's behavior byte-for-byte;
   (b) mutable JSON writes CONTINUE at every phase, so the fallback is never stale;
