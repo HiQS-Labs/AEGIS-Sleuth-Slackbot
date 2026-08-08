@@ -1,5 +1,5 @@
 # Marathon Phase p1
-STATUS: Open
+STATUS: Approved
 NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=codex reviewer=agy round-cap=5 -->
@@ -98,3 +98,12 @@ with a later completion event, and keys records by workspace plus reminder id to
 collisions. Text strips canonical Slack user mentions through `SlackFormatUtils.ReplaceUserMentions`,
 then normalizes punctuation and case; optional fields have stable null/empty defaults. Tests cover
 native, baseline, mixed-workspace, empty, optional-field, determinism, and non-mutation cases.
+
+### Round 1 · Reviewer · agy
+
+**Verdict:** Approved
+
+The implementation correctly satisfies the phase brief. The pure fold logic handles the native events, baseline events, and completion events accurately while isolating workspaces and preserving early provenance. Text normalization properly leverages `SlackFormatUtils`. Type checks and unit tests (covering all required cases) pass cleanly.
+swept file: yes (I reviewed the files and found no pre-existing defects; they were newly created and correctly bounded).
+
+handing off to codex — relay closed, no further turn needed.
