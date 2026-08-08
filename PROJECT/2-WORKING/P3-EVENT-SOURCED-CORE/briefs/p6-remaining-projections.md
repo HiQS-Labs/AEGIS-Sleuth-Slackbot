@@ -1,6 +1,13 @@
 # p6 — Phase 5: migrate remaining projections, with a parity harness
 
-Release 1.5.0 "Ledger" · P3 Phase 5 · depends on p5
+Release 1.5.0 "Ledger" · P3 Phase 5 · depends on **p4** (re-pointed 2026-08-08; was p5)
+
+> **Why not p5.** p5 (Phase 4, boot-time rebuild) HALTED — the event schema cannot reconstruct boot
+> state — and is deferred behind its own schema-expansion proposal. Depending on it made this lane
+> permanently unopenable. Depending on p4 is correct, not a workaround: this phase converts reads to
+> projections *behind flags with fallback to the authoritative store*, the same strangler pattern
+> Phase 2 shipped for `summarize-week` with no boot-rebuild. Nothing here needs the log authoritative
+> at boot.
 
 Authority-moving phase. The reversibility contract in `MARATHON.yaml` is binding.
 

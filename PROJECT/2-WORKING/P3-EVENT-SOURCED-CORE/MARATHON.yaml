@@ -29,10 +29,24 @@
 #   reversible → add snapshotting/compaction
 #   ONE-WAY    → leave no fresh on-disk state to fall back to
 #
-#   p8 = Phase 6a. Retires the MUTABLE write path and takes all three reversible items. The JSON is
-#        still produced, but DERIVED — a projection snapshot written through durable-write.js
+#   p7 = Phase 6a. (CORRECTED 2026-08-08: this header said "p8" while the phase table below has
+#        always had p7 = Phase 6a and p8 = the reversibility drill. The stale header contradicted the
+#        plan it heads.) Retires the MUTABLE write path and takes all three reversible items. The
+#        JSON is still produced, but DERIVED — a projection snapshot written through durable-write.js
 #        instead of mutable in-place writes. The old machinery is genuinely gone; the fallback file
 #        stays fresh and legacy-loadable, so rollback remains a flag flip.
+#
+#   RUNNABLE SEQUENCE (2026-08-08): p1 -> p2 -> p3 -> p4 -> p6 -> p7 -> p8, with p5 (Phase 4,
+#        boot-time rebuild) DEFERRED behind its own event-schema-expansion proposal. p6 depends on
+#        p4, not p5, because Phase 5's read cutovers are independently reversible — flag + fallback
+#        to the authoritative store — and need nothing from boot-authority.
+#
+#   SCOPE WARNING FOR p7. Measured 2026-08-08: `CompletionStore` is referenced by 12 files and
+#        `FlushAsync` by 6. Retiring it is not a contained edit, and four successive review rounds
+#        each found another file its lane was missing. The lane below now lists the read consumers
+#        and the crash-injection harness, but treat p7 as the phase most likely to need splitting —
+#        if its first turn cannot hold the whole change, HALT and propose a split rather than
+#        shipping half of it.
 #
 #   Phase 6b — dropping the derived writer so no on-disk fallback exists — is NOT in this release.
 #        It is the only truly one-way step, and it is separated out rather than bundled with
@@ -199,7 +213,17 @@ phases:
     # reached disk") and tests/completion-store-durability.test.js:196 ("FlushAsync waits for the
     # durable write, including its fsync"). p7 removes FlushAsync, so both are stale by design and
     # containment would freeze them. That is the FOURTH distinct set of files this lane was missing.
-    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js
+    # Lane DERIVED from the brief's 8 exit criteria (2026-08-08), not patched reactively — four
+    # rounds of incremental additions each missed something, so this was re-derived by enumerating
+    # every file the criteria touch:
+    #   crit 6 "crash mid-snapshot ... reuse the GH-12 crash-injection harness" ->
+    #     tests/crash-injection/crash-writer.js + run.js. Measured: the harness only drives
+    #     durable-write directly and never calls WriteDerivedSnapshotAsync, so it MUST be extended
+    #     (with its matched `unsafe` control still reproducing damage) for the criterion to be met.
+    #   crit 1/2 "nothing references the queue / CompletionStore is a projection" -> the read
+    #     consumers: reminder-query-engine.js, reminders-app-mention-handler.js,
+    #     summarize-week-projection.js and their suites, plus the export payload builder.
+    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js,tests/crash-injection/crash-writer.js,tests/crash-injection/run.js,src/reminder-query-engine.js,src/reminders-app-mention-handler.js,src/summarize-week-projection.js,deploy/reminders-export/completions-payload.js,tests/completions-export.test.js,tests/reminders-app-mention-handler.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
     depends_on: p6
