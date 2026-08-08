@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/app.js",
     "test": "jest --forceExit && npm run --silent test:node",
-    "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js tests/projection-parity.test.js",
+    "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js tests/projection-parity.test.js tests/derived-snapshot-writer.test.js",
     "test:watch": "jest --watch",
     "dev": "nodemon src/app.js",
     "build": "tsc --project tsconfig.json",
@@ -49,7 +49,8 @@
       "<rootDir>/tests/event-store.test.js",
       "<rootDir>/tests/events-projection.test.js",
       "<rootDir>/tests/summarize-week-projection.test.js",
-      "<rootDir>/tests/projection-parity.test.js"
+      "<rootDir>/tests/projection-parity.test.js",
+      "<rootDir>/tests/derived-snapshot-writer.test.js"
     ],
     "collectCoverageFrom": [
       "src/**/*.js"

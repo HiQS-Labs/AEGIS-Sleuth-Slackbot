@@ -149,7 +149,13 @@ phases:
     name: "Reversibility drill — prove every switch flips back"
     reviewer: agy
     brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p8-reversibility-drill.md
-    artifact: tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md
+    # package.json is IN this lane on purpose. p6 and p7 both wrote their suites against node:test
+    # — correctly, since every ledger/projection suite here does — but registering such a file takes
+    # TWO package.json edits (jest.testPathIgnorePatterns so Jest does not glob it, and the test:node
+    # file list so node --test runs it). package.json was outside both lanes, so containment left the
+    # file unregisterable and Jest failed the gate with "must contain at least one test" twice. An
+    # artifact list bounds what a lane can REPAIR, not just what it may write.
+    artifact: tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md,package.json
     turn_timeout_s: 900
     max_review_rounds: 2
     depends_on: p7
