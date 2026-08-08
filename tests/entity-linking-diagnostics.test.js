@@ -65,6 +65,28 @@ describe('entity-linking diagnostics', () => {
     }));
   });
 
+  test('mirrors the mapping overlay channel-name fallback without changing replayed events', () => {
+    const Events = [MakeEvent({ payload: {
+      text: 'unrelated follow-up',
+      sourceChannelId: null,
+      sourceChannelName: 'client-acme-billing',
+      githubUrls: [],
+    } })];
+    const Before = JSON.stringify(Events);
+    const Report = BuildEntityLinkingDiagnostics(Events, {
+      clients: [MakeClient({ ChannelIDs: [], GitHubRepoPatterns: [], ChannelNamePatterns: ['acme'] })],
+    });
+
+    expect(Report.derivedAssociations).toEqual([]);
+    expect(Report.shadowDiff.gaps).toEqual([{
+      taskId: 'task-1',
+      kind: 'overlay_only',
+      derivedClientIds: [],
+      overlayClientIds: ['client-acme'],
+    }]);
+    expect(JSON.stringify(Events)).toBe(Before);
+  });
+
   test('surfaces a known disagreement and orders near-threshold candidates in the review queue', () => {
     const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
       clients: [

@@ -1,6 +1,6 @@
 # Marathon Phase p4
 STATUS: Open
-NEXT: codex
+NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P4-TURN builder=codex reviewer=agy round-cap=5 -->
 
@@ -93,3 +93,16 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+- Implemented the read-only, deterministic event-replay diagnostics artifact in
+  `scripts/entity-linking-diagnostics.js`: scored derived links, first-match production-overlay
+  comparison, ranked disagreement examples, near-threshold review queue, single-task signal
+  traces, and replay-only merge/split/alias overrides.
+- Kept the projection and supplied event/client inputs immutable. The CLI reads JSON/JSONL and
+  writes its report only to stdout.
+- Corrected overlay fidelity for `ChannelNamePatterns`, matching the production
+  `src/client-mapping.js` fallback without widening the p2 scorer. Added regression coverage for
+  that case, alongside the clean diff, disagreement, override, empty-log, and no-write coverage.
+- Verified: `node --check scripts/entity-linking-diagnostics.js && npx jest tests/entity-linking-diagnostics.test.js --runInBand`.

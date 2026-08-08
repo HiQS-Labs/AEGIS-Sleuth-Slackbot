@@ -164,6 +164,31 @@ function ApplyAssociationOverrides(ArgEdges, ArgOverrides) {
 }
 
 /**
+ * `FoldEntityProjectionInputs` deliberately keeps its normalized task contract small. Diagnostics
+ * additionally needs the human-readable channel name because the production mapping overlay uses
+ * it as a fallback when a channel ID is unavailable. Keep that diagnostic-only enrichment outside
+ * the projection primitive and return fresh records so replay input remains unchanged.
+ * @param {any[]} ArgEvents
+ * @param {any[]} ArgTasks
+ * @returns {any[]}
+ */
+function AttachDiagnosticChannelNames(ArgEvents, ArgTasks) {
+  const ChannelNamesByEventId = new Map();
+  for(const Event of GetArray(ArgEvents)) {
+    const EventId = GetStringOrNull(Event?.id);
+    const Payload = Event?.payload && typeof Event.payload === 'object' && !Array.isArray(Event.payload)
+      ? Event.payload
+      : {};
+    const ChannelName = GetStringOrNull(Payload.sourceChannelName) || GetStringOrNull(Payload.originalChannelName);
+    if(EventId !== null && ChannelName !== null) ChannelNamesByEventId.set(EventId, ChannelName);
+  }
+  return GetArray(ArgTasks).map(ArgTask => {
+    const ChannelName = ChannelNamesByEventId.get(ArgTask.sourceEventId);
+    return ChannelName === undefined ? { ...ArgTask } : { ...ArgTask, sourceChannelName: ChannelName };
+  });
+}
+
+/**
  * @param {any[]} ArgTasks
  * @param {any[]} ArgClients
  * @returns {any[]}
@@ -175,13 +200,18 @@ function GetOverlayAssociations(ArgTasks, ArgClients) {
       const ClientId = GetStringOrNull(Client?.ClientID);
       if(ClientId === null) continue;
       const Channels = GetArray(Client.ChannelIDs);
+      const ChannelNamePatterns = GetArray(Client.ChannelNamePatterns)
+        .filter(ArgPattern => typeof ArgPattern === 'string' && ArgPattern.trim())
+        .map(ArgPattern => ArgPattern.toLowerCase());
       const Repositories = GetArray(Client.GitHubRepoPatterns)
         .filter(ArgPattern => typeof ArgPattern === 'string' && ArgPattern.trim())
         .map(ArgPattern => ArgPattern.toLowerCase());
       const ChannelMatch = typeof Task.sourceChannelId === 'string' && Channels.includes(Task.sourceChannelId);
+      const ChannelNameMatch = typeof Task.sourceChannelName === 'string'
+        && ChannelNamePatterns.some(ArgPattern => Task.sourceChannelName.toLowerCase().includes(ArgPattern));
       const RepositoryMatch = GetArray(Task.githubUrls).some(ArgUrl => typeof ArgUrl === 'string'
         && Repositories.some(ArgPattern => ArgUrl.toLowerCase().includes(ArgPattern)));
-      if(!ChannelMatch && !RepositoryMatch) continue;
+      if(!ChannelMatch && !ChannelNameMatch && !RepositoryMatch) continue;
       Associations.push({
         edgeType: 'task_to_client',
         from: { type: 'task', id: Task.reminderId },
@@ -362,7 +392,7 @@ function BuildEntityLinkingDiagnostics(ArgEvents, ArgOptions = {}) {
     ? ArgOptions.threshold
     : ENTITY_CLUSTER_CONFIDENCE_THRESHOLD;
   const Overrides = NormalizeOverrides(ArgOptions.overrides);
-  const Tasks = FoldEntityProjectionInputs(GetArray(ArgEvents));
+  const Tasks = AttachDiagnosticChannelNames(ArgEvents, FoldEntityProjectionInputs(GetArray(ArgEvents)));
   const Clients = ApplyAliasOverrides(GetArray(ArgOptions.clients), Overrides.aliases);
   const CandidateEdges = GenerateScoredCandidateEdges(Tasks, GetArray(ArgOptions.projects), Clients);
   const AppliedEdges = ApplyAssociationOverrides(CandidateEdges, Overrides);
@@ -451,6 +481,7 @@ function RunCLI(ArgArgs, ArgIo = fs) {
 
 module.exports = {
   ApplyAssociationOverrides,
+  AttachDiagnosticChannelNames,
   BuildEntityLinkingDiagnostics,
   BuildHighConfidenceDisagreements,
   BuildShadowDiff,
