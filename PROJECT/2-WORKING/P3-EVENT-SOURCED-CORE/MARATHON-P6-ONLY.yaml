@@ -7,6 +7,19 @@
 #
 # ALWAYS --dry-run first.
 #
+# ── SCRUB ABSOLUTE PATHS BEFORE YOU PUSH ─────────────────────────────────────────────────────
+# The harness renders `$ROOT/.xyz/bin/tick` and friends as FULLY-QUALIFIED paths into every
+# phases/*/RELAY.md and relay-system/*/marathon-*.md — and .gitignore deliberately TRACKS both
+# (marathon-drive HALTs if it cannot `git add` them). CI's secret/PII gate rejects them:
+# utils/sanitize-scan.sh:231 flags /Users/<name>/ as `absolute-local-path`. This is not
+# hypothetical — PR #30 failed with **281 findings across 39 files** for exactly this reason.
+# After a run, before pushing:
+#   node -e "const{execSync}=require('child_process'),fs=require('fs');
+#     for(const f of execSync('git ls-files phases relay-system',{encoding:'utf8'}).trim().split('\n').filter(Boolean))
+#       fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(/\/Users\/[a-z0-9._-]+\//gi,'<home>/'));"
+# Better long-term fix (not done): teach the harness to render repo-relative paths. Tracked as a
+# triage item; do not let it silently block another PR.
+#
 # ── THE GATE INCLUDES `npm run build` ON PURPOSE ─────────────────────────────────────────────
 # The first run used `npm test` alone. CI does not run tsc either (ci.yml runs npm ci, npm test,
 # sanitize-scan), so NOTHING was checking types — and the phase briefs require "npm test, npm run

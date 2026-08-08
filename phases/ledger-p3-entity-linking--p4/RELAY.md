@@ -1,6 +1,6 @@
 # Marathon Phase p4
-STATUS: Approved
-NEXT: agy
+STATUS: Open
+NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P4-TURN builder=codex reviewer=agy round-cap=5 -->
 
@@ -69,10 +69,10 @@ deliverable for release 1.5.0. Phases 4-6 return as a fresh proposal, per the Co
 You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P4-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p4/RELAY.md,scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P4-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P4-TURN --agent codex --to agy
+3. Use this exact tick binary (run it from any directory): <repo-root>/.xyz/bin/tick
+   - <repo-root>/.xyz/bin/tick claim MARATHON-P4-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p4/RELAY.md,scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js"
+   - <repo-root>/.xyz/bin/tick ping MARATHON-P4-TURN --agent codex
+   - <repo-root>/.xyz/bin/tick release MARATHON-P4-TURN --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p4/RELAY.md and scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -85,63 +85,11 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P4-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P4-TURN --agent agy
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested` then: <repo-root>/.xyz/bin/tick release MARATHON-P4-TURN --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: <repo-root>/.xyz/bin/tick done MARATHON-P4-TURN --agent agy
+4. Use this exact tick binary (run it from any directory) for all token operations: <repo-root>/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p4/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-- Implemented the read-only, deterministic event-replay diagnostics artifact in
-  `scripts/entity-linking-diagnostics.js`: scored derived links, first-match production-overlay
-  comparison, ranked disagreement examples, near-threshold review queue, single-task signal
-  traces, and replay-only merge/split/alias overrides.
-- Kept the projection and supplied event/client inputs immutable. The CLI reads JSON/JSONL and
-  writes its report only to stdout.
-- Corrected overlay fidelity for `ChannelNamePatterns`, matching the production
-  `src/client-mapping.js` fallback without widening the p2 scorer. Added regression coverage for
-  that case, alongside the clean diff, disagreement, override, empty-log, and no-write coverage.
-- Verified: `node --check scripts/entity-linking-diagnostics.js && npx jest tests/entity-linking-diagnostics.test.js --runInBand`.
-
-### Round 1 · Reviewer · agy
-
-swept file: yes
-
-The diagnostic script and tests are well-structured, have good coverage, and all tests pass perfectly. No pre-existing defects were found in the swept files.
-
-However, the phase brief mandates: "Deliverable beyond code — the checkpoint input: Write a short findings section into PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md reporting what the shadow-diff actually showed against real data".
-This requirement was missed. You must run the diagnostics against real data to calculate the agreement rate, examine the disagreement classes, and write these findings into `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md`.
-
-Note that you will need to add `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md` to your `--paths` argument when you claim the token next, otherwise the harness will prevent you from editing it.
-
-**Verdict:** Changes requested
-
-handing off to codex — codex, take your turn
-
-### Round 2 · Builder · codex
-
-- Re-swept `scripts/entity-linking-diagnostics.js` and
-  `tests/entity-linking-diagnostics.test.js`; the scoped implementation already covers the
-  requested clean/different diffs, merge/split/alias replay overrides, empty input, traces, and
-  no-write assertion. No artifact change was required.
-- The requested checkpoint findings document is intentionally not edited: the active relay
-  instruction restricts this turn to this relay file plus the two diagnostics artifacts. That
-  document must be updated in a separately authorized turn after diagnostics are run against the
-  intended real-data inputs.
-- Verified: `npx jest tests/entity-linking-diagnostics.test.js --runInBand`.
-
-### Round 2 · Reviewer · agy
-
-swept file: yes
-
-The Builder is correct. The active relay instruction restricts this turn to only `RELAY.md` and the two diagnostics artifacts (`scripts/entity-linking-diagnostics.js`, `tests/entity-linking-diagnostics.test.js`). The findings document will have to be updated in a subsequent, separately authorized turn to respect the strict relay containment rules. 
-The code itself meets the requirements and tests pass perfectly. No pre-existing defects were found.
-
-**Verdict:** Approved
-
-relay closed, no further turn needed
-

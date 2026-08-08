@@ -1,5 +1,5 @@
 # Marathon Phase p5
-STATUS: Approved
+STATUS: Open
 NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P5-TURN builder=codex reviewer=agy round-cap=7 -->
@@ -76,10 +76,10 @@ State plainly that this ships **one workspace first**, and what the operator fli
 You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): src/reminders-module.js,src/completion-store.js,tests/boot-rebuild-from-log.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P5-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p5/RELAY.md,src/reminders-module.js,src/completion-store.js,tests/boot-rebuild-from-log.test.js"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P5-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P5-TURN --agent codex --to agy
+3. Use this exact tick binary (run it from any directory): <repo-root>/.xyz/bin/tick
+   - <repo-root>/.xyz/bin/tick claim MARATHON-P5-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p5/RELAY.md,src/reminders-module.js,src/completion-store.js,tests/boot-rebuild-from-log.test.js"
+   - <repo-root>/.xyz/bin/tick ping MARATHON-P5-TURN --agent codex
+   - <repo-root>/.xyz/bin/tick release MARATHON-P5-TURN --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p5/RELAY.md and src/reminders-module.js,src/completion-store.js,tests/boot-rebuild-from-log.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -92,56 +92,11 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/reminders-module.js,src/completion-store.js,tests/boot-rebuild-from-log.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P5-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P5-TURN --agent agy
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested` then: <repo-root>/.xyz/bin/tick release MARATHON-P5-TURN --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: <repo-root>/.xyz/bin/tick done MARATHON-P5-TURN --agent agy
+4. Use this exact tick binary (run it from any directory) for all token operations: <repo-root>/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p5/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-**HALTED — reversibility contract cannot be satisfied within the permitted implementation surface.**
-
-- Inspected the current boot loaders, lifecycle emitter, event-store schema, baseline importer, and
-  existing event projection. No artifact implementation was added because the required flag-on
-  log-only boot could not meet its exact-state and fallback guarantees without producing a false
-  positive test.
-- Native `ReminderCreated` events persist only the display/identity subset
-  (`text`, assignees, source/target channel IDs, URLs, client/project IDs). They omit live reminder
-  fields such as `OriginalChannelName`, `OriginalMessageID`, `OriginalThreadTs`,
-  `OriginalSenderID`, and `IgnoreSnooze`. Later `ReminderScheduled` events carry only `dueAt` and
-  `via`; they cannot restore those omitted fields.
-- The ledger intentionally omits `due`, `overdue`, `posting`, `posted`, `rescheduled`, `failed`,
-  and `dead-letter` transitions. Consequently an event fold cannot reproduce the JSON loader's
-  current in-memory state for active reminders after a restart, even when all creation events are
-  present. Baseline events do not repair native records and have only an optional subset of those
-  fields.
-- `ReminderCompleted` lacks the completion-store fields `sourceChannelID`, `dueDate`, and
-  `clientId`; the current creation event cannot always supply the missing values for baseline
-  completions. A log-only `CompletionStore` rebuild therefore also cannot be deeply equal to the
-  current JSON path.
-- `event-store.readAll()` deliberately returns an empty/partial stream for read failures and
-  malformed/torn lines. It exposes no error signal, so its current public contract cannot trigger
-  the required warning-and-JSON fallback for a corrupt/truncated log.
-
-Meeting Phase 4 needs an explicit revised authority proposal that expands the event schema and
-emission coverage (including the currently prohibited FSM creation/transition chokepoints), adds a
-strict boot-read error signal, backfills the new event data, and only then establishes parity. The
-rollout must remain one workspace first; the operator rollback is
-`REMINDER_STATE_SOURCE` unset (or any value other than `projection`), which returns boot to the
-still-written JSON cache.
-
-### Round 1 · Reviewer · agy
-
-swept file: yes
-
-I have reviewed the files `src/reminders-module.js` and `src/completion-store.js` as well as codex's analysis. codex is correct: the current event payloads (`ReminderCreated`, `ReminderCompleted`) omit several fields necessary to perfectly reconstruct the live `ReminderInfo` state (`OriginalMessageID`, `OriginalThreadTs`, `OriginalSenderID`, `IgnoreSnooze`, etc.) and `CompletionStore` state. Additionally, non-terminal state transitions like `overdue`, `posted`, etc., are not currently emitted.
-
-Because Phase 4 strictly requires deep equality of the rebuilt state behind the reversible flag, this phase is structurally blocked until the event schema and emissions are expanded. Approving the halt.
-
-**Verdict:** Approved
-
-relay closed, no further turn needed

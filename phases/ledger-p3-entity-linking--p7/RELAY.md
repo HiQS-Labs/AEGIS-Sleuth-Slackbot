@@ -1,6 +1,6 @@
 # Marathon Phase p7
-STATUS: Approved
-NEXT: agy
+STATUS: Open
+NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P7-TURN builder=codex reviewer=agy round-cap=7 -->
 
@@ -78,13 +78,13 @@ already slow, say so rather than letting it be discovered later.
 ▶ TAKE YOUR TURN (codex — BUILDER role)
 
 You are the BUILDER for this phase. Read the phase brief above and implement it.
-1. Implement the brief by creating/editing the artifact file(s): src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js
+1. Implement the brief by creating/editing the artifact file(s): src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js,tests/crash-injection/crash-writer.js,tests/crash-injection/run.js,src/reminder-query-engine.js,src/reminders-app-mention-handler.js,src/summarize-week-projection.js,deploy/reminders-export/completions-payload.js,tests/completions-export.test.js,tests/reminders-app-mention-handler.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P7-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p7/RELAY.md,src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P7-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P7-TURN --agent codex --to agy
-4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p7/RELAY.md and src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
+3. Use this exact tick binary (run it from any directory): <repo-root>/.xyz/bin/tick
+   - <repo-root>/.xyz/bin/tick claim MARATHON-P7-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p7/RELAY.md,src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js,tests/crash-injection/crash-writer.js,tests/crash-injection/run.js,src/reminder-query-engine.js,src/reminders-app-mention-handler.js,src/summarize-week-projection.js,deploy/reminders-export/completions-payload.js,tests/completions-export.test.js,tests/reminders-app-mention-handler.test.js"
+   - <repo-root>/.xyz/bin/tick ping MARATHON-P7-TURN --agent codex
+   - <repo-root>/.xyz/bin/tick release MARATHON-P7-TURN --agent codex --to agy
+4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p7/RELAY.md and src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js,tests/crash-injection/crash-writer.js,tests/crash-injection/run.js,src/reminder-query-engine.js,src/reminders-app-mention-handler.js,src/summarize-week-projection.js,deploy/reminders-export/completions-payload.js,tests/completions-export.test.js,tests/reminders-app-mention-handler.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
    leaves a human guessing whether the relay is waiting on them or has stalled. Do this EVERY round,
@@ -94,47 +94,13 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 ▶ TAKE YOUR TURN (agy — REVIEWER role)
 
-You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
+You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js,tests/reminders-fsm-invariants.test.js,tests/reminders-event-emission.test.js,tests/completion-store.test.js,tests/completion-store-durability.test.js,tests/crash-injection/crash-writer.js,tests/crash-injection/run.js,src/reminder-query-engine.js,src/reminders-app-mention-handler.js,src/summarize-week-projection.js,deploy/reminders-export/completions-payload.js,tests/completions-export.test.js,tests/reminders-app-mention-handler.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P7-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P7-TURN --agent agy
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested` then: <repo-root>/.xyz/bin/tick release MARATHON-P7-TURN --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: <repo-root>/.xyz/bin/tick done MARATHON-P7-TURN --agent agy
+4. Use this exact tick binary (run it from any directory) for all token operations: <repo-root>/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p7/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-Added `src/state-snapshot-writer.js` and its focused tests. The writer writes folded reminder and
-completion read models with `durable-write.js`, proves the legacy reminders date reviver and completion
-loader deep-equal the corresponding hydrated folded state, and compacts an event log into a deterministic
-baseline whose replay folds to the same state. The compacted fixture has two replay events (baseline +
-completion); therefore it removes the historical tail, but its real bound is current state cardinality,
-not a measured production-log count.
-
-**HALT / blocker:** I did not delete `#SaveChain`, `FlushRemindersAsync`, or CompletionStore's mutable
-write path, and did not wire the writer into `RemindersModule`. Current live events cannot losslessly fold
-all current mutations: summary edits (`UpdateReminderSummaryFromListAsync`), post-cycle state changes
-(due/overdue/posting/posted/rescheduled/failed/dead-letter), and deletion paths have no replay event; and
-native `ReminderCreated` lacks the legacy fields required by `FoldReminderReadModels({ strict: true })`.
-Compacting or making JSON derived from that stream would silently discard live reminder state, directly
-violating the phase's tested rollback and legacy-loadability contract. This is a prerequisite gap from
-the prior authority-move phase, not safely fixable within this phase's four-file scope without expanding
-the event enum/folder and adding coverage.
-
-Verification: `node --test tests/derived-snapshot-writer.test.js` (3/3 passing). No current-workspace
-snapshot size or cold-replay timing is available because the writer is intentionally not live-wired while
-the lossless-fold blocker remains.
-
-### Round 1 · Reviewer · agy
-
-swept file: yes
-
-The builder correctly identified a blocking issue: the current event stream is not yet a lossless representation of all live reminder state. Mutations such as summary edits, post-cycle state changes, and deletion paths are not captured as events, and `ReminderCreated` lacks legacy fields required for a strict fold. Because of these upstream event gaps, compacting the log or relying on derived snapshots would result in data loss, directly violating the tested rollback and legacy-loadability contract.
-
-I have swept `src/completion-store.js`, `src/reminders-module.js`, `src/state-snapshot-writer.js`, and `tests/derived-snapshot-writer.test.js` and agree that this cannot be safely fixed within the phase's four-file scope without expanding the event model and related coverage. The partial progress on the snapshot writer is sound, but we must stop here and address the prerequisite gaps in a separate phase before we can retire the mutable write path.
-
-**Verdict:** Approved
-

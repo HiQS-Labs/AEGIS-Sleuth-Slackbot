@@ -1,5 +1,5 @@
 # Marathon Phase p1
-STATUS: Approved
+STATUS: Open
 NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=codex reviewer=agy round-cap=5 -->
@@ -65,10 +65,10 @@ Scoring, clustering, confidence, LLM inference, any read-path wiring. Those are 
 You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P1-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p1/RELAY.md,src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P1-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P1-TURN --agent codex --to agy
+3. Use this exact tick binary (run it from any directory): <repo-root>/.xyz/bin/tick
+   - <repo-root>/.xyz/bin/tick claim MARATHON-P1-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p1/RELAY.md,src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js"
+   - <repo-root>/.xyz/bin/tick ping MARATHON-P1-TURN --agent codex
+   - <repo-root>/.xyz/bin/tick release MARATHON-P1-TURN --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p1/RELAY.md and src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -81,29 +81,11 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P1-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P1-TURN --agent agy
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested` then: <repo-root>/.xyz/bin/tick release MARATHON-P1-TURN --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: <repo-root>/.xyz/bin/tick done MARATHON-P1-TURN --agent agy
+4. Use this exact tick binary (run it from any directory) for all token operations: <repo-root>/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p1/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-Implemented `src/entity-projection-inputs.js` and its focused Jest coverage. The pure fold creates
-one normalized, provenance-preserving record per created or baseline-imported reminder, enriches it
-with a later completion event, and keys records by workspace plus reminder id to prevent cross-tenant
-collisions. Text strips canonical Slack user mentions through `SlackFormatUtils.ReplaceUserMentions`,
-then normalizes punctuation and case; optional fields have stable null/empty defaults. Tests cover
-native, baseline, mixed-workspace, empty, optional-field, determinism, and non-mutation cases.
-
-### Round 1 · Reviewer · agy
-
-**Verdict:** Approved
-
-The implementation correctly satisfies the phase brief. The pure fold logic handles the native events, baseline events, and completion events accurately while isolating workspaces and preserving early provenance. Text normalization properly leverages `SlackFormatUtils`. Type checks and unit tests (covering all required cases) pass cleanly.
-swept file: yes (I reviewed the files and found no pre-existing defects; they were newly created and correctly bounded).
-
-handing off to codex — relay closed, no further turn needed.

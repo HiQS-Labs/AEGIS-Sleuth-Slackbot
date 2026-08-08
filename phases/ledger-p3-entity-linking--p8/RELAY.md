@@ -1,6 +1,6 @@
 # Marathon Phase p8
-STATUS: Approved
-NEXT: agy
+STATUS: Open
+NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P8-TURN builder=codex reviewer=agy round-cap=5 -->
 
@@ -93,6 +93,11 @@ authorised Phases 3-5 specifically on the basis that this drill would pass; a fa
 information they need, not an obstacle to route around.
 
 
+## Debug mantra (auto-triggered — 1 prior attempt(s) on this phase did not reach Approved)
+
+Before trying again, read <repo-root>/.xyz/relay-automation/DEBUG-MANTRA.md and follow its four-step discipline: reproduce reliably, know the fail path, question the hypothesis, treat this round as a breadcrumb for the next one.
+Last recorded reason (<repo-root>/phases/ledger-p3-entity-linking--p8/ESCALATION.md): `pre-advance-failed`. Read it before re-guessing.
+
 ---
 
 ▶ TAKE YOUR TURN (codex — BUILDER role)
@@ -100,10 +105,10 @@ information they need, not an obstacle to route around.
 You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md,package.json
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick claim MARATHON-P8-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p8/RELAY.md,tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md,package.json"
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick ping MARATHON-P8-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P8-TURN --agent codex --to agy
+3. Use this exact tick binary (run it from any directory): <repo-root>/.xyz/bin/tick
+   - <repo-root>/.xyz/bin/tick claim MARATHON-P8-TURN --agent codex --paths "phases/ledger-p3-entity-linking--p8/RELAY.md,tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md,package.json"
+   - <repo-root>/.xyz/bin/tick ping MARATHON-P8-TURN --agent codex
+   - <repo-root>/.xyz/bin/tick release MARATHON-P8-TURN --agent codex --to agy
 4. Edit ONLY these paths: phases/ledger-p3-entity-linking--p8/RELAY.md and tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md,package.json. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
@@ -116,58 +121,11 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: tests/p3-reversibility-drill.test.js,docs/p3-rollback-runbook.md,package.json. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick release MARATHON-P8-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick done MARATHON-P8-TURN --agent agy
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-entity-linking/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested` then: <repo-root>/.xyz/bin/tick release MARATHON-P8-TURN --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: <repo-root>/.xyz/bin/tick done MARATHON-P8-TURN --agent agy
+4. Use this exact tick binary (run it from any directory) for all token operations: <repo-root>/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-entity-linking--p8/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-**HALTED — the P8 release gate fails; do not enable the Ledger authority flags.**
-
-Added the focused `node:test` drill, registered it in `test:node`, and wrote an operator rollback
-runbook. The drill deliberately tests the live ownership seams before trusting the pure projection
-helpers; that gate currently fails because `src/reminders-module.js` contains neither
-`REMINDER_STATE_SOURCE` nor an import/use of `state-snapshot-writer`, and it also does not consume
-the two reminder-reader flags. `src/web-api.js` likewise does not consume
-`REBALANCE_EXPORT_SOURCE`. The three Phase 6 helper-level switches can select a source in isolation,
-but no production reader invokes that helper, so they are not actual cutovers or rollback paths.
-
-Per-flag results:
-
-- `SUMMARIZE_WEEK_COMPLETED_SOURCE`: implemented as a per-request completed-week reader, default
-  JSON, with a caught projection fallback. Its existing handler test proves source selection, but
-  this turn cannot claim the required create/complete/cancel no-data-loss drill because the native
-  event schema remains non-lossless.
-- `REMINDER_STATE_SOURCE`: **FAIL** — no runtime consumer; log-authoritative boot and rollback from
-  a derived snapshot cannot happen.
-- `REMINDERS_READ_SOURCE`: **FAIL** — helper-only, no `RemindersModule` reader consumer.
-- `COMPLETED_READ_SOURCE`: **FAIL** — helper-only, no `RemindersModule` reader consumer.
-- `REBALANCE_EXPORT_SOURCE`: **FAIL** — helper-only, no `WebAPI` export consumer.
-- All-on → all-off: **FAIL / not runnable** because four of the five declarations do not control
-  their claimed runtime paths and the snapshot writer is never invoked by the live write path.
-
-The non-gating fixture does demonstrate the lower-level writer can preserve a fully replayable
-create/complete/cancel event sequence in legacy JSON shape. It also reports the stale-snapshot loss
-exactly: a snapshot made before the final events resurrects `rem-complete` and `rem-cancel` as open.
-That is why a snapshot freshness proof must be live-wired before Phase 6a can be approved. Corrupt
-log/snapshot fallback and mixed-workspace isolation are likewise not safely verifiable: the event
-store hides malformed-tail read errors and source flags are process-global `process.env` values,
-not workspace-scoped settings.
-
-Verification: `node --test tests/p3-reversibility-drill.test.js` is expected to fail its first
-release-gate assertion on the absent `REMINDER_STATE_SOURCE` wiring. The remaining three focused
-fixture/helper tests pass. This failure is intentionally retained as the stop signal required by
-the phase, not weakened into a synthetic pass.
-
-### Round 1 · Reviewer · agy
-
-swept file: yes
-
-The reversibility drill correctly halts the release gate because the source flags (`REMINDER_STATE_SOURCE`, `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE`) are not fully wired into the runtime consumers (`RemindersModule` and `WebAPI`), meaning no true rollback path exists for them in production. The rollback runbook correctly documents the sole active flag and explicitly warns against enabling the unwired ones. The test drill is properly integrated into `package.json`.
-
-**Verdict:** Approved
