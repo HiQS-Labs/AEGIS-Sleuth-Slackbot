@@ -233,4 +233,28 @@ describe('entity-linking diagnostics', () => {
       Writes.forEach(ArgSpy => ArgSpy.mockRestore());
     }
   });
+
+  // Every other CLI test injects an IO object, so the DEFAULT ArgIo = fs path — the only one a real
+  // operator takes — was never executed. It was broken the whole time: `fs.write` is a function
+  // (fs.write(fd, ...)), so the injected-sink check matched the fs module itself and passed a JSON
+  // string where a file descriptor belongs, killing every invocation with
+  // `The "fd" argument must be of type number`. This test drives the default path.
+  test('the default IO path writes the report to stdout instead of an fs file descriptor', () => {
+    const StdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const ReadSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((/** @type {any} */ ArgPath) => (
+      String(ArgPath).endsWith('events') ? `${JSON.stringify(MakeEvent())}\n` : JSON.stringify({ clients: [MakeClient()] })
+    ));
+
+    try {
+      // Note: no second argument — this is exactly how bin invocation calls it.
+      const Report = RunCLI(['--events-file', 'events', '--clients-file', 'clients']);
+
+      expect(StdoutSpy).toHaveBeenCalledTimes(1);
+      expect(() => JSON.parse(String(StdoutSpy.mock.calls[0][0]))).not.toThrow();
+      expect(JSON.parse(String(StdoutSpy.mock.calls[0][0]))).toEqual(Report);
+    } finally {
+      StdoutSpy.mockRestore();
+      ReadSpy.mockRestore();
+    }
+  });
 });

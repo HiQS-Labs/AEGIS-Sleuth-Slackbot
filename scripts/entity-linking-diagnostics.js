@@ -474,8 +474,14 @@ function RunCLI(ArgArgs, ArgIo = fs) {
     threshold: Options.threshold,
     taskId: Options.taskId || undefined,
   });
-  if(typeof ArgIo.write === 'function') ArgIo.write(`${JSON.stringify(Report, null, 2)}\n`);
-  else process.stdout.write(`${JSON.stringify(Report, null, 2)}\n`);
+  // `fs.write` EXISTS — it is fs.write(fd, buffer, ...) — so a bare `typeof ArgIo.write === 'function'`
+  // check also matches the DEFAULT ArgIo (the fs module) and hands a JSON string to a parameter that
+  // wants a file descriptor. That crashed EVERY real invocation with
+  // `The "fd" argument must be of type number. Received type string`. Only an explicitly injected IO
+  // is a real output sink; the default must go to stdout.
+  const OutputText = `${JSON.stringify(Report, null, 2)}\n`;
+  if(ArgIo !== fs && typeof ArgIo.write === 'function') ArgIo.write(OutputText);
+  else process.stdout.write(OutputText);
   return Report;
 }
 
