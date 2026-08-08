@@ -140,6 +140,81 @@ Seven findings, all source-grounded. Two I verified myself before accepting:
 
 The plan below is the revised one. What changed and why is recorded inline.
 
+## Second opinion — agy, 2026-08-08 (now genuinely cross-model)
+
+agy answered on the retry and **disagreed with Codex on three of five points**, which is the value of
+asking two models. Recorded with my adjudication, since silently picking a winner would hide the
+disagreement from the next reader.
+
+### agy's blocker: `AssigneeIDs` and `clientId` are missing from Phase A
+
+**Accepted — this is the fifth-phase gap I asked for.** `src/reminders-module.js:84-85` marks
+`AssigneeIDs` (array) as *"Authoritative ordered, de-duplicated human Slack user IDs"* and
+`AssigneeID` (scalar) as a *"Deprecated compatibility mirror of the first AssigneeIDs entry"*. The
+event schema requires only the scalar. My Phase A omitted both fields entirely.
+
+This matters especially because **GH-22 shipped multi-assignee support this morning** (PR #29). A
+schema that guarantees only the scalar would let the ledger quietly undo that feature.
+
+**One correction to agy's stated consequence, from checking:** the fold does *not* currently drop
+multi-assignee data in the queue path — `reminders-module.js:623` emits `assigneeIds` and
+`reminders-projection.js:219` reads it back. The real exposure is narrower and subtler: the field is
+**emitted but not required**, so nothing validates it, and combined with the `hasOwnProperty`/
+`undefined` hole above an event could be written with the key dropped and still pass every check.
+
+**And a third thing neither model raised, found while verifying:** `BuildProjectedRebalanceExport`
+(`src/reminders-projection.js:365`) projects only the scalar `assigneeId` — but so does the
+authoritative export. `assigneeIds` appears in **no** export path. So this is not a parity break; it
+is a shared blind spot, and **GH-22's multi-assignee data never reached the rebalance export at all**.
+Logged as a separate follow-up, not folded into this proposal.
+
+### Disagreement 1 — Phase C's parity gate
+
+- **Codex:** generation-aware dirty/clean gate; a periodic check can go stale immediately because
+  appends are fire-and-forget.
+- **agy:** *"textbook over-engineering"* — entangling the legacy authoritative mutation path with a
+  synchronous gate defeats the strangler pattern. Prefers a `ParityCheckpoint` event or sequence-number
+  comparison.
+
+**Adjudication: agy's mechanism, Codex's strictness.** agy is right that wiring cache invalidation
+into the legacy JSON mutation cycle is the wrong place to put this — that path is what we are trying
+to *retire*, not extend. Codex is right that staleness must be detectable at read time, not merely
+periodically. Phase C therefore uses **sequence/append-count comparison at read time**: cheap, no
+mutation-path entanglement, and it detects a short ledger because a dropped append leaves the count
+behind. If that proves insufficient in Phase D's real-data run, the generation gate returns as a
+documented fallback rather than being built speculatively.
+
+### Disagreement 2 — versioning strictness
+
+- **Codex:** closed `(version, type)` registry; unknown/invalid version becomes a read error that
+  triggers fallback.
+- **agy:** leave `REQUIRED_PAYLOAD_KEYS` alone so v1 reads keep passing; validate v2 keys
+  conditionally **on append only** (`if (ArgEvent.v >= 2)`); let the fold apply v1 defaults. A
+  read-error path *"just creates brittle infrastructure"*.
+
+**Adjudication: agy's design, with Codex's guarantee preserved elsewhere.** agy is right that
+`readAll()` does not validate payloads today (`src/event-store.js:248-250` checks only that the type
+is known), so making reads throw is new brittleness on the path we least want to destabilise.
+Conditional append-time validation gets the write guarantee. Codex's concern — that a `v:2` label
+would otherwise mean nothing — is answered by having **the parity check record the version**, so a
+v1-only stream can never claim v2 parity. Guarantee kept; read path untouched.
+
+### Disagreement 3 — relay-state fan-out
+
+- **Codex:** one event per affected reminder, or relay-keyed with deterministic fan-out.
+- **agy:** a single `ThreadRelayStateChanged` carrying `OriginalThreadTs`, with the fold applying it
+  to every reminder sharing that thread identity.
+
+**Adjudication: agy.** Relay state is genuinely thread-scoped, not reminder-scoped, so fanning out at
+emission time invents a cardinality the domain does not have — and it would break the moment a new
+reminder joins an existing thread. Thread identity is already the established key here: GH-27 defines
+it as `OriginalThreadTs ?? OriginalMessageID`.
+
+### Where both agreed
+
+Merging the original A and B. A widened payload without lifecycle coverage produces a fold that
+succeeds while silently retaining stale state. Both models called this independently.
+
 ## Phases
 
 ### Phase A — Schema v2: widen payloads AND complete emission coverage, together
@@ -159,7 +234,10 @@ because it invites a premature parity claim.
       normalized before serialization — especially `completedMs`, the booleans, and lifecycle
       timestamps.
 - [ ] Extend `ReminderCreated` v2 with `createdOn`, `originalSenderId`, `originalMessageId`,
-      `originalThreadTs`, `originalChannelName`, `ignoreSnooze`.
+      `originalThreadTs`, `originalChannelName`, `ignoreSnooze`, **`assigneeIds`** and **`clientId`**.
+      The last two were agy's blocker: `AssigneeIDs` is the authoritative array and `AssigneeID` only
+      its deprecated first-entry mirror (`src/reminders-module.js:84-85`), so requiring the scalar
+      alone would let the ledger quietly undo GH-22's multi-assignee support, shipped this morning.
 - [ ] Extend `ReminderCompleted` v2 with `sourceChannelId`, `dueDate`, `clientId`, and `completedMs`.
       **Sample `Date.now()` once inside `#TransitionReminderState`** and pass the same value to both
       `#RecordCompletion` and the event; derive `completedAt` from it. Codex confirmed this does not
