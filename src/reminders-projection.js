@@ -80,37 +80,35 @@ const PROJECTION_FLAGS = new Set([
  * in a way strict field-presence cannot detect. Kept in PROJECTION_FLAGS so call sites stay valid
  * and the authoritative read still works — this forces the fallback rather than throwing.
  *
- * COMPLETED_READ_SOURCE: the authoritative record stamps `completedMs` with `Date.now()`
- * (src/reminders-module.js:569-576), while the event carries a separately sampled ISO instant
- * (src/reminders-module.js:496-502) that the fold re-parses (this file, ~line 197+). The two
- * timestamps are taken at different moments, so the projected value can never be byte-identical to
- * the stored one. That is a design mismatch, not a missing field, so no strict check can rescue it —
- * it needs a schema change that carries the authoritative completedMs verbatim.
+ * STATUS after the schema v2 expansion (2026-08-08). The expansion closed the DESIGN mismatches that
+ * made two of these unfixable by any check; what remains for those two is a parity run on real
+ * workspace data, which is an operator step, not a code change. The third is unchanged.
+ *
+ * COMPLETED_READ_SOURCE — was: the authoritative record stamps `completedMs` with `Date.now()` while
+ *   the event carried a separately sampled ISO instant, so the projected value could never be
+ *   byte-identical to the stored one. RESOLVED in code: #TransitionReminderState now samples the
+ *   instant once and threads it to both the CompletionRecord and the event, and the fold reproduces
+ *   it verbatim. FindMissingTransitionFields rejects a stream that lacks it, so a pre-v2 stream
+ *   falls back instead of serving a re-derived number. Still blocked pending real-data parity.
+ *
+ * REBALANCE_EXPORT_SOURCE — was: rescheduling resets IgnoreSnooze in the live queue but
+ *   ReminderScheduled persisted only dueAt/via, so the fold kept a stale value the export then
+ *   published (src/web-api.js:459-466). RESOLVED in code: v2 ReminderScheduled carries ignoreSnooze,
+ *   the fold replays it, and the strict gate rejects a ReminderScheduled without it. Still blocked
+ *   pending real-data parity.
+ *
+ * REMINDERS_READ_SOURCE — UNCHANGED by the schema work, and it is important not to imply otherwise.
+ *   A torn append leaves a valid-but-SHORT ledger: #EmitLifecycleEvent is fire-and-forget and
+ *   tolerates `{ ok:false }`, so a lone creation event passes every field check while its missing
+ *   paired ReminderScheduled leaves ShouldPostOn null, and the queue would be replaced by a partial
+ *   projection. No field can detect an event that was never written — this needs a durable
+ *   per-workspace JSON-vs-fold coverage checkpoint.
  *
  * Remove an entry ONLY together with the schema work that makes its fold lossless, and with a test
  * proving parity on real data.
  */
 const BLOCKED_PROJECTION_FLAGS = new Set([
   'COMPLETED_READ_SOURCE',
-  // Added after QA round 2 (swept). Both remaining surfaces are ALSO unsafe to enable, for reasons
-  // strict field-presence cannot catch, so the honest state is that the whole cutover is inert until
-  // the event schema carries more:
-  //
-  // REMINDERS_READ_SOURCE — a torn append leaves a valid-but-SHORT ledger. `#EmitLifecycleEvent` is
-  //   fire-and-forget and tolerates `{ ok:false }` (src/reminders-module.js:516-555), and a lone
-  //   creation event passes strict mode while its missing paired `ReminderScheduled` leaves
-  //   ShouldPostOn null. The queue would then be replaced by a partial projection. Detecting this
-  //   needs a durable per-workspace JSON-vs-fold coverage checkpoint, not a field check.
-  //
-  // REBALANCE_EXPORT_SOURCE — rescheduling resets IgnoreSnooze to false in the live queue
-  //   (src/reminders-module.js:3455-3458), but `ReminderScheduled` persists only dueAt/via
-  //   (:489-505), so the fold keeps the stale value and the export publishes it
-  //   (src/web-api.js:459-466) to an external consumer.
-  //
-  // The plumbing below is still worth landing: the flags, the error-fallback path, the parity
-  // harness and the strict guards are the mechanism the cutover will use. What is NOT yet true is
-  // that any of it can safely serve. Unblock each entry together with the schema work that makes its
-  // fold lossless, plus a parity run on real workspace data.
   'REMINDERS_READ_SOURCE',
   'REBALANCE_EXPORT_SOURCE',
 ]);
@@ -213,6 +211,91 @@ function FindMissingRelayStateFields(ArgPayload) {
 }
 
 /**
+ * Fields a NON-creation event must carry for its own fold to be lossless.
+ *
+ * These are separate from the creation checks because they are properties of the transition, not of
+ * the reminder — and a stream can be perfectly complete at creation and still be unprojectable
+ * because of what a later event dropped.
+ *
+ * ReminderScheduled.ignoreSnooze — the live queue RESETS IgnoreSnooze when it reschedules
+ *   (src/reminders-module.js:3455-3458). A ReminderScheduled without it leaves the fold holding the
+ *   creation-time value, which the rebalance export then publishes to an external consumer.
+ *
+ * ReminderCompleted.completedMs — the authoritative CompletionRecord stamps its own `Date.now()`.
+ *   Re-parsing the event's ISO instant yields a different number, so a completed-history read served
+ *   from a stream lacking this can never be byte-identical to the store it replaces.
+ *
+ * Both are self-healing: a v2 stream carries them, so this returns nothing and the gate opens on its
+ * own. A v1 stream is rejected and falls back, which is the correct outcome, not a failure.
+ * @param {string} ArgType
+ * @param {any} ArgPayload
+ * @returns {string[]}
+ */
+function FindMissingTransitionFields(ArgType, ArgPayload) {
+  const Payload = ArgPayload && typeof ArgPayload === 'object' ? ArgPayload : {};
+  const Has = (/** @type {string} */ ArgKey) => Object.prototype.hasOwnProperty.call(Payload, ArgKey);
+  if(ArgType === 'ReminderScheduled') return Has('ignoreSnooze') ? [] : ['IgnoreSnooze'];
+  if(ArgType === 'ReminderCompleted') return Has('completedMs') ? [] : ['completedMs'];
+  return [];
+}
+
+/**
+ * Fill gaps in an already-folded reminder from a LATER creation-shaped event.
+ *
+ * This is what makes backfill possible at all. `scripts/baseline-import.js --enrich` re-emits a
+ * BaselineReminderImported for a reminder whose original event predates the v2 schema; without a
+ * merge rule the fold's first-creation-wins branch would ignore it, and the record could never be
+ * upgraded — the structural reason Codex gave for the importer being unable to fix the streams that
+ * need fixing.
+ *
+ * FILL-ONLY, and never `State`: the earlier event established identity, later lifecycle events own
+ * the state machine, and this only supplies what neither of them could. `IgnoreSnooze` and the relay
+ * flags are the exceptions that assign outright, because they are booleans whose absence is
+ * indistinguishable from `false` — and the enrich event is by construction a newer snapshot of the
+ * authoritative record, appended after every historical event.
+ * @param {ProjectedReminder} ArgReminder
+ * @param {any} ArgPayload
+ */
+function ApplyCreationEnrichment(ArgReminder, ArgPayload) {
+  const Payload = ArgPayload && typeof ArgPayload === 'object' ? ArgPayload : {};
+  const Has = (/** @type {string} */ ArgKey) => Object.prototype.hasOwnProperty.call(Payload, ArgKey);
+
+  /** @type {[keyof ProjectedReminder, string][]} */
+  const StringFields = [
+    ['CreatedOn', 'createdOn'],
+    ['ShouldPostOn', 'dueAt'],
+    ['OriginalSenderID', 'originalSenderId'],
+    ['OriginalMessageID', 'originalMessageId'],
+    ['OriginalThreadTs', 'originalThreadTs'],
+    ['OriginalChannelName', 'originalChannelName'],
+    ['OriginalChannelID', 'sourceChannelId'],
+    ['TargetChannelID', 'targetChannelId'],
+    ['AssigneeID', 'assigneeId'],
+    ['clientId', 'clientId'],
+    ['projectId', 'projectId'],
+  ];
+  for(const [Field, Key] of StringFields) {
+    if(ArgReminder[Field] == null && Has(Key)) {
+      // @ts-expect-error — indexed write into a typedef'd shape; every pair above is string-valued.
+      ArgReminder[Field] = GetStringOrNull(Payload[Key]);
+    }
+  }
+
+  if(!ArgReminder.ReminderMessageText && typeof Payload.text === 'string') {
+    ArgReminder.ReminderMessageText = Payload.text;
+  }
+  if((!ArgReminder.AssigneeIDs || ArgReminder.AssigneeIDs.length === 0) && Has('assigneeIds')) {
+    ArgReminder.AssigneeIDs = GetStrings(Payload.assigneeIds);
+  }
+  if((!ArgReminder.GitHubUrls || ArgReminder.GitHubUrls.length === 0) && Has('githubUrls')) {
+    ArgReminder.GitHubUrls = GetStrings(Payload.githubUrls);
+  }
+  if(Has('ignoreSnooze')) ArgReminder.IgnoreSnooze = Boolean(Payload.ignoreSnooze);
+  if(Has('gitHubRelayStarted')) ArgReminder.GitHubRelayStarted = Boolean(Payload.gitHubRelayStarted);
+  if(Has('gitHubRelayStopped')) ArgReminder.GitHubRelayStopped = Boolean(Payload.gitHubRelayStopped);
+}
+
+/**
  * @param {string} ArgReminderId
  * @param {any} ArgEvent
  * @returns {ProjectedReminder}
@@ -278,6 +361,14 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
    * @type {Map<string, { relayStarted: boolean, relayStopped: boolean }>}
    */
   const ThreadRelayState = new Map();
+  /**
+   * Every creation-shaped payload seen per reminder, merged fill-first. Parity is judged against
+   * this rather than against a single event, so an enrich event can genuinely repair a stream.
+   * @type {Map<string, Record<string, any>>}
+   */
+  const CreationPayloads = new Map();
+  /** Reminders whose FIRST creation event was native — only those face the native-field check. */
+  const NativeCreations = new Set();
 
   for(const Event of Events) {
     if(!Event || typeof Event !== 'object' || Array.isArray(Event)) continue;
@@ -301,22 +392,25 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
     }
 
     if(Event.type === 'ReminderCreated' || Event.type === 'BaselineReminderImported') {
+      // Accumulate what EVERY creation-shaped event for this reminder supplied, then judge parity
+      // once at the end. Judging per-event would fail a stream that a later enrich event has already
+      // repaired — the field really is present in the stream, just not in the first line of it.
+      const Merged = CreationPayloads.get(ReminderId);
+      if(Merged === undefined) {
+        CreationPayloads.set(ReminderId, { ...Payload });
+      } else {
+        for(const Key of Object.keys(Payload)) {
+          if(!Object.prototype.hasOwnProperty.call(Merged, Key)) Merged[Key] = Payload[Key];
+        }
+      }
+
       if(!ById.has(ReminderId)) {
         ById.set(ReminderId, MakeReminder(ReminderId, Event));
         Order.push(ReminderId);
-      }
-      if(Event.type === 'ReminderCreated') {
-        for(const Field of FindMissingNativeReminderFields(Payload)) {
-          const Missing = `${ReminderId}.${Field}`;
-          if(!MissingFields.includes(Missing)) MissingFields.push(Missing);
-        }
-      }
-      // Applied to BOTH event types, unlike the check above: baseline-import.js does not emit the
-      // relay flags either, and production's stream is largely BaselineReminderImported after
-      // GH-355 — so gating this on ReminderCreated alone would exempt the one stream that matters.
-      for(const Field of FindMissingRelayStateFields(Payload)) {
-        const Missing = `${ReminderId}.${Field}`;
-        if(!MissingFields.includes(Missing)) MissingFields.push(Missing);
+        if(Event.type === 'ReminderCreated') NativeCreations.add(ReminderId);
+      } else {
+        // A repeat creation event is an ENRICHMENT, not a second reminder.
+        ApplyCreationEnrichment(/** @type {ProjectedReminder} */ (ById.get(ReminderId)), Payload);
       }
       continue;
     }
@@ -324,9 +418,21 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
     const Reminder = ById.get(ReminderId);
     if(!Reminder) continue; // no creation event means no safe reconstruction.
 
+    for(const Field of FindMissingTransitionFields(Event.type, Payload)) {
+      const Entry = `${ReminderId}.${Field}`;
+      if(!MissingFields.includes(Entry)) MissingFields.push(Entry);
+    }
+
     if(Event.type === 'ReminderScheduled') {
       Reminder.ShouldPostOn = GetStringOrNull(Payload.dueAt) || Reminder.ShouldPostOn;
       Reminder.State = 'scheduled';
+      // v2: scheduling RESETS IgnoreSnooze in the live queue (src/reminders-module.js:3455-3458).
+      // Without replaying it the fold keeps the stale creation-time value, and the rebalance export
+      // then publishes that stale flag to an external consumer — the reason
+      // REBALANCE_EXPORT_SOURCE was blocked. v1 events omit the key and keep today's behaviour.
+      if(Object.prototype.hasOwnProperty.call(Payload, 'ignoreSnooze')) {
+        Reminder.IgnoreSnooze = Boolean(Payload.ignoreSnooze);
+      }
     } else if(Event.type === 'ReminderSnoozed') {
       Reminder.ShouldPostOn = GetStringOrNull(Payload.until) || Reminder.ShouldPostOn;
       Reminder.State = 'snoozed';
@@ -374,6 +480,22 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
       if(!State) continue;
       Reminder.GitHubRelayStarted = State.relayStarted;
       Reminder.GitHubRelayStopped = State.relayStopped;
+    }
+  }
+
+  // Parity is judged on the MERGED creation payload, once per reminder, after the whole stream has
+  // been read.
+  for(const ReminderId of Order) {
+    const Merged = CreationPayloads.get(ReminderId) || {};
+    const Missing = NativeCreations.has(ReminderId)
+      ? FindMissingNativeReminderFields(Merged).concat(FindMissingRelayStateFields(Merged))
+      // The relay check applies to BOTH event kinds: baseline-import predating the schema expansion
+      // did not emit the flags either, and production's stream is largely BaselineReminderImported
+      // after GH-355 — so checking only the native path would exempt the stream that matters.
+      : FindMissingRelayStateFields(Merged);
+    for(const Field of Missing) {
+      const Entry = `${ReminderId}.${Field}`;
+      if(!MissingFields.includes(Entry)) MissingFields.push(Entry);
     }
   }
 
@@ -501,6 +623,7 @@ module.exports = {
   BuildProjectedRebalanceExport,
   FindMissingRelayStateFields,
   FindMissingNativeReminderFields,
+  FindMissingTransitionFields,
   FoldReminderReadModels,
   ProjectionParityError,
   ReadWithProjectionFallbackAsync,

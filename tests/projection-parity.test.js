@@ -55,8 +55,13 @@ test('baseline events fold to the JSON reminder shape and completed history', ()
   const Events = [
     BaselineEvent(),
     {
-      id: 'evt-completed', ts: '2026-08-03T12:00:00.000Z', type: 'ReminderCompleted', reminderId: 'rem-1',
-      payload: { by: 'U_OWNER', method: 'reaction', summary: 'Ship parity harness', completedAt: '2026-08-03T12:00:00.000Z' },
+      // v2: completedMs is now required under strict mode, because a re-parsed ISO instant is a
+      // different number from the one the authoritative CompletionRecord stored.
+      v: 2, id: 'evt-completed', ts: '2026-08-03T12:00:00.000Z', type: 'ReminderCompleted', reminderId: 'rem-1',
+      payload: {
+        by: 'U_OWNER', method: 'reaction', summary: 'Ship parity harness',
+        completedAt: '2026-08-03T12:00:00.000Z', completedMs: Date.parse('2026-08-03T12:00:00.000Z'),
+      },
     },
   ];
   const Folded = FoldReminderReadModels(Events, { strict: true });
@@ -415,8 +420,9 @@ test('a v2 completion projects the AUTHORITATIVE completedMs, not a re-parse of 
   assert.equal(Folded.completed[0].clientId, 'acme');
 });
 
-test('a v1 completion still folds via the ISO fallback', () => {
-  // v1 events carry no completedMs. They must keep working — the version gate is on writes only.
+test('a v1 completion still folds via the ISO fallback when NOT strict', () => {
+  // v1 events carry no completedMs, so strict rejects them (see the gate test below) — but the
+  // non-strict fold that replay and diagnostics use must keep working unchanged.
   const Folded = FoldReminderReadModels([
     BaselineEvent(),
     {
@@ -424,7 +430,66 @@ test('a v1 completion still folds via the ISO fallback', () => {
       type: 'ReminderCompleted', reminderId: 'rem-1',
       payload: { by: 'U_OWNER', method: 'reaction', summary: 'Ship it', completedAt: '2026-08-03T12:00:00.000Z' },
     },
-  ], { strict: true });
+  ]);
   assert.equal(Folded.completed.length, 1);
   assert.equal(Folded.completed[0].completedMs, Date.parse('2026-08-03T12:00:00.000Z'));
+});
+
+// --- the strict gate must actually test for what the schema expansion added ---
+
+test('a v1 completion is REJECTED in strict mode — a re-derived completedMs is not parity', () => {
+  // Adding the field to the schema is only half of it. Without a check, a flag-on read would still
+  // serve a re-parsed number for any pre-v2 stream, which is exactly what blocked the flag.
+  const Events = [
+    BaselineEvent(),
+    {
+      id: 'evt-completed-v1', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderCompleted', reminderId: 'rem-1',
+      payload: { by: 'U_OWNER', method: 'reaction', summary: 'Ship it', completedAt: '2026-08-03T12:00:00.000Z' },
+    },
+  ];
+  assert.throws(() => FoldReminderReadModels(Events, { strict: true }), ProjectionParityError);
+  // Non-strict still folds — the fallback path must stay usable.
+  assert.equal(FoldReminderReadModels(Events).completed.length, 1);
+});
+
+test('a v1 ReminderScheduled is REJECTED in strict mode — a stale IgnoreSnooze reaches an external consumer', () => {
+  const Events = [
+    BaselineEvent(),
+    {
+      id: 'evt-sched-v1', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderScheduled', reminderId: 'rem-1',
+      payload: { dueAt: '2026-08-09T12:00:00.000Z', via: 'reschedule' },
+    },
+  ];
+  assert.throws(() => FoldReminderReadModels(Events, { strict: true }), ProjectionParityError);
+});
+
+test('a v2 stream passes the strengthened gate and replays the reset IgnoreSnooze', () => {
+  const Events = [
+    BaselineEvent({ payload: { ...BaselineEvent().payload, ignoreSnooze: true } }),
+    {
+      v: 2, id: 'evt-sched-v2', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderScheduled', reminderId: 'rem-1',
+      payload: { dueAt: '2026-08-09T12:00:00.000Z', via: 'reschedule', ignoreSnooze: false },
+    },
+  ];
+  const Folded = FoldReminderReadModels(Events, { strict: true });
+  assert.equal(Folded.reminders[0].IgnoreSnooze, false, 'rescheduling resets the flag; the fold must not keep the creation-time value');
+  assert.equal(Folded.reminders[0].ShouldPostOn, '2026-08-09T12:00:00.000Z');
+});
+
+test('the gate names every missing field, not just the first', () => {
+  const Events = [
+    BaselineEvent(),
+    { id: 'e1', ts: '2026-08-03T12:00:00.000Z', type: 'ReminderScheduled', reminderId: 'rem-1', payload: { dueAt: null, via: 'x' } },
+    { id: 'e2', ts: '2026-08-04T12:00:00.000Z', type: 'ReminderCompleted', reminderId: 'rem-1', payload: { by: null, method: 'x', summary: null, completedAt: '2026-08-04T12:00:00.000Z' } },
+  ];
+  try {
+    FoldReminderReadModels(Events, { strict: true });
+    assert.fail('expected a parity error');
+  } catch(Error_) {
+    assert.ok(Error_ instanceof ProjectionParityError);
+    assert.deepEqual(Error_.missingFields.sort(), ['rem-1.IgnoreSnooze', 'rem-1.completedMs']);
+  }
 });

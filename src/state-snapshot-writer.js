@@ -1,6 +1,7 @@
 'use strict';
 
 const { WriteFileDurableAsync } = require('./durable-write');
+const { CURRENT_SCHEMA_VERSION } = require('./event-store');
 
 /**
  * Event-count bound used when compacting a workspace ledger. The writer still writes a fresh
@@ -33,6 +34,8 @@ const DEFAULT_COMPACTION_EVENT_COUNT = 100;
  * @property {boolean} [IgnoreSnooze]
  * @property {string|null} [clientId]
  * @property {string|null} [projectId]
+ * @property {boolean} [GitHubRelayStarted]
+ * @property {boolean} [GitHubRelayStopped]
  */
 
 /**
@@ -98,7 +101,11 @@ function BuildCompactedEvents(ArgOptions) {
       ? Reminder.ShouldPostOn.toISOString()
       : (typeof Reminder.ShouldPostOn === 'string' ? Reminder.ShouldPostOn : null);
     Events.push({
-      v: 1,
+      // Compaction REPLACES the log, so a compacted event that omits a v2 field permanently
+      // destroys the parity the fold has already achieved — there is no earlier event left to
+      // recover it from. The strict gate caught exactly that, on this writer, when it started
+      // requiring completedMs.
+      v: CURRENT_SCHEMA_VERSION,
       id: `snapshot-${ArgSuffix}-${ReminderID}`,
       ts: CreatedOn,
       workspace: Workspace,
@@ -121,6 +128,11 @@ function BuildCompactedEvents(ArgOptions) {
         ignoreSnooze: Boolean(Reminder.IgnoreSnooze),
         clientId: Reminder.clientId || null,
         projectId: Reminder.projectId || null,
+        // github-comment-relay.js:102 refuses to relay when GitHubRelayStopped is set. A compacted
+        // baseline that dropped these would resume a relay the user stopped, with no earlier event
+        // left to contradict it.
+        gitHubRelayStarted: Boolean(Reminder.GitHubRelayStarted),
+        gitHubRelayStopped: Boolean(Reminder.GitHubRelayStopped),
       },
     });
   };
@@ -141,7 +153,7 @@ function BuildCompactedEvents(ArgOptions) {
       State: 'scheduled',
     }, 'completed');
     Events.push({
-      v: 1,
+      v: CURRENT_SCHEMA_VERSION,
       id: `snapshot-completed-${Completion.reminderId}`,
       ts: CompletedAt,
       workspace: Workspace,
@@ -152,6 +164,12 @@ function BuildCompactedEvents(ArgOptions) {
         method: 'snapshot',
         summary: Completion.summary || null,
         completedAt: CompletedAt,
+        // Carried verbatim, not re-derived from CompletedAt: round-tripping through an ISO string
+        // is exactly the lossy step this schema version exists to remove.
+        completedMs: CompletedMs,
+        sourceChannelId: Completion.sourceChannelID || null,
+        dueDate: Completion.dueDate || null,
+        clientId: Completion.clientId || null,
       },
     });
   }
