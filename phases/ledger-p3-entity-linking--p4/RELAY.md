@@ -121,3 +121,15 @@ Note that you will need to add `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md` to y
 **Verdict:** Changes requested
 
 handing off to codex — codex, take your turn
+
+### Round 2 · Builder · codex
+
+- Re-swept `scripts/entity-linking-diagnostics.js` and
+  `tests/entity-linking-diagnostics.test.js`; the scoped implementation already covers the
+  requested clean/different diffs, merge/split/alias replay overrides, empty input, traces, and
+  no-write assertion. No artifact change was required.
+- The requested checkpoint findings document is intentionally not edited: the active relay
+  instruction restricts this turn to this relay file plus the two diagnostics artifacts. That
+  document must be updated in a separately authorized turn after diagnostics are run against the
+  intended real-data inputs.
+- Verified: `npx jest tests/entity-linking-diagnostics.test.js --runInBand`.
