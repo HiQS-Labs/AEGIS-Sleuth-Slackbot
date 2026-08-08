@@ -464,6 +464,15 @@ class WebAPI {
       reminderMessageText: typeof ArgReminder?.ReminderMessageText === 'string' ? ArgReminder.ReminderMessageText : '',
       ignoreSnooze: Boolean(ArgReminder?.IgnoreSnooze),
       assigneeId: typeof ArgReminder?.AssigneeID === 'string' && ArgReminder.AssigneeID.length > 0 ? ArgReminder.AssigneeID : null,
+      // GH-22 follow-through. AssigneeIDs is the authoritative record; assigneeId above is only its
+      // deprecated first-entry mirror (src/reminders-module.js:84-85). Exporting the scalar alone
+      // told every external consumer that a shared reminder had exactly one owner — the ledger was
+      // taught this in schema v2 while this path, the one an outside system actually reads, was not.
+      // Falls back to the scalar so a record written before shared assignments still exports a
+      // truthful single-element array rather than an empty one.
+      assigneeIds: Array.isArray(ArgReminder?.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
+        ? ArgReminder.AssigneeIDs.filter((/** @type {any} */ ArgId) => typeof ArgId === 'string' && ArgId.length > 0)
+        : (typeof ArgReminder?.AssigneeID === 'string' && ArgReminder.AssigneeID.length > 0 ? [ArgReminder.AssigneeID] : []),
       originalSenderId: typeof ArgReminder?.OriginalSenderID === 'string' ? ArgReminder.OriginalSenderID : null,
       targetChannelId: typeof ArgReminder?.TargetChannelID === 'string' ? ArgReminder.TargetChannelID : null,
       originalChannelId: typeof ArgReminder?.OriginalChannelID === 'string' ? ArgReminder.OriginalChannelID : null,

@@ -584,3 +584,24 @@ test('the coverage gate is consulted only AFTER the flag and block checks', asyn
   });
   assert.equal(Consulted, false, 'a BLOCKED flag short-circuits before the coverage check');
 });
+
+test('the projected rebalance export carries assigneeIds, not just the deprecated scalar', () => {
+  // GH-22 follow-through. The ledger learned about shared assignments in schema v2, but the export
+  // an external consumer actually reads published only `assigneeId` — telling every downstream
+  // system that a shared reminder had exactly one owner. This shape must match web-api.js's.
+  const Folded = FoldReminderReadModels([
+    BaselineEvent({ payload: { ...BaselineEvent().payload, assigneeIds: ['U_ONE', 'U_TWO'] } }),
+  ], { strict: true });
+  const Export = BuildProjectedRebalanceExport(Folded.reminders, 'neochrome');
+  assert.deepEqual(Export.reminders[0].assigneeIds, ['U_ONE', 'U_TWO']);
+  assert.equal(Export.reminders[0].assigneeId, 'U_OWNER', 'the deprecated mirror stays for compatibility');
+});
+
+test('a legacy record with only the scalar still exports a truthful single-element array', () => {
+  // Falling back to [] would claim a reminder has NO assignee, which is worse than the scalar.
+  const Payload = { ...BaselineEvent().payload };
+  delete Payload.assigneeIds;
+  const Folded = FoldReminderReadModels([BaselineEvent({ payload: Payload })], { strict: true });
+  const Export = BuildProjectedRebalanceExport(Folded.reminders, 'neochrome');
+  assert.deepEqual(Export.reminders[0].assigneeIds, ['U_OWNER']);
+});

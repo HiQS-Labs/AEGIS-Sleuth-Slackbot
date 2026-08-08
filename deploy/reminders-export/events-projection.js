@@ -254,6 +254,14 @@ function FoldReminders(ArgEvents, ArgOpts = {}) {
     }
     let Record = ById.get(ReminderId);
     if (!Record) {
+      // Only a CREATION event may mint a record. A bare transition for an unknown id means the
+      // reminder predates the ledger, so folding it would publish a row with no text, no assignee
+      // and no channel — a phantom. src/reminders-projection.js has always worked this way; this
+      // fold did not, and v2's per-transition events made the gap far easier to reach.
+      if (Event.type !== 'ReminderCreated' && Event.type !== 'BaselineReminderImported') {
+        Warn(`[events-projection] skipping ${Event.type} for unknown reminder ${ReminderId} (no creation event)`);
+        continue;
+      }
       Record = MakeReminderRecord(ReminderId);
       ById.set(ReminderId, Record);
       Order.push(ReminderId);

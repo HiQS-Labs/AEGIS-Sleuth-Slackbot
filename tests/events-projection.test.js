@@ -235,3 +235,21 @@ test('a v2 cancellation keeps this export cancelled spelling', () => {
   assert.strictEqual(remC.state, 'cancelled');
   assert.strictEqual(remC.isActive, false);
 });
+
+test('a transition for a reminder with no creation event is skipped, not turned into a phantom row', () => {
+  // The fold used to mint a record for ANY known-type event with an unseen reminderId, producing a
+  // row with no text, no assignee and no channel. Pre-existing, but v2 emits a transition for every
+  // state change, so a reminder predating the ledger now reaches this constantly.
+  const warnings = [];
+  const events = FixtureEvents().concat([
+    {
+      v: 2, id: 'evt_orphan', ts: '2026-06-11T10:00:00Z', workspace: 'neochrome',
+      type: 'ReminderStateChanged', reminderId: 'rem_never_created',
+      payload: { fromState: 'scheduled', toState: 'overdue', reason: 'due-passed' },
+    },
+  ]);
+  const records = FoldReminders(events, { warn: (m) => warnings.push(m) });
+  assert.strictEqual(records.length, 3, 'no phantom row for the uncreated reminder');
+  assert.ok(!records.some((r) => r.reminderId === 'rem_never_created'));
+  assert.ok(warnings.some((w) => w.includes('no creation event')), 'and it is reported, not silently dropped');
+});

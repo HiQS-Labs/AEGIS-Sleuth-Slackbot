@@ -575,6 +575,11 @@ function BuildProjectedRebalanceExport(ArgReminders, ArgWorkspaceName) {
       reminderMessageText: ArgReminder.ReminderMessageText || '',
       ignoreSnooze: Boolean(ArgReminder.IgnoreSnooze),
       assigneeId: ArgReminder.AssigneeID || null,
+      // Must mirror web-api.js's rebalance shape exactly — a field present in one and absent in the
+      // other is a guaranteed parity diff the moment REBALANCE_EXPORT_SOURCE is considered.
+      assigneeIds: GetStrings(ArgReminder.AssigneeIDs).length > 0
+        ? GetStrings(ArgReminder.AssigneeIDs)
+        : (ArgReminder.AssigneeID ? [ArgReminder.AssigneeID] : []),
       originalSenderId: ArgReminder.OriginalSenderID || null,
       targetChannelId: ArgReminder.TargetChannelID || null,
       originalChannelId: ArgReminder.OriginalChannelID || null,
