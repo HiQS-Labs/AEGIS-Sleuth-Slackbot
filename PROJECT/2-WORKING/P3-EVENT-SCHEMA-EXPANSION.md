@@ -3,7 +3,7 @@ title: P3 — Event Schema Expansion (make the ledger sufficient to reconstruct 
 created: 2026-08-08
 updated: 2026-08-08
 branch: development
-status: Phases A and B implemented and green; C is half done (field gate yes, generation checkpoint no); D not started
+status: A/B done; C field-gate done, generation checkpoint IN PROGRESS; D run once on a copy of prod — 3 defects found and fixed, full read-model parity reached
 owner: noel
 author: Claude (Opus 5, 1M)
 doc_type: proposal
@@ -27,7 +27,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **Phases A and B implemented and green** (3 commits, gate: 98 suites / 1572 Jest, 73 `node --test`, build 0, `validate:fsm` OK). Schema v2 is written and validated per-event-version; every transition is emitted; relay state is evented thread-scoped; the fold reproduces all of it; `--enrich` repairs a pre-v2 stream. **Phase C is HALF done**: the field-level gate rejects a stream missing what v2 added, but the generation-aware checkpoint is not started. | **The generation checkpoint, then Phase D — a parity run on real workspace data.** No flag unblocks without D. `COMPLETED_READ_SOURCE` and `REBALANCE_EXPORT_SOURCE` now wait only on that run. `REMINDERS_READ_SOURCE` waits on the checkpoint too — it is blocked on detecting a short ledger, which no schema field can do. |
+| **Phase D ran against a copy of live `neochrome` and found three defects that four QA rounds, two cross-model consults and 1572 passing tests all missed** — removal was never evented (11 reminders would have been resurrected and resumed posting to Slack), imported completions were silently dropped (32 of 152 lost), and backfill only ran in one direction. All three fixed; real-data read-model parity is now **23/23 active, 152/152 completed, zero diffs**. | **The generation-aware checkpoint** (Phase C bullet 1) — the last thing blocking `REMINDERS_READ_SOURCE`, and the only listed item that was never started. Then a dev-server dry run of enrich → retire → compact, then production. |
 
 ## Why this exists, and the process lesson
 
@@ -109,6 +109,36 @@ empty workspace.
 (`src/reminders-module.js:516-555`). A torn append leaves a stream that passes every field check
 while missing an event. Strict parity cannot detect a *lost* event among valid ones — a lone
 creation passes while its absent paired `ReminderScheduled` leaves `ShouldPostOn` null.
+
+### 8. Removal from the queue is never evented at all — FOUND ON REAL DATA, NOT BY REVIEW
+
+`#DeleteRemindersAsync` (`src/reminders-module.js:3630`) filters the pending queue and saves,
+emitting **nothing**. It notifies Slack Lists and stops there. Several callers reach it *without* any
+preceding terminal transition — the wastebasket reaction (via `RemindersReactionHandler`) and the
+dead-letter sweep at `:3564`.
+
+**Measured on live `neochrome`: 11 reminders folded to a live `scheduled` state that the JSON store
+had already dropped.** With `REMINDERS_READ_SOURCE` enabled those 11 would have been resurrected and
+resumed posting to Slack — a user-visible resurrection bug.
+
+This gap survived seven documented gaps, two cross-model consults, four QA rounds and 1572 passing
+tests. Nothing but real data was going to find it, which is the whole argument for the spike this
+plan opens with.
+
+### 9. An imported completion is dropped from BOTH read models
+
+A `BaselineReminderImported` carrying `state: 'completed'` has no `completedAt`. The fold reaches
+`Date.parse(undefined)`, gets `NaN`, fails the `Number.isFinite` guard, and `continue`s — so the
+record appears in neither the active list nor the completed history.
+
+**Measured: 32 of 152 real completions vanished.** Silent data loss, introduced by this plan's own
+Phase B and invisible to every synthetic fixture, all of which happened to carry `completedAt`.
+
+### 10. Backfill only ran in one direction
+
+`--enrich` adds what the JSON store has and the ledger lacks. Nothing retired the inverse — what the
+ledger has and the JSON store has already dropped. Gap 8 guarantees that inverse set is non-empty on
+any workspace predating schema v2.
 
 ## What this proposal does NOT do
 
@@ -300,13 +330,57 @@ event is detected; a mutation between checkpoint and read cannot serve stale pro
 
 ### Phase D — Prove on real data, then unblock one flag at a time
 
-- [ ] Run the full-state diff — the spike that should have opened this plan — against real
-      `neochrome` data: fold every reminder, diff every field against the JSON store.
+**RUN 2026-08-08 against a copy of live `neochrome` (1467 events, 175 reminders). This section is now
+a record, not a plan.** No production data was written; every mutation ran against a local copy
+outside the repo.
+
+- [x] Run the full-state diff against real data — the spike that should have opened this plan.
+- [x] Fix what it found (gaps 8, 9, 10 above).
+- [x] Establish the operator sequence, which code reading could not have revealed.
+- [ ] Re-run against the **development** server end-to-end before touching production.
 - [ ] Unblock flags **individually**, each with its own recorded passing parity run.
 - [ ] Only then do Phase 4, Phase 6a, and the reversibility drill return.
 
-**Exit criteria:** zero field diffs on real data, or a documented and accepted divergence per field
-(the ±1ms `completedMs` precedent).
+#### What the first run measured
+
+| | JSON store | Projected | Verdict |
+|---|---|---|---|
+| Active reminders | 23 | 32 | **11 ghosts, 2 missing** |
+| Completions | 152 | 120 | **32 missing** |
+| Strict gate | — | rejected, 1162 fields | correct: it fell back |
+| Stream version | 1467 events, **100% v1** | — | zero `BaselineReminderImported` — the importer had never been run in production |
+
+#### After the fixes, same data
+
+| | JSON store | Projected | Verdict |
+|---|---|---|---|
+| Active reminders | 23 | 23 | **0 missing, 0 ghosts** |
+| Completions | 152 | 152 | **0 missing, 0 extra** |
+
+#### The required sequence — the most valuable thing this run produced
+
+`--enrich` alone is **not** sufficient, and would have failed in the operator's hands:
+
+1. `--enrich` — backfills v2 fields for reminders the JSON store still holds.
+2. `--retire-orphans` — emits `ReminderRemoved` for ledger entries no JSON store holds (gap 8's
+   historical damage). A **separate** flag on purpose: restating fields the JSON store already
+   asserts is safe; declaring a reminder dead is not.
+3. **Compaction** — after 1 and 2 the read models reach parity but strict *still* rejects, on 417
+   fields belonging to historical **v1 transition events** (`ignoreSnooze` on 166 `ReminderScheduled`,
+   `completedMs` on 120 `ReminderCompleted`). Enrich only appends creation-shaped events; it never
+   rewrites a transition. Compaction replaces the log with v2 baselines and is therefore the only
+   mechanism that retires them. Post-compaction the stream **passes strict** and shrinks 1805 → 327.
+4. Re-verify, then consider a flag.
+
+**Exit criteria:** zero field diffs on real data — *met for the read models*, and met for strict only
+after compaction.
+
+#### Known cosmetic divergence
+
+Compaction normalizes an absent relay flag to explicit `false` (`undefined -> false`) for reminders
+that were never enriched. Semantically identical — every consumer treats both as "not stopped" — but
+it means compaction is not *byte*-idempotent, and a byte-parity harness will flag it. Recorded rather
+than fixed, because forcing the fold to emit `undefined` would be worse.
 
 ## Sequencing
 
@@ -353,3 +427,28 @@ claim.
   decoding at write time was not implemented — the fold coerces defensively at read time instead.
   Read-strictness was a genuine Codex/agy disagreement resolved in agy's favour, recorded under
   Phase A rather than quietly dropped.
+
+- **2026-08-08 (later)** — **Phase D run against a copy of live `neochrome` production data.** The
+  single most productive hour of this project. Full detail in Phase D above; the short version:
+
+  **Three defects, none of which review could have found.** Removal was never evented at all (gap 8)
+  — 11 real reminders folded to a live `scheduled` state the JSON store had dropped, and would have
+  been resurrected into Slack. Imported completions were dropped from both read models (gap 9) — 32
+  of 152 lost. Backfill only worked in one direction (gap 10).
+
+  **Read-model parity went from 34 diffs to zero.** Fixed in `4dc00e6`.
+
+  **The operator sequence is enrich → retire-orphans → compact → verify.** `--enrich` alone reaches
+  read-model parity but leaves strict rejecting 417 fields on historical v1 *transition* events,
+  which enrich never rewrites. Only compaction retires those. I would have handed over "run enrich"
+  and it would have failed.
+
+  **What was NOT missed, to be precise about it:** the generation-aware checkpoint was in this plan
+  from the start (Phase C, bullet 1, from Codex's consult) and was correctly marked not-started. The
+  four items above are genuinely new; that one was known and deferred.
+
+  **The process lesson this plan opens with now has its own proof.** The document argues a technical
+  spike should have preceded the build. Phase D *was* that spike, run late — and it found in one hour
+  what months of reasoning, two model consults and a green test suite did not. Every defect it found
+  was invisible to synthetic fixtures precisely because I wrote those fixtures from the same mental
+  model that produced the bugs.

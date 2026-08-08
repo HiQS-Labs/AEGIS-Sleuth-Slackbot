@@ -23,6 +23,7 @@ const GitHubCommentRelay = require('./github-comment-relay');
 const SlackFormatUtils = require('./slack-format-utils');
 const CompletionStore = require('./completion-store');
 const { createEventStore, CURRENT_SCHEMA_VERSION } = require('./event-store');
+const { createLedgerCoverage } = require('./ledger-coverage');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
@@ -212,6 +213,14 @@ class RemindersModule {
    * @type {string|null}
    */
   #EventWorkspace = null;
+
+  /**
+   * Generation-aware coverage gate for the ledger (P3 Phase C). Answers the one question a payload
+   * check cannot: is there any reason to believe this workspace's log is MISSING an event? Created
+   * in StartAsync; null before then, in which case every call below is an optional-chained no-op.
+   * @type {ReturnType<typeof createLedgerCoverage>|null}
+   */
+  #LedgerCoverage = null;
 
   /**
    * Path to the file where the reminder counter info is stored on disk.
@@ -599,6 +608,10 @@ class RemindersModule {
     if(!this.#EventStore || !this.#EventWorkspace) {
       return;
     }
+    // Opened BEFORE the append is submitted and closed when it settles, so the window in which the
+    // JSON store may lead the log is always covered. A failed append durably marks a gap: nothing
+    // retries it, so the log is short from that moment until a parity run says otherwise.
+    this.#LedgerCoverage?.BeginAppend(this.#EventWorkspace);
     try {
       this.#EventStore.append(this.#EventWorkspace, {
         // Stamp the current schema version so the append is validated against the WIDER v2
@@ -610,19 +623,25 @@ class RemindersModule {
         payload: ArgPayload,
       }).then(
         (ArgResult) => {
-          if(ArgResult && ArgResult.ok === false) {
+          const Ok = !(ArgResult && ArgResult.ok === false);
+          if(!Ok) {
             this.#SlackApp.Logger.warn(
               `[event-ledger] append failed (non-fatal): ${ArgType} ${ArgReminderId}`,
               ArgResult.error
             );
           }
+          this.#LedgerCoverage?.SettleAppend(this.#EventWorkspace, Ok, ArgType);
         },
         (ArgError) => {
           this.#SlackApp.Logger.warn(`[event-ledger] append rejected (non-fatal): ${ArgType}`, ArgError);
+          this.#LedgerCoverage?.SettleAppend(this.#EventWorkspace, false, ArgType);
         }
       );
     } catch(error) {
       this.#SlackApp.Logger.warn(`[event-ledger] emit threw (non-fatal): ${ArgType}`, error);
+      // A throw means the append never reached the store, so the in-flight count opened above would
+      // otherwise never close — and the gate would stay shut forever for the wrong reason.
+      this.#LedgerCoverage?.SettleAppend(this.#EventWorkspace, false, ArgType);
     }
   }
 
@@ -1158,6 +1177,14 @@ class RemindersModule {
       rootDir: path.join(RemindersDirPath, '..', 'events'),
     });
     this.#EventWorkspace = WorkspaceName;
+
+    // The coverage gate lives beside the log it describes. A failed append records a DURABLE gap
+    // here, because the shortfall is in the file, not merely in this process's memory — a restart
+    // must not forget it.
+    this.#LedgerCoverage = createLedgerCoverage({
+      rootDir: path.join(RemindersDirPath, '..', 'events'),
+      Logger: this.#SlackApp.Logger,
+    });
 
     // instantiate the channel settings manager.
     this.#ChannelSettings = new RemindersChannelSettings(this.#SlackApp, EnabledChannelsFilePath);

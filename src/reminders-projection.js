@@ -591,7 +591,7 @@ function BuildProjectedRebalanceExport(ArgReminders, ArgWorkspaceName) {
  * Choose one read surface independently.  Projection failures are intentionally
  * caught here so each flag remains reversible and falls back to its authoritative
  * JSON store without coupling the three surfaces.
- * @param {{ flagName: string, environment?: Record<string, string|undefined>, ReadAuthoritativeAsync: () => Promise<any>, ReadProjectionAsync: () => Promise<any>, Logger?: { warn?: (...args: any[]) => void } }} ArgOptions
+ * @param {{ flagName: string, environment?: Record<string, string|undefined>, ReadAuthoritativeAsync: () => Promise<any>, ReadProjectionAsync: () => Promise<any>, Logger?: { warn?: (...args: any[]) => void }, IsCoverageCleanAsync?: () => Promise<boolean> }} ArgOptions
  * @returns {Promise<{ value: any, source: 'authoritative'|'projection', fallbackError?: Error }>}
  */
 async function ReadWithProjectionFallbackAsync(ArgOptions) {
@@ -611,6 +611,19 @@ async function ReadWithProjectionFallbackAsync(ArgOptions) {
   }
   if(!WantsProjection) {
     return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
+  }
+  // Coverage gate (P3 Phase C). Field checks prove the events PRESENT are complete; this proves no
+  // event is MISSING. They are independent failures and both must pass — a torn append leaves a
+  // stream every payload check accepts. Absent a gate the caller is simply unverified, which is
+  // itself a reason not to serve; a caller that supplies one is opting into the stricter path.
+  if(typeof ArgOptions.IsCoverageCleanAsync === 'function') {
+    const Clean = await ArgOptions.IsCoverageCleanAsync();
+    if(Clean !== true) {
+      ArgOptions.Logger?.warn?.(
+        `[reminders-projection] ${ArgOptions.flagName} requested, but the ledger has no clean coverage record. Serving the authoritative store.`
+      );
+      return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
+    }
   }
   try {
     return { value: await ArgOptions.ReadProjectionAsync(), source: 'projection' };

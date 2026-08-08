@@ -537,3 +537,50 @@ test('removal AFTER completion keeps the completion record', () => {
   assert.equal(Folded.completed.length, 1, 'completion history must survive the queue removal');
   assert.equal(Folded.completed[0].reminderId, 'rem-1');
 });
+
+// --- the coverage gate must actually gate the read path ---
+
+test('an unclean ledger forces the authoritative store even when the flag is on', async () => {
+  // Field checks prove the events PRESENT are complete; coverage proves none is MISSING. They are
+  // independent failures, so a stream that passes every payload check must still be refused when
+  // its coverage is unproven.
+  let ProjectionRead = false;
+  const Warnings = [];
+  const Result = await ReadWithProjectionFallbackAsync({
+    flagName: TEST_ONLY_UNBLOCKED_FLAG,
+    environment: { [TEST_ONLY_UNBLOCKED_FLAG]: 'projection' },
+    Logger: { warn: (...ArgArgs) => Warnings.push(ArgArgs) },
+    IsCoverageCleanAsync: async () => false,
+    ReadAuthoritativeAsync: async () => 'json',
+    ReadProjectionAsync: async () => { ProjectionRead = true; return 'projection'; },
+  });
+  assert.equal(Result.source, 'authoritative');
+  assert.equal(Result.value, 'json');
+  assert.equal(ProjectionRead, false, 'an unclean ledger must not even be folded');
+  assert.equal(Warnings.length, 1, 'and the operator must be told why');
+});
+
+test('a clean ledger lets the projection serve', async () => {
+  const Result = await ReadWithProjectionFallbackAsync({
+    flagName: TEST_ONLY_UNBLOCKED_FLAG,
+    environment: { [TEST_ONLY_UNBLOCKED_FLAG]: 'projection' },
+    IsCoverageCleanAsync: async () => true,
+    ReadAuthoritativeAsync: async () => 'json',
+    ReadProjectionAsync: async () => 'projection',
+  });
+  assert.equal(Result.source, 'projection');
+});
+
+test('the coverage gate is consulted only AFTER the flag and block checks', async () => {
+  // Ordering matters for cost: a blocked or flag-off read must never pay for a coverage lookup.
+  let Consulted = false;
+  await ReadWithProjectionFallbackAsync({
+    flagName: 'REMINDERS_READ_SOURCE',
+    environment: { REMINDERS_READ_SOURCE: 'projection' },
+    Logger: { warn: () => {} },
+    IsCoverageCleanAsync: async () => { Consulted = true; return true; },
+    ReadAuthoritativeAsync: async () => 'json',
+    ReadProjectionAsync: async () => 'projection',
+  });
+  assert.equal(Consulted, false, 'a BLOCKED flag short-circuits before the coverage check');
+});
