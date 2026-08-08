@@ -1,6 +1,6 @@
 # Marathon Phase p7
 STATUS: Open
-NEXT: codex
+NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P7-TURN builder=codex reviewer=agy round-cap=7 -->
 
@@ -104,3 +104,26 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+Added `src/state-snapshot-writer.js` and its focused tests. The writer writes folded reminder and
+completion read models with `durable-write.js`, proves the legacy reminders date reviver and completion
+loader deep-equal the corresponding hydrated folded state, and compacts an event log into a deterministic
+baseline whose replay folds to the same state. The compacted fixture has two replay events (baseline +
+completion); therefore it removes the historical tail, but its real bound is current state cardinality,
+not a measured production-log count.
+
+**HALT / blocker:** I did not delete `#SaveChain`, `FlushRemindersAsync`, or CompletionStore's mutable
+write path, and did not wire the writer into `RemindersModule`. Current live events cannot losslessly fold
+all current mutations: summary edits (`UpdateReminderSummaryFromListAsync`), post-cycle state changes
+(due/overdue/posting/posted/rescheduled/failed/dead-letter), and deletion paths have no replay event; and
+native `ReminderCreated` lacks the legacy fields required by `FoldReminderReadModels({ strict: true })`.
+Compacting or making JSON derived from that stream would silently discard live reminder state, directly
+violating the phase's tested rollback and legacy-loadability contract. This is a prerequisite gap from
+the prior authority-move phase, not safely fixable within this phase's four-file scope without expanding
+the event enum/folder and adding coverage.
+
+Verification: `node --test tests/derived-snapshot-writer.test.js` (3/3 passing). No current-workspace
+snapshot size or cold-replay timing is available because the writer is intentionally not live-wired while
+the lossless-fold blocker remains.
