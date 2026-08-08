@@ -80,7 +80,8 @@ const { createEventStore } = require('./event-store');
  * @property {string}  OriginalSenderID    ID of the user who sent the original message.
  * @property {string}  ReminderMessageText Message to post when the reminder is due.
  * @property {boolean} IgnoreSnooze        Post on snoozed days when true.
- * @property {string|null} [AssigneeID]    ID of the user assigned to the reminder (extracted from message, backwards compatible).
+ * @property {string|null} [AssigneeID]    Deprecated compatibility mirror of the first AssigneeIDs entry. Retained for older readers.
+ * @property {string[]} [AssigneeIDs]      Authoritative ordered, de-duplicated human Slack user IDs assigned to this shared reminder.
  * @property {string[]|null} [GitHubUrls]  GitHub issue or PR URLs extracted from the original message (backwards compatible).
  * @property {boolean} [GitHubRelayStopped] When true, no further Slack thread messages will be relayed to linked GitHub issues (backwards compatible).
  * @property {boolean} [GitHubRelayStarted] When true, at least one message has already been relayed; the first relay includes the Slack thread permalink (backwards compatible).
@@ -600,6 +601,10 @@ class RemindersModule {
       State: RemindersModule.ReminderState.Scheduled,
     });
 
+    // Keep newly-written records forward- and rollback-compatible: AssigneeIDs is authoritative,
+    // while AssigneeID remains the first value for binaries that predate shared assignments.
+    this.#NormalizeReminderAssignees(Reminder);
+
     // Phase A (identity stamping): resolve client identity at creation time and stamp it onto the
     // live reminder object. clientId: null when no client matches — callers rely on this being a
     // clean null rather than undefined.
@@ -614,6 +619,7 @@ class RemindersModule {
     this.#EmitLifecycleEvent('ReminderCreated', Reminder, {
       text: Reminder.ReminderMessageText || null,
       assigneeId: Reminder.AssigneeID || null,
+      assigneeIds: Reminder.AssigneeIDs,
       sourceChannelId: Reminder.OriginalChannelID || Reminder.TargetChannelID || null,
       targetChannelId: Reminder.TargetChannelID || null,
       source: 'fsm',
@@ -636,6 +642,67 @@ class RemindersModule {
     }
 
     return Reminder;
+  }
+
+  /**
+   * Return a reminder's canonical set of human assignees without mutating the record.
+   * A non-empty AssigneeIDs array is authoritative; legacy records fall back to AssigneeID, then
+   * OriginalSenderID. Invalid values, duplicates, and the bot are excluded.
+   * @param {Partial<ReminderInfo>|null|undefined} ArgReminder Reminder record to inspect.
+   * @param {string|null|undefined} [ArgBotUserID] Workspace bot ID to exclude.
+   * @returns {string[]}
+   */
+  static GetAssigneeIDs(ArgReminder, ArgBotUserID = null) {
+    if(!ArgReminder || typeof ArgReminder !== 'object') return [];
+
+    const HasArray = Array.isArray(ArgReminder.AssigneeIDs);
+    const Candidates = HasArray
+      ? ArgReminder.AssigneeIDs
+      : [ArgReminder.AssigneeID];
+    /** @type {string[]} */
+    const AssigneeIDs = [];
+    for(const Candidate of Candidates) {
+      if(typeof Candidate !== 'string') continue;
+      const AssigneeID = Candidate.trim();
+      if(!AssigneeID || AssigneeID === ArgBotUserID || AssigneeIDs.includes(AssigneeID)) continue;
+      AssigneeIDs.push(AssigneeID);
+    }
+
+    if(AssigneeIDs.length > 0) return AssigneeIDs;
+
+    const SenderID = typeof ArgReminder.OriginalSenderID === 'string'
+      ? ArgReminder.OriginalSenderID.trim()
+      : '';
+    return SenderID && SenderID !== ArgBotUserID ? [SenderID] : [];
+  }
+
+  /**
+   * Check whether a user belongs to a reminder's canonical assignee set.
+   * @param {Partial<ReminderInfo>|null|undefined} ArgReminder Reminder record to inspect.
+   * @param {string} ArgUserID Slack user ID to look up.
+   * @param {string|null|undefined} [ArgBotUserID] Workspace bot ID to exclude.
+   * @returns {boolean}
+   */
+  static IsAssignedTo(ArgReminder, ArgUserID, ArgBotUserID = null) {
+    return RemindersModule.GetAssigneeIDs(ArgReminder, ArgBotUserID).includes(ArgUserID);
+  }
+
+  /**
+   * Normalize one persisted reminder in-place and report whether its serialized assignee fields
+   * changed. This is the single compatibility boundary for legacy AssigneeID-only records.
+   * @param {ReminderInfo} ArgReminder Reminder record to normalize.
+   * @returns {boolean}
+   */
+  #NormalizeReminderAssignees(ArgReminder) {
+    const AssigneeIDs = RemindersModule.GetAssigneeIDs(ArgReminder, this.#SlackApp.BotUserID);
+    const ArrayChanged = !Array.isArray(ArgReminder.AssigneeIDs)
+      || ArgReminder.AssigneeIDs.length !== AssigneeIDs.length
+      || ArgReminder.AssigneeIDs.some((ArgID, ArgIndex) => ArgID !== AssigneeIDs[ArgIndex]);
+    const AssigneeID = AssigneeIDs[0] ?? null;
+    const MirrorChanged = ArgReminder.AssigneeID !== AssigneeID;
+    if(ArrayChanged) ArgReminder.AssigneeIDs = AssigneeIDs;
+    if(MirrorChanged) ArgReminder.AssigneeID = AssigneeID;
+    return ArrayChanged || MirrorChanged;
   }
 
   /**
@@ -926,6 +993,7 @@ class RemindersModule {
       OriginalSenderID: SenderID,
       ReminderMessageText: Summary,
       AssigneeID: AssigneeID,
+      AssigneeIDs: [AssigneeID],
       GitHubUrls: null,
     });
 
@@ -1491,9 +1559,10 @@ class RemindersModule {
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
       const TargetChannelID = await this.#GetReminderChannelIdAsync(ArgChannelID);
 
-      // extract assignee from the reminder message text; default to the sender when no explicit assignee is found.
-      // this guarantees AssigneeID is always non-null so the #RemindersByAssignee index is authoritative.
-      const AssigneeID = this.#ExtractAssigneeFromReminderText(NewReminderMessageText, ArgUserID) ?? ArgUserID;
+      // Extract every explicitly mentioned human assignee from the original quoted source. The
+      // factory retains the first one in AssigneeID for older readers while the array is authoritative.
+      const ExtractedAssigneeIDs = this.#ExtractAssigneeIDsFromReminderText(NewReminderMessageText);
+      const AssigneeIDs = ExtractedAssigneeIDs.length > 0 ? ExtractedAssigneeIDs : [ArgUserID];
 
       // get channel name while we have access (bot received the message, so it should have access)
       const OriginalChannelName = await this.#SlackApp.GetChannelNameAsync(ArgChannelID);
@@ -1508,7 +1577,8 @@ class RemindersModule {
         OriginalThreadTs: ArgThreadTs ?? null,
         OriginalSenderID: ArgUserID,
         ReminderMessageText: NewReminderMessageText,
-        AssigneeID: AssigneeID,
+        AssigneeID: AssigneeIDs[0],
+        AssigneeIDs: AssigneeIDs,
         GitHubUrls: GitHubUrls.length > 0 ? GitHubUrls : null,
       });
 
@@ -1777,14 +1847,20 @@ class RemindersModule {
     const ReminderCountText = ReminderCount === 1 ?
       `${ReminderCount} Slack reminder has` : `${ReminderCount} Slack reminders have`;
 
-    // extract target users from the first reminder's message text (all reminders in a batch have same targets)
+    // Render the exact normalized assignee set that was persisted, rather than re-parsing message
+    // text (which could include incidental mentions that were not assigned).
     const FirstReminder = ArgScheduledReminders.keys().next().value;
-    const AllUsers = FirstReminder.ReminderMessageText.match(/<@[^>]+>/g) || [];
-    // Remove the creator from the list to get only target users
-    const TargetUsers = AllUsers.filter((/** @type {string} */ user) => user !== `<@${ArgUserID}>`);
-    const TargetUsersText = TargetUsers.length > 0 ? [...new Set(TargetUsers)].join(", ") : `<@${ArgUserID}>`;
+    const TargetUsers = RemindersModule.GetAssigneeIDs(FirstReminder, this.#SlackApp.BotUserID);
+    const TargetUsersText = TargetUsers.length > 0
+      ? TargetUsers.map(ArgID => `<@${ArgID}>`).join(', ')
+      : `<@${ArgUserID}>`;
 
-    let FeedbackMessage = `${ReminderCountText} been scheduled for ${TargetUsersText}.`;
+    // "as shared work" is MULTI-ASSIGNEE COPY ONLY. GH-22 adds shared assignment; it does not reword
+    // the single-assignee case, where that phrasing reads wrong for one person and breaks the
+    // existing confirmation contract asserted in tests/reminders-integration.test.js. One assignee
+    // (or none, falling back to the sender) must stay byte-identical to the pre-GH-22 wording.
+    const SharedWorkText = TargetUsers.length > 1 ? ' as shared work' : '';
+    let FeedbackMessage = `${ReminderCountText} been scheduled${SharedWorkText} for ${TargetUsersText}.`;
     const GitHubMonitoringFeedback = RemindersModule.BuildGitHubMonitoringFeedback(ArgScheduledReminders);
     if(GitHubMonitoringFeedback)
       FeedbackMessage += `\n${GitHubMonitoringFeedback}`;
@@ -1836,15 +1912,13 @@ class RemindersModule {
 
 
   /**
-   * Extract assignee ID from reminder message text.
-   * Uses the same logic as SlackFormatUtils.ExtractAssignee but works directly with ReminderMessageText format.
+   * Extract human assignee IDs from the quoted original-message section of reminder text.
    * @param {string} ArgReminderMessageText Full reminder message text.
-   * @param {string} ArgOriginalSenderID Original sender ID (to exclude from assignee search).
-   * @returns {string|null} Assignee user ID or null if not found.
+   * @returns {string[]} Ordered, de-duplicated human user IDs.
    */
-  #ExtractAssigneeFromReminderText(ArgReminderMessageText, ArgOriginalSenderID) {
+  #ExtractAssigneeIDsFromReminderText(ArgReminderMessageText) {
     if(!ArgReminderMessageText || typeof ArgReminderMessageText !== 'string') {
-      return null;
+      return [];
     }
 
     // Extract the quoted original message section (after ":\n>")
@@ -1877,7 +1951,7 @@ class RemindersModule {
     }
 
     if(UserIds.length === 0) {
-      return null;
+      return [];
     }
 
     // Filter out the bot user ID - the bot should never be the assignee
@@ -1887,11 +1961,22 @@ class RemindersModule {
       : UserIds;
 
     if(HumanUserIds.length === 0) {
-      return null;
+      return [];
     }
 
-    // Return the first human user mentioned (could be the requester assigning to themselves)
-    return HumanUserIds[0];
+    return HumanUserIds;
+  }
+
+  /**
+   * Backwards-compatible singular extraction used only while loading legacy records. New scheduling
+   * always calls #ExtractAssigneeIDsFromReminderText so one reminder can be shared by every target.
+   * @param {string} ArgReminderMessageText Full reminder message text.
+   * @param {string} ArgOriginalSenderID Original sender ID (kept for legacy call compatibility).
+   * @returns {string|null} First human assignee or null.
+   */
+  #ExtractAssigneeFromReminderText(ArgReminderMessageText, ArgOriginalSenderID) {
+    void ArgOriginalSenderID;
+    return this.#ExtractAssigneeIDsFromReminderText(ArgReminderMessageText)[0] ?? null;
   }
 
   /**
@@ -2201,8 +2286,9 @@ class RemindersModule {
     const BotUserID = this.#SlackApp.BotUserID;
 
     for(const reminder of this.#PendingRemindersQueue) {
-      if(reminder.AssigneeID && reminder.AssigneeID !== BotUserID) {
-        CandidateUsers.add(reminder.AssigneeID);
+      const AssigneeIDs = RemindersModule.GetAssigneeIDs(reminder, BotUserID);
+      if(AssigneeIDs.length > 0) {
+        for(const AssigneeID of AssigneeIDs) CandidateUsers.add(AssigneeID);
         continue;
       }
 
@@ -2817,14 +2903,22 @@ class RemindersModule {
         for(const reminder of Parsed) {
           let Updated = false;
           
-          // Update missing AssigneeID
-          if(!reminder.AssigneeID && reminder.ReminderMessageText && reminder.OriginalSenderID) {
-            reminder.AssigneeID = this.#ExtractAssigneeFromReminderText(
-              reminder.ReminderMessageText,
-              reminder.OriginalSenderID
-            );
+          // Backfill assignment from legacy reminder text only when neither persisted assignment
+          // field is present. Current AssigneeIDs records are authoritative and are normalized below.
+          if(!reminder.AssigneeID && !Array.isArray(reminder.AssigneeIDs)
+            && reminder.ReminderMessageText && reminder.OriginalSenderID) {
+            const ExtractedAssigneeIDs = this.#ExtractAssigneeIDsFromReminderText(reminder.ReminderMessageText);
+            if(ExtractedAssigneeIDs.length > 0) {
+              reminder.AssigneeIDs = ExtractedAssigneeIDs;
+              reminder.AssigneeID = ExtractedAssigneeIDs[0];
+            }
             Updated = true;
           }
+
+          // Additive disk-format migration: legacy AssigneeID-only records become a one-element
+          // authoritative array; when both values exist, the valid ordered array wins and repairs
+          // the compatibility mirror. The ordinary save chain persists only actual changes.
+          if(this.#NormalizeReminderAssignees(reminder)) Updated = true;
           
           // Update missing OriginalChannelName (try to get it if we have access)
           if(!reminder.OriginalChannelName && reminder.OriginalChannelID) {
@@ -2877,7 +2971,7 @@ class RemindersModule {
         this.#SlackApp.Logger.info('loaded', this.#PendingRemindersQueue.length, 'reminders from file.');
 
         if(UpdatedCount > 0) {
-          this.#SlackApp.Logger.info(`self-updated ${UpdatedCount} reminders with missing or legacy AssigneeID, OriginalChannelName, State (due→overdue), or GitHubUrls`);
+          this.#SlackApp.Logger.info(`self-updated ${UpdatedCount} reminders with normalized assignees, legacy fields, State (due→overdue), or GitHubUrls`);
           // save the updated reminders back to disk
           await this.#SaveRemindersAsync();
         }
@@ -3375,6 +3469,8 @@ class RemindersModule {
    *   so the caller can adopt the existing row instead of creating a duplicate.
    */
   async #QueueReminderAsync(ArgReminderInfo, ArgOptions = {}) {
+    this.#NormalizeReminderAssignees(ArgReminderInfo);
+
     // add the reminder to the queue.
     this.#PendingRemindersQueue.push(ArgReminderInfo);
 
@@ -3383,14 +3479,12 @@ class RemindersModule {
     SenderList.push(ArgReminderInfo);
     this.#RemindersBySender.set(ArgReminderInfo.OriginalSenderID, SenderList);
 
-    // update assignee index with the new reminder. Fall back to OriginalSenderID when AssigneeID is
-    // missing so "show my reminders" still surfaces the reminder for the creator — matches the invariant
-    // enforced at reminder creation (AssigneeID ?? ArgUserID) and prevents latent un-indexed entries.
-    const AssigneeKey = ArgReminderInfo.AssigneeID ?? ArgReminderInfo.OriginalSenderID;
-    if(AssigneeKey) {
-      const AssigneeList = this.#RemindersByAssignee.get(AssigneeKey) ?? [];
+    // Index the one shared record once for every assignee. The normalized helper excludes bot IDs
+    // and preserves the sender fallback for malformed legacy records.
+    for(const AssigneeID of RemindersModule.GetAssigneeIDs(ArgReminderInfo, this.#SlackApp.BotUserID)) {
+      const AssigneeList = this.#RemindersByAssignee.get(AssigneeID) ?? [];
       AssigneeList.push(ArgReminderInfo);
-      this.#RemindersByAssignee.set(AssigneeKey, AssigneeList);
+      this.#RemindersByAssignee.set(AssigneeID, AssigneeList);
     }
 
     // save the updated reminders to disk.
@@ -3455,11 +3549,10 @@ class RemindersModule {
       SenderList.push(reminder);
       this.#RemindersBySender.set(reminder.OriginalSenderID, SenderList);
 
-      const AssigneeKey = reminder.AssigneeID ?? reminder.OriginalSenderID;
-      if(AssigneeKey) {
-        const AssigneeList = this.#RemindersByAssignee.get(AssigneeKey) ?? [];
+      for(const AssigneeID of RemindersModule.GetAssigneeIDs(reminder, this.#SlackApp.BotUserID)) {
+        const AssigneeList = this.#RemindersByAssignee.get(AssigneeID) ?? [];
         AssigneeList.push(reminder);
-        this.#RemindersByAssignee.set(AssigneeKey, AssigneeList);
+        this.#RemindersByAssignee.set(AssigneeID, AssigneeList);
       }
     }
   }

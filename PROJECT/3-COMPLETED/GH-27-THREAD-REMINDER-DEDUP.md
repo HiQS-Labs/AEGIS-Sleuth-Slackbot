@@ -1,6 +1,6 @@
 ---
 title: "Prevent incidental thread replies from duplicating an existing reminder"
-status: Active (2-WORKING) — implementation complete; awaiting review
+status: Completed (3-COMPLETED) — shipped to development via PR #28 (squash 5a148c7); issue #27 closed
 created: 2026-08-07
 updated: 2026-08-07
 owner: noel
@@ -25,7 +25,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Scoped same-thread semantic deduplication and production-shaped unit/integration regressions are complete. Full tests, typecheck, prompt validation, structural guards, and GH-27 PDDA document checks pass. | Review the focused diff, then commit the worktree changes for review. |
+| Shipped. Scoped same-thread semantic deduplication plus production-shaped unit/integration regressions landed on `development` as squash commit `5a148c7` (PR #28, CI green); issue #27 closed. Review also caught that reviving the dormant semantic path let an AI verdict override force-scheduling — closed by tagging each dedup exit with `matched_by` and gating the force branch on `'message_id'`, with two regression tests. Full suite green: 1,518 Jest + 33 Node, typecheck clean. | None — work is delivered and the issue is closed. |
 
 ## Table of contents
 
@@ -121,3 +121,8 @@ or persistence shape changes.
   explicit force-schedule action. Added a `matched_by` result discriminator: force scheduling
   bypasses `semantic` judgments but retains the legacy `message_id` rejection. The integration
   suite now drives both force-schedule outcomes through the alarm-clock reaction path.
+- 2026-08-07: Delivered. PR #28 merged into `development` as squash commit `5a148c7` with CI
+  `test` green. Re-verified post-merge on the branch worktree: `npm run build` clean and the full
+  suite green at 1,518 Jest + 33 Node. Note for future runs — a sandboxed `npm test` reports 19
+  false failures (`listen EPERM ... 0.0.0.0`) in the web-api suites; those are socket-bind
+  restrictions, not defects. Issue #27 closed. Document moved to `PROJECT/3-COMPLETED/`.

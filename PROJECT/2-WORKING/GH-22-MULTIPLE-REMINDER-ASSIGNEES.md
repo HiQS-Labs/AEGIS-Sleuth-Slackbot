@@ -1,8 +1,8 @@
 ---
 title: "Support multiple assignees for one reminder"
-status: Active (2-WORKING) — execution plan ready; implementation not started
+status: Active (2-WORKING) — implementation complete, all gates green; awaiting PR merge into development
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-08-08
 owner: noel
 branch: development
 doc_type: feature
@@ -27,7 +27,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Root cause confirmed and GH-22 filed. The implementation plan, data-contract decision, affected-surface inventory, migration approach, and QA gates are recorded here. | Implement Phase 1: add the canonical assignee-set compatibility helpers and load-time normalization tests before changing scheduling or read surfaces. |
+| **Implementation complete; all three gates green.** The marathon's p1 lane built the additive `AssigneeIDs` contract (authoritative array + legacy `AssigneeID` mirror + load-time normalization via `#NormalizeReminderAssignees`), multi-mention scheduling, per-assignee display, and per-user Slack List fan-out — but escalated on `timeout-gate-failed` before the reviewer's requested changes were made, leaving the actual reported bug unfixed. Finished by hand 2026-08-08: (1) `src/chat-commands/show-me-context.js` still filtered with the singular `AssigneeID === userId` compare, which only ever matched the FIRST assignee — that IS the reported symptom, and it was outside the marathon's declared artifact paths, so no lane could touch it. It now resolves membership through the canonical `RemindersModule.IsAssignedTo` helper (deferred require — a top-level import would close a `reminders-module → connection-surfacing → reminder-clustering → show-me-projects-command` cycle). (2) The two tests the reviewer asked for: a second-assignee `show-me` regression and a completion-clears-every-view test, **both verified to FAIL against the pre-fix code** before being accepted. (3) The single-assignee confirmation copy was restored — the builder had reworded *every* reminder to "scheduled as shared work for", which the brief explicitly forbids; "as shared work" is now multi-assignee-only. (4) Four `tsc` errors in the new code fixed. Gates: `npm test` 94/94 suites · 1524/1524 Jest · 33/33 Node; `npm run validate:fsm` OK (no fourth write path); `npm run build` exit 0. Event-log compatibility verified: `FoldReminders` reads only singular `assigneeId`, which is still emitted alongside the additive `assigneeIds`, so historical `summarize-week` output is unchanged. | Land PR into `development` and close issue #22. Per-assignee completion state remains an explicit non-goal — one reminder, one lifecycle. |
 
 ## Quad Concepts
 
