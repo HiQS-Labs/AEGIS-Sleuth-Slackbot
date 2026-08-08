@@ -25,6 +25,10 @@ const {
 
 const HarnessPath = path.join(__dirname, '..', 'scripts', 'projection-parity-harness.js');
 
+// Registered in PROJECTION_FLAGS but deliberately not blocked, so the error-fallback path stays
+// testable while every production flag is blocked.
+const TEST_ONLY_UNBLOCKED_FLAG = 'PROJECTION_ERROR_PATH_TEST_ONLY';
+
 function BaselineEvent(ArgOverrides = {}) {
   return {
     id: 'evt-baseline',
@@ -95,8 +99,28 @@ async function AssertIndependentlyReversibleAsync(ArgFlagName) {
   assert.deepEqual(RolledBack, { value: 'json', source: 'authoritative' });
 }
 
-test('REMINDERS_READ_SOURCE is independently reversible', async () => {
-  await AssertIndependentlyReversibleAsync('REMINDERS_READ_SOURCE');
+// REPLACED after QA round 2. Every projection flag is now BLOCKED, so "independently reversible"
+// (flag-ON serves the projection) is no longer the contract — flag-ON must still serve the
+// authoritative store. A torn append can leave a valid-but-short ledger that strict mode accepts,
+// so this surface cannot serve until a coverage checkpoint exists.
+async function AssertBlockedFlagStaysAuthoritativeAsync(ArgFlagName) {
+  for(const FlagValue of [undefined, 'projection']) {
+    let ProjectionRead = false;
+    const Result = await ReadWithProjectionFallbackAsync({
+      flagName: ArgFlagName,
+      environment: FlagValue === undefined ? {} : { [ArgFlagName]: FlagValue },
+      Logger: { warn: () => {} },
+      ReadAuthoritativeAsync: async () => 'json',
+      ReadProjectionAsync: async () => { ProjectionRead = true; return 'projection'; },
+    });
+    assert.equal(Result.source, 'authoritative', `${ArgFlagName} flag=${String(FlagValue)}`);
+    assert.equal(Result.value, 'json');
+    assert.equal(ProjectionRead, false, 'a blocked flag must not even read the projection');
+  }
+}
+
+test('REMINDERS_READ_SOURCE stays authoritative in BOTH flag states while blocked', async () => {
+  await AssertBlockedFlagStaysAuthoritativeAsync('REMINDERS_READ_SOURCE');
 });
 
 // REPLACED 2026-08-08 (QA finding). This asserted COMPLETED_READ_SOURCE was independently
@@ -118,8 +142,10 @@ test('COMPLETED_READ_SOURCE stays on the authoritative store in BOTH flag states
   }
 });
 
-test('REBALANCE_EXPORT_SOURCE is independently reversible', async () => {
-  await AssertIndependentlyReversibleAsync('REBALANCE_EXPORT_SOURCE');
+// REPLACED after QA round 2: rescheduling resets IgnoreSnooze in the live queue but ReminderScheduled
+// never carries it, so the fold keeps a stale value and this export would publish it externally.
+test('REBALANCE_EXPORT_SOURCE stays authoritative in BOTH flag states while blocked', async () => {
+  await AssertBlockedFlagStaysAuthoritativeAsync('REBALANCE_EXPORT_SOURCE');
 });
 
 test('a projection error logs and returns the authoritative value', async () => {
@@ -127,7 +153,10 @@ test('a projection error logs and returns the authoritative value', async () => 
   const Warnings = [];
   const Logger = { warn: (...ArgArgs) => Warnings.push(ArgArgs) };
   const Result = await ReadWithProjectionFallbackAsync({
-    flagName: 'REMINDERS_READ_SOURCE', environment: { REMINDERS_READ_SOURCE: 'projection' }, Logger,
+    // Uses a flag that is registered but NOT blocked, so the error path is genuinely exercised.
+    // With every real flag blocked, asserting this through one of them would prove nothing — the
+    // block short-circuits before ReadProjectionAsync ever runs.
+    flagName: TEST_ONLY_UNBLOCKED_FLAG, environment: { [TEST_ONLY_UNBLOCKED_FLAG]: 'projection' }, Logger,
     ReadAuthoritativeAsync: async () => 'json',
     ReadProjectionAsync: async () => { throw new Error('induced projection error'); },
   });
@@ -262,4 +291,14 @@ test('strict parity rejects a native stream missing the GitHub relay state field
 
   assert.ok(Missing.includes('GitHubRelayStarted'), 'GitHubRelayStarted must be required for parity');
   assert.ok(Missing.includes('GitHubRelayStopped'), 'GitHubRelayStopped must be required for parity');
+});
+
+test('a relay-capable stream rehydrates BOTH relay flags, not just validates them', () => {
+  // QA round 2: the strict check accepted these fields while MakeReminder dropped them, so a stream
+  // could pass parity and still resume a stopped relay. Validation and rehydration must agree.
+  const Events = [BaselineEvent({ payload: { ...BaselineEvent().payload, gitHubRelayStopped: true, gitHubRelayStarted: true } })];
+  const Folded = FoldReminderReadModels(Events, { strict: true });
+  assert.equal(Folded.reminders.length, 1);
+  assert.equal(Folded.reminders[0].GitHubRelayStopped, true, 'a stopped relay must stay stopped across a fold');
+  assert.equal(Folded.reminders[0].GitHubRelayStarted, true, 'an already-started relay must not read as first-use');
 });

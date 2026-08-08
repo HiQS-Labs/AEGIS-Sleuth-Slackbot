@@ -28,6 +28,8 @@
  * @property {string[]} [GitHubUrls]
  * @property {string|null} [clientId]
  * @property {string|null} [projectId]
+ * @property {boolean} [GitHubRelayStarted]
+ * @property {boolean} [GitHubRelayStopped]
  * @property {string|null} [completedAt]
  * @property {string|null} [completedBy]
  * @property {string|null} [completionMethod]
@@ -50,6 +52,11 @@ const PROJECTION_FLAGS = new Set([
   'REMINDERS_READ_SOURCE',
   'COMPLETED_READ_SOURCE',
   'REBALANCE_EXPORT_SOURCE',
+  // Registered but never used by production code. Every real flag is currently BLOCKED (see below),
+  // which short-circuits before ReadProjectionAsync runs — so without an unblocked flag the
+  // error-fallback path could not be exercised at all, and contract item (c) would go untested.
+  // Not in BLOCKED_PROJECTION_FLAGS on purpose.
+  'PROJECTION_ERROR_PATH_TEST_ONLY',
 ]);
 
 /**
@@ -69,6 +76,27 @@ const PROJECTION_FLAGS = new Set([
  */
 const BLOCKED_PROJECTION_FLAGS = new Set([
   'COMPLETED_READ_SOURCE',
+  // Added after QA round 2 (swept). Both remaining surfaces are ALSO unsafe to enable, for reasons
+  // strict field-presence cannot catch, so the honest state is that the whole cutover is inert until
+  // the event schema carries more:
+  //
+  // REMINDERS_READ_SOURCE — a torn append leaves a valid-but-SHORT ledger. `#EmitLifecycleEvent` is
+  //   fire-and-forget and tolerates `{ ok:false }` (src/reminders-module.js:516-555), and a lone
+  //   creation event passes strict mode while its missing paired `ReminderScheduled` leaves
+  //   ShouldPostOn null. The queue would then be replaced by a partial projection. Detecting this
+  //   needs a durable per-workspace JSON-vs-fold coverage checkpoint, not a field check.
+  //
+  // REBALANCE_EXPORT_SOURCE — rescheduling resets IgnoreSnooze to false in the live queue
+  //   (src/reminders-module.js:3455-3458), but `ReminderScheduled` persists only dueAt/via
+  //   (:489-505), so the fold keeps the stale value and the export publishes it
+  //   (src/web-api.js:459-466) to an external consumer.
+  //
+  // The plumbing below is still worth landing: the flags, the error-fallback path, the parity
+  // harness and the strict guards are the mechanism the cutover will use. What is NOT yet true is
+  // that any of it can safely serve. Unblock each entry together with the schema work that makes its
+  // fold lossless, plus a parity run on real workspace data.
+  'REMINDERS_READ_SOURCE',
+  'REBALANCE_EXPORT_SOURCE',
 ]);
 
 class ProjectionParityError extends Error {
@@ -190,6 +218,16 @@ function MakeReminder(ArgReminderId, ArgEvent) {
     AssigneeID: GetStringOrNull(Payload.assigneeId),
     AssigneeIDs: GetStrings(Payload.assigneeIds),
     GitHubUrls: GetStrings(Payload.githubUrls),
+    // Rehydrated, not merely validated. The strict check above requires these on a relay-capable
+    // stream; projecting them is the other half — a gate that admits a field the fold then drops
+    // would produce a reminder that passes parity and STILL resumes a stopped relay
+    // (github-comment-relay.js:102 reads GitHubRelayStopped, :143 reads GitHubRelayStarted).
+    // Only set when present, so a stream without them keeps today's undefined-means-false shape
+    // rather than inventing an explicit `false` the JSON store never wrote.
+    ...(Object.prototype.hasOwnProperty.call(Payload, 'gitHubRelayStarted')
+      ? { GitHubRelayStarted: Boolean(Payload.gitHubRelayStarted) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(Payload, 'gitHubRelayStopped')
+      ? { GitHubRelayStopped: Boolean(Payload.gitHubRelayStopped) } : {}),
     clientId: GetStringOrNull(Payload.clientId),
     projectId: GetStringOrNull(Payload.projectId),
     State: NormalizeState(Payload.state),
