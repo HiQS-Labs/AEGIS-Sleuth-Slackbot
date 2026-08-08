@@ -1,9 +1,9 @@
 ---
 title: P3 — Event-Sourced Core (the log is the source of truth)
 created: 2026-06-12
-updated: 2026-07-06
+updated: 2026-08-08
 branch: development
-status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection). Parked in ROADMAP.md Queue.
+status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 is BLOCKED on an event-schema gap that prevents boot-state reconstruction. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; artifact lists corrected, phases need re-running. See "Marathon run 2026-08-08" below for the full accounting.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 model: event-sourcing + projections (strangler migration)
@@ -43,6 +43,44 @@ summary: >-
 | What was just completed | What's next |
 |---|---|
 | **GH-355 baseline-import SHIPPED — 1.4.211 (2026-07-06), the blocker to Phase 2 cutover is cleared.** The Phase 2 shadow-diff (`scripts/summarize-week-shadow-diff.js`) *was* run against real prod `neochrome` data; it surfaced a Phase-0-anticipated gap — reminders created before the ledger was born (2026-06-17) have no `ReminderCreated` event, so the fold yielded `null` assignee/sourceChannel for them (11 mismatches over two post-floor weeks). `scripts/baseline-import.js` (one-shot, idempotent, scans both active + completed stores, emits `BaselineReminderImported` events carrying every projection-critical field) took the diff to **0** mismatches (only the documented ±1ms `completedMs` divergence remains). Full suite green (1198); prod-validated. See [GH-355](../3-COMPLETED/GH-355-P3-BASELINE-IMPORT.md). **Earlier:** Phase 2 (`summarize-week` projection) built + shipped behind a default-OFF flag — 1.4.197 (2026-06-16) + 1.4.198 (2026-06-17): `summarizeWeekFromEvents(...)` pure fold + shadow-diff CLI, then the staged read-path wiring (`SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`, unset = current behavior byte-for-byte, error-wrapped fallback to `CompletionStore`). Phase 1 (non-authoritative dual-write) shipped 1.4.192/1.4.193, 2026-06-15. | **Cutover is technically UNBLOCKED — one human-gated step remains.** With GH-355 the shadow-diff is clean, so the only work left for Phase 2's exit criterion is the operator decision: run `scripts/baseline-import.js --write` on prod, then flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection` to move users onto the projection. This is a supervised decision, not a build task — the code has been ready since 1.4.198 and the data gap is fixed since 1.4.211. Parked in `ROADMAP.md`'s Queue. **Sequencing changed (operator decision 2026-08-07):** this cutover is no longer a front gate on **Phase 3: Entity Linking Read-Model** (fully spec'd below, zero code). It is a **post-deployment switch** — run the import and flip the flag after the phase work merges and deploys. A switch on a remote server does not gate whether local code is built, reviewed and tested; verified that no phase artifact reads `SUMMARIZE_WEEK_COMPLETED_SOURCE` (it is confined to `src/reminders-app-mention-handler.js:1250`, whose test sets the flag itself). The validation that originally justified the gate already happened — GH-355 took the prod shadow-diff 11 → 0. The authority flips (Phase 4 boot-rebuild, Phase 6 retire-mutable-writes) remain **NOT an assumed continuation** — per the [direction review](#direction-review-codex-2026-06-16) they return as a **fresh proposal** only if Phase 2/3/5 evidence shows the app materially benefits from authoritative replay. |
+
+### Marathon run 2026-08-08 — what actually shipped, and what did not
+
+The `ledger-p3-entity-linking` marathon ran all 8 phases on branch
+`marathon/p3-event-sourced-core-2026-08-08`. Recording the real outcome, because the status above
+described Phase 3 as "fully spec'd, zero code" and that is no longer true.
+
+| Plan phase | Marathon | Outcome |
+|---|---|---|
+| **Phase 3** — entity-linking read-model | p1–p4 | **DELIVERED.** `src/entity-projection-inputs.js`, `src/entity-linking.js`, `src/entity-read-model.js`, `scripts/entity-linking-diagnostics.js` + suites. Additive, no write-path or authority change. Nothing in `src/` imports them — which is Phase 3's stated design ("useful *without* requiring Phase 4 authority changes"). |
+| **Phase 4** — boot-time rebuild | p5 | **HALTED, correctly.** Structurally blocked — see below. No code. |
+| **Phase 5** — remaining projections | p6 | **PARTIAL.** `src/reminders-projection.js` + parity harness built and unit-tested, but **not one read was converted.** Exit criterion ("every downstream view is produced by a fold") unmet. |
+| **Phase 6a** — retire mutable writes | p7 | **PARTIAL.** `src/state-snapshot-writer.js` built, wired to no live reader. |
+| Reversibility drill | p8 | **Correctly RED.** Its stop gate refuses to certify switches that have no owning reader. This is the gate working. |
+
+**Why Phase 4 is blocked (p5's halt analysis, reviewer-confirmed).** The ledger cannot reconstruct
+boot state, so the required deep-equality and fallback guarantees are unreachable without a schema
+change:
+
+- `ReminderCreated` persists only the display/identity subset. It omits `OriginalChannelName`,
+  `OriginalMessageID`, `OriginalThreadTs`, `OriginalSenderID`, `IgnoreSnooze`. `ReminderScheduled`
+  carries only `dueAt` and `via` and cannot backfill them.
+- The ledger deliberately omits the `due`, `overdue`, `posting`, `posted`, `rescheduled`, `failed`
+  and `dead-letter` transitions, so a fold cannot reproduce in-memory state for active reminders
+  even when every creation event is present.
+- `ReminderCompleted` lacks `sourceChannelID`, `dueDate` and `clientId`, so a log-only
+  `CompletionStore` rebuild cannot match the JSON path either.
+- `event-store.readAll()` returns an empty/partial stream on read failure with **no error signal**,
+  so it structurally cannot trigger contract item (c)'s warn-and-fall-back-to-JSON behaviour.
+
+**Phase 4 therefore needs an explicit schema-expansion proposal first** — widen the event payloads,
+extend emission coverage to the omitted transitions, add a strict boot-read error signal, backfill
+the new fields, and only then establish parity. That is its own plan, not a retry of p5.
+
+**Why Phases 5 and 6a delivered modules but no integration.** Their marathon lanes excluded the
+files they were meant to change — `src/reminders-module.js` and `src/web-api.js` were not in p6's
+`artifact:` list, and containment reverts edits outside a lane. The artifact lists are corrected in
+[MARATHON.yaml](P3-EVENT-SOURCED-CORE/MARATHON.yaml); the phases need re-running against them.
 
 ### Direction review (Codex, 2026-06-16)
 

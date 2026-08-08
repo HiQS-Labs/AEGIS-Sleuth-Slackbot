@@ -79,6 +79,24 @@
 # Still true, and not a reason to withhold code: until step 3 is flipped, the log is written but
 # not read as truth. That is a deployment state to close out, not a build blocker.
 
+# ── ARTIFACT LISTS BOUND WHAT A LANE CAN REPAIR, NOT ONLY WHAT IT MAY WRITE ──────────────────
+# Learned four times on 2026-08-08, three of them in this plan. Containment reverts any edit outside
+# a phase's `artifact:` list, so a file missing from that list is invisible to the lane — it cannot
+# be integrated into, registered, or fixed, no matter how obviously the phase needs it:
+#
+#   p6  built src/reminders-projection.js but could not convert a single read, because
+#       src/reminders-module.js and src/web-api.js — the files Phase 5 exists to change — were not
+#       in its lane. It reported done having wired nothing.
+#   p7  built src/state-snapshot-writer.js and likewise wired it to no live reader.
+#   p6+p7 both wrote node:test suites they could not register, because registration needs
+#       package.json (jest.testPathIgnorePatterns AND the test:node list) and package.json was in
+#       neither lane. Jest globbed the files, found zero Jest tests, and failed the gate twice.
+#
+# BEFORE EDITING ANY `artifact:` BELOW, check the phase's spec in P3-EVENT-SOURCED-CORE.md and list
+# EVERY file its exit criteria require touching — including the live owner being integrated into and
+# any shared manifest that must be updated for the work to run. A lane that cannot reach its own
+# exit criteria will still report success.
+
 name: ledger-p3-entity-linking
 
 phases:
@@ -131,7 +149,23 @@ phases:
     name: "Phase 5 — migrate remaining projections, with a parity harness"
     reviewer: agy
     brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
-    artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js
+    # CORRECTED 2026-08-08 after the first run delivered nothing usable. The previous list was
+    # src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js
+    # — which EXCLUDED the two files this phase exists to change. Phase 5's spec is "convert the
+    # remaining READS to projections: _reminders.json, _completed.json, and the ?format=rebalance
+    # export", owned by src/reminders-module.js and src/web-api.js respectively. Neither was in the
+    # lane, so containment would have reverted any conversion attempt: the artifact list made the
+    # phase's own exit criteria unreachable. The lane built the new module, could not wire it to a
+    # single live reader, and reported done. p8's stop gate then correctly refused to certify
+    # reversibility for switches with no owning reader. package.json is included because a node:test
+    # suite needs registering in BOTH jest.testPathIgnorePatterns and the test:node file list.
+    # Codex relay review 2026-08-08 named the exact readers this phase must convert, verified in
+    # source: RemindersModule.GetAllReminders (src/reminders-module.js:736) and
+    # GetCompletedRemindersBetween (:842) for the two JSON stores, and the rebalance response path
+    # (src/web-api.js:354, 903-905) for ?format=rebalance. The integration suites below assert
+    # today's read behaviour and WILL need updating as those reads move behind a flag — omitting
+    # them would leave the lane unable to keep its own gate green.
+    artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
     depends_on: p5
@@ -140,7 +174,15 @@ phases:
     name: "Phase 6a — retire the mutable write path, keep a derived snapshot"
     reviewer: agy
     brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p7-retire-mutable-writes.md
-    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js
+    # CORRECTED 2026-08-08: added src/web-api.js (the ?format=rebalance export owner, which p8's
+    # stop gate requires to consume REBALANCE_EXPORT_SOURCE) and package.json (node:test
+    # registration). The first run built src/state-snapshot-writer.js and wired it to nothing.
+    # src/event-store.js added after the Codex relay review 2026-08-08 caught it missing from BOTH
+    # the original list and my first correction: this phase's brief requires "event-count-based
+    # snapshots by default ... plus a truncated log so replay stays bounded", and event-store.js is
+    # the log owner (it holds append/readAll). Without it in the lane, snapshotting and compaction
+    # are unreachable and the phase would again report done having built only half of itself.
+    artifact: src/completion-store.js,src/reminders-module.js,src/state-snapshot-writer.js,tests/derived-snapshot-writer.test.js,src/web-api.js,package.json,src/event-store.js,tests/event-store.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
     depends_on: p6
