@@ -89,3 +89,12 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+Implemented `src/entity-projection-inputs.js` and its focused Jest coverage. The pure fold creates
+one normalized, provenance-preserving record per created or baseline-imported reminder, enriches it
+with a later completion event, and keys records by workspace plus reminder id to prevent cross-tenant
+collisions. Text strips canonical Slack user mentions through `SlackFormatUtils.ReplaceUserMentions`,
+then normalizes punctuation and case; optional fields have stable null/empty defaults. Tests cover
+native, baseline, mixed-workspace, empty, optional-field, determinism, and non-mutation cases.
