@@ -10,15 +10,11 @@
 # pre-advance gate. Without the override the marathon fails fast rather than silently skipping the
 # gate — supply `npm test` (1513 tests, ~7s) as the real gate.
 #
-# ── PRECONDITION, NOT A PHASE ────────────────────────────────────────────────────────────────
-# Phase 3 may only start "after the Phase 2 cutover gate" (P3-EVENT-SOURCED-CORE.md § Phase 3).
-# That cutover is a HUMAN-GATED OPS ACTION and deliberately absent from this plan:
-#
-#   1. run `scripts/baseline-import.js --write` on prod
-#   2. flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`
-#
-# It is an operator decision with no code change, so it cannot be a marathon phase. Do not fire this
-# plan until it is done — otherwise Phase 3 builds a read-model over a substrate nobody reads.
+# ── NO FRONT GATE ────────────────────────────────────────────────────────────────────────────
+# The Phase 2 prod cutover previously blocked this plan from firing at all. Operator decision
+# 2026-08-07: it is NOT a precondition. A switch on a remote server does not gate whether local
+# code gets built, reviewed and tested — it gates whether that code is live. It has moved to
+# "POST-DEPLOYMENT SWITCH" at the bottom of this header. Do not re-add it here.
 #
 # ── SCOPE CEILING ────────────────────────────────────────────────────────────────────────────
 # Operator decision 2026-08-07: push through Phases 3, 4 AND 5 rather than stopping at Phase 3,
@@ -59,6 +55,29 @@
 #
 # p1-p4 are strictly ADDITIVE (no write-path change, no authority boundary). p5 and p6 DO move
 # authority — which is exactly why the contract above is binding on them.
+#
+# ── POST-DEPLOYMENT SWITCH — the Phase 2 cutover, moved here from the front ───────────────────
+# An operator ops action with no code change, so it is not a phase. It runs AFTER this plan's work
+# is built, reviewed, merged and deployed — never before it starts:
+#
+#   1. deploy the merged phase work
+#   2. run `scripts/baseline-import.js --write` on prod
+#   3. flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`
+#   4. staged rollout, one workspace first (Neochrome) — contract item (e)
+#
+# Why this is safe as a post-gate rather than a precondition:
+#   - NO phase artifact reads SUMMARIZE_WEEK_COMPLETED_SOURCE. The flag is confined to
+#     src/reminders-app-mention-handler.js:1250, and its test sets the flag itself, so the suite
+#     never depends on prod state. Verified 2026-08-07.
+#   - the validation that originally justified the front gate ALREADY HAPPENED: GH-355's baseline
+#     import took the prod shadow-diff from 11 mismatches to 0 (only the documented +/-1ms
+#     completedMs divergence remains). The substrate is proven, so building on it is not
+#     speculative — which was the front gate's whole argument.
+#   - every flip is default-OFF per contract item (a), so merged-but-unflipped code is inert in
+#     production by construction.
+#
+# Still true, and not a reason to withhold code: until step 3 is flipped, the log is written but
+# not read as truth. That is a deployment state to close out, not a build blocker.
 
 name: ledger-p3-entity-linking
 
