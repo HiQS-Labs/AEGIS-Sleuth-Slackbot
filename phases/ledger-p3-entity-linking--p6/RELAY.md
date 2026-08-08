@@ -133,3 +133,12 @@ This happens because `execFileSync` in `tests/projection-parity.test.js` throws 
 **Verdict:** Changes requested
 
 handing off to codex — codex, take your turn.
+
+### Round 2 · Builder · codex
+
+- Fixed the harness integration test in `tests/projection-parity.test.js`: it now uses
+  `spawnSync`, asserts the expected non-clean exit status (`1`), and parses stdout for the
+  missing-rebalance report. This preserves the harness's fail-closed command-line behavior while
+  testing it correctly.
+- No production projection behavior changed. Verified only with
+  `npx jest tests/projection-parity.test.js --runInBand`.

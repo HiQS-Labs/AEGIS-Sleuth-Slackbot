@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const {
   BuildProjectedRebalanceExport,
   FoldReminderReadModels,
@@ -104,10 +104,12 @@ describe('P3 Phase 5 projection parity', () => {
     fs.writeFileSync(path.join(Root, 'reminders.json'), JSON.stringify(Folded.reminders, null, 2) + '\n');
     fs.writeFileSync(path.join(Root, 'completed.json'), JSON.stringify(Folded.completed, null, 2) + '\n');
     try {
-      const Output = execFileSync(process.execPath, [HarnessPath,
+      const Result = spawnSync(process.execPath, [HarnessPath,
         '--workspace', 'acme', '--events', path.join(Root, 'events.json'), '--reminders', path.join(Root, 'reminders.json'),
         '--completed', path.join(Root, 'completed.json')], { encoding: 'utf8' });
-      const Report = JSON.parse(Output);
+      expect(Result.error).toBeUndefined();
+      expect(Result.status).toBe(1);
+      const Report = JSON.parse(Result.stdout);
       expect(Report.byteDiffs.reminders.equal).toBe(true);
       expect(Report.semanticDiffs.completed.equal).toBe(true);
       expect(Report.missingSurfaces).toEqual(['rebalance']);
