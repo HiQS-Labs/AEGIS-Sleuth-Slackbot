@@ -107,3 +107,9 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 2 · Builder · codex
+
+- Reproduced the reported pre-advance failure with the scoped command: `node --test tests/projection-parity.test.js` failed because this test used Jest globals (`describe`, `expect`, and `jest`) despite the phase runner being Node's built-in test runner. Hypothesis: that runner mismatch, rather than the projection logic, was the immediate gate failure; the rewritten Node test passes (10/10).
+- `scripts/projection-parity-harness.js` now reads the real append-only `*_events.jsonl` format (while retaining JSON-array fixture support), rejects corrupt event lines rather than silently omitting them, and reports exact semantic-diff paths alongside byte diffs. `src/reminders-projection.js` now treats absent `createdOn` in native events as a strict-parity blocker: append-time `Event.ts` cannot stand in for the JSON record's creation timestamp byte-for-byte.
+- Added three independent rollback tests (one per flag), fallback/log coverage, JSONL fixture execution, corrupt-line coverage, and an explicit captured-rebalance mismatch assertion. The last is an intentional breadcrumb: current projection output lacks the API export's display/source fields, so rebalance parity is correctly non-clean and must not be cut over until that diff is resolved.

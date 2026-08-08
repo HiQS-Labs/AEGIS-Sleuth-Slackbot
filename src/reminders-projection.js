@@ -58,6 +58,9 @@ function NormalizeState(ArgState) {
 function FindMissingNativeReminderFields(ArgPayload) {
   const Payload = ArgPayload && typeof ArgPayload === 'object' ? ArgPayload : {};
   const Fields = [
+    // Event.ts is assigned when the best-effort append runs, not when the
+    // ReminderInfo was created. Substituting it changes raw JSON bytes.
+    ['CreatedOn', 'createdOn'],
     ['OriginalSenderID', 'originalSenderId'],
     ['OriginalMessageID', 'originalMessageId'],
     ['OriginalThreadTs', 'originalThreadTs'],

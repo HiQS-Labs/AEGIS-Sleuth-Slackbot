@@ -47,19 +47,60 @@ function CompareBytes(ArgAuthoritative, ArgProjection) {
 }
 
 /**
- * Semantic comparison normalizes object-key order only.  Array ordering remains
- * meaningful until a surface explicitly proves otherwise.
+ * Return semantic mismatch paths after normalizing object-key order. Array
+ * ordering deliberately remains meaningful because consumers can observe it.
  * @param {any} ArgAuthoritative
  * @param {any} ArgProjection
- * @returns {{ equal: boolean, authoritative: any, projection: any }}
+ * @param {string} [ArgPath]
+ * @returns {string[]}
+ */
+function FindSemanticDiffPaths(ArgAuthoritative, ArgProjection, ArgPath = '$') {
+  if(Object.is(ArgAuthoritative, ArgProjection)) return [];
+  const LeftIsArray = Array.isArray(ArgAuthoritative);
+  const RightIsArray = Array.isArray(ArgProjection);
+  if(LeftIsArray || RightIsArray) {
+    if(!LeftIsArray || !RightIsArray) return [ArgPath];
+    const Differences = [];
+    if(ArgAuthoritative.length !== ArgProjection.length) Differences.push(`${ArgPath}.length`);
+    for(let Index = 0; Index < Math.min(ArgAuthoritative.length, ArgProjection.length); Index += 1) {
+      Differences.push(...FindSemanticDiffPaths(ArgAuthoritative[Index], ArgProjection[Index], `${ArgPath}[${Index}]`));
+    }
+    return Differences;
+  }
+  const LeftIsObject = ArgAuthoritative !== null && typeof ArgAuthoritative === 'object';
+  const RightIsObject = ArgProjection !== null && typeof ArgProjection === 'object';
+  if(!LeftIsObject || !RightIsObject) return [ArgPath];
+
+  const Keys = new Set([...Object.keys(ArgAuthoritative), ...Object.keys(ArgProjection)]);
+  const Differences = [];
+  for(const Key of Array.from(Keys).sort()) {
+    if(!Object.prototype.hasOwnProperty.call(ArgAuthoritative, Key)
+      || !Object.prototype.hasOwnProperty.call(ArgProjection, Key)) {
+      Differences.push(`${ArgPath}.${Key}`);
+      continue;
+    }
+    Differences.push(...FindSemanticDiffPaths(ArgAuthoritative[Key], ArgProjection[Key], `${ArgPath}.${Key}`));
+  }
+  return Differences;
+}
+
+/**
+ * Semantic comparison normalizes object-key order only. Array ordering remains
+ * meaningful until a surface explicitly proves otherwise. Different paths make
+ * a parity failure actionable without concealing either value.
+ * @param {any} ArgAuthoritative
+ * @param {any} ArgProjection
+ * @returns {{ equal: boolean, authoritative: any, projection: any, differentPaths: string[] }}
  */
 function CompareSemantics(ArgAuthoritative, ArgProjection) {
   const Authoritative = Canonicalize(ArgAuthoritative);
   const Projection = Canonicalize(ArgProjection);
+  const DifferentPaths = FindSemanticDiffPaths(Authoritative, Projection);
   return {
-    equal: JSON.stringify(Authoritative) === JSON.stringify(Projection),
+    equal: DifferentPaths.length === 0,
     authoritative: Authoritative,
     projection: Projection,
+    differentPaths: DifferentPaths,
   };
 }
 
@@ -83,6 +124,35 @@ function ReadJsonFile(ArgPath, ArgRequired) {
  */
 function ReadJsonText(ArgPath) {
   return fs.readFileSync(ArgPath, 'utf8');
+}
+
+/**
+ * Parse the actual append-only event-store format. EventStore persists one JSON
+ * object per line; JSON arrays stay accepted for small fixture inputs. A bad
+ * ledger line is a harness error, never an invisible omission.
+ * @param {string} ArgText
+ * @param {string} ArgPath
+ * @returns {any[]}
+ */
+function ParseEvents(ArgText, ArgPath) {
+  const Trimmed = ArgText.trim();
+  if(Trimmed.length === 0) return [];
+  if(Trimmed.startsWith('[')) {
+    const Parsed = JSON.parse(ArgText);
+    if(!Array.isArray(Parsed)) throw new Error(`events fixture must be an array: ${ArgPath}`);
+    return Parsed;
+  }
+  const Events = [];
+  for(const [Index, Line] of ArgText.split(/\r?\n/).entries()) {
+    if(Line.trim().length === 0) continue;
+    try {
+      Events.push(JSON.parse(Line));
+    } catch(error) {
+      const ErrorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`invalid JSONL event at ${ArgPath}:${Index + 1}: ${ErrorMessage}`);
+    }
+  }
+  return Events;
 }
 
 /**
@@ -137,13 +207,14 @@ function ParseArgs(ArgArgv) {
 
 function Main() {
   const Options = ParseArgs(process.argv.slice(2));
-  const EventsRaw = ReadJsonText(path.resolve(Options.events));
+  const EventsPath = path.resolve(Options.events);
+  const EventsRaw = ReadJsonText(EventsPath);
   const RemindersRaw = ReadJsonText(path.resolve(Options.reminders));
   const CompletedRaw = ReadJsonText(path.resolve(Options.completed));
   const RebalanceRaw = Options.rebalance ? ReadJsonText(path.resolve(Options.rebalance)) : null;
   const Report = BuildParityReport({
     workspace: Options.workspace,
-    events: JSON.parse(EventsRaw),
+    events: ParseEvents(EventsRaw, EventsPath),
     reminders: JSON.parse(RemindersRaw),
     completed: JSON.parse(CompletedRaw),
     rebalance: RebalanceRaw ? JSON.parse(RebalanceRaw) : null,
@@ -162,6 +233,8 @@ module.exports = {
   Canonicalize,
   CompareBytes,
   CompareSemantics,
+  FindSemanticDiffPaths,
+  ParseEvents,
   ReadJsonFile,
   SerializeCanonical,
 };
