@@ -77,6 +77,31 @@ that surface alone — this phase's job is parity, not enrichment.
 If any surface cannot reach parity, HALT and report the diff. Shipping a read surface that is
 "close enough" silently changes what users and the HiQS export see.
 
+### Round 1 · Builder · codex
+
+HALT — the current ledger schema cannot prove the required lossless read cutover, so I made no
+artifact changes beyond this breadcrumb.
+
+- Reproduced the focused parity check with `node --test tests/projection-parity.test.js` (11/11
+  pass). That result is not a valid cutover proof: its green byte-parity fixture writes both
+  sides with `SerializeCanonical`, so it compares a normalized representation rather than the
+  native `_reminders.json` bytes that the requirement names.
+- Traced the fail path: `ReminderInfo` persists `GitHubRelayStarted` and `GitHubRelayStopped`
+  (`src/reminders-module.js` typedef), but both the native `ReminderCreated` payload and
+  `scripts/baseline-import.js`'s `BaselineReminderImported` payload omit them. The GitHub relay
+  mutates those fields without a lifecycle event, so `FoldReminderReadModels` has no evidence
+  with which to reconstruct their current values. A projection-selected boot can therefore reset
+  relay suppression/history despite strict mode reporting success.
+- Hypothesis checked: this is an event-schema gap, not a test-fixture typo. The existing strict
+  check only guards six creation fields and does not validate later relay state. Adding a local
+  default would conceal the mismatch; adding a relay event/schema is outside this lane's allowed
+  files and must precede Phase 5.
+
+Next work: expand the ledger contract to capture relay-state mutations (and any other persisted
+fields required by the boot reader), backfill/import those fields, then run the harness against
+raw captured JSON/API responses without canonicalizing the byte-comparison inputs. No flag should
+be enabled until that report is clean.
+
 
 ## Debug mantra (auto-triggered — 1 prior attempt(s) on this phase did not reach Approved)
 
