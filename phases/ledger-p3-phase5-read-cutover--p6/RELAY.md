@@ -109,3 +109,27 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+Implemented the Phase 5 read-cutover foundation within the approved paths.
+
+- Added independent `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, and
+  `REBALANCE_EXPORT_SOURCE` read selection through `ReadWithProjectionFallbackAsync`; every
+  projection path is strict and returns to the JSON store on an absent, empty, incomplete, or
+  failing ledger.
+- `RemindersModule` now reads its queue through the reminder flag while preserving Date revival,
+  missing-file behavior, and JSON writes. New native creation events include the legacy fields
+  needed for a lossless future projection; old incomplete events remain safely JSON-backed.
+- `WebAPI` folds the per-workspace JSONL ledger for raw reminder reads, rebalance exports, and
+  dashboard completion history. Rebalance continues through the existing display/export builder,
+  preserving the external payload/source shape.
+- Extended the parity CLI with flag-on rebalance capture support (`--rebalance-projection`) so it
+  reports byte and semantic results separately for the actual external API payload, and added
+  `npm run projection:parity`.
+- Added strict-fold, fallback, per-flag reversal, byte-compatible rebalance-capture, module read,
+  and Web API projection/rollback coverage in the approved test files.
+
+Verification: `node --test tests/projection-parity.test.js` (11 passing) and syntax checks for all
+edited JS files passed. The targeted Jest tests and `npm run build` could not run because this
+worktree has no `node_modules/.bin/jest` or `tsc` installed; no broad suite or gate was run.

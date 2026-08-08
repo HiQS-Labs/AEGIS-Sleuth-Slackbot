@@ -10,6 +10,7 @@
     "start": "node src/app.js",
     "test": "jest --forceExit && npm run --silent test:node",
     "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js tests/projection-parity.test.js tests/derived-snapshot-writer.test.js",
+    "projection:parity": "node scripts/projection-parity-harness.js",
     "test:watch": "jest --watch",
     "dev": "nodemon src/app.js",
     "build": "tsc --project tsconfig.json",

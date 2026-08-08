@@ -163,3 +163,18 @@ test('a captured API rebalance fixture reports the display/source mismatch inste
   assert.deepEqual(Report.semanticDiffs.rebalance.differentPaths.slice(0, 3), ['$.display', '$.fetchedAt', '$.reminders[0].display']);
   assert.equal(Report.clean, false);
 });
+
+test('the harness proves byte-compatible rebalance captures separately from folded JSON surfaces', () => {
+  const Folded = FoldReminderReadModels([BaselineEvent()], { strict: true });
+  const Rebalance = { workspaceName: 'acme', fetchedAt: '2026-08-01T13:00:00.000Z', reminders: [] };
+  const RebalanceRaw = `${JSON.stringify(Rebalance)}\n`;
+  const Report = BuildParityReport({
+    workspace: 'acme', events: [BaselineEvent()], reminders: Folded.reminders, completed: Folded.completed,
+    rebalance: Rebalance, rebalanceProjection: Rebalance,
+    remindersRaw: SerializeCanonical(Folded.reminders), completedRaw: SerializeCanonical(Folded.completed),
+    rebalanceRaw: RebalanceRaw, rebalanceProjectionRaw: RebalanceRaw,
+  });
+  assert.equal(Report.byteDiffs.rebalance.equal, true);
+  assert.equal(Report.semanticDiffs.rebalance.equal, true);
+  assert.equal(Report.clean, true);
+});

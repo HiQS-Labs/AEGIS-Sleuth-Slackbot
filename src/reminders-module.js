@@ -23,6 +23,7 @@ const GitHubCommentRelay = require('./github-comment-relay');
 const SlackFormatUtils = require('./slack-format-utils');
 const CompletionStore = require('./completion-store');
 const { createEventStore } = require('./event-store');
+const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
 /**
@@ -626,6 +627,15 @@ class RemindersModule {
       githubUrls: Array.isArray(Reminder.GitHubUrls) ? Reminder.GitHubUrls : [],
       clientId: Reminder.clientId,
       projectId: Reminder.projectId,
+      // Phase 5 read cutover: these legacy-shape fields make a native creation event
+      // lossless. Older events lack them and deliberately make the projection fall
+      // back to the authoritative JSON file.
+      createdOn: new Date(Reminder.CreatedOn).toISOString(),
+      originalSenderId: Reminder.OriginalSenderID || null,
+      originalMessageId: Reminder.OriginalMessageID || null,
+      originalThreadTs: Reminder.OriginalThreadTs || null,
+      originalChannelName: Reminder.OriginalChannelName || null,
+      ignoreSnooze: Boolean(Reminder.IgnoreSnooze),
     });
 
     // A reminder is BORN State=Scheduled (the factory sets it; there is no transition INTO Scheduled
@@ -2860,17 +2870,44 @@ class RemindersModule {
       // cleanup, so without this they would accumulate for the life of the deployment.
       await SweepStaleTempsAsync(this.#ReminderFilePath, { Logger: this.#SlackApp.Logger });
 
-      // read the reminders file from disk.
-      const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
-
-      // parse the reminders file. We need a reviver function to convert ISO date strings back to Date objects
-      // otherwise they will be treated as strings and later date-related comparisons will not work as expected.
       let Parsed;
+      let UsedAuthoritativeSource = true;
       try {
-        Parsed = JSON.parse(RemindersJSON, (ArgKey, ArgValue) => {
-          return (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue;
+        const Result = await ReadWithProjectionFallbackAsync({
+          flagName: 'REMINDERS_READ_SOURCE',
+          Logger: this.#SlackApp.Logger,
+          ReadAuthoritativeAsync: async () => {
+            const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
+            // Date revival preserves the in-memory contract used by the reminder scheduler.
+            return JSON.parse(RemindersJSON, (ArgKey, ArgValue) => {
+              return (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue;
+            });
+          },
+          ReadProjectionAsync: async () => {
+            if(!this.#EventStore || !this.#EventWorkspace)
+              throw new Error('event ledger is not initialized');
+            const Events = await this.#EventStore.readAll(this.#EventWorkspace);
+            if(Events.length === 0)
+              throw new Error('event ledger is empty');
+            const Folded = FoldReminderReadModels(Events, { strict: true });
+            return Folded.reminders.map(ArgReminder => ({
+              ...ArgReminder,
+              CreatedOn: ArgReminder.CreatedOn ? new Date(ArgReminder.CreatedOn) : ArgReminder.CreatedOn,
+              ShouldPostOn: ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn) : ArgReminder.ShouldPostOn,
+            }));
+          },
         });
+        Parsed = Result.value;
+        UsedAuthoritativeSource = Result.source === 'authoritative';
       } catch(parseError) {
+        if(parseError && parseError.code === 'ENOENT') {
+          this.#SlackApp.Logger.warn('no reminders file found, starting with an empty list.');
+          this.#DataLoadError = 'file not found';
+          this.#PendingRemindersQueue = [];
+          this.#DataLoaded = false;
+          this.#BuildReminderIndexes();
+          return;
+        }
         // Unparseable bytes on disk. Historically this fell through to "start with an empty list",
         // and because nothing gates saves on #DataLoaded the next ordinary save then wrote []
         // straight over the survivor data — silent, permanent loss (GH-12).
@@ -2878,7 +2915,7 @@ class RemindersModule {
         // Quarantine instead: move the bytes aside so they remain recoverable, and let the module
         // continue with an empty queue. Refusing to save at all would brick the workspace; deleting
         // would destroy the only copy. Renaming does neither.
-        await this.#QuarantineRemindersFileAsync(parseError);
+        if(UsedAuthoritativeSource) await this.#QuarantineRemindersFileAsync(parseError);
         this.#PendingRemindersQueue = [];
         this.#DataLoaded = false;
         this.#DataLoadError = `corrupt reminders file quarantined: ${parseError.message}`;
@@ -2889,7 +2926,7 @@ class RemindersModule {
       if(Parsed !== null && !Array.isArray(Parsed)) {
         // Parsed cleanly but is not the array shape this store persists. Same reasoning as above.
         const ShapeError = new Error(`reminders file contained ${typeof Parsed}, expected an array`);
-        await this.#QuarantineRemindersFileAsync(ShapeError);
+        if(UsedAuthoritativeSource) await this.#QuarantineRemindersFileAsync(ShapeError);
         this.#PendingRemindersQueue = [];
         this.#DataLoaded = false;
         this.#DataLoadError = `corrupt reminders file quarantined: ${ShapeError.message}`;
