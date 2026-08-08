@@ -102,3 +102,18 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+- Added `src/reminders-projection.js`: a non-authoritative fold for the reminders and completion
+  JSON read models, a rebalance-shaped projection, and independently reversible per-surface
+  source selection with logged authoritative fallback.
+- Added `scripts/projection-parity-harness.js`: it consumes real JSON/API captures, preserves the
+  supplied raw bytes for byte comparison, and reports byte and semantic differences separately.
+  A missing rebalance capture is explicitly non-clean; it is never treated as evidence of parity.
+- Added `tests/projection-parity.test.js`, including three independent flag rollback checks and an
+  induced projection-error fallback. Verified with `npx jest tests/projection-parity.test.js --runInBand`.
+- HALT condition remains real: native `ReminderCreated` events omit original message/sender/channel
+  metadata and `IgnoreSnooze`, while the pure rebalance fold lacks the Web API's display/source
+  envelope. Strict projection therefore throws on those streams and falls back; a captured current
+  API rebalance fixture correctly reports a byte and semantic mismatch. No read surface was cut over.
