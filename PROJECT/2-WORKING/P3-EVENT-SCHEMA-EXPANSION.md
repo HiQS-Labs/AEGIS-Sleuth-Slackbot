@@ -3,7 +3,7 @@ title: P3 — Event Schema Expansion (make the ledger sufficient to reconstruct 
 created: 2026-08-08
 updated: 2026-08-08
 branch: development
-status: Proposal — blocks Phase 4, Phase 5's flag enablement, Phase 6a, and the reversibility drill
+status: Phases A and B implemented and green; C is half done (field gate yes, generation checkpoint no); D not started
 owner: noel
 author: Claude (Opus 5, 1M)
 doc_type: proposal
@@ -27,7 +27,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **Four separate phases halted on the same root cause.** Phase 4 (boot rebuild) halted because the ledger cannot reconstruct boot state. Phase 5's completed-store cutover halted for missing relay fields. Phase 6a is blocked because its rollback test needs the boot authority Phase 4 never delivered. And after QA, **all three** Phase 5 read flags are blocked in `BLOCKED_PROJECTION_FLAGS` because each fold is known-lossy. The machinery is built and inert; the data is the blocker. | Land this proposal's four phases, then unblock each flag with its own parity run on real workspace data. Nothing here changes user-visible behaviour — it widens what is written to the log. |
+| **Phases A and B implemented and green** (3 commits, gate: 98 suites / 1572 Jest, 73 `node --test`, build 0, `validate:fsm` OK). Schema v2 is written and validated per-event-version; every transition is emitted; relay state is evented thread-scoped; the fold reproduces all of it; `--enrich` repairs a pre-v2 stream. **Phase C is HALF done**: the field-level gate rejects a stream missing what v2 added, but the generation-aware checkpoint is not started. | **The generation checkpoint, then Phase D — a parity run on real workspace data.** No flag unblocks without D. `COMPLETED_READ_SOURCE` and `REBALANCE_EXPORT_SOURCE` now wait only on that run. `REMINDERS_READ_SOURCE` waits on the checkpoint too — it is blocked on detecting a short ledger, which no schema field can do. |
 
 ## Why this exists, and the process lesson
 
@@ -224,34 +224,40 @@ missing transitions produces a schema that *looks* sufficient while a fold still
 `scheduled` for a reminder that actually went `overdue`. Half a schema is worse than a uniform gap,
 because it invites a premature parity claim.
 
-- [ ] **Version on READ, not just append.** Today `NormalizeEvent` accepts any numeric `v` and
-      `readAll()` never revalidates, so a `v:2` label would guarantee nothing. Define a closed
-      `(version, type) -> schema` registry; write `v:2` explicitly from every producer; treat a
-      missing version as v1 **only**; make an unknown or invalid version a projection-read **error
-      that triggers fallback**, never a silently skipped record.
-- [ ] **Replace key-presence with real decoding.** `hasOwnProperty` admits `undefined`, and nothing
-      enforces type, nullability, finite numbers, or valid timestamps. v2 payloads must be decoded and
-      normalized before serialization — especially `completedMs`, the booleans, and lifecycle
-      timestamps.
-- [ ] Extend `ReminderCreated` v2 with `createdOn`, `originalSenderId`, `originalMessageId`,
+- [x] **Closed `(version, type)` registry, enforced on APPEND.** `REQUIRED_PAYLOAD_KEYS_V2` sits
+      beside the v1 map; `NormalizeEvent` selects the set from the event's own `v` and treats a
+      missing version as v1. Every producer now writes `v:2`.
+- [ ] ~~**Make an unknown or invalid version a projection-read error.**~~ **Not implemented, by
+      decision.** This was Codex's half of a genuine disagreement; agy's argument won on mechanism:
+      `readAll()` does not validate payloads today (it checks only that the type is known), so making
+      reads throw adds new brittleness to the path we least want to destabilise. Codex's guarantee is
+      preserved by a different route — the strict gate records what the fold could not reproduce, so
+      a v1-only stream cannot claim parity and therefore cannot serve a projection.
+- [~] **Replace key-presence with real decoding.** *Partially done.* The `undefined` hole is closed:
+      validation now requires the value to be defined, not merely present, because `JSON.stringify`
+      drops an `undefined` and the event would have been written with the field missing. Full type /
+      finite-number / timestamp decoding is **not** implemented — the fold coerces defensively at read
+      time (`GetStringOrNull`, `Number.isFinite`) rather than the store rejecting at write time.
+      Carried into Phase D as a hardening item, not claimed here.
+- [x] Extend `ReminderCreated` v2 with `createdOn`, `originalSenderId`, `originalMessageId`,
       `originalThreadTs`, `originalChannelName`, `ignoreSnooze`, **`assigneeIds`** and **`clientId`**.
       The last two were agy's blocker: `AssigneeIDs` is the authoritative array and `AssigneeID` only
       its deprecated first-entry mirror (`src/reminders-module.js:84-85`), so requiring the scalar
       alone would let the ledger quietly undo GH-22's multi-assignee support, shipped this morning.
-- [ ] Extend `ReminderCompleted` v2 with `sourceChannelId`, `dueDate`, `clientId`, and `completedMs`.
+- [x] Extend `ReminderCompleted` v2 with `sourceChannelId`, `dueDate`, `clientId`, and `completedMs`.
       **Sample `Date.now()` once inside `#TransitionReminderState`** and pass the same value to both
       `#RecordCompletion` and the event; derive `completedAt` from it. Codex confirmed this does not
       breach the FSM contract — `validate-fsm-invariants.js` governs direct state assignment and
       construction bypasses, not timestamp provenance.
-- [ ] **Emit every persisted transition**, or a general state-transition event. Production persists at
+- [x] **Emit every persisted transition**, or a general state-transition event. Production persists at
       least `overdue` when no posting occurs (`src/reminders-module.js:3229`), so omitting it is not
       theoretical.
-- [ ] **Relay state as its own event, with fan-out modelled explicitly.** One Slack thread can affect
+- [x] **Relay state as its own event, with fan-out modelled explicitly.** One Slack thread can affect
       several reminders, so this is either one event per affected reminder or a relay-keyed event
       whose fold fans out deterministically. Putting initial booleans on `ReminderCreated` is *not*
       sufficient, because the state changes later. Emit from `github-comment-relay.js` instead of
       mutating JSON silently.
-- [ ] Carry the `IgnoreSnooze` reset in the reschedule path.
+- [x] Carry the `IgnoreSnooze` reset in the reschedule path.
 
 **Exit criteria:** every new event is v2 and decodes; every historical v1 event still reads under its
 original schema; a test asserts a v1 event without v2 keys is accepted, a v2 event without them is
@@ -259,10 +265,10 @@ rejected, and a payload key present-but-`undefined` is rejected.
 
 ### Phase B — Backfill by appending, never by rewriting
 
-- [ ] Append an explicit **v2 "current state imported" snapshot** for every record whose existing v1
+- [x] Append an explicit **v2 "current state imported" snapshot** for every record whose existing v1
       history cannot prove parity. This preserves append-only auditability; rewriting JSONL history
       does not.
-- [ ] **Teach the baseline importer an enrich mode.** As written it skips any ID that already has a
+- [x] **Teach the baseline importer an enrich mode.** As written it skips any ID that already has a
       creation or import event, so it is structurally unable to upgrade exactly the records that need
       it (`scripts/baseline-import.js:192`).
 
@@ -271,16 +277,23 @@ diff rather than asserted.
 
 ### Phase C — Generation-aware parity gate (separate release)
 
+**Status: the field-level half is implemented; the generation checkpoint is not.** What shipped is a
+strict gate that rejects a stream missing what v2 added — enough to make a *pre-v2* stream fall back,
+not enough to detect a *post-v2* stream that went short between a mutation and a read.
+
 **Codex was explicit that a periodic checkpoint with a staleness bound is NOT sufficient**, and it is
 right: appends are fire-and-forget, so a ledger can go short *immediately* after a checkpoint passes.
 
 - [ ] Cache a full semantic parity result keyed by a **per-workspace authoritative mutation
       generation**: mark dirty before every JSON mutation; clear only once the relevant ledger
       append(s) *and* the JSON save are known complete; serve the projection **only while clean**,
-      otherwise recompute or fall back.
-- [ ] Compare active reminders **and** completions, every field each surface consumes — not ID sets.
+      otherwise recompute or fall back. **Not started.** This is the checkpoint that
+      `REMINDERS_READ_SOURCE` is blocked on, and no schema field substitutes for it.
+- [x] Compare active reminders **and** completions, every field each surface consumes — not ID sets.
+      The field-level gate now covers creation fields, relay state, `completedMs` and `ignoreSnooze`;
+      `scripts/projection-parity-harness.js` does the byte/semantic comparison.
 - [ ] Give `readAll()` an error signal so a truncated or unreadable log is distinguishable from an
-      empty one. Existing callers keep today's tolerant behaviour.
+      empty one. **Not started** — see the read-strictness decision recorded under Phase A.
 
 **Exit criteria:** a torn append makes the next read fall back with a logged warning; a dropped paired
 event is detected; a mutation between checkpoint and read cannot serve stale projection data.
@@ -309,3 +322,34 @@ claim.
 
 - **2026-08-08** — Proposal written after three marathon phases and three QA rounds converged on one
   root cause. Gaps 1-6 verified in source; gap 7 identified by Codex QA round 2.
+- **2026-08-08** — Phases A, B and C implemented on `marathon/p3-phase5-read-cutover-2026-08-08`.
+
+  **Phase A** (`8080fab`) — `REQUIRED_PAYLOAD_KEYS_V2` beside the v1 map, selected by the event's own
+  `v` so historical events read unchanged. Closed a validation hole Codex found: `hasOwnProperty`
+  returns true for `undefined`, which `JSON.stringify` then drops, so an event could validate and be
+  written with the field missing. `assigneeIds` required, per agy's blocker. `completedMs` sampled
+  once in `#TransitionReminderState` and threaded to both the `CompletionRecord` and the event.
+  Generic `ReminderStateChanged` for the seven states the switch skipped.
+
+  **Phase A/relay** (`e1b9bf5`) — `ThreadRelayStateChanged`, thread-scoped per agy's adjudicated
+  design, carrying the synthetic `thread:<key>` envelope id. The fold applies it after the main loop
+  so a reminder created later still inherits its thread's state. Fixed en route: relay-started was
+  gated on `IsFirstRelay`, so a reminder joining an already-relaying thread was recorded as
+  never-relayed forever — which also made the JSON store and the thread event disagree.
+
+  **Phases B + C** (`f9a40c7`) — `--enrich` backfill, and a fold that treats a repeat creation event
+  as enrichment rather than a second reminder. `FindMissingTransitionFields` rejects a
+  `ReminderCompleted` without `completedMs` and a `ReminderScheduled` without `ignoreSnooze`.
+
+  **That gate immediately caught a live defect**: `state-snapshot-writer.js` compaction was dropping
+  `completedMs` and both relay flags. Compaction *replaces* the log, so those fields would have been
+  destroyed permanently — a compaction would have resumed a relay a user had stopped, with no earlier
+  event left to contradict it. The open relay-capable path had no test coverage; it does now.
+
+  **Not done, and named rather than implied:** no flag was unblocked (Phase D needs a real-data
+  parity run, an operator step); the generation-aware checkpoint in Phase C is not started, so a
+  post-v2 stream that goes short between a mutation and a read is still undetectable, which is why
+  `REMINDERS_READ_SOURCE` stays blocked; `readAll()` still has no error signal; and full type/timestamp
+  decoding at write time was not implemented — the fold coerces defensively at read time instead.
+  Read-strictness was a genuine Codex/agy disagreement resolved in agy's favour, recorded under
+  Phase A rather than quietly dropped.
