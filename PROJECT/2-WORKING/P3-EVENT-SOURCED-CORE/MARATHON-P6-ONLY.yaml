@@ -3,9 +3,21 @@
 # Run:
 #   .xyz/relay-automation/marathon.sh \
 #     --plan PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml \
-#     --pre-advance-cmd "npm test"
+#     --pre-advance-cmd "npm test && npm run build && npm run validate:fsm"
 #
 # ALWAYS --dry-run first.
+#
+# ── THE GATE INCLUDES `npm run build` ON PURPOSE ─────────────────────────────────────────────
+# The first run used `npm test` alone. CI does not run tsc either (ci.yml runs npm ci, npm test,
+# sanitize-scan), so NOTHING was checking types — and the phase briefs require "npm test, npm run
+# build, npm run validate:fsm green". Measured 2026-08-08: the two partial modules carry 54 tsc
+# errors that both the marathon gate and CI waved through —
+#   src/reminders-projection.js   39   (p6 partial)
+#   src/state-snapshot-writer.js  15   (p7 partial)
+# mostly TS2339/TS7006 from untyped `object` shapes and un-annotated callback params. Phase 3's four
+# artifacts were in the same state and are now fixed (0 errors). The p6 re-run MUST clear
+# reminders-projection.js as part of its own work; state-snapshot-writer.js belongs to the deferred
+# p7 and is expected to stay red until that phase runs.
 #
 # ── WHY THIS FILE EXISTS ─────────────────────────────────────────────────────────────────────
 # MARATHON.yaml is the full 8-phase plan and marathon.sh has NO phase-selection flag — `--retry`

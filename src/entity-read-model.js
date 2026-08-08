@@ -6,6 +6,24 @@ const crypto = require('crypto');
 const ENTITY_CLUSTER_CONFIDENCE_THRESHOLD = 0.60;
 
 /**
+ * One scored candidate edge as produced by entity-linking. Declared so `checkJs` can infer the
+ * callback parameters below — without it every `.filter`/`.map`/`.sort` over an edge list raises
+ * TS7006 "implicitly has an 'any' type", which is what `npm run build` was failing on.
+ * @typedef {Object} ScoredEdge
+ * @property {{ type: string, id: string }} from
+ * @property {{ type: string, id: string }} to
+ * @property {string} edgeType
+ * @property {number} confidence
+ * @property {{ signals: EdgeSignal[], sourceEventIds: string[] }} provenance
+ */
+
+/**
+ * @typedef {Object} EdgeSignal
+ * @property {string} signal
+ * @property {number} weight
+ */
+
+/**
  * @param {any} ArgValue
  * @returns {string|null}
  */
@@ -143,12 +161,13 @@ function NormalizeEdge(ArgEdge) {
   const Confidence = GetConfidence(ArgEdge);
   if(From === null || To === null || Confidence === null) return null;
 
-  const Signals = Array.isArray(ArgEdge?.provenance?.signals)
-    ? ArgEdge.provenance.signals
-      .filter(ArgSignal => GetStringOrNull(ArgSignal?.signal) !== null && typeof ArgSignal?.weight === 'number' && Number.isFinite(ArgSignal.weight))
-      .map(ArgSignal => ({ signal: ArgSignal.signal.trim(), weight: ArgSignal.weight }))
-      .sort((ArgLeft, ArgRight) => CompareStrings(ArgLeft.signal, ArgRight.signal) || ArgLeft.weight - ArgRight.weight)
-    : [];
+  const RawSignals = /** @type {EdgeSignal[]} */ (
+    Array.isArray(ArgEdge?.provenance?.signals) ? ArgEdge.provenance.signals : []
+  );
+  const Signals = RawSignals
+    .filter(ArgSignal => GetStringOrNull(ArgSignal?.signal) !== null && typeof ArgSignal?.weight === 'number' && Number.isFinite(ArgSignal.weight))
+    .map(ArgSignal => ({ signal: ArgSignal.signal.trim(), weight: ArgSignal.weight }))
+    .sort((ArgLeft, ArgRight) => CompareStrings(ArgLeft.signal, ArgRight.signal) || ArgLeft.weight - ArgRight.weight);
 
   return {
     edgeType: GetStringOrNull(ArgEdge?.edgeType),
@@ -263,6 +282,7 @@ function BuildEntityReadModel(ArgEdges, ArgEntities = []) {
     MembersByRoot.set(Root, Members);
   }
 
+  /** @type {Map<string, ScoredEdge[]>} */
   const ClusterEdges = new Map();
   for(const Edge of AcceptedEdges) {
     const Root = FindRoot(Parents, GetNodeKey(Edge.from));
@@ -277,7 +297,8 @@ function BuildEntityReadModel(ArgEdges, ArgEntities = []) {
     const CanonicalId = GetCanonicalId(Members);
     const ProvenanceEdges = (ClusterEdges.get(FindRoot(Parents, MemberKeys[0])) || [])
       .sort((ArgLeft, ArgRight) => CompareStrings(GetEdgeKey(ArgLeft), GetEdgeKey(ArgRight)));
-    const MemberConfidence = new Map(MemberKeys.map(ArgKey => [ArgKey, null]));
+    /** @type {Map<string, number|null>} */
+    const MemberConfidence = new Map(MemberKeys.map(ArgKey => /** @type {[string, number|null]} */ ([ArgKey, null])));
     for(const Edge of ProvenanceEdges) {
       for(const Key of [GetNodeKey(Edge.from), GetNodeKey(Edge.to)]) {
         const Existing = MemberConfidence.get(Key);
