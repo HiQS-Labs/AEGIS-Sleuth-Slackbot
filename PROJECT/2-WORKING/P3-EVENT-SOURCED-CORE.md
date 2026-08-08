@@ -42,7 +42,7 @@ summary: >-
 
 | What was just completed | What's next |
 |---|---|
-| **GH-355 baseline-import SHIPPED — 1.4.211 (2026-07-06), the blocker to Phase 2 cutover is cleared.** The Phase 2 shadow-diff (`scripts/summarize-week-shadow-diff.js`) *was* run against real prod `neochrome` data; it surfaced a Phase-0-anticipated gap — reminders created before the ledger was born (2026-06-17) have no `ReminderCreated` event, so the fold yielded `null` assignee/sourceChannel for them (11 mismatches over two post-floor weeks). `scripts/baseline-import.js` (one-shot, idempotent, scans both active + completed stores, emits `BaselineReminderImported` events carrying every projection-critical field) took the diff to **0** mismatches (only the documented ±1ms `completedMs` divergence remains). Full suite green (1198); prod-validated. See [GH-355](../3-COMPLETED/GH-355-P3-BASELINE-IMPORT.md). **Earlier:** Phase 2 (`summarize-week` projection) built + shipped behind a default-OFF flag — 1.4.197 (2026-06-16) + 1.4.198 (2026-06-17): `summarizeWeekFromEvents(...)` pure fold + shadow-diff CLI, then the staged read-path wiring (`SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`, unset = current behavior byte-for-byte, error-wrapped fallback to `CompletionStore`). Phase 1 (non-authoritative dual-write) shipped 1.4.192/1.4.193, 2026-06-15. | **Cutover is technically UNBLOCKED — one human-gated step remains.** With GH-355 the shadow-diff is clean, so the only work left for Phase 2's exit criterion is the operator decision: run `scripts/baseline-import.js --write` on prod, then flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection` to move users onto the projection. This is a supervised decision, not a build task — the code has been ready since 1.4.198 and the data gap is fixed since 1.4.211. Parked in `ROADMAP.md`'s Queue. **Sequencing changed (operator decision 2026-08-07):** this cutover is no longer a front gate on **Phase 3: Entity Linking Read-Model** — which as of 2026-08-08 is **DELIVERED, not "zero code"** (see "Marathon run 2026-08-08" below). It is a **post-deployment switch** — run the import and flip the flag after the phase work merges and deploys. **Current sequence (2026-08-08):** (1) PR the delivered, additive Phase 3 work; (2) defer **Phase 4** behind its own event-schema-expansion proposal — it is blocked, not merely ungated; (3) re-run p6/p7 on a new branch against the corrected `MARATHON.yaml` lanes to actually convert the reads. The Phase 2 prod flip below is an unrelated, human-gated deployment action and is not on that critical path. A switch on a remote server does not gate whether local code is built, reviewed and tested; verified that no phase artifact reads `SUMMARIZE_WEEK_COMPLETED_SOURCE` (it is confined to `src/reminders-app-mention-handler.js:1250`, whose test sets the flag itself). The validation that originally justified the gate already happened — GH-355 took the prod shadow-diff 11 → 0. The authority flips (Phase 4 boot-rebuild, Phase 6 retire-mutable-writes) remain **NOT an assumed continuation** — per the [direction review](#direction-review-codex-2026-06-16) they return as a **fresh proposal** only if Phase 2/3/5 evidence shows the app materially benefits from authoritative replay. |
+| **GH-355 baseline-import SHIPPED — 1.4.211 (2026-07-06), the blocker to Phase 2 cutover is cleared.** The Phase 2 shadow-diff (`scripts/summarize-week-shadow-diff.js`) *was* run against real prod `neochrome` data; it surfaced a Phase-0-anticipated gap — reminders created before the ledger was born (2026-06-17) have no `ReminderCreated` event, so the fold yielded `null` assignee/sourceChannel for them (11 mismatches over two post-floor weeks). `scripts/baseline-import.js` (one-shot, idempotent, scans both active + completed stores, emits `BaselineReminderImported` events carrying every projection-critical field) took the diff to **0** mismatches (only the documented ±1ms `completedMs` divergence remains). Full suite green (1198); prod-validated. See [GH-355](../3-COMPLETED/GH-355-P3-BASELINE-IMPORT.md). **Earlier:** Phase 2 (`summarize-week` projection) built + shipped behind a default-OFF flag — 1.4.197 (2026-06-16) + 1.4.198 (2026-06-17): `summarizeWeekFromEvents(...)` pure fold + shadow-diff CLI, then the staged read-path wiring (`SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`, unset = current behavior byte-for-byte, error-wrapped fallback to `CompletionStore`). Phase 1 (non-authoritative dual-write) shipped 1.4.192/1.4.193, 2026-06-15. | **Cutover is technically UNBLOCKED — one human-gated step remains.** With GH-355 the shadow-diff is clean, so the only work left for Phase 2's exit criterion is the operator decision: run `scripts/baseline-import.js --write` on prod, then flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection` to move users onto the projection. This is a supervised decision, not a build task — the code has been ready since 1.4.198 and the data gap is fixed since 1.4.211. Parked in `ROADMAP.md`'s Queue. **Sequencing changed (operator decision 2026-08-07):** this cutover is no longer a front gate on **Phase 3: Entity Linking Read-Model** — which as of 2026-08-08 is **DELIVERED, not "zero code"** (see "Marathon run 2026-08-08" below). It is a **post-deployment switch** — run the import and flip the flag after the phase work merges and deploys. **Current sequence (2026-08-08, corrected after Codex review round 5):** (1) PR the delivered, additive Phase 3 work; (2) re-run **p6 ONLY** on a new branch against the corrected `MARATHON.yaml` lane, to actually convert the reads — Phase 5's cutovers are independently reversible (flag + fallback), so they need nothing from boot-authority; (3) **defer p5 (Phase 4), p7 (Phase 6a) and p8 (the drill) together** behind one event-schema-expansion proposal. p7 is blocked for the *same* reason as p5, which I originally missed: its exit criterion is "flip `REMINDER_STATE_SOURCE` off **after running on the log**, reboot from the derived snapshot" — that requires the log-authoritative boot Phase 4 was meant to deliver, and `REMINDER_STATE_SOURCE` does not exist in `src/` at all. p8's drill asserts the p7 seams, so it waits with them. The Phase 2 prod flip below is an unrelated, human-gated deployment action and is not on that critical path. A switch on a remote server does not gate whether local code is built, reviewed and tested; verified that no phase artifact reads `SUMMARIZE_WEEK_COMPLETED_SOURCE` (it is confined to `src/reminders-app-mention-handler.js:1250`, whose test sets the flag itself). The validation that originally justified the gate already happened — GH-355 took the prod shadow-diff 11 → 0. The authority flips (Phase 4 boot-rebuild, Phase 6 retire-mutable-writes) remain **NOT an assumed continuation** — per the [direction review](#direction-review-codex-2026-06-16) they return as a **fresh proposal** only if Phase 2/3/5 evidence shows the app materially benefits from authoritative replay. |
 
 ### Marathon run 2026-08-08 — what actually shipped, and what did not
 
@@ -108,98 +108,65 @@ explicit, evidence-gated re-decision rather than momentum.
 ## Swarm Preflight Contract
 
 Machine-readable intake contract for `.xyz/utils/swarm-preflight.sh --project-doc`, which turns this
-doc into a marathon-ready run packet. It is the **producer** of the packet, never the executor — the
-operator still fires `.xyz/relay-automation/marathon.sh` against
-[`P3-EVENT-SOURCED-CORE/MARATHON.yaml`](P3-EVENT-SOURCED-CORE/MARATHON.yaml). The two must agree:
-`artifacts` below is the union of every phase's `artifact:` list in that plan, and `gate` is the same
-command the plan requires as `--pre-advance-cmd`.
+doc into a marathon-ready run packet. It is the **producer** of the packet, never the executor.
 
-What each field is doing here:
+**REWRITTEN 2026-08-08 — this is now a p6-ONLY packet.** The original was an eight-phase greenfield
+contract written when none of the artifacts existed. It is obsolete twice over:
 
-- **`gate: "npm test"`** — this repo has no root-level `validate.sh` (the harness default), so the
-  gate is stated explicitly. Preflight only checks the program *resolves*; it deliberately does not
-  execute the suite.
-- **`fix_probes`** — proves the work is still required. Sixteen `path_absent` probes, one per net-new
-  artifact: if they all exist the plan has already landed (preflight exits `4 STALE`); if some exist
-  it exits `7 AMBIGUOUS` rather than re-running a half-finished marathon. Three `path_present` probes
-  assert the Phase 1/2 substrate this plan builds on is actually here — the append-only store, the
-  first projection, and the baseline importer. Without them the plan has nothing to read, and
-  preflight exits `6 BLOCKED` instead of starting.
-- **`artifacts_new`** — the 16 paths that do not exist yet. Preflight otherwise requires every
-  declared artifact to exist at `target.ref`; this is the greenfield exemption, and each entry is
-  paired with its `path_absent` probe (the harness enforces the pairing). The two paths absent from
-  this list — `src/reminders-module.js` and `src/completion-store.js` — are the existing files p5 and
-  p7 modify, and they are checked for existence normally.
-- **`lanes`** — the harness kernel defaults, restated so an app-code path can never drift into an
-  orchestrator-only lane. `agy_safe` is empty on purpose: agy is `reviewer:` on all eight phases in
-  the plan, so every build path routes to the codex lane and agy stays reviewer-first.
+1. **Its probes now lie.** It declared every artifact `path_absent`, but p1–p4 delivered theirs and
+   p6/p7 partially delivered theirs. Preflight would return `4 STALE` (some present) or `7 AMBIGUOUS`
+   (mixed) and refuse to start — correct behaviour on a contract that no longer describes reality.
+2. **Only p6 is runnable.** p5 (Phase 4) is blocked on event-schema expansion. **p7 is blocked on the
+   same thing** — its own exit criterion is "flip `REMINDER_STATE_SOURCE` off *after running on the
+   log*, reboot from the derived snapshot", which requires the log-authoritative boot Phase 4 was
+   supposed to deliver; `REMINDER_STATE_SOURCE` does not exist in `src/` at all. p8's drill asserts
+   the p7 seams, so it waits too. Shipping an eight-phase packet would invite exactly the run that
+   already produced two unwired modules.
+
+So the runnable tranche is **p6 alone**, after the Phase 3 PR lands on `development`. p4 is the
+satisfied prerequisite, asserted here as `path_present` rather than re-run.
+
+What the probes are doing:
+
+- **`grep_absent` on the three read flags** — this is how "the fix is still required" is proven now
+  that p6's *files* exist but convert nothing. If `REMINDERS_READ_SOURCE` / `COMPLETED_READ_SOURCE`
+  appear in `src/reminders-module.js`, or `REBALANCE_EXPORT_SOURCE` in `src/web-api.js`, the cutover
+  has landed and preflight exits `4 STALE`. Absent means the work is genuinely outstanding.
+- **`path_present` on the delivered inputs** — Phase 3's read-model, p6's own module and parity
+  harness, and the Phase 1/2 substrate. Any of them missing means this packet is being run against
+  the wrong ref (e.g. before the Phase 3 PR merged), and preflight exits `6 BLOCKED` instead of
+  starting a doomed run.
+- **No `artifacts_new`** — every path in `artifacts` already exists, so the strict existence check
+  applies to all of them, which is what we want for a re-run against real files.
 
 ```json
 {
   "target": { "repo": ".", "ref": "development" },
   "gate": "npm test",
   "fix_probes": [
+    { "type": "grep_absent", "path": "src/reminders-module.js", "pattern": "REMINDERS_READ_SOURCE" },
+    { "type": "grep_absent", "path": "src/reminders-module.js", "pattern": "COMPLETED_READ_SOURCE" },
+    { "type": "grep_absent", "path": "src/web-api.js", "pattern": "REBALANCE_EXPORT_SOURCE" },
+    { "type": "path_present", "path": "src/reminders-projection.js" },
+    { "type": "path_present", "path": "scripts/projection-parity-harness.js" },
+    { "type": "path_present", "path": "src/entity-read-model.js" },
     { "type": "path_present", "path": "src/event-store.js" },
-    { "type": "path_present", "path": "src/summarize-week-projection.js" },
-    { "type": "path_present", "path": "scripts/baseline-import.js" },
-    { "type": "path_absent", "path": "src/entity-projection-inputs.js" },
-    { "type": "path_absent", "path": "tests/entity-projection-inputs.test.js" },
-    { "type": "path_absent", "path": "src/entity-linking.js" },
-    { "type": "path_absent", "path": "tests/entity-linking.test.js" },
-    { "type": "path_absent", "path": "src/entity-read-model.js" },
-    { "type": "path_absent", "path": "tests/entity-read-model.test.js" },
-    { "type": "path_absent", "path": "scripts/entity-linking-diagnostics.js" },
-    { "type": "path_absent", "path": "tests/entity-linking-diagnostics.test.js" },
-    { "type": "path_absent", "path": "tests/boot-rebuild-from-log.test.js" },
-    { "type": "path_absent", "path": "src/reminders-projection.js" },
-    { "type": "path_absent", "path": "scripts/projection-parity-harness.js" },
-    { "type": "path_absent", "path": "tests/projection-parity.test.js" },
-    { "type": "path_absent", "path": "src/state-snapshot-writer.js" },
-    { "type": "path_absent", "path": "tests/derived-snapshot-writer.test.js" },
-    { "type": "path_absent", "path": "tests/p3-reversibility-drill.test.js" },
-    { "type": "path_absent", "path": "docs/p3-rollback-runbook.md" }
+    { "type": "path_present", "path": "src/summarize-week-projection.js" }
   ],
   "artifacts": [
-    "src/entity-projection-inputs.js",
-    "tests/entity-projection-inputs.test.js",
-    "src/entity-linking.js",
-    "tests/entity-linking.test.js",
-    "src/entity-read-model.js",
-    "tests/entity-read-model.test.js",
-    "scripts/entity-linking-diagnostics.js",
-    "tests/entity-linking-diagnostics.test.js",
+    "src/reminders-projection.js",
+    "scripts/projection-parity-harness.js",
+    "tests/projection-parity.test.js",
     "src/reminders-module.js",
-    "src/completion-store.js",
-    "tests/boot-rebuild-from-log.test.js",
-    "src/reminders-projection.js",
-    "scripts/projection-parity-harness.js",
-    "tests/projection-parity.test.js",
-    "src/state-snapshot-writer.js",
-    "tests/derived-snapshot-writer.test.js",
-    "tests/p3-reversibility-drill.test.js",
-    "docs/p3-rollback-runbook.md"
-  ],
-  "artifacts_new": [
-    "src/entity-projection-inputs.js",
-    "tests/entity-projection-inputs.test.js",
-    "src/entity-linking.js",
-    "tests/entity-linking.test.js",
-    "src/entity-read-model.js",
-    "tests/entity-read-model.test.js",
-    "scripts/entity-linking-diagnostics.js",
-    "tests/entity-linking-diagnostics.test.js",
-    "tests/boot-rebuild-from-log.test.js",
-    "src/reminders-projection.js",
-    "scripts/projection-parity-harness.js",
-    "tests/projection-parity.test.js",
-    "src/state-snapshot-writer.js",
-    "tests/derived-snapshot-writer.test.js",
-    "tests/p3-reversibility-drill.test.js",
-    "docs/p3-rollback-runbook.md"
+    "src/web-api.js",
+    "package.json",
+    "tests/reminders-integration.test.js",
+    "tests/web-api-reminders.test.js",
+    "tests/completion-store.test.js"
   ],
   "remediation": {
-    "source": "PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON.yaml",
-    "criteria": "Eight phases: p1-p4 build the Phase 3 entity-linking read-model (strictly additive — no write-path change, no authority boundary); p5-p7 move authority (Phase 4 boot-rebuild, Phase 5 remaining projections, Phase 6a retire mutable writes keeping a derived snapshot); p8 is the reversibility drill. A phase is done when its artifacts exist, `npm test` is green, and its reviewer has signed off. Every phase is bound by the reversibility contract in the plan header: (a) each flip is an env var defaulting OFF, unset == today's behavior byte-for-byte; (b) mutable JSON writes continue in every phase so the fallback is never stale; (c) any projection error falls back to the authoritative store, logged, never user-visible; (d) each phase ships a TESTED rollback that flips the switch OFF and asserts correct behavior; (e) staged rollout, one workspace first. A phase that cannot satisfy (a)-(d) HALTS and escalates rather than ships. Phase 6b (dropping the derived writer so no on-disk fallback exists) and Phase 7 are OUT OF SCOPE. The Phase 2 prod cutover is NOT a precondition — it is a post-deployment switch, see the plan header."
+    "source": "PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON.yaml#p6",
+    "criteria": "p6 (plan Phase 5) ONLY. Convert the remaining reads to projections behind default-OFF flags with fallback to the authoritative store: the two JSON stores via RemindersModule.GetAllReminders (src/reminders-module.js:736) and GetCompletedRemindersBetween (:842), and the ?format=rebalance export via the WebAPI read path (src/web-api.js:354, 903-905). Ship the parity harness comparing old JSON/API output against the folded event output, byte-compatible where feasible and semantically diffed where timestamps or ordering legitimately differ. Done when every one of those three views can be produced by a fold behind its flag, the flag unset reproduces today's behaviour byte-for-byte, a projection error falls back to the authoritative store and is logged but never user-visible, and a test flips each switch OFF and asserts correct behaviour. p5, p7 and p8 are OUT OF SCOPE for this packet and are blocked on an event-schema-expansion proposal that has not been written."
   },
   "lanes": {
     "agy_safe": [],
@@ -207,6 +174,7 @@ What each field is doing here:
   }
 }
 ```
+
 
 ## Plain-English Benefits vs Today
 

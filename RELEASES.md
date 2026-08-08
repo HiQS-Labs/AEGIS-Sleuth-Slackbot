@@ -59,7 +59,12 @@ Description: Take P3 Event-Sourced Core through the authority flip, for the remi
   fallback. Phase 4 needs a schema-expansion proposal of its own FIRST. Phases 5 and 6a
   produced modules that convert no reads — their marathon lanes excluded
   src/reminders-module.js and src/web-api.js, so the work could not be integrated; the
-  artifact lists are corrected and those phases need re-running. The reversibility drill
+  artifact lists are corrected. Of those two only PHASE 5 (p6) is re-runnable: Phase 6a
+  is blocked with Phase 4, because its rollback criterion is "flip REMINDER_STATE_SOURCE
+  off after running on the log", which needs the log-authoritative boot Phase 4 was to
+  deliver, and that flag exists nowhere in src/. The reversibility drill asserts those
+  same seams and waits with them. Runnable tranche for this release: Phase 3 (done) plus
+  Phase 5's read cutovers. The reversibility drill
   correctly refuses to certify any switch that has no owning reader, which is how all of
   this was caught rather than shipped. Treat "the log is authoritative" as NOT YET MET.
   REVERSIBILITY CONTRACT — binding on every phase in this release:

@@ -17,9 +17,17 @@
 # "POST-DEPLOYMENT SWITCH" at the bottom of this header. Do not re-add it here.
 #
 # ── SCOPE CEILING ────────────────────────────────────────────────────────────────────────────
-# Operator decision 2026-08-07: push through Phases 3, 4 AND 5 rather than stopping at Phase 3,
-# on the condition that every authority flip is a switch that can be flipped back. That condition
-# replaces the earlier stop-and-re-decide checkpoint for these phases.
+# HISTORICAL (operator decision 2026-08-07): push through Phases 3, 4 AND 5 rather than stopping at
+# Phase 3, on the condition that every authority flip is a switch that can be flipped back. That
+# condition replaced the earlier stop-and-re-decide checkpoint for those phases.
+#
+# SUPERSEDED BY EVIDENCE (2026-08-08). The condition above was never met and cannot currently be
+# met: Phase 4 halted because the event schema cannot reconstruct boot state, and Phase 6a depends
+# on that same boot-authority for its rollback test. The approved scope is now Phase 3 (DELIVERED)
+# plus Phase 5's independently reversible read cutovers (p6). Phases 4 and 6a return only with a
+# schema-expansion proposal. A runner reading this header should NOT infer authorization to attempt
+# Phase 4 or 6a — the reversibility contract below would force a HALT anyway, which is what
+# happened on the first run.
 #
 # PHASE 6 IS SPLIT (operator request 2026-08-07: "make it less extreme and reversible"). Phase 6 as
 # written bundles four things, and only ONE of them is a one-way door:
@@ -36,10 +44,18 @@
 #        instead of mutable in-place writes. The old machinery is genuinely gone; the fallback file
 #        stays fresh and legacy-loadable, so rollback remains a flag flip.
 #
-#   RUNNABLE SEQUENCE (2026-08-08): p1 -> p2 -> p3 -> p4 -> p6 -> p7 -> p8, with p5 (Phase 4,
-#        boot-time rebuild) DEFERRED behind its own event-schema-expansion proposal. p6 depends on
-#        p4, not p5, because Phase 5's read cutovers are independently reversible — flag + fallback
-#        to the authoritative store — and need nothing from boot-authority.
+#   RUNNABLE SEQUENCE (2026-08-08, corrected after Codex review round 5): p1 -> p2 -> p3 -> p4 are
+#        DONE (Phase 3 delivered). The only re-runnable phase is **p6**, and the tranche STOPS there.
+#        p6 depends on p4, not p5, because Phase 5's read cutovers are independently reversible —
+#        flag + fallback to the authoritative store — and need nothing from boot-authority.
+#
+#        p5, p7 AND p8 are deferred TOGETHER behind one event-schema-expansion proposal. p7 is
+#        blocked for the SAME reason as p5, which an earlier revision of this header missed: p7's
+#        exit criterion is "flip REMINDER_STATE_SOURCE off AFTER RUNNING ON THE LOG, reboot from the
+#        derived snapshot" (briefs/p7-retire-mutable-writes.md:57-58). That presupposes the
+#        log-authoritative boot Phase 4 was meant to deliver, and REMINDER_STATE_SOURCE does not
+#        exist anywhere in src/. p8's drill asserts the p7 seams, so it waits with them.
+#        Do not schedule p7 as "just after p6" — it is not merely sequenced behind it, it is blocked.
 #
 #   SCOPE WARNING FOR p7. Measured 2026-08-08: `CompletionStore` is referenced by 12 files and
 #        `FlushAsync` by 6. Retiring it is not a contained edit, and four successive review rounds
