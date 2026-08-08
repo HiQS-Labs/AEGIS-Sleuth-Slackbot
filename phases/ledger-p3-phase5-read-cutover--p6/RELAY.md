@@ -1,5 +1,5 @@
 # Marathon Phase p6
-STATUS: Open
+STATUS: Approved
 NEXT: codex
 
 <!-- marathon-drive: task=MARATHON-P6-TURN-2 builder=codex reviewer=agy round-cap=7 -->
@@ -139,3 +139,11 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+The builder correctly identified that the event schema is missing relay state fields (`GitHubRelayStarted`, `GitHubRelayStopped`), which prevents a lossless read cutover. As instructed by the brief ("If any surface cannot reach parity, HALT and report the diff"), the builder escalated this issue rather than forcing a lossy cutover, and made no artifact changes. This is the correct outcome. The missing schema updates must be addressed in a prior phase.
+
+**Verdict:** Approved
+
