@@ -427,4 +427,73 @@ describe('baseline-import', () => {
     expect(Folded.reminders[0].CreatedOn).toBe('2026-06-20T09:00:00.000Z');
     expect(Folded.reminders[0].OriginalThreadTs).toBe('1773990000.300001');
   });
+
+  // --- real-data findings (neochrome parity run, 2026-08-08) ---
+
+  test('a completed-store row emits a PAIRED completion event, or the fold drops it entirely', async () => {
+    // Found on real data: 32 of 152 neochrome completions vanished. A BaselineReminderImported with
+    // state:'completed' and no completedAt makes the fold call Date.parse(undefined), get NaN, and
+    // skip the record from BOTH read models. Silent data loss, not a parity nit.
+    await WriteJsonAsync(path.join(RemindersDir, 'delta_reminders.json'), []);
+    await WriteJsonAsync(path.join(RemindersDir, 'delta_completed.json'), [{
+      reminderId: 'rem_done', summary: 'finished long ago', assigneeID: 'U_DONE',
+      sourceChannelID: 'C_DONE', dueDate: '2026-05-01T12:00:00.000Z',
+      completedMs: Date.parse('2026-05-02T12:00:00.000Z'), clientId: 'acme',
+    }]);
+
+    const Result = await ImportWorkspaceAsync({
+      workspace: 'delta', remindersDir: RemindersDir, eventsDir: EventsDir, write: true,
+    });
+    expect(Result.appendedCount).toBe(2); // baseline + completion, not baseline alone
+
+    const Persisted = await ReadJsonlAsync(path.join(EventsDir, 'delta_events.jsonl'));
+    const Folded = FoldReminderReadModels(Persisted);
+    expect(Folded.completed).toHaveLength(1);
+    expect(Folded.completed[0].reminderId).toBe('rem_done');
+    // completedMs carried verbatim, never re-derived through an ISO round trip.
+    expect(Folded.completed[0].completedMs).toBe(Date.parse('2026-05-02T12:00:00.000Z'));
+    expect(Folded.reminders).toHaveLength(0);
+  });
+
+  test('--retire-orphans emits ReminderRemoved for a ledger entry no JSON store holds', async () => {
+    // The mirror of enrichment. Removal was never evented before v2, so every reminder deleted
+    // before that fix folds back to a live `scheduled` state — 11 of them on real neochrome data.
+    await WriteJsonAsync(path.join(RemindersDir, 'eps_reminders.json'), []);
+    await WriteJsonAsync(path.join(RemindersDir, 'eps_completed.json'), []);
+    await WriteJsonlAsync(path.join(EventsDir, 'eps_events.jsonl'), [{
+      v: 1, id: 'evt_orphan', ts: '2026-06-20T09:00:00.000Z', workspace: 'eps',
+      type: 'ReminderCreated', reminderId: 'rem_orphan',
+      payload: {
+        text: 'deleted before removal was evented', assigneeId: 'U_X', sourceChannelId: 'C_S',
+        targetChannelId: 'C_T', source: 'slack', githubUrls: [],
+      },
+    }]);
+
+    const Before = FoldReminderReadModels(await ReadJsonlAsync(path.join(EventsDir, 'eps_events.jsonl')));
+    expect(Before.reminders).toHaveLength(1); // the ghost, resurrected
+
+    const Result = await ImportWorkspaceAsync({
+      workspace: 'eps', remindersDir: RemindersDir, eventsDir: EventsDir,
+      write: true, enrich: true, retireOrphans: true,
+    });
+    expect(Result.retiredReminderIds).toEqual(['rem_orphan']);
+
+    const After = FoldReminderReadModels(await ReadJsonlAsync(path.join(EventsDir, 'eps_events.jsonl')));
+    expect(After.reminders).toHaveLength(0);
+  });
+
+  test('--retire-orphans does NOT retire a reminder this same run is enriching', async () => {
+    // Ordering trap: retirement folds the stream PLUS the events about to be appended. Judging the
+    // old stream alone would retire every reminder enrich had just seeded.
+    await SeedLegacyWorkspaceAsync();
+    const Result = await ImportWorkspaceAsync({
+      workspace: 'gamma', remindersDir: RemindersDir, eventsDir: EventsDir,
+      write: true, enrich: true, retireOrphans: true,
+    });
+    expect(Result.retiredReminderIds).toEqual([]);
+
+    const Folded = FoldReminderReadModels(await ReadJsonlAsync(path.join(EventsDir, 'gamma_events.jsonl')));
+    expect(Folded.reminders).toHaveLength(1);
+    expect(Folded.reminders[0].ReminderID).toBe('rem_legacy');
+  });
 });

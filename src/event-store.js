@@ -47,6 +47,7 @@ const REQUIRED_PAYLOAD_KEYS = {
   // requirements below are what an append is actually held to.
   ReminderStateChanged: [],
   ThreadRelayStateChanged: [],
+  ReminderRemoved: [],
 };
 
 /**
@@ -126,6 +127,15 @@ const REQUIRED_PAYLOAD_KEYS_V2 = {
   // the envelope invariant intact and stays self-describing on disk. The fold dispatches on `type`
   // before any id lookup, so it never manufactures a reminder from one.
   ThreadRelayStateChanged: ['threadKey', 'relayStarted', 'relayStopped'],
+  // Removal from the pending queue. NOT the same as cancellation: `#DeleteRemindersAsync` is the one
+  // choke point through which a reminder leaves the queue, and several callers reach it WITHOUT a
+  // preceding terminal transition (the wastebasket reaction and the dead-letter sweep).
+  //
+  // Found by the first real-data parity run, not by review: 11 of neochrome's reminders folded to a
+  // live `scheduled` state while the JSON store had dropped them entirely. With a read flag enabled
+  // those 11 would have been resurrected and started posting to Slack again. Emitting at the choke
+  // point covers every caller, present and future.
+  ReminderRemoved: ['reason'],
 };
 
 /** Events written from now on. v1 remains readable forever. */

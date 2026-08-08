@@ -3631,6 +3631,20 @@ class RemindersModule {
     // convert reminder IDs array to a Set for faster lookups.
     const ReminderIDSet = new Set(ArgReminderIDs);
 
+    // P3 schema v2: this is the ONE choke point through which a reminder leaves the queue, so
+    // emitting here covers every caller — including the wastebasket reaction and the dead-letter
+    // sweep, which reach this without any preceding terminal transition. Emitted BEFORE the filter,
+    // while the reminders are still in hand.
+    //
+    // Real-data parity (neochrome, 2026-08-08) found 11 reminders folding to a live `scheduled`
+    // state that the JSON store had already dropped. Under a read flag those would have come back
+    // and resumed posting to Slack. A terminal transition is NOT a substitute: several paths here
+    // never make one.
+    for(const RemovedReminder of this.#PendingRemindersQueue) {
+      if(!ReminderIDSet.has(RemovedReminder.ReminderID)) continue;
+      this.#EmitLifecycleEvent('ReminderRemoved', RemovedReminder, { reason: ArgReason || 'removed' });
+    }
+
     // keep only the reminders that are NOT in the set of reminder IDs to delete.
     this.#PendingRemindersQueue = this.#PendingRemindersQueue.filter(
       ArgReminder => !ReminderIDSet.has(ArgReminder.ReminderID)

@@ -493,3 +493,47 @@ test('the gate names every missing field, not just the first', () => {
     assert.deepEqual(Error_.missingFields.sort(), ['rem-1.IgnoreSnooze', 'rem-1.completedMs']);
   }
 });
+
+// --- removal: found only by the first real-data parity run ---
+
+test('a removed reminder is never resurrected by the fold', () => {
+  // Real neochrome data folded 11 reminders to a live `scheduled` state that the JSON store had
+  // already dropped. Under a read flag those would have come back and resumed posting to Slack.
+  // Removal was simply never evented: #DeleteRemindersAsync mutated the queue and saved, silently.
+  const Events = [
+    BaselineEvent(),
+    {
+      v: 2, id: 'evt-removed', ts: '2026-08-05T12:00:00.000Z',
+      type: 'ReminderRemoved', reminderId: 'rem-1',
+      payload: { reason: 'wastebasket' },
+    },
+  ];
+  const Folded = FoldReminderReadModels(Events, { strict: true });
+  assert.equal(Folded.reminders.length, 0, 'a reminder dropped from the queue must not fold back into it');
+  assert.equal(Folded.completed.length, 0, 'nor should it invent a completion');
+});
+
+test('removal AFTER completion keeps the completion record', () => {
+  // The real sequence: CompleteReminderByIdAsync transitions to completed and THEN deletes from the
+  // queue. If removal were modelled as a state it would erase the completion history.
+  const Events = [
+    BaselineEvent(),
+    {
+      v: 2, id: 'evt-done', ts: '2026-08-03T12:00:00.000Z',
+      type: 'ReminderCompleted', reminderId: 'rem-1',
+      payload: {
+        by: 'U_OWNER', method: 'reaction', summary: 'Ship it',
+        completedAt: '2026-08-03T12:00:00.000Z', completedMs: Date.parse('2026-08-03T12:00:00.000Z'),
+        sourceChannelId: 'C_SOURCE', dueDate: null, clientId: null,
+      },
+    },
+    {
+      v: 2, id: 'evt-removed', ts: '2026-08-03T12:00:01.000Z',
+      type: 'ReminderRemoved', reminderId: 'rem-1', payload: { reason: 'completed' },
+    },
+  ];
+  const Folded = FoldReminderReadModels(Events, { strict: true });
+  assert.equal(Folded.reminders.length, 0);
+  assert.equal(Folded.completed.length, 1, 'completion history must survive the queue removal');
+  assert.equal(Folded.completed[0].reminderId, 'rem-1');
+});

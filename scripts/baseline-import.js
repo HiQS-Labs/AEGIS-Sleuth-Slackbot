@@ -203,6 +203,88 @@ function BuildBaselineEvent(ArgReminder, ArgStoreKind) {
 }
 
 /**
+ * Emit `ReminderRemoved` for every reminder the LEDGER still believes is live but that neither JSON
+ * store holds. The mirror image of enrichment: enrich adds what JSON has and the ledger lacks; this
+ * retires what the ledger has and JSON has already dropped.
+ *
+ * Needed because removal was never evented before schema v2 (`#DeleteRemindersAsync` mutated the
+ * queue and saved, emitting nothing), so every reminder deleted before that fix is an orphan in the
+ * log. On real neochrome data that is 11 reminders which fold to a live `scheduled` state — under a
+ * read flag they would be resurrected and resume posting to Slack.
+ *
+ * Deliberately its OWN flag rather than part of `--enrich`: filling in missing fields is a safe
+ * restatement of what the JSON store already says, while this asserts that a reminder is dead.
+ * Those deserve separate consent.
+ * @param {any[]} ArgEvents Existing workspace stream.
+ * @param {Set<string>} ArgLiveIds Every reminder id present in either JSON store.
+ * @returns {object[]} ReminderRemoved events, one per orphan.
+ */
+function BuildOrphanRetirementEvents(ArgEvents, ArgLiveIds) {
+  // Required lazily: this script is also loaded by tooling that has no need of the projection.
+  const { FoldReminderReadModels } = require('../src/reminders-projection');
+  const Folded = FoldReminderReadModels(ArgEvents);
+  const Events = [];
+  for(const Reminder of Folded.reminders) {
+    if(ArgLiveIds.has(Reminder.ReminderID)) continue;
+    Events.push({
+      v: CURRENT_SCHEMA_VERSION,
+      type: 'ReminderRemoved',
+      reminderId: Reminder.ReminderID,
+      payload: { reason: 'orphan-reconciliation' },
+    });
+  }
+  return Events;
+}
+
+/**
+ * Pair a completed-store row's baseline event with the `ReminderCompleted` that makes it foldable.
+ *
+ * Found by the first real-data parity run (neochrome, 2026-08-08): a `BaselineReminderImported`
+ * carrying `state: 'completed'` and nothing else is dropped from BOTH read models — the fold sees a
+ * completed reminder, tries `Date.parse(completedAt)` on a field that was never written, gets NaN,
+ * and skips the record entirely. **32 of 152 real completions vanished this way.** That is silent
+ * data loss, not a parity nit.
+ *
+ * Mirrors the pairing `src/state-snapshot-writer.js` already does when it compacts, so the two
+ * producers of baseline events agree on shape.
+ * @param {any} ArgReminder A row from the completed store.
+ * @returns {object|null} A v2 ReminderCompleted, or null when the row has no usable instant.
+ */
+function BuildCompletionEvent(ArgReminder) {
+  const ReminderId = GetReminderId(ArgReminder);
+  if(ReminderId === null) return null;
+
+  const CompletedMs = typeof ArgReminder?.completedMs === 'number' && Number.isFinite(ArgReminder.completedMs)
+    ? ArgReminder.completedMs
+    : Date.parse(NormalizeIsoString(ArgReminder?.completedAt) || '');
+  if(!Number.isFinite(CompletedMs)) return null;
+  const CompletedAt = new Date(CompletedMs).toISOString();
+
+  return {
+    v: CURRENT_SCHEMA_VERSION,
+    ts: CompletedAt,
+    type: 'ReminderCompleted',
+    reminderId: ReminderId,
+    payload: {
+      by: GetNonEmptyString(ArgReminder?.assigneeID)
+        || GetNonEmptyString(ArgReminder?.AssigneeID)
+        || GetNonEmptyString(ArgReminder?.assigneeId),
+      method: 'baseline-import',
+      summary: GetNonEmptyString(ArgReminder?.summary)
+        || GetNonEmptyString(ArgReminder?.ReminderMessageText),
+      completedAt: CompletedAt,
+      // Verbatim, never re-derived — the whole point of v2 carrying it.
+      completedMs: CompletedMs,
+      sourceChannelId: GetNonEmptyString(ArgReminder?.sourceChannelID)
+        || GetNonEmptyString(ArgReminder?.OriginalChannelID)
+        || GetNonEmptyString(ArgReminder?.sourceChannelId),
+      dueDate: NormalizeIsoString(ArgReminder?.dueDate) || NormalizeIsoString(ArgReminder?.ShouldPostOn),
+      clientId: GetNonEmptyString(ArgReminder?.clientId) || GetNonEmptyString(ArgReminder?.ClientID),
+    },
+  };
+}
+
+/**
  * Does the stream already carry everything a v2 fold needs for this reminder?
  *
  * Judged against the MERGED creation payloads, matching how the projection judges parity: a v1
@@ -259,11 +341,11 @@ function BuildSeededReminderIdSet(ArgEvents) {
 }
 
 /**
- * @param {{ workspace: string, remindersDir: string, eventsDir: string, enrich?: boolean }} ArgOptions
+ * @param {{ workspace: string, remindersDir: string, eventsDir: string, enrich?: boolean, retireOrphans?: boolean }} ArgOptions
  *   `enrich` re-emits a v2 event for a reminder that IS already seeded but whose existing events
  *   predate the schema expansion. Without it this script can only ever seed reminders the ledger has
  *   never heard of — which means it could not repair the streams that actually need repairing.
- * @returns {Promise<{ workspace: string, baselineEvents: object[], skippedReminderIds: string[], enrichedReminderIds: string[] }>}
+ * @returns {Promise<{ workspace: string, baselineEvents: object[], skippedReminderIds: string[], enrichedReminderIds: string[], retiredReminderIds: string[] }>}
  */
 async function CollectMissingBaselineEventsAsync(ArgOptions) {
   const Workspace = ArgOptions.workspace;
@@ -305,23 +387,42 @@ async function CollectMissingBaselineEventsAsync(ArgOptions) {
         continue;
       }
       BaselineEvents.push(Event);
+      // A completed row needs its completion event too, or the fold drops it from both read models.
+      if(StoreKind === 'completed') {
+        const CompletionEvent = BuildCompletionEvent(Reminder);
+        if(CompletionEvent !== null) BaselineEvents.push(CompletionEvent);
+      }
       if(AlreadySeeded) EnrichedReminderIds.push(ReminderId);
       SeededReminderIds.add(ReminderId);
       CompleteById.set(ReminderId, true);
     }
   }
 
+  // Orphan retirement runs against the stream PLUS everything this run is about to append, so an
+  // enrich event landing in the same run cannot make a reminder look orphaned.
+  /** @type {object[]} */
+  let RetirementEvents = [];
+  if(ArgOptions.retireOrphans === true) {
+    const LiveIds = new Set();
+    for(const Reminder of ActiveReminders.concat(CompletedReminders)) {
+      const Id = GetReminderId(Reminder);
+      if(Id !== null) LiveIds.add(Id);
+    }
+    RetirementEvents = BuildOrphanRetirementEvents(ExistingEvents.concat(BaselineEvents), LiveIds);
+  }
+
   return {
     workspace: Workspace,
-    baselineEvents: BaselineEvents,
+    baselineEvents: BaselineEvents.concat(RetirementEvents),
     skippedReminderIds: SkippedReminderIds,
     enrichedReminderIds: EnrichedReminderIds,
+    retiredReminderIds: RetirementEvents.map(ArgEvent => ArgEvent.reminderId),
   };
 }
 
 /**
- * @param {{ workspace: string, remindersDir: string, eventsDir: string, write?: boolean, enrich?: boolean }} ArgOptions
- * @returns {Promise<{ workspace: string, baselineEvents: object[], skippedReminderIds: string[], enrichedReminderIds: string[], appendedCount: number }>}
+ * @param {{ workspace: string, remindersDir: string, eventsDir: string, write?: boolean, enrich?: boolean, retireOrphans?: boolean }} ArgOptions
+ * @returns {Promise<{ workspace: string, baselineEvents: object[], skippedReminderIds: string[], enrichedReminderIds: string[], retiredReminderIds: string[], appendedCount: number }>}
  */
 async function ImportWorkspaceAsync(ArgOptions) {
   const Result = await CollectMissingBaselineEventsAsync(ArgOptions);
@@ -346,16 +447,17 @@ async function ImportWorkspaceAsync(ArgOptions) {
 
 /**
  * @param {string[]} ArgArgv
- * @returns {{ repoRoot: string, workspaces: string[]|null, write: boolean, json: boolean, enrich: boolean }}
+ * @returns {{ repoRoot: string, workspaces: string[]|null, write: boolean, json: boolean, enrich: boolean, retireOrphans: boolean }}
  */
 function ParseArgs(ArgArgv) {
-  /** @type {{ repoRoot: string, workspaces: string[]|null, write: boolean, json: boolean, enrich: boolean }} */
+  /** @type {{ repoRoot: string, workspaces: string[]|null, write: boolean, json: boolean, enrich: boolean, retireOrphans: boolean }} */
   const Options = {
     repoRoot: path.resolve(__dirname, '..'),
     workspaces: null,
     write: false,
     json: false,
     enrich: false,
+    retireOrphans: false,
   };
 
   for(let Index = 0; Index < ArgArgv.length; Index += 1) {
@@ -366,6 +468,10 @@ function ParseArgs(ArgArgv) {
     }
     if(Arg === '--enrich') {
       Options.enrich = true;
+      continue;
+    }
+    if(Arg === '--retire-orphans') {
+      Options.retireOrphans = true;
       continue;
     }
     if(Arg === '--json') {
@@ -420,6 +526,7 @@ async function MainAsync(ArgArgv = process.argv.slice(2)) {
       eventsDir: EventsDir,
       write: Options.write,
       enrich: Options.enrich,
+      retireOrphans: Options.retireOrphans,
     }));
   }
 
@@ -433,8 +540,11 @@ async function MainAsync(ArgArgv = process.argv.slice(2)) {
       const Enriched = Result.enrichedReminderIds.length > 0
         ? ` — ${Result.enrichedReminderIds.length} enriching an existing reminder`
         : '';
+      const Retired = Result.retiredReminderIds.length > 0
+        ? `, ${Result.retiredReminderIds.length} retiring a ledger orphan`
+        : '';
       console.log(
-        `${Result.workspace}: ${Result.baselineEvents.length} baseline event(s) ${Options.write ? 'appended' : 'planned'} (${Mode})${Enriched}`
+        `${Result.workspace}: ${Result.baselineEvents.length} baseline event(s) ${Options.write ? 'appended' : 'planned'} (${Mode})${Enriched}${Retired}`
       );
     }
   }
@@ -451,6 +561,8 @@ if (require.main === module) {
 
 module.exports = {
   BuildBaselineEvent,
+  BuildCompletionEvent,
+  BuildOrphanRetirementEvents,
   BuildReminderCompletenessMap,
   CollectMissingBaselineEventsAsync,
   EnumerateWorkspaceNamesAsync,

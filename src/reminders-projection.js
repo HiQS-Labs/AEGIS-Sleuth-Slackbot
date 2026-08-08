@@ -30,6 +30,7 @@
  * @property {string|null} [projectId]
  * @property {boolean} [GitHubRelayStarted]
  * @property {boolean} [GitHubRelayStopped]
+ * @property {boolean} [Removed]
  * @property {string|null} [completedAt]
  * @property {number|null} [completedMs]
  * @property {string|null} [completedBy]
@@ -459,6 +460,11 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
         Reminder.completionClientId = GetStringOrNull(Payload.clientId);
     } else if(Event.type === 'ReminderCancelled') {
       Reminder.State = 'canceled';
+    } else if(Event.type === 'ReminderRemoved') {
+      // Removal is not a state — it is "this reminder is no longer in the queue". Recorded on the
+      // record rather than as a State, so a reminder removed AFTER completion still yields its
+      // completion record below; only the active list drops it.
+      Reminder.Removed = true;
     } else if(Event.type === 'ReminderStateChanged') {
       // v2 generic transition. Emitted for EVERY state change, including the seven the specific
       // events skip, so a reminder that went overdue no longer folds back as `scheduled`. It is
@@ -534,6 +540,7 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
       }
       continue;
     }
+    if(Reminder.Removed === true) continue; // dropped from the queue; never resurrect it.
     if(!TERMINAL_STATES.has(Reminder.State)) Reminders.push(Reminder);
   }
 
