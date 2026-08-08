@@ -1,5 +1,5 @@
 # Marathon Phase p3
-STATUS: Open
+STATUS: Approved
 NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=codex reviewer=agy round-cap=5 -->
@@ -107,3 +107,13 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+The implementation correctly clusters entities above the `0.60` confidence threshold, ensures canonical IDs are generated deterministically based on member contents using SHA-256, constructs the alias table retaining confidences, and includes proper provenance fields. The tests effectively cover false merges, false splits, and order-independence, and execute successfully. The code is pure and side-effect free.
+
+**Verdict:** Approved
+
+relay closed, no further turn needed
