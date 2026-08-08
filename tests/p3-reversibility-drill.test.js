@@ -61,9 +61,14 @@ test('P8 stop gate: every declared source switch is wired to its live owning rea
 
   // Phase 6: these flags only count if their public readers consume them. The generic helper is
   // deliberately insufficient; an unwired flag is neither a cutover nor a rollback mechanism.
-  for(const FlagName of ['REMINDERS_READ_SOURCE', 'COMPLETED_READ_SOURCE']) {
-    assert.ok(RemindersModuleSource.includes(FlagName), `${FlagName} must be consumed by RemindersModule`);
-  }
+  //
+  // OWNERSHIP CORRECTED 2026-08-08 (QA round 4 nit): COMPLETED_READ_SOURCE was asserted against
+  // RemindersModule, but its only production call site is the dashboard completed-store reader at
+  // src/web-api.js:405-423. Asserting the wrong owner would have made this gate pass on a file that
+  // never consumes the flag, or fail on one that was never supposed to — either way it would not be
+  // checking the thing it claims to check.
+  assert.ok(RemindersModuleSource.includes('REMINDERS_READ_SOURCE'), 'REMINDERS_READ_SOURCE must be consumed by RemindersModule');
+  assert.ok(WebApiSource.includes('COMPLETED_READ_SOURCE'), 'COMPLETED_READ_SOURCE must be consumed by the WebAPI completed-store reader');
   assert.ok(WebApiSource.includes('REBALANCE_EXPORT_SOURCE'), 'REBALANCE_EXPORT_SOURCE must be consumed by the export owner');
 });
 
