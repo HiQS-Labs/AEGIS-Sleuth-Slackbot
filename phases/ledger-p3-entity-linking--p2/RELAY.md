@@ -59,6 +59,19 @@ store until (and unless) the Phase 4-6 re-decision happens.
 
 Clustering into canonical ids (p3), diagnostics tooling (p4), any LLM tier, any read-path wiring.
 
+### Round 1 · Builder · codex
+
+Implemented `src/entity-linking.js` and `tests/entity-linking.test.js`. The new pure candidate
+engine accepts p1 tasks, project candidates, and `client-mapping.js`-shaped client records; it uses
+indexed alias/repo/channel/participant/day keys to block pairs, emits deterministic typed edges, and
+retains weighted per-signal evidence with source event ids. Tests cover every signal independently,
+agreement and disagreement, client-mapping compatibility, no candidates, a 20×20 blocking bound,
+and byte-identical output. No runtime path or authority was changed.
+
+Validation: `node --check` passed for both new files and direct Node fixtures covered disagreement,
+project-to-client provenance, and the 20×20 blocking bound. Jest could not run in this worktree
+because `node_modules` is absent (the harness remains responsible for the normal targeted test).
+
 
 ---
 
