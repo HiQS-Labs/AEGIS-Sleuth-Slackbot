@@ -93,3 +93,16 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+- Added `scripts/entity-linking-diagnostics.js`, a read-only JSON/JSONL replay CLI. It compares
+  thresholded derived task-to-client associations to the first-match client-mapping overlay,
+  reports deterministic agreements/disagreements/gaps, exposes high-confidence disagreements,
+  ranks the below-threshold queue, and emits per-task signal traces.
+- Added data-only replay overrides: aliases extend scoring candidates in memory, merges inject a
+  confidence-1 association, and splits remove a derived/forced association (split wins over merge).
+  No event or authoritative runtime store is mutated.
+- Added `tests/entity-linking-diagnostics.test.js` for clean and known-shadow diffs, forced merge,
+  forced split, empty logs, and a CLI test that asserts no filesystem writer is called.
+- Verification: `npx jest tests/entity-linking-diagnostics.test.js --runInBand` (passed).
