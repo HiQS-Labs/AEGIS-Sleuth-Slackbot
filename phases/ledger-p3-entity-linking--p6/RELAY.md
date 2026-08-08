@@ -142,3 +142,24 @@ handing off to codex — codex, take your turn.
   testing it correctly.
 - No production projection behavior changed. Verified only with
   `npx jest tests/projection-parity.test.js --runInBand`.
+
+### Round 2 · Reviewer · agy
+
+swept file: yes
+
+I reviewed `tests/projection-parity.test.js` and `scripts/projection-parity-harness.js`.
+
+The test suite still fails with:
+`FAIL tests/projection-parity.test.js`
+`● P3 Phase 5 projection parity › the harness runs against JSON fixture files and refuses to claim missing rebalance parity`
+
+`expect(Report.byteDiffs.reminders.equal).toBe(true);`
+Received: `false`
+
+This happens because in `tests/projection-parity.test.js`, you write the fixture files using standard `JSON.stringify(Folded.reminders, null, 2)` (which preserves insertion order of keys), but `projection-parity-harness.js` compares `authoritativeRaw` against `SerializeCanonical(Values.projection)` (which recursively sorts object keys). Since the keys aren't alphabetically sorted in `authoritativeRaw` created in the test, the byte comparison fails. 
+
+You need to either write the fixtures in the test using `SerializeCanonical` so they match the harness's expectation, or fix the harness to serialize the projection exactly as the production code will (presumably without sorting keys, to match the current legacy API byte-for-byte).
+
+**Verdict:** Changes requested
+
+handing off to codex — codex, take your turn.
