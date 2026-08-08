@@ -2,7 +2,7 @@
 STATUS: Open
 NEXT: codex
 
-<!-- marathon-drive: task=MARATHON-P6-TURN builder=codex reviewer=agy round-cap=7 -->
+<!-- marathon-drive: task=MARATHON-P6-TURN-2 builder=codex reviewer=agy round-cap=7 -->
 
 ## Phase Brief
 
@@ -78,18 +78,23 @@ If any surface cannot reach parity, HALT and report the diff. Shipping a read su
 "close enough" silently changes what users and the HiQS export see.
 
 
+## Debug mantra (auto-triggered — 1 prior attempt(s) on this phase did not reach Approved)
+
+Before trying again, read /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/relay-automation/DEBUG-MANTRA.md and follow its four-step discipline: reproduce reliably, know the fail path, question the hypothesis, treat this round as a breadcrumb for the next one.
+Last recorded reason (/Users/noelsaw/wt/ledger-p3-phase5-read-cutover/phases/ledger-p3-phase5-read-cutover--p6/ESCALATION.md): `containment-violation (off-lane edit reverted by a turn-taker)`. Read it before re-guessing.
+
 ---
 
 ▶ TAKE YOUR TURN (codex — BUILDER role)
 
 You are the BUILDER for this phase. Read the phase brief above and implement it.
-1. Implement the brief by creating/editing the artifact file(s): src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
+1. Implement the brief by creating/editing the artifact file(s): src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
 2. Append a build block to this relay file: `### Round N · Builder · codex` summarizing what you did (files touched, key decisions).
 3. Use this exact tick binary (run it from any directory): /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick
-   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick claim MARATHON-P6-TURN --agent codex --paths "phases/ledger-p3-phase5-read-cutover--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js"
-   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick ping MARATHON-P6-TURN --agent codex
-   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN --agent codex --to agy
-4. Edit ONLY these paths: phases/ledger-p3-phase5-read-cutover--p6/RELAY.md and src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
+   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick claim MARATHON-P6-TURN-2 --agent codex --paths "phases/ledger-p3-phase5-read-cutover--p6/RELAY.md,src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js"
+   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick ping MARATHON-P6-TURN-2 --agent codex
+   - /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent codex --to agy
+4. Edit ONLY these paths: phases/ledger-p3-phase5-read-cutover--p6/RELAY.md and src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to agy — agy, take your turn." A turn that ends without that line
    leaves a human guessing whether the relay is waiting on them or has stalled. Do this EVERY round,
@@ -99,37 +104,13 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 ▶ TAKE YOUR TURN (agy — REVIEWER role)
 
-You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
+You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · agy` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN --agent agy --to codex
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick done MARATHON-P6-TURN --agent agy
+2. If changes needed: add `**Verdict:** Changes requested` then: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick release MARATHON-P6-TURN-2 --agent agy --to codex
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick done MARATHON-P6-TURN-2 --agent agy
 4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/wt/ledger-p3-phase5-read-cutover/.xyz/bin/tick
    Edit ONLY phases/ledger-p3-phase5-read-cutover--p6/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to codex —
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
-
-### Round 1 · Builder · codex
-
-Implemented the Phase 5 read-cutover foundation within the approved paths.
-
-- Added independent `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, and
-  `REBALANCE_EXPORT_SOURCE` read selection through `ReadWithProjectionFallbackAsync`; every
-  projection path is strict and returns to the JSON store on an absent, empty, incomplete, or
-  failing ledger.
-- `RemindersModule` now reads its queue through the reminder flag while preserving Date revival,
-  missing-file behavior, and JSON writes. New native creation events include the legacy fields
-  needed for a lossless future projection; old incomplete events remain safely JSON-backed.
-- `WebAPI` folds the per-workspace JSONL ledger for raw reminder reads, rebalance exports, and
-  dashboard completion history. Rebalance continues through the existing display/export builder,
-  preserving the external payload/source shape.
-- Extended the parity CLI with flag-on rebalance capture support (`--rebalance-projection`) so it
-  reports byte and semantic results separately for the actual external API payload, and added
-  `npm run projection:parity`.
-- Added strict-fold, fallback, per-flag reversal, byte-compatible rebalance-capture, module read,
-  and Web API projection/rollback coverage in the approved test files.
-
-Verification: `node --test tests/projection-parity.test.js` (11 passing) and syntax checks for all
-edited JS files passed. The targeted Jest tests and `npm run build` could not run because this
-worktree has no `node_modules/.bin/jest` or `tsc` installed; no broad suite or gate was run.
