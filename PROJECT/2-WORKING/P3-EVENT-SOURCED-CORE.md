@@ -3,7 +3,7 @@ title: P3 — Event-Sourced Core (the log is the source of truth)
 created: 2026-06-12
 updated: 2026-08-08
 branch: development
-status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 is BLOCKED on an event-schema gap that prevents boot-state reconstruction. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; artifact lists corrected, phases need re-running. See "Marathon run 2026-08-08" below for the full accounting.
+status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 is BLOCKED on an event-schema gap that prevents boot-state reconstruction. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; lanes corrected, but ONLY Phase 5 (p6) may be re-run — Phase 6a is blocked with Phase 4. See "Marathon run 2026-08-08" below for the full accounting.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 model: event-sourcing + projections (strangler migration)
@@ -80,7 +80,10 @@ the new fields, and only then establish parity. That is its own plan, not a retr
 **Why Phases 5 and 6a delivered modules but no integration.** Their marathon lanes excluded the
 files they were meant to change — `src/reminders-module.js` and `src/web-api.js` were not in p6's
 `artifact:` list, and containment reverts edits outside a lane. The artifact lists are corrected in
-[MARATHON.yaml](P3-EVENT-SOURCED-CORE/MARATHON.yaml); the phases need re-running against them.
+[MARATHON.yaml](P3-EVENT-SOURCED-CORE/MARATHON.yaml), **but only p6 may now be re-run** — Phase 6a
+(p7) is blocked with Phase 4, not merely awaiting a re-run, because its rollback criterion needs the
+log-authoritative boot Phase 4 never delivered. Run p6 via
+[MARATHON-P6-ONLY.yaml](P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml).
 
 ### Direction review (Codex, 2026-06-16)
 
@@ -123,8 +126,19 @@ contract written when none of the artifacts existed. It is obsolete twice over:
    the p7 seams, so it waits too. Shipping an eight-phase packet would invite exactly the run that
    already produced two unwired modules.
 
-So the runnable tranche is **p6 alone**, after the Phase 3 PR lands on `development`. p4 is the
-satisfied prerequisite, asserted here as `path_present` rather than re-run.
+So the runnable tranche is **p6 alone**, executed via
+[`MARATHON-P6-ONLY.yaml`](P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml) — a dedicated single-phase
+manifest, because `marathon.sh` has **no phase-selection flag** (`--retry` overrides one phase's task
+id but still walks the whole chain), so pointing it at the 8-phase `MARATHON.yaml` would schedule the
+three deferred phases regardless of what this document says.
+
+**What the prerequisite PR must contain.** These `path_present` probes assert
+`src/reminders-projection.js` and `scripts/projection-parity-harness.js`, which are p6's *partial*
+output — not part of Phase 3's delivered inventory. So the PR that precedes this run **must merge the
+additive p6/p7 artifacts as well as Phase 3**, or preflight stays permanently `6 BLOCKED`. That is
+safe and deliberate: those modules are unit-tested, import nothing, and are imported by nothing, so
+merging them is inert in production while giving the re-run a base to build on rather than restart
+from. p4 is the satisfied prerequisite, asserted by probe rather than re-run.
 
 What the probes are doing:
 

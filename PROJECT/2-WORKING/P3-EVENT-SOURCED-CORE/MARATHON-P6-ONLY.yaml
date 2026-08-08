@@ -1,0 +1,67 @@
+# MARATHON-P6-ONLY.yaml — the ONLY runnable tranche of Release 1.5.0 "Ledger" as of 2026-08-08.
+#
+# Run:
+#   .xyz/relay-automation/marathon.sh \
+#     --plan PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml \
+#     --pre-advance-cmd "npm test"
+#
+# ALWAYS --dry-run first.
+#
+# ── WHY THIS FILE EXISTS ─────────────────────────────────────────────────────────────────────
+# MARATHON.yaml is the full 8-phase plan and marathon.sh has NO phase-selection flag — `--retry`
+# overrides one phase's task id but still walks the whole chain (measured 2026-08-08: retrying p4
+# re-ran p1-p3's gates and then continued onward). So pointing the run command at MARATHON.yaml
+# would schedule p5, p7 and p8, every one of which is deferred. Documenting "run p6 only" was not
+# enough; without this file there was no executable that matched the documented tranche.
+#
+# ── WHAT IS DEFERRED, AND WHY IT IS NOT MERELY "LATER" ───────────────────────────────────────
+#   p5  Phase 4, boot-time rebuild — HALTED. The event schema cannot reconstruct boot state:
+#       ReminderCreated omits OriginalChannelName/OriginalMessageID/OriginalThreadTs/
+#       OriginalSenderID/IgnoreSnooze; the due/overdue/posting/posted/rescheduled/failed/
+#       dead-letter transitions are never emitted; ReminderCompleted lacks sourceChannelID/
+#       dueDate/clientId; and event-store.readAll() collapses every read error to [] with no
+#       signal, so the required warn-and-fall-back cannot even fire.
+#   p7  Phase 6a — BLOCKED BY THE SAME ROOT CAUSE, not sequenced behind p6. Its exit criterion is
+#       "flip REMINDER_STATE_SOURCE off AFTER RUNNING ON THE LOG, reboot from the derived
+#       snapshot" (briefs/p7-retire-mutable-writes.md:57-58) — that presupposes the
+#       log-authoritative boot p5 was to deliver, and REMINDER_STATE_SOURCE exists nowhere in src/.
+#   p8  The reversibility drill asserts the p7 seams, so it defers with them.
+#
+# All three resume together behind ONE event-schema-expansion proposal. Do not add them here.
+#
+# ── PREREQUISITE, ALREADY SATISFIED (not a phase) ────────────────────────────────────────────
+# Phase 3 (marathon p1-p4) is DELIVERED: src/entity-projection-inputs.js, src/entity-linking.js,
+# src/entity-read-model.js, scripts/entity-linking-diagnostics.js + suites. p6 does not depend on
+# it functionally — it is recorded here so nobody re-adds a `depends_on` to a phase that is not in
+# this file. The preflight contract asserts the delivered inputs with path_present probes instead.
+#
+# ── REVERSIBILITY CONTRACT — binding ─────────────────────────────────────────────────────────
+#   (a) every flip is an env var, default OFF; unset == today's behavior byte-for-byte
+#   (b) mutable JSON writes CONTINUE, so the fallback is never stale
+#   (c) any projection error falls back to the authoritative store, logged, never user-visible —
+#       the pattern already shipped at src/reminders-app-mention-handler.js:1250
+#   (d) ships a TESTED rollback: a test that flips each switch OFF and asserts correct behavior
+#   (e) staged rollout, one workspace first
+#
+# A phase that cannot satisfy (a)-(d) must HALT and escalate rather than ship. The first run of
+# this plan produced two modules wired to nothing; a HALT would have been the better outcome.
+#
+# ── ARTIFACT LIST — DERIVED FROM THE EXIT CRITERIA, NOT GUESSED ──────────────────────────────
+# The original p6 lane omitted the two files the phase exists to change, so the lane could not
+# reach its own exit criteria and reported success having converted nothing. The live read owners
+# are RemindersModule.GetAllReminders (src/reminders-module.js:736) and
+# GetCompletedRemindersBetween (:842) for the two JSON stores, and the rebalance response path
+# (src/web-api.js:354, 903-905) for ?format=rebalance. package.json is included because a
+# node:test suite needs registering in BOTH jest.testPathIgnorePatterns and the test:node list.
+# The three integration suites assert today's read behaviour and must move with the reads.
+
+name: ledger-p3-phase5-read-cutover
+
+phases:
+  - id: p6
+    name: "Phase 5 — convert the remaining reads to projections, with a parity harness"
+    reviewer: agy
+    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
+    artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
+    turn_timeout_s: 1200
+    max_review_rounds: 3
