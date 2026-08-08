@@ -100,3 +100,36 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+**HALTED — reversibility contract cannot be satisfied within the permitted implementation surface.**
+
+- Inspected the current boot loaders, lifecycle emitter, event-store schema, baseline importer, and
+  existing event projection. No artifact implementation was added because the required flag-on
+  log-only boot could not meet its exact-state and fallback guarantees without producing a false
+  positive test.
+- Native `ReminderCreated` events persist only the display/identity subset
+  (`text`, assignees, source/target channel IDs, URLs, client/project IDs). They omit live reminder
+  fields such as `OriginalChannelName`, `OriginalMessageID`, `OriginalThreadTs`,
+  `OriginalSenderID`, and `IgnoreSnooze`. Later `ReminderScheduled` events carry only `dueAt` and
+  `via`; they cannot restore those omitted fields.
+- The ledger intentionally omits `due`, `overdue`, `posting`, `posted`, `rescheduled`, `failed`,
+  and `dead-letter` transitions. Consequently an event fold cannot reproduce the JSON loader's
+  current in-memory state for active reminders after a restart, even when all creation events are
+  present. Baseline events do not repair native records and have only an optional subset of those
+  fields.
+- `ReminderCompleted` lacks the completion-store fields `sourceChannelID`, `dueDate`, and
+  `clientId`; the current creation event cannot always supply the missing values for baseline
+  completions. A log-only `CompletionStore` rebuild therefore also cannot be deeply equal to the
+  current JSON path.
+- `event-store.readAll()` deliberately returns an empty/partial stream for read failures and
+  malformed/torn lines. It exposes no error signal, so its current public contract cannot trigger
+  the required warning-and-JSON fallback for a corrupt/truncated log.
+
+Meeting Phase 4 needs an explicit revised authority proposal that expands the event schema and
+emission coverage (including the currently prohibited FSM creation/transition chokepoints), adds a
+strict boot-read error signal, backfills the new event data, and only then establishes parity. The
+rollout must remain one workspace first; the operator rollback is
+`REMINDER_STATE_SOURCE` unset (or any value other than `projection`), which returns boot to the
+still-written JSON cache.
