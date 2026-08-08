@@ -92,6 +92,12 @@ phases:
     name: "Phase 5 — convert the remaining reads to projections, with a parity harness"
     reviewer: agy
     brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
-    artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
+    # package-lock.json added 2026-08-08 after the first fire died on a containment violation: agy
+    # ran an npm command, npm noticed package.json (1.4.263) and the lock (1.4.261) disagreed and
+    # synced them, and containment reverted that correct repair and failed the turn. If package.json
+    # is in a lane its lockfile must be too — npm keeps them together, so a lane that admits one and
+    # forbids the other fails on npm's own housekeeping rather than on anything the phase did. The
+    # underlying version drift was pre-existing on development and is fixed in this branch.
+    artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
