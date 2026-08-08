@@ -4,6 +4,47 @@
 // non-authoritative: callers keep the JSON store as their fallback until a parity run
 // proves that a particular surface is safe to switch.
 
+/**
+ * The legacy-shaped reminder this projection folds to. Declared as a real shape rather than the
+ * bare `object[]` the JSDoc used to say — `object` has NO properties, so every `.ShouldPostOn` /
+ * `.State` access below raised TS2339 and `npm run build` was red (39 errors in this file alone).
+ * Field names deliberately mirror the pre-P3 on-disk shape: parity with the legacy reader is the
+ * exit criterion, so the projection must not quietly rename anything.
+ * @typedef {Object} ProjectedReminder
+ * @property {string} ReminderID
+ * @property {string} State
+ * @property {string|Date|null} CreatedOn
+ * @property {string|Date|null} ShouldPostOn
+ * @property {string} ReminderMessageText
+ * @property {boolean} [IgnoreSnooze]
+ * @property {string|null} [AssigneeID]
+ * @property {string[]} [AssigneeIDs]
+ * @property {string|null} [OriginalSenderID]
+ * @property {string|null} [TargetChannelID]
+ * @property {string|null} [OriginalChannelID]
+ * @property {string|null} [OriginalChannelName]
+ * @property {string|null} [OriginalMessageID]
+ * @property {string|null} [OriginalThreadTs]
+ * @property {string[]} [GitHubUrls]
+ * @property {string|null} [clientId]
+ * @property {string|null} [projectId]
+ * @property {string|null} [completedAt]
+ * @property {string|null} [completedBy]
+ * @property {string|null} [completionMethod]
+ * @property {string|null} [completionSummary]
+ */
+
+/**
+ * @typedef {Object} ProjectedCompletion
+ * @property {string} reminderId
+ * @property {number} completedMs
+ * @property {any} [summary]
+ * @property {string|null} [assigneeID]
+ * @property {string|null} [sourceChannelID]
+ * @property {string|Date|null} [dueDate]
+ * @property {string|null} [clientId]
+ */
+
 const TERMINAL_STATES = new Set(['completed', 'cancelled', 'canceled']);
 const PROJECTION_FLAGS = new Set([
   'REMINDERS_READ_SOURCE',
@@ -75,7 +116,7 @@ function FindMissingNativeReminderFields(ArgPayload) {
 /**
  * @param {string} ArgReminderId
  * @param {any} ArgEvent
- * @returns {object}
+ * @returns {ProjectedReminder}
  */
 function MakeReminder(ArgReminderId, ArgEvent) {
   const Payload = ArgEvent.payload && typeof ArgEvent.payload === 'object' ? ArgEvent.payload : {};
@@ -111,11 +152,11 @@ function MakeReminder(ArgReminderId, ArgEvent) {
  *
  * @param {any[]} ArgEvents
  * @param {{ strict?: boolean }} [ArgOptions]
- * @returns {{ reminders: object[], completed: object[] }}
+ * @returns {{ reminders: ProjectedReminder[], completed: ProjectedCompletion[] }}
  */
 function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
   const Events = Array.isArray(ArgEvents) ? ArgEvents : [];
-  /** @type {Map<string, object>} */
+  /** @type {Map<string, ProjectedReminder>} */
   const ById = new Map();
   /** @type {string[]} */
   const Order = [];
@@ -198,7 +239,7 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
  * Shape folded reminder records into the non-display portion of the rebalance
  * export.  A caller that needs byte parity must add the Web API's Slack-derived
  * display fields; this pure shape intentionally exposes that gap to the harness.
- * @param {object[]} ArgReminders
+ * @param {ProjectedReminder[]} ArgReminders
  * @param {string} ArgWorkspaceName
  * @returns {object}
  */
