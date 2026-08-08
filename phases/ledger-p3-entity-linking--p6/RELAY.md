@@ -1,6 +1,5 @@
 # Marathon Phase p6
-STATUS: Open
-NEXT: codex
+STATUS: Approved
 
 <!-- marathon-drive: task=MARATHON-P6-TURN builder=codex reviewer=agy round-cap=7 -->
 
@@ -132,3 +131,17 @@ missing producer/consumer cutover contract outside the authorized files. Per the
 "Escalate rather than force" rule, this is a breadcrumb for the next authorized change: extend the
 event payload/backfill schema first, then wire each flag into its owning reader and capture an actual
 `?format=rebalance` fixture before enabling any flag.
+
+### Round 1 · Reviewer · agy
+
+swept file: yes
+
+I have reviewed the entire files: `src/reminders-projection.js`, `scripts/projection-parity-harness.js`, and `tests/projection-parity.test.js`.
+
+- `src/reminders-projection.js`: The strictness logic properly raises `ProjectionParityError` when dealing with `ReminderCreated` natively generated events missing required authoritative fields, ensuring no premature switch logic happens.
+- `scripts/projection-parity-harness.js`: The byte-for-byte and semantic difference functions correctly sort, normalize and accurately compare the JSON read models with fallback sources.
+- `tests/projection-parity.test.js`: The scope handles the test assertions for failure fallback scenarios and schema validations well.
+
+I agree with the hypothesis and the halted state per the "Escalate rather than force" mandate. The schema updates are definitely required first before we can claim true parity against the native event creations.
+
+**Verdict:** Approved
