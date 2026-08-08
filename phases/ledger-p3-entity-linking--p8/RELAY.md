@@ -1,6 +1,6 @@
 # Marathon Phase p8
 STATUS: Open
-NEXT: codex
+NEXT: agy
 
 <!-- marathon-drive: task=MARATHON-P8-TURN builder=codex reviewer=agy round-cap=5 -->
 
@@ -124,3 +124,42 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    codex, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · codex
+
+**HALTED — the P8 release gate fails; do not enable the Ledger authority flags.**
+
+Added the focused `node:test` drill, registered it in `test:node`, and wrote an operator rollback
+runbook. The drill deliberately tests the live ownership seams before trusting the pure projection
+helpers; that gate currently fails because `src/reminders-module.js` contains neither
+`REMINDER_STATE_SOURCE` nor an import/use of `state-snapshot-writer`, and it also does not consume
+the two reminder-reader flags. `src/web-api.js` likewise does not consume
+`REBALANCE_EXPORT_SOURCE`. The three Phase 6 helper-level switches can select a source in isolation,
+but no production reader invokes that helper, so they are not actual cutovers or rollback paths.
+
+Per-flag results:
+
+- `SUMMARIZE_WEEK_COMPLETED_SOURCE`: implemented as a per-request completed-week reader, default
+  JSON, with a caught projection fallback. Its existing handler test proves source selection, but
+  this turn cannot claim the required create/complete/cancel no-data-loss drill because the native
+  event schema remains non-lossless.
+- `REMINDER_STATE_SOURCE`: **FAIL** — no runtime consumer; log-authoritative boot and rollback from
+  a derived snapshot cannot happen.
+- `REMINDERS_READ_SOURCE`: **FAIL** — helper-only, no `RemindersModule` reader consumer.
+- `COMPLETED_READ_SOURCE`: **FAIL** — helper-only, no `RemindersModule` reader consumer.
+- `REBALANCE_EXPORT_SOURCE`: **FAIL** — helper-only, no `WebAPI` export consumer.
+- All-on → all-off: **FAIL / not runnable** because four of the five declarations do not control
+  their claimed runtime paths and the snapshot writer is never invoked by the live write path.
+
+The non-gating fixture does demonstrate the lower-level writer can preserve a fully replayable
+create/complete/cancel event sequence in legacy JSON shape. It also reports the stale-snapshot loss
+exactly: a snapshot made before the final events resurrects `rem-complete` and `rem-cancel` as open.
+That is why a snapshot freshness proof must be live-wired before Phase 6a can be approved. Corrupt
+log/snapshot fallback and mixed-workspace isolation are likewise not safely verifiable: the event
+store hides malformed-tail read errors and source flags are process-global `process.env` values,
+not workspace-scoped settings.
+
+Verification: `node --test tests/p3-reversibility-drill.test.js` is expected to fail its first
+release-gate assertion on the absent `REMINDER_STATE_SOURCE` wiring. The remaining three focused
+fixture/helper tests pass. This failure is intentionally retained as the stop signal required by
+the phase, not weakened into a synthetic pass.
