@@ -22,7 +22,7 @@ const { FindRelatedOpenReminders, BuildRelatedFootnote } = require('./connection
 const GitHubCommentRelay = require('./github-comment-relay');
 const SlackFormatUtils = require('./slack-format-utils');
 const CompletionStore = require('./completion-store');
-const { createEventStore } = require('./event-store');
+const { createEventStore, CURRENT_SCHEMA_VERSION } = require('./event-store');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
@@ -467,15 +467,22 @@ class RemindersModule {
 
     // Every completion path (✅ reaction, list checkbox, chat command, github-sync) funnels through
     // this single transition, so capturing here records 100% of completions to Sleuth's own history.
+    // Sample the completion instant ONCE and share it with BOTH the authoritative CompletionRecord
+    // and the ledger event. Previously each sampled its own Date.now(), so the stored and projected
+    // completedMs were two different clock reads and could never be byte-identical — which is why
+    // COMPLETED_READ_SOURCE had to be blocked. Codex confirmed this does not breach the FSM
+    // contract: validate-fsm-invariants governs state assignment and construction bypasses.
+    let CompletedMs = null;
     if(ArgNextState === RemindersModule.ReminderState.Completed) {
-      this.#RecordCompletion(ArgReminder);
+      CompletedMs = Date.now();
+      this.#RecordCompletion(ArgReminder, CompletedMs);
     }
 
     // P3 Phase 1 (NON-authoritative): mirror the lifecycle change into the append-only event
     // ledger. Emitted AFTER the in-memory mutation above (mutate-first leads). Best-effort and
     // fire-and-forget — append() is async, never rejects, and a log failure cannot block or fail
     // this transition. Keeps #TransitionReminderState synchronous, exactly like #RecordCompletion.
-    this.#EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason);
+    this.#EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason, CompletedMs, PreviousState);
   }
 
   /**
@@ -485,22 +492,37 @@ class RemindersModule {
    * @param {ReminderInfo} ArgReminder
    * @param {string} ArgNextState
    * @param {string} ArgReason
+   * @param {number|null} [ArgCompletedMs] Completion instant sampled once by the caller and shared
+   *   with the authoritative CompletionRecord, so the stored and projected values are one number.
+   * @param {string|null} [ArgPreviousState] State before the transition, for the generic
+   *   ReminderStateChanged event.
    */
-  #EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason) {
+  #EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason, ArgCompletedMs = null, ArgPreviousState = null) {
     const State = RemindersModule.ReminderState;
     const DueAtIso = ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null;
     switch(ArgNextState) {
       case State.Scheduled:
         this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt: DueAtIso, via: ArgReason || null });
         break;
-      case State.Completed:
+      case State.Completed: {
+        // completedMs is sampled ONCE here and shared with the authoritative CompletionRecord, so
+        // the projected and stored values are the same number rather than two clock reads that can
+        // never be byte-identical. Codex confirmed in consult that this does not breach the FSM
+        // contract: validate-fsm-invariants governs state assignment and construction bypasses, not
+        // timestamp provenance.
+        const CompletedMs = typeof ArgCompletedMs === 'number' ? ArgCompletedMs : Date.now();
         this.#EmitLifecycleEvent('ReminderCompleted', ArgReminder, {
           by: ArgReminder.AssigneeID || null,
           method: ArgReason || 'fsm',
           summary: ArgReminder.ReminderMessageText || null,
-          completedAt: new Date().toISOString(),
+          completedAt: new Date(CompletedMs).toISOString(),
+          completedMs: CompletedMs,
+          sourceChannelId: ArgReminder.OriginalChannelID || ArgReminder.TargetChannelID || null,
+          dueDate: DueAtIso,
+          clientId: ArgReminder.clientId ?? null,
         });
         break;
+      }
       case State.Snoozed:
         this.#EmitLifecycleEvent('ReminderSnoozed', ArgReminder, { until: DueAtIso, by: ArgReminder.AssigneeID || null });
         break;
@@ -510,6 +532,18 @@ class RemindersModule {
       default:
         break;
     }
+
+    // v2: a GENERIC transition event for every state change, including the seven this switch
+    // deliberately skipped (due, overdue, posting, posted, rescheduled, failed, dead-letter).
+    // Without it a fold silently retained `scheduled` for a reminder that had actually gone
+    // overdue — and production persists at least `overdue` when no posting occurs
+    // (#CheckRemindersAsync), so this was never theoretical. Emitted IN ADDITION to the specific
+    // events above so existing folds are unaffected.
+    this.#EmitLifecycleEvent('ReminderStateChanged', ArgReminder, {
+      fromState: ArgPreviousState,
+      toState: ArgNextState,
+      reason: ArgReason || null,
+    });
   }
 
   /**
@@ -534,6 +568,10 @@ class RemindersModule {
     }
     try {
       this.#EventStore.append(this.#EventWorkspace, {
+        // Stamp the current schema version so the append is validated against the WIDER v2
+        // requirement set. Historical v1 events keep reading unchanged — the version gate lives in
+        // NormalizeEvent, which treats a missing `v` as v1.
+        v: CURRENT_SCHEMA_VERSION,
         type: ArgType,
         reminderId: ArgReminder.ReminderID,
         payload: ArgPayload,
@@ -562,7 +600,7 @@ class RemindersModule {
    * (e.g. unit tests that exercise the FSM without StartAsync).
    * @param {ReminderInfo} ArgReminder
    */
-  #RecordCompletion(ArgReminder) {
+  #RecordCompletion(ArgReminder, /** @type {number|undefined} */ ArgCompletedMs) {
     if(!this.#CompletionStore) {
       return;
     }
@@ -572,7 +610,8 @@ class RemindersModule {
       assigneeID: ArgReminder.AssigneeID || null,
       sourceChannelID: ArgReminder.OriginalChannelID || ArgReminder.TargetChannelID || null,
       dueDate: ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null,
-      completedMs: Date.now(),
+      // Shared with the ledger event rather than re-sampled — see #TransitionReminderState.
+      completedMs: typeof ArgCompletedMs === 'number' ? ArgCompletedMs : Date.now(),
       clientId: ArgReminder.clientId || null,
     });
   }
@@ -648,6 +687,9 @@ class RemindersModule {
       this.#EmitLifecycleEvent('ReminderScheduled', Reminder, {
         dueAt: new Date(Reminder.ShouldPostOn).toISOString(),
         via: 'created',
+        // v2: scheduling RESETS IgnoreSnooze in the live queue, so a fold that does not replay it
+        // keeps a stale value — which the rebalance export then publishes to an external consumer.
+        ignoreSnooze: Boolean(Reminder.IgnoreSnooze),
       });
     }
 
