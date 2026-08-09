@@ -514,7 +514,19 @@ class RemindersModule {
     const DueAtIso = ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null;
     switch(ArgNextState) {
       case State.Scheduled:
-        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt: DueAtIso, via: ArgReason || null });
+        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, {
+          dueAt: DueAtIso,
+          via: ArgReason || null,
+          // v2 REQUIRES this, and omitting it here silently dropped every RESCHEDULE from the
+          // ledger: append() rejected the shape, logged a non-fatal warning, and recorded a durable
+          // coverage gap. The creation-time emitter carried it, so the birth case looked fine while
+          // the transition case lost events — found on production, not in review.
+          //
+          // Read AFTER the in-memory mutation, which is what #TransitionReminderState guarantees:
+          // the reschedule path sets `IgnoreSnooze = false` before transitioning, so this records
+          // the post-reset value the live queue actually holds.
+          ignoreSnooze: Boolean(ArgReminder.IgnoreSnooze),
+        });
         break;
       case State.Completed: {
         // completedMs is sampled ONCE here and shared with the authoritative CompletionRecord, so
@@ -962,7 +974,17 @@ class RemindersModule {
    */
   async ReadAllEventsAsync() {
     if(!this.#EventStore || !this.#EventWorkspace) return [];
-    return this.#EventStore.readAll(this.#EventWorkspace);
+    try {
+      return await this.#EventStore.readAll(this.#EventWorkspace);
+    } catch(error) {
+      // `readAll` signals a genuine read failure now, rather than returning `[]` for everything.
+      // That signal exists for the PROJECTION read path, which must fall back to the authoritative
+      // store instead of serving an empty fold. This method backs a Slack-facing shadow comparison
+      // whose documented contract is "[] when there is nothing to read", so it keeps absorbing the
+      // failure — loudly, rather than by pretending the ledger was empty.
+      this.#SlackApp.Logger?.warn?.('[reminders] event ledger unreadable; treating as empty for the shadow read', error);
+      return [];
+    }
   }
 
   /**
@@ -2984,6 +3006,13 @@ class RemindersModule {
         const Result = await ReadWithProjectionFallbackAsync({
           flagName: 'REMINDERS_READ_SOURCE',
           Logger: this.#SlackApp.Logger,
+          // The gate is default-deny, so omitting this is not a soft option — it would serve the
+          // authoritative store forever. A missing coverage object means the ledger was never
+          // initialized, which is itself a reason not to project.
+          IsCoverageCleanAsync: async () => {
+            if(!this.#LedgerCoverage || !this.#EventWorkspace) return false;
+            return this.#LedgerCoverage.IsCleanAsync(this.#EventWorkspace);
+          },
           ReadAuthoritativeAsync: async () => {
             const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
             // Date revival preserves the in-memory contract used by the reminder scheduler.

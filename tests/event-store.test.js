@@ -13,7 +13,7 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const os = require('os');
 const path = require('path');
-const { createEventStore } = require('../src/event-store');
+const { createEventStore, LedgerReadError, LedgerCorruptionError } = require('../src/event-store');
 
 /**
  * A minimal valid ReminderCreated event carrying every required payload key.
@@ -382,4 +382,63 @@ test('a v1-versioned event of a v2-only type is accepted — v1 requires nothing
   });
   assert.strictEqual(Result.ok, true);
   assert.ok(REQUIRED_PAYLOAD_KEYS_V2.ReminderStateChanged.length > 0, 'while v2 does require a payload');
+});
+
+// ---------------------------------------------------------------------------
+// readAll's error signal. Until this existed, EVERY read failure returned `[]`,
+// so an unreadable ledger and a brand-new workspace were the same answer and the
+// contract's warn-and-fall-back-to-JSON path could never be reached.
+// ---------------------------------------------------------------------------
+
+test('a MISSING ledger is still an empty stream, not an error', async (t) => {
+  // The signal must not turn the ordinary first-run case into a failure.
+  const RootDir = await MakeRootDir();
+  t.after(() => fs.rm(RootDir, { recursive: true, force: true }));
+  const Store = createEventStore({ rootDir: RootDir });
+  assert.deepStrictEqual(await Store.readAll('never-seen'), []);
+});
+
+test('an UNREADABLE ledger throws rather than reporting an empty one', async (t) => {
+  const RootDir = await MakeRootDir();
+  t.after(() => fs.rm(RootDir, { recursive: true, force: true }));
+  // Put a directory where the ledger file belongs, so the read fails with EISDIR — a stand-in for
+  // the EACCES/EIO cases that are awkward to provoke portably.
+  await fs.mkdir(path.join(RootDir, 'acme_events.jsonl'), { recursive: true });
+  const Store = createEventStore({ rootDir: RootDir });
+
+  await assert.rejects(
+    () => Store.readAll('acme'),
+    (error) => error instanceof LedgerReadError && error.workspace === 'acme',
+    'an I/O failure must be distinguishable from an empty ledger'
+  );
+});
+
+test('a torn FINAL line is still tolerated — an interrupted append is expected', async (t) => {
+  const RootDir = await MakeRootDir();
+  t.after(() => fs.rm(RootDir, { recursive: true, force: true }));
+  const Store = createEventStore({ rootDir: RootDir });
+  await Store.append('acme', MakeCreated());
+  // Simulate a process dying mid-append: a partial line at the very end.
+  await fs.appendFile(path.join(RootDir, 'acme_events.jsonl'), '{"type":"ReminderCrea');
+
+  const Events = await Store.readAll('acme');
+  assert.strictEqual(Events.length, 1, 'the intact event is still returned');
+});
+
+test('an unparseable line BEFORE the end is corruption, and throws', async (t) => {
+  // The distinction that matters: a torn tail lost the write that was in progress, but a bad line
+  // in the middle means bytes went missing from history. Everything after it still parses, so it
+  // would otherwise fold to a plausible — and short — past.
+  const RootDir = await MakeRootDir();
+  t.after(() => fs.rm(RootDir, { recursive: true, force: true }));
+  const Store = createEventStore({ rootDir: RootDir });
+  await Store.append('acme', MakeCreated({ reminderId: 'rem_1' }));
+  await fs.appendFile(path.join(RootDir, 'acme_events.jsonl'), 'not json at all\n');
+  await Store.append('acme', MakeCreated({ reminderId: 'rem_2' }));
+
+  await assert.rejects(
+    () => Store.readAll('acme'),
+    (error) => error instanceof LedgerCorruptionError && error.lineNumber === 2,
+    'a hole in the middle of the ledger must not read as a complete history'
+  );
 });

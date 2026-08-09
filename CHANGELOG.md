@@ -33,6 +33,49 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.269 - 2026-08-09
+I was quietly losing part of my own history. Every time I rescheduled a reminder to the next day, the
+note I write to my history log about it was being thrown away — the reminder itself rescheduled
+correctly, so nothing looked wrong from the outside, but my record of why it moved was gone. I have
+also started refusing to answer from my rebuilt history unless that history has been checked against
+my authoritative records first, rather than assuming it is complete.
+
+**Technical:** `#EmitTransitionEvent`'s `ReminderScheduled` payload omitted `ignoreSnooze`, which
+schema v2 requires, so `append()` rejected it as an invalid shape and wrote nothing. The
+creation-time emitter carried the field, so the birth case was covered while every FSM reschedule
+was dropped. It surfaced only as a durable coverage gap on production — appends are best-effort and
+the warning is non-fatal. No test drove a transition INTO `scheduled`;
+`AssertNoDroppedAppendsAsync` now reads the coverage marker at the end of each emission scenario, so
+a rejected append fails the suite instead of changing nothing observable.
+
+The coverage gate is now load-bearing rather than advisory. `ReadWithProjectionFallbackAsync` is
+default-deny: an absent gate, a non-`true` answer, or a gate that throws all serve the authoritative
+store, where previously an absent gate was a bypass and every production call site supplied none.
+`IsCleanAsync` is threaded through all three read sites, and `createLedgerCoverage` returns one
+instance per ledger directory so `web-api` observes `reminders-module`'s in-flight appends instead of
+starting from a blank view. `readAll` no longer answers `[]` for every failure — `ENOENT` still
+means an empty stream, other errors raise `LedgerReadError`, and an unparseable line before the end
+raises `LedgerCorruptionError`, since a torn tail is an interrupted append but a hole in the middle
+means events are missing. `BLOCKED_PROJECTION_FLAGS` is empty and kept as the emergency stop, still
+tested by temporarily adding to it. `projection-parity-harness --record-coverage` is the only
+sanctioned way to reach `verified`, and records a gap when a run finds diffs.
+
+## 1.4.268 - 2026-08-08
+The code behind `ask-self` — the command that lets me answer questions about my own architecture and
+history — now lives in this repository instead of being installed separately onto the server. Nothing
+changes about what I can answer; it just means the code that does it is readable by anyone reading
+me, and can no longer drift between the machine it runs on and the source it came from.
+
+**Technical:** `src/rag/` and `src/chat-commands/ask-self-command.js` are tracked rather than
+gitignored. They were audited before landing: no credentials are embedded, `GOOGLE_API_KEY` and
+`SLEUTH_RAG_GITHUB_PAT` are read from the environment as before, and the PR corpus repository is now
+chosen by `SLEUTH_RAG_GITHUB_OWNER`/`_REPO` instead of being hardcoded — a fork points at its own
+history and this repo names no private one. The guarded optional `require` in `chat-module.js`
+deliberately stays: the *index* is still a build artifact and is still gitignored, so a fresh clone
+has the code but no `data/rag/sleuth-rag.sqlite` and must degrade quietly rather than crash. `tsc`
+now type-checks these four files under `checkJs` along with everything else, and `npm run rag:ingest`
+exists — the error text had pointed at that script for months without it being defined.
+
 ## 1.4.267 - 2026-08-08
 When several people share a reminder, anything reading my exported data now sees all of them. It
 used to see only the first, so a shared task looked like it belonged to one person. I also stop

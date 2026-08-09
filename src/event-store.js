@@ -142,6 +142,40 @@ const REQUIRED_PAYLOAD_KEYS_V2 = {
 const CURRENT_SCHEMA_VERSION = 2;
 
 /**
+ * The ledger could not be read at all. Distinct from "the workspace has no events yet", which is a
+ * legitimately empty stream and still returns `[]`.
+ *
+ * These exist so a projection read can tell the two apart. The append path stays best-effort and
+ * never throws — only reads signal, and only to make the warn-and-fall-back path reachable.
+ */
+class LedgerReadError extends Error {
+  /**
+   * @param {string} ArgWorkspace
+   * @param {any} ArgCause
+   */
+  constructor(ArgWorkspace, ArgCause) {
+    super(`event ledger for '${ArgWorkspace}' could not be read: ${ArgCause && ArgCause.code ? ArgCause.code : ArgCause}`);
+    this.name = 'LedgerReadError';
+    this.workspace = ArgWorkspace;
+    this.cause = ArgCause;
+  }
+}
+
+/** A line before the end of the ledger is unparseable, so the stream has a hole in it. */
+class LedgerCorruptionError extends Error {
+  /**
+   * @param {string} ArgWorkspace
+   * @param {number} ArgLineNumber 1-indexed, to match what an operator sees in an editor.
+   */
+  constructor(ArgWorkspace, ArgLineNumber) {
+    super(`event ledger for '${ArgWorkspace}' is corrupt at line ${ArgLineNumber}: a non-final line could not be parsed, so events are missing`);
+    this.name = 'LedgerCorruptionError';
+    this.workspace = ArgWorkspace;
+    this.lineNumber = ArgLineNumber;
+  }
+}
+
+/**
  * Validate an event against the closed enum + required payload keys. Returns the
  * normalized, ready-to-write event (with id/v/ts auto-assigned if absent) or
  * `null` when the shape is invalid — in which case the caller writes NOTHING.
@@ -333,11 +367,24 @@ function createEventStore(ArgOptions) {
       try {
         Raw = await fs.readFile(EventsFilePath(RootDir, ArgWorkspace), 'utf8');
       } catch(error) {
-        // Missing file → empty stream; any other read error also degrades to empty
-        // since this is a non-authoritative read.
-        return [];
+        // A MISSING file is the normal first-run case and is genuinely an empty stream.
+        if(error && error.code === 'ENOENT') return [];
+        // Anything else — EACCES, EIO, EISDIR — is NOT an empty ledger, and returning `[]` here is
+        // what made contract item (c) structurally untriggerable: a permission error and a
+        // brand-new workspace were indistinguishable, so a projection could serve nothing at all
+        // and call it a complete read. Throwing is what lets the caller warn and fall back to the
+        // authoritative JSON store, which is the documented behaviour.
+        throw new LedgerReadError(ArgWorkspace, error);
       }
       const Lines = Raw.split('\n');
+      // Index of the last line with content. Only THAT line may be torn: an append is a single
+      // write of one newline-terminated line, so an interruption can only ever damage the end of
+      // the file. Damage anywhere before it means bytes were lost from the middle, which is
+      // corruption rather than an interrupted write.
+      let LastContentIndex = -1;
+      for(let Index = Lines.length - 1; Index >= 0; Index -= 1) {
+        if(Lines[Index].length > 0) { LastContentIndex = Index; break; }
+      }
       const Events = [];
       for(let Index = 0; Index < Lines.length; Index += 1) {
         const Line = Lines[Index];
@@ -348,9 +395,13 @@ function createEventStore(ArgOptions) {
         try {
           Parsed = JSON.parse(Line);
         } catch(error) {
-          // A torn final line from an interrupted append, or any unparseable
-          // line, is skipped rather than throwing.
-          continue;
+          // A torn FINAL line is an interrupted append — expected, and skipped.
+          if(Index === LastContentIndex) continue;
+          // An unparseable line anywhere earlier means the stream has a hole in it. Every event
+          // after that hole is still readable, so this would otherwise fold to a plausible but
+          // SHORT history — exactly the failure the coverage gate exists to catch, arriving by a
+          // route the gate cannot see because no append ever failed.
+          throw new LedgerCorruptionError(ArgWorkspace, Index + 1);
         }
         // Skip unknown/forward-incompatible types (forward-compatible read).
         if(!Parsed || typeof Parsed !== 'object' || !Object.prototype.hasOwnProperty.call(REQUIRED_PAYLOAD_KEYS, Parsed.type)) {
@@ -363,4 +414,11 @@ function createEventStore(ArgOptions) {
   };
 }
 
-module.exports = { createEventStore, CURRENT_SCHEMA_VERSION, REQUIRED_PAYLOAD_KEYS, REQUIRED_PAYLOAD_KEYS_V2 };
+module.exports = {
+  createEventStore,
+  CURRENT_SCHEMA_VERSION,
+  REQUIRED_PAYLOAD_KEYS,
+  REQUIRED_PAYLOAD_KEYS_V2,
+  LedgerReadError,
+  LedgerCorruptionError,
+};

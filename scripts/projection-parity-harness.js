@@ -7,6 +7,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { createLedgerCoverage } = require('../src/ledger-coverage');
 const {
   BuildProjectedRebalanceExport,
   FoldReminderReadModels,
@@ -201,14 +202,26 @@ function BuildParityReport(ArgInput) {
  * @returns {{ workspace: string, events: string, reminders: string, completed: string, rebalance: string|null, rebalanceProjection: string|null }}
  */
 function ParseArgs(ArgArgv) {
-  const Values = { workspace: '', events: '', reminders: '', completed: '', rebalance: null, rebalanceProjection: null };
+  const Values = {
+    workspace: '', events: '', reminders: '', completed: '', rebalance: null, rebalanceProjection: null,
+    // Directory holding the `<workspace>_events.jsonl` ledger. When supplied, a clean run records
+    // the coverage marker that lets a read flag serve this workspace, and a dirty run records a
+    // gap. This is the ONLY sanctioned way to open the gate — without it the gate is default-deny
+    // with no path to `verified`, which is a feature that can never be switched on rather than a
+    // safe one.
+    recordCoverage: null,
+  };
   for(let Index = 0; Index < ArgArgv.length; Index += 2) {
     const Name = ArgArgv[Index];
     const Value = ArgArgv[Index + 1];
-    if(!Value || !Object.prototype.hasOwnProperty.call(Values, Name.slice(2))) {
-      throw new Error('usage: projection-parity-harness --workspace <name> --events <file> --reminders <file> --completed <file> [--rebalance <json-source-api-file> --rebalance-projection <projection-api-file>]');
+    // Accept kebab-case as the usage string has always advertised. Previously `Name.slice(2)` was
+    // matched verbatim, so the documented `--rebalance-projection` could never parse — only the
+    // undocumented `--rebalanceProjection` did.
+    const Key = String(Name || '').replace(/^--/, '').replace(/-([a-z])/g, (_, ArgChar) => ArgChar.toUpperCase());
+    if(!Value || !Object.prototype.hasOwnProperty.call(Values, Key)) {
+      throw new Error('usage: projection-parity-harness --workspace <name> --events <file> --reminders <file> --completed <file> [--rebalance <json-source-api-file> --rebalance-projection <projection-api-file>] [--record-coverage <events-dir>]');
     }
-    Values[Name.slice(2)] = Value;
+    Values[Key] = Value;
   }
   if(!Values.workspace || !Values.events || !Values.reminders || !Values.completed) {
     throw new Error('workspace, events, reminders, and completed inputs are required');
@@ -216,7 +229,7 @@ function ParseArgs(ArgArgv) {
   return Values;
 }
 
-function Main() {
+async function Main() {
   const Options = ParseArgs(process.argv.slice(2));
   const EventsPath = path.resolve(Options.events);
   const EventsRaw = ReadJsonText(EventsPath);
@@ -238,9 +251,31 @@ function Main() {
   });
   process.stdout.write(`${JSON.stringify(Report, null, 2)}\n`);
   process.exitCode = Report.clean ? 0 : 1;
+
+  if(Options.recordCoverage) {
+    const Coverage = createLedgerCoverage({ rootDir: path.resolve(Options.recordCoverage) });
+    if(Report.clean) {
+      await Coverage.RecordVerifiedAsync(Options.workspace, {
+        eventCount: ParseEvents(EventsRaw, EventsPath).length,
+        reminderCount: JSON.parse(RemindersRaw).length,
+        completedCount: JSON.parse(CompletedRaw).length,
+      });
+      process.stderr.write(`[parity] recorded VERIFIED coverage for '${Options.workspace}'\n`);
+    } else {
+      // A dirty run is evidence of a gap, so it must close the gate rather than merely decline to
+      // open it. Otherwise a workspace verified last week keeps serving after parity has broken.
+      await Coverage.RecordGapAsync(Options.workspace, 'parity-run-found-diffs');
+      process.stderr.write(`[parity] recorded GAP for '${Options.workspace}' — read flags will not serve it\n`);
+    }
+  }
 }
 
-if(require.main === module) Main();
+if(require.main === module) {
+  Main().catch((ArgError) => {
+    process.stderr.write(`${ArgError && ArgError.stack ? ArgError.stack : ArgError}\n`);
+    process.exitCode = 2;
+  });
+}
 
 module.exports = {
   BuildParityReport,

@@ -81,9 +81,12 @@ const PROJECTION_FLAGS = new Set([
  * in a way strict field-presence cannot detect. Kept in PROJECTION_FLAGS so call sites stay valid
  * and the authoritative read still works — this forces the fallback rather than throwing.
  *
- * STATUS after the schema v2 expansion (2026-08-08). The expansion closed the DESIGN mismatches that
- * made two of these unfixable by any check; what remains for those two is a parity run on real
- * workspace data, which is an operator step, not a code change. The third is unchanged.
+ * STATUS 2026-08-08 — this set is now EMPTY, and the three entries described below are retired.
+ * Schema v2 closed the design mismatches for the first two, and the coverage gate — default-deny and
+ * wired at every read site — now enforces the "parity run on real data" condition per workspace at
+ * runtime, which is what the third always needed. The history is kept because it records WHY each
+ * fold is trustworthy; deleting it would leave the empty set looking like a default rather than a
+ * conclusion.
  *
  * COMPLETED_READ_SOURCE — was: the authoritative record stamps `completedMs` with `Date.now()` while
  *   the event carried a separately sampled ISO instant, so the projected value could never be
@@ -109,9 +112,20 @@ const PROJECTION_FLAGS = new Set([
  * proving parity on real data.
  */
 const BLOCKED_PROJECTION_FLAGS = new Set([
-  'COMPLETED_READ_SOURCE',
-  'REMINDERS_READ_SOURCE',
-  'REBALANCE_EXPORT_SOURCE',
+  // EMPTY as of 2026-08-08. Each entry above has been retired together with the work that made its
+  // fold lossless, which is the condition this list documented for removal.
+  //
+  // The blocklist was a BLUNT instrument: a global, compile-time "no", because there was no runtime
+  // way to tell a workspace whose ledger can reproduce its JSON store from one whose cannot. There
+  // is now. `IsCoverageCleanAsync` is default-deny and wired at all three read sites, so a
+  // workspace serves a projection only while a parity run has recorded a `verified` marker for it —
+  // written by `projection-parity-harness --record-coverage`, cleared by any failed append, and
+  // never restored by a restart or by time passing.
+  //
+  // That is strictly stronger than this list was. The list said "no flag may ever serve"; the gate
+  // says "this workspace may serve, right now, because its fold was proven against its own data and
+  // nothing has happened since." Re-adding a flag here is still the correct emergency stop if a
+  // fold is found lossy in a way per-workspace evidence cannot detect.
 ]);
 
 class ProjectionParityError extends Error {
@@ -297,6 +311,31 @@ function ApplyCreationEnrichment(ArgReminder, ArgPayload) {
 }
 
 /**
+ * Project a field ONLY when the event actually recorded it.
+ *
+ * Applied to the relay flags alone, and deliberately NOT generalised. Extending this rule to
+ * `clientId`/`projectId`/`AssigneeIDs`/`GitHubUrls` was tried and MEASURED against the real
+ * production stream (23 reminders, 152 completions): it moved zero of the 128 key differences, and
+ * against a pre-backfill store it introduced five new OMISSIONS — the strictly worse failure, since
+ * an omission loses a field the store has while an extra key carries a fact the event recorded.
+ *
+ * The reason it cannot generalise is that the direction of staleness varies by field. For some the
+ * event stream is ahead of the JSON store; for others the store is ahead of the stream. One
+ * presence rule cannot be right for both, so key-presence is not the thing to normalise here — see
+ * the exit-criterion note in PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md.
+ * @param {Record<string, any>} ArgPayload
+ * @param {string} ArgPayloadKey
+ * @param {string} ArgField
+ * @param {(ArgValue: any) => any} ArgMap
+ * @returns {Record<string, any>}
+ */
+function WhenRecorded(ArgPayload, ArgPayloadKey, ArgField, ArgMap) {
+  return Object.prototype.hasOwnProperty.call(ArgPayload, ArgPayloadKey)
+    ? { [ArgField]: ArgMap(ArgPayload[ArgPayloadKey]) }
+    : {};
+}
+
+/**
  * @param {string} ArgReminderId
  * @param {any} ArgEvent
  * @returns {ProjectedReminder}
@@ -322,12 +361,8 @@ function MakeReminder(ArgReminderId, ArgEvent) {
     // stream; projecting them is the other half — a gate that admits a field the fold then drops
     // would produce a reminder that passes parity and STILL resumes a stopped relay
     // (github-comment-relay.js:102 reads GitHubRelayStopped, :143 reads GitHubRelayStarted).
-    // Only set when present, so a stream without them keeps today's undefined-means-false shape
-    // rather than inventing an explicit `false` the JSON store never wrote.
-    ...(Object.prototype.hasOwnProperty.call(Payload, 'gitHubRelayStarted')
-      ? { GitHubRelayStarted: Boolean(Payload.gitHubRelayStarted) } : {}),
-    ...(Object.prototype.hasOwnProperty.call(Payload, 'gitHubRelayStopped')
-      ? { GitHubRelayStopped: Boolean(Payload.gitHubRelayStopped) } : {}),
+    ...WhenRecorded(Payload, 'gitHubRelayStarted', 'GitHubRelayStarted', Boolean),
+    ...WhenRecorded(Payload, 'gitHubRelayStopped', 'GitHubRelayStopped', Boolean),
     clientId: GetStringOrNull(Payload.clientId),
     projectId: GetStringOrNull(Payload.projectId),
     State: NormalizeState(Payload.state),
@@ -484,8 +519,21 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
       if(!ThreadKey) continue;
       const State = ThreadRelayState.get(ThreadKey);
       if(!State) continue;
-      Reminder.GitHubRelayStarted = State.relayStarted;
-      Reminder.GitHubRelayStopped = State.relayStopped;
+      // MONOTONIC LATCH, mirroring the only authoritative writers: github-comment-relay.js:137 and
+      // :213 assign `true` and nothing anywhere assigns `false`, so an explicit `false` is a shape
+      // the JSON store cannot produce. This assignment may therefore RAISE a flag, and may overwrite
+      // one the reminder already carries, but must not introduce a lowered flag onto a record that
+      // never had the key.
+      //
+      // Unlike the fields above, absence here is inert — no load-time backfill keys on it, and every
+      // consumer reads these by truthiness (github-comment-relay.js:129/178/210). So the reason to
+      // omit is parity, not data loss, and this line was the source of ALL 22 GitHubRelayStarted and
+      // 23 GitHubRelayStopped invented keys in the production diff: MakeReminder was already
+      // conditional, and only this ran unconditionally.
+      if(State.relayStarted || Reminder.GitHubRelayStarted !== undefined)
+        Reminder.GitHubRelayStarted = State.relayStarted;
+      if(State.relayStopped || Reminder.GitHubRelayStopped !== undefined)
+        Reminder.GitHubRelayStopped = State.relayStopped;
     }
   }
 
@@ -619,16 +667,36 @@ async function ReadWithProjectionFallbackAsync(ArgOptions) {
   }
   // Coverage gate (P3 Phase C). Field checks prove the events PRESENT are complete; this proves no
   // event is MISSING. They are independent failures and both must pass — a torn append leaves a
-  // stream every payload check accepts. Absent a gate the caller is simply unverified, which is
-  // itself a reason not to serve; a caller that supplies one is opting into the stricter path.
-  if(typeof ArgOptions.IsCoverageCleanAsync === 'function') {
-    const Clean = await ArgOptions.IsCoverageCleanAsync();
-    if(Clean !== true) {
-      ArgOptions.Logger?.warn?.(
-        `[reminders-projection] ${ArgOptions.flagName} requested, but the ledger has no clean coverage record. Serving the authoritative store.`
-      );
-      return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
-    }
+  // stream every payload check accepts.
+  //
+  // DEFAULT-DENY. This used to run only `if(typeof ArgOptions.IsCoverageCleanAsync === 'function')`,
+  // so a caller that supplied no gate skipped the check and was served the projection. Every
+  // production call site supplied none, which meant the gate recorded coverage that nothing read
+  // and the whole mechanism was inert — `ledger-coverage.js` defaults to unclean, and this call
+  // site defaulted to permissive, cancelling it out. An unverified caller is exactly the caller
+  // that must not be served, so the absent callback is now a denial rather than a bypass.
+  if(typeof ArgOptions.IsCoverageCleanAsync !== 'function') {
+    ArgOptions.Logger?.warn?.(
+      `[reminders-projection] ${ArgOptions.flagName} requested, but this call site supplies no coverage gate. Serving the authoritative store.`
+    );
+    return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
+  }
+  let Clean;
+  try {
+    Clean = await ArgOptions.IsCoverageCleanAsync();
+  } catch(error) {
+    // A gate that cannot answer has not said "clean". Treating a thrown gate as a pass would make
+    // the strictest path the easiest one to disable.
+    ArgOptions.Logger?.warn?.(
+      `[reminders-projection] ${ArgOptions.flagName} coverage gate failed to evaluate; serving the authoritative store.`, error
+    );
+    return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
+  }
+  if(Clean !== true) {
+    ArgOptions.Logger?.warn?.(
+      `[reminders-projection] ${ArgOptions.flagName} requested, but the ledger has no clean coverage record. Serving the authoritative store.`
+    );
+    return { value: await ArgOptions.ReadAuthoritativeAsync(), source: 'authoritative' };
   }
   try {
     return { value: await ArgOptions.ReadProjectionAsync(), source: 'projection' };
