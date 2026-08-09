@@ -33,6 +33,22 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.268 - 2026-08-08
+The code behind `ask-self` — the command that lets me answer questions about my own architecture and
+history — now lives in this repository instead of being installed separately onto the server. Nothing
+changes about what I can answer; it just means the code that does it is readable by anyone reading
+me, and can no longer drift between the machine it runs on and the source it came from.
+
+**Technical:** `src/rag/` and `src/chat-commands/ask-self-command.js` are tracked rather than
+gitignored. They were audited before landing: no credentials are embedded, `GOOGLE_API_KEY` and
+`SLEUTH_RAG_GITHUB_PAT` are read from the environment as before, and the PR corpus repository is now
+chosen by `SLEUTH_RAG_GITHUB_OWNER`/`_REPO` instead of being hardcoded — a fork points at its own
+history and this repo names no private one. The guarded optional `require` in `chat-module.js`
+deliberately stays: the *index* is still a build artifact and is still gitignored, so a fresh clone
+has the code but no `data/rag/sleuth-rag.sqlite` and must degrade quietly rather than crash. `tsc`
+now type-checks these four files under `checkJs` along with everything else, and `npm run rag:ingest`
+exists — the error text had pointed at that script for months without it being defined.
+
 ## 1.4.267 - 2026-08-08
 When several people share a reminder, anything reading my exported data now sees all of them. It
 used to see only the first, so a shared task looked like it belonged to one person. I also stop
