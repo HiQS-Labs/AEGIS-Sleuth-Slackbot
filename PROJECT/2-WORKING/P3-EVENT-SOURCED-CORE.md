@@ -3,7 +3,7 @@ title: P3 — Event-Sourced Core (the log is the source of truth)
 created: 2026-06-12
 updated: 2026-08-08
 branch: development
-status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 is BLOCKED on an event-schema gap that prevents boot-state reconstruction. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; lanes corrected, but ONLY Phase 5 (p6) may be re-run — Phase 6a is blocked with Phase 4. See "Marathon run 2026-08-08" below for the full accounting.
+status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 was BLOCKED on an event-schema gap; schema v2 (PR #31, 1.4.267) CLOSED three of that gap's four blockers — what remains is `readAll()` having no read-error signal, plus wiring the coverage gate that currently records state nothing reads. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; lanes corrected, but ONLY Phase 5 (p6) may be re-run — Phase 6a is blocked with Phase 4. All three projection read flags REMAIN BLOCKED and must stay so until the coverage gate is default-deny and wired; see "STATUS UPDATE 2026-08-08 (post-schema-v2)" below for the per-blocker scoring. See "Marathon run 2026-08-08" for the full accounting.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 model: event-sourcing + projections (strangler migration)
@@ -77,6 +77,49 @@ change:
 extend emission coverage to the omitted transitions, add a strict boot-read error signal, backfill
 the new fields, and only then establish parity. That is its own plan, not a retry of p5.
 
+#### STATUS UPDATE 2026-08-08 (post-schema-v2) — three of those four blockers are CLOSED
+
+The schema expansion called for above was written and shipped as **schema v2 (PR #31, 1.4.267)**, see
+[`P3-EVENT-SCHEMA-EXPANSION.md`](./P3-EVENT-SCHEMA-EXPANSION.md). Scoring the four blockers above
+against `src/event-store.js` as it now stands, rather than leaving the list reading as though none had
+moved:
+
+| # | Blocker above | Status |
+|---|---|---|
+| 1 | `ReminderCreated` omits `Original*` / `IgnoreSnooze` | **CLOSED.** v2 requires `createdOn`, `originalSenderId`, `originalMessageId`, `originalThreadTs`, `originalChannelName`, `ignoreSnooze`, `assigneeIds`, `clientId`. |
+| 2 | omitted `due`/`overdue`/`posting`/`posted`/`rescheduled`/`failed`/`dead-letter` transitions | **CLOSED.** `ReminderStateChanged` covers all seven; `ReminderRemoved` covers queue exit, which this list never identified and real data proved was the worst of them. |
+| 3 | `ReminderCompleted` lacks `sourceChannelID`, `dueDate`, `clientId` | **CLOSED.** v2 requires those three plus `completedMs`, sampled once and threaded to both writes. |
+| 4 | `readAll()` degrades to an empty stream with **no error signal** | **STILL OPEN.** `src/event-store.js` still returns `[]` for *any* read error, so I/O failure is indistinguishable from a genuinely empty ledger and contract item (c) remains structurally untriggerable. |
+
+The separate GitHub-relay finding recorded under the Phase 5 table below is also **CLOSED**: v2
+carries `gitHubRelayStarted`/`gitHubRelayStopped` on creation and import, and `ThreadRelayStateChanged`
+carries every later change, thread-scoped.
+
+**Phase 4 is therefore no longer blocked on schema.** It is blocked on blocker 4 plus the coverage
+wiring described below. That is a materially smaller remaining scope than this section implied, and
+the distinction matters: leaving it unstated caused `ask-self` to report the schema gap as open
+weeks after it was closed, because this document is what it reads.
+
+#### The gate that does not yet gate — found 2026-08-08
+
+`src/ledger-coverage.js` exists and is correct, and `ReadWithProjectionFallbackAsync` accepts an
+`IsCoverageCleanAsync` callback. **Neither is connected.** Two defects, both verified in code:
+
+1. **No production caller supplies it.** `IsCleanAsync` appears nowhere outside
+   `tests/ledger-coverage.test.js`. All three read sites — `reminders-module.js:2984`,
+   `web-api.js:408`, and the export path at `web-api.js:937` — omit the callback. The append path
+   records coverage faithfully (`BeginAppend`/`SettleAppend`); nothing ever asks for the result.
+2. **The gate fails OPEN when omitted.** The check is wrapped in
+   `if(typeof ArgOptions.IsCoverageCleanAsync === 'function')`, so a caller that supplies nothing
+   skips it and serves the projection. Its own comment says an ungated caller "is simply unverified,
+   which is itself a reason not to serve" — the code does not do that. `ledger-coverage.js` defaults
+   to unclean; this call site defaults to permissive, which cancels it out.
+
+Consequence: unblocking any flag today would serve a projection with **no coverage gate at all**,
+which is the precise failure the gate was built to prevent. Fix before any flip: default-deny in
+`ReadWithProjectionFallbackAsync` (absent callback ⇒ do not serve) and thread
+`#LedgerCoverage.IsCleanAsync` through all three call sites.
+
 ### Phase 5 read cutover — result of the 2026-08-08 re-run
 
 p6 re-ran on the corrected lane via `MARATHON-P6-ONLY.yaml` and is **APPROVED, gate passed**
@@ -101,6 +144,12 @@ doing its job, exactly as it did for p5.
 **This adds a requirement to the schema proposal.** The event-schema expansion that unblocks Phase 4
 must ALSO carry the GitHub-relay state fields, or `COMPLETED_READ_SOURCE` stays blocked even after
 Phase 4 lands. That is a new finding from this run, not part of the original Phase 4 blocker list.
+
+> **DONE — schema v2, 2026-08-08.** `gitHubRelayStarted`/`gitHubRelayStopped` are required on
+> `ReminderCreated` and `BaselineReminderImported`, and `ThreadRelayStateChanged` carries later
+> changes thread-scoped on `OriginalThreadTs ?? OriginalMessageID`. The "converted" marks in the table
+> above describe the p6 marathon lane, **not** production: all three flags are in
+> `BLOCKED_PROJECTION_FLAGS` and every one of them serves the authoritative JSON store today.
 
 **Why Phases 5 and 6a delivered modules but no integration.** Their marathon lanes excluded the
 files they were meant to change — `src/reminders-module.js` and `src/web-api.js` were not in p6's
