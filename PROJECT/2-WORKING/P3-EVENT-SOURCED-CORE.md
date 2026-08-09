@@ -298,6 +298,57 @@ mode left the building is out of scope by decision.
 7. Confirm the gate opens and the two flags serve the projection; watch for one full reminder cycle.
 8. Reconcile `deploy/reminders-export/` drift, or record deliberately that it is frozen.
 
+### Cross-model consult, 2026-08-09 — the inventory above was NOT complete
+
+Codex and agy reviewed the inventory independently. Both found real defects, and they converge on
+the same theme: **the gate proves a moment, and nothing binds that proof to the moment it was taken.**
+Each item below was re-verified in the code before being written down — the consult runner flagged
+`FIRSTHAND_COUNT=0` for both models, so nothing here is recorded on their say-so alone.
+
+#### Verified and FIXED immediately (a defect introduced by this session's own change)
+
+**`WriteSnapshotAndCompactAsync` would have overwritten the authoritative stores from the fold.**
+It calls `WriteDerivedSnapshotAsync` first, which writes `reminderFilePath` and `completionFilePath`
+from `ArgOptions.folded`. Adding `authoritative` to `BuildCompactedEvents` alone made one options
+object mean "trust the fold" in one function and "trust the store" in the other — so an operator
+compacting with an authoritative seed would have had the JSON store clobbered by the short fold
+*first*, destroying the very `ShouldPostOn` the seeding exists to preserve.
+
+Fixed: the function now **throws** when `authoritative` is supplied, rather than picking a winner.
+Authoritative-seeded compaction must use `BuildCompactedEvents` and write only the event log. Two
+tests cover it — one proving the authoritative due date survives compaction, one proving the
+contradiction is refused.
+
+#### Verified, still OPEN
+
+| # | Finding | Evidence |
+|---|---|---|
+| 1 | **A crash mid-append leaves the marker `verified` while the log is short.** `BeginAppend` increments an in-memory counter only; `SettleAppend(false)` is what writes a durable gap. Kill the process between them and the shortfall is real but unrecorded — the very case `ledger-coverage.js`'s own comment claims to handle ("the shortfall is in the file, not merely in this process's memory"). | `src/ledger-coverage.js` — `BeginAppend` is `InFlight.set(...)` and nothing else |
+| 2 | **A successful-but-wrong append never invalidates the proof.** `SettleAppend(ok=true)` only decrements the counter. A schema-valid event carrying a wrong value, or a reducer bug shipped after verification, keeps serving under the old `verified` marker. The marker is not bound to a ledger generation. | `src/ledger-coverage.js:IsCleanAsync` tests `Marker.state === 'verified'` and nothing about the ledger's current content |
+| 3 | **The harness folds with `strict:false`; the served read path uses `strict:true`.** So the harness can record `verified` for a stream the live projection would then refuse — verification and production disagree about what counts as foldable. | `scripts/projection-parity-harness.js` vs `web-api.js` / `reminders-module.js` read paths |
+| 4 | **The harness parses raw JSONL directly instead of going through `event-store.readAll()`**, so it never exercises the corrupt-tail and unknown-type handling that production reads have — including the new `LedgerReadError` / `LedgerCorruptionError` signals. | harness reads the file itself |
+| 5 | **No ledger flush on shutdown.** `#AppendLedgerEvent` is fire-and-forget and nothing awaits outstanding appends during `StopAsync`, so a graceful stop does not prove the log caught up. This makes "stop the service before compacting" insufficient on its own. | `src/reminders-module.js` `#AppendLedgerEvent` / `StopAsync` |
+| 6 | **Absent vs explicit `false` may be a real distinction, not noise.** Both models pushed back on "omit, don't invent": `Boolean()` coercion in compaction erases the difference between "never relayed" and "relay explicitly stopped". Before implementing the omit fix, confirm no consumer needs to tell those apart — `github-comment-relay.js` refusing to relay when `GitHubRelayStopped` is set is the case to check. | flagged by both models |
+
+#### What this changes
+
+Items 1–5 mean the current gate is a **fail-closed brake, not a proof**: it reliably refuses when it
+knows something is wrong, and it does not know about crashes, wrong-but-valid events, or the gap
+between how verification folds and how production folds. That is adequate for keeping the flags shut
+— which is what it is doing today — and **not** adequate as the sole authorisation to serve.
+
+The cheapest fix that addresses 1, 2 and part of 3 together is to bind the marker to a **ledger
+generation**: record event count and last event id at verification, and have `IsCleanAsync` compare
+the current ledger against it. Any divergence — crash-lost, failed, or merely new — reads as unclean.
+That is strict enough that a continuously-appending workspace would re-close the gate on every
+reminder change, so it needs pairing with either scheduled re-verification or continuous shadow
+diffing. Sequencing that trade-off is the next design decision, and it belongs before the flip, not
+after.
+
+Item 6 must be resolved **before** the omit-don't-invent change, not after: if absence and `false`
+are genuinely different, then omitting is the wrong fix and the authoritative records are the thing
+that should gain explicit values.
+
 #### Deployed and flipped on both servers — 2026-08-09
 
 All three flags are set to `projection` in `.env.runtime` on dev and production. Both refuse and

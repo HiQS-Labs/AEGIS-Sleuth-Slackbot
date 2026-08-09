@@ -138,3 +138,50 @@ test('compaction preserves relay state for an OPEN relay-capable reminder', () =
   assert.equal(ReFolded.reminders[0].GitHubRelayStopped, true);
   assert.equal(ReFolded.reminders[0].GitHubRelayStarted, true);
 });
+
+test('compaction seeded from the AUTHORITATIVE store wins over the fold', async () => {
+  // Compaction replaces the log, so whatever it writes becomes the entire past. When the ledger is
+  // short, the fold is wrong and the JSON store is right — this is the case that matters, because
+  // the fold-seeded version would make a recoverable gap permanent.
+  const Folded = FoldReminderReadModels([BaselineEvent()], { strict: true });
+  const Stale = Folded.reminders[0];
+
+  const Authoritative = [{
+    ...Stale,
+    // The JSON store holds a later due date the ledger never learned about.
+    ShouldPostOn: new Date('2030-01-01T00:00:00.000Z'),
+  }];
+
+  const Compacted = BuildCompactedEvents({
+    workspace: 'snapshot-test', folded: Folded, authoritative: { reminders: Authoritative, completed: [] },
+  });
+  const ReFolded = FoldReminderReadModels(Compacted, { strict: true });
+  assert.equal(
+    new Date(ReFolded.reminders[0].ShouldPostOn).toISOString(), '2030-01-01T00:00:00.000Z',
+    'the authoritative due date must survive compaction, not the fold\'s stale one'
+  );
+});
+
+test('WriteSnapshotAndCompactAsync REFUSES an authoritative seed', async (t) => {
+  // The two intents are contradictory: that function derives the JSON stores FROM the fold and
+  // overwrites them, while `authoritative` means the stores are the truth. Combining them silently
+  // clobbers the authoritative records with the fold's version — the exact data loss the seeding
+  // exists to prevent. It must refuse rather than pick a winner.
+  const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-guard-'));
+  t.after(() => fs.rm(Root, { recursive: true, force: true }));
+  const Folded = FoldReminderReadModels([BaselineEvent()], { strict: true });
+
+  await assert.rejects(
+    () => WriteSnapshotAndCompactAsync({
+      reminderFilePath: path.join(Root, 'r.json'),
+      completionFilePath: path.join(Root, 'c.json'),
+      eventFilePath: path.join(Root, 'e.jsonl'),
+      workspace: 'snapshot-test',
+      events: [],
+      folded: Folded,
+      authoritative: { reminders: [], completed: [] },
+    }),
+    /cannot be combined/,
+    'the contradiction must be rejected loudly'
+  );
+});

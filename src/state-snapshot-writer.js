@@ -214,6 +214,24 @@ function BuildCompactedEvents(ArgOptions) {
  * @returns {Promise<{ compacted: boolean, replayEventCount: number }>}
  */
 async function WriteSnapshotAndCompactAsync(ArgOptions) {
+  // These two intents are mutually exclusive, and combining them silently destroys data.
+  //
+  // WriteDerivedSnapshotAsync DERIVES the JSON stores FROM the fold and overwrites them — that is
+  // the Phase 6a direction, where the ledger is becoming the source of truth. `authoritative` means
+  // the opposite: the JSON store is the truth and the ledger is being rebuilt to match it. Run both
+  // and the first call overwrites the authoritative records with the fold's version of them, which
+  // is exactly the short-ledger data loss the authoritative seeding exists to prevent — it would
+  // have clobbered the one correct `ShouldPostOn` this whole exercise was about.
+  //
+  // Refuse rather than pick a winner. A caller compacting against an authoritative store wants
+  // BuildCompactedEvents plus a ledger write, and must not touch the JSON stores at all.
+  if(ArgOptions && ArgOptions.authoritative) {
+    throw new Error(
+      'state-snapshot-writer: `authoritative` cannot be combined with WriteSnapshotAndCompactAsync, '
+      + 'which derives and OVERWRITES the JSON stores from the fold. Use BuildCompactedEvents and '
+      + 'write only the event log.'
+    );
+  }
   await WriteDerivedSnapshotAsync(ArgOptions);
   const EventCount = Array.isArray(ArgOptions.events) ? ArgOptions.events.length : 0;
   const Limit = Number.isInteger(ArgOptions.compactionEventCount) && ArgOptions.compactionEventCount > 0
