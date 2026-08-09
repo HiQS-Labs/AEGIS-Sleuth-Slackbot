@@ -44,9 +44,40 @@ function CoverageFilePath(ArgRootDir, ArgWorkspace) {
 }
 
 /**
- * @param {{ rootDir: string, Logger?: { warn?: (...args: any[]) => void } }} ArgOptions
+ * One instance per ledger directory, per process.
+ * @type {Map<string, any>}
+ */
+const SharedInstances = new Map();
+
+/**
+ * Get the coverage gate for a ledger directory.
+ *
+ * Instances are SHARED per `rootDir`, which is load-bearing rather than an optimization.
+ * `reminders-module` and `web-api` read the same ledger directory in the same process, and the
+ * in-flight append counter lives in memory. Two independent instances would let web-api serve a
+ * projection while reminders-module has an append in flight — precisely the window the counter
+ * exists to cover, reopened by construction. The durable marker is shared through the filesystem
+ * either way; only the in-flight signal needs this.
+ *
+ * @param {{ rootDir: string, Logger?: { warn?: (...args: any[]) => void }, isolate?: boolean }} ArgOptions
+ *   `isolate: true` bypasses the cache, for a test that must genuinely simulate a fresh process.
+ *   Without it such a test would get the cached instance back, read its in-memory marker, and pass
+ *   without ever touching the disk — proving nothing about what survives a restart.
  */
 function createLedgerCoverage(ArgOptions) {
+  if(ArgOptions && ArgOptions.isolate === true) return BuildLedgerCoverage(ArgOptions);
+  const RootDir = ArgOptions && ArgOptions.rootDir;
+  const Existing = SharedInstances.get(RootDir);
+  if(Existing) return Existing;
+  const Instance = BuildLedgerCoverage(ArgOptions);
+  SharedInstances.set(RootDir, Instance);
+  return Instance;
+}
+
+/**
+ * @param {{ rootDir: string, Logger?: { warn?: (...args: any[]) => void } }} ArgOptions
+ */
+function BuildLedgerCoverage(ArgOptions) {
   const RootDir = ArgOptions && ArgOptions.rootDir;
   const Logger = ArgOptions && ArgOptions.Logger;
 

@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/app.js",
     "test": "jest --forceExit && npm run --silent test:node",
-    "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js tests/projection-parity.test.js tests/derived-snapshot-writer.test.js tests/ledger-coverage.test.js",
+    "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js tests/projection-parity.test.js tests/derived-snapshot-writer.test.js tests/ledger-coverage.test.js tests/projection-coverage-gate.test.js",
     "projection:parity": "node scripts/projection-parity-harness.js",
     "rag:ingest": "node src/rag/ingest.mjs",
     "test:watch": "jest --watch",
@@ -54,7 +54,8 @@
       "<rootDir>/tests/projection-parity.test.js",
       "<rootDir>/tests/derived-snapshot-writer.test.js",
       "<rootDir>/tests/p3-reversibility-drill.test.js",
-      "<rootDir>/tests/ledger-coverage.test.js"
+      "<rootDir>/tests/ledger-coverage.test.js",
+      "<rootDir>/tests/projection-coverage-gate.test.js"
     ],
     "collectCoverageFrom": [
       "src/**/*.js"
