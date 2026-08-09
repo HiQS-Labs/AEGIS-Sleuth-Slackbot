@@ -171,6 +171,133 @@ So the honest position: the switches are now **verifiable and safe**, and on tod
 correctly evaluate to "do not serve". Enabling a flag is therefore a no-op that logs its refusal —
 which is the right thing for it to do, and is not the same as being switched over.
 
+> **SUPERSEDED, same day.** The table above was written before compaction was seeded from the
+> authoritative store. Two of its three rows no longer apply. See the corrected accounting below,
+> which is the one to trust.
+
+### THE COMPLETE REMAINING INVENTORY — 2026-08-09
+
+Written in one pass, after an exhaustive sweep, because this plan had been surfacing its own gaps one
+at a time. Everything known to stand between today and a served projection is in this section. Where
+something is *not* known, that is stated rather than omitted.
+
+#### What compaction actually achieves, measured on a copy of production
+
+`BuildCompactedEvents` now accepts `authoritative` and prefers it over the fold. Compaction replaces
+the log, so seeding it from the fold would bake in whatever the ledger was missing with no earlier
+event left to correct it — which was not hypothetical: reminder `9ba4c949` held a due date two days
+stale because its reschedules were the events the emitter bug dropped.
+
+| Measure | Fold-seeded | Authoritative-seeded |
+|---|---|---|
+| events | 1809 → 327 | 1809 → 327 |
+| strict fold | PASSES | PASSES |
+| reminder id set | matches | matches |
+| ordering | ✗ differs | **✓ matches** |
+| `ShouldPostOn` | ✗ 1 stale (`9ba4c949`) | **✓ none** |
+| `CreatedOn` ±1ms | ✗ 3 records | **✓ none** |
+
+#### The one remaining parity gap, exhaustively characterised
+
+Comparing every key of every record, in both directions, on real production data:
+
+| Class | Count | Fields |
+|---|---|---|
+| Fold **invents** a key absent from the authoritative record | 128 | `GitHubRelayStarted` (22), `GitHubRelayStopped` (23), `clientId` (83) |
+| Fold **omits** a key the authoritative record has | **0** | — |
+| Both present, **values differ** | **0** | — |
+
+One class, three field names, nothing else. `undefined` vs `false`/`null` is semantically identical,
+but the harness requires byte equality, so it blocks a `verified` marker and therefore the gate.
+
+**Fix — omit, don't invent.** The projected read model must not materialise a key nothing ever set.
+This is a *read-model* change only: v2 still requires those keys in the **event payload**, where they
+stay explicit, so the relay-safety property (`github-comment-relay.js:102` refuses to relay when
+`GitHubRelayStopped` is set) is untouched. The two layers must not be conflated.
+
+#### Everything else that is missing, and was not previously written down
+
+1. **Compaction has no operator entry point.** `WriteSnapshotAndCompactAsync` and
+   `BuildCompactedEvents` are called by **tests only** — no production caller, no CLI, no npm script.
+   Needs `scripts/compact-ledger.js` that reads the ledger and both authoritative stores, folds
+   non-strict, and passes `authoritative` through. Without it there is no sanctioned way to compact.
+2. **Compaction races a running service.** It rewrites the whole log while the app appends to it.
+   The service must be stopped for the duration, or the operation needs a lock. Nothing enforces this
+   today, and nothing warns about it.
+3. **Compaction is irreversible** — it discards the v1 audit trail permanently. Requires a verified
+   backup first and an explicit decision, every time. `docs/p3-rollback-runbook.md` exists but
+   predates all of this and does not cover it.
+4. **No test covers the `authoritative` compaction option.** It was added without one; the existing
+   suite only exercises the fold-seeded path.
+5. **Coverage markers are per workspace.** Production has seven workspaces but only `neochrome` has
+   any reminders (23) or a ledger. The other six are correctly refused for want of a marker, and
+   `readAll` returns `[]` for their absent ledgers. Only one workspace needs verifying.
+6. **A clean harness verdict needs the `rebalance` surface**, which only the running web API can
+   produce (`missingSurfaces: ['rebalance']`). With the rebalance integration descoped (below) the
+   harness must be able to reach `clean` without it, or it can never pass.
+7. **`PROJECTION_ERROR_PATH_TEST_ONLY` is registered and unblocked.** It exists so the error-fallback
+   path is testable. It is inert unless someone sets that exact env var, but it is a live code path
+   in production and should be named rather than forgotten.
+
+#### The post-deployment integration this plan never accounted for
+
+`deploy/reminders-export/` is a **separately installed component** — it lives at
+`/root/sleuth-reminders-export/`, outside `/root/sleuth-app/`, so a deploy of the app does not touch
+it. A systemd timer runs it every 5 minutes:
+
+```
+sleuth-reminders-export.timer  (OnCalendar=*:0/5, Persistent=true)
+  └─ publish-reminders-export.mjs
+       GET http://127.0.0.1:2020/workspace/<ws>/reminders?format=rebalance&activeOnly=true
+       └─ commits the JSON to a private git repo, which rebalance-OS reads
+```
+
+This is what those `REBALANCE_EXPORT_SOURCE requested…` log lines every five minutes actually are.
+
+Two problems found:
+
+- **The installed copy has drifted from the repo.** `publish-reminders-export.mjs` and
+  `export-payload.js` differ by checksum, and `events-projection.js` and `completions-payload.js`
+  exist in the repo but were **never installed**. Nobody has reconciled them; the repo is not a
+  description of what is running.
+- **It fails whenever the app restarts.** It polls loopback, so a restart inside its 5-minute window
+  produces `local API request failed: fetch failed` and a unit failure. Observed at 06:30:04 today,
+  caused by a restart of ours. Self-healing on the next tick, but it means every deploy writes a
+  failure into the journal and briefly staleness into the export.
+
+#### Rebalance is descoped — deliberately, not removed
+
+Per the operator: the rebalance integration is being decoupled from the `neochrome` workspace and is
+not to be dealt with further unless a **security or performance** issue appears. Nothing was torn
+down. `REBALANCE_EXPORT_SOURCE` was removed from `.env.runtime` on both hosts, which only changes
+*which store the export reads from* — it reads the authoritative JSON, exactly as it already was,
+since the gate was refusing anyway. The endpoint, the payload builder, the timer, and the export are
+untouched and still running every 5 minutes.
+
+For the record, on the two dimensions that would bring it back into scope:
+
+- **Performance** — leaving the flag off is also the cheaper option. The projection path folds the
+  entire ledger on every call; the authoritative path reads one JSON file. At a 5-minute poll the
+  difference is small but strictly in favour of off.
+- **Security** — the endpoint is bearer-token protected on loopback only, and the transport is a
+  private git repo rather than an inbound port. No open port, no tunnel. Nothing found.
+
+The consequence for this plan is that **the cutover is now two flags, not three**:
+`REMINDERS_READ_SOURCE` and `COMPLETED_READ_SOURCE`, both inward-facing. The one flag whose failure
+mode left the building is out of scope by decision.
+
+#### Ordered plan to a served projection
+
+1. Omit-don't-invent in the fold (3 fields) — the last code change for parity.
+2. `scripts/compact-ledger.js`, passing `authoritative`, with a mandatory backup and a refusal to run
+   while the service is up.
+3. Make a `clean` verdict reachable without the `rebalance` surface.
+4. Test for the `authoritative` compaction path.
+5. Stop service → back up → compact `neochrome` → restart.
+6. `projection-parity-harness --record-coverage` → expect `verified`.
+7. Confirm the gate opens and the two flags serve the projection; watch for one full reminder cycle.
+8. Reconcile `deploy/reminders-export/` drift, or record deliberately that it is frozen.
+
 #### Deployed and flipped on both servers — 2026-08-09
 
 All three flags are set to `projection` in `.env.runtime` on dev and production. Both refuse and

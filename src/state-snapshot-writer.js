@@ -81,13 +81,42 @@ async function WriteDerivedSnapshotAsync(ArgOptions) {
  * therefore replays current state, not the unbounded historical transition stream. Completed
  * records retain their completion event so their timestamp and summary survive the fold.
  *
- * @param {{ workspace: string, folded: FoldedState }} ArgOptions
+ * @param {{ workspace: string, folded: FoldedState, authoritative?: { reminders?: any[], completed?: any[] } }} ArgOptions
+ *   `authoritative` is the JSON store's own records. Supply it whenever they are on hand: it makes
+ *   the compacted baseline describe current state rather than the fold's belief about it.
  * @returns {object[]}
  */
 function BuildCompactedEvents(ArgOptions) {
   const Folded = ArgOptions.folded || { reminders: [], completed: [] };
   const Workspace = ArgOptions.workspace;
   const Events = [];
+
+  /**
+   * Compaction REPLACES the log, so whatever it writes becomes the entire past. Seeding it from the
+   * FOLD bakes in whatever the fold currently believes — including anything the ledger is missing,
+   * with no earlier event left to correct it.
+   *
+   * That is not hypothetical. Production reminder `9ba4c949` had its reschedules dropped by an
+   * emitter that omitted a v2-required key, so the fold held a due date two days stale while the
+   * JSON store held the real one. Compacting the fold would have written the stale date in as the
+   * new baseline and made a recoverable gap permanent.
+   *
+   * So when the caller supplies the authoritative records, they win: the snapshot describes current
+   * state as the system actually holds it, and parity after compaction is true by construction
+   * rather than by luck. Falling back to the fold keeps every existing caller working, and remains
+   * correct wherever the log is known-complete.
+   *
+   * Deliberately NOT a per-record merge. The authoritative store is the whole truth about which
+   * reminders are live — a fold may still hold entries it has dropped, and merging would resurrect
+   * exactly those. Retiring them is `--retire-orphans`'s job, not compaction's.
+   */
+  const Authoritative = ArgOptions.authoritative;
+  const SourceReminders = Authoritative && Array.isArray(Authoritative.reminders)
+    ? Authoritative.reminders
+    : (Array.isArray(Folded.reminders) ? Folded.reminders : []);
+  const SourceCompleted = Authoritative && Array.isArray(Authoritative.completed)
+    ? Authoritative.completed
+    : (Array.isArray(Folded.completed) ? Folded.completed : []);
   const AddBaseline = (/** @type {FoldedReminder} */ ArgReminder, /** @type {string} */ ArgSuffix) => {
     // Cast, not a bare `|| {}`: the runtime null-guard is still wanted, but the untyped `{}` branch
     // widens the union to a property-less object and every field access below becomes TS2339.
@@ -137,8 +166,8 @@ function BuildCompactedEvents(ArgOptions) {
     });
   };
 
-  for(const Reminder of Array.isArray(Folded.reminders) ? Folded.reminders : []) AddBaseline(Reminder, 'open');
-  for(const Completion of Array.isArray(Folded.completed) ? Folded.completed : []) {
+  for(const Reminder of SourceReminders) AddBaseline(Reminder, 'open');
+  for(const Completion of SourceCompleted) {
     const CompletedMs = typeof Completion.completedMs === 'number' ? Completion.completedMs : 0;
     const CompletedAt = new Date(CompletedMs).toISOString();
     AddBaseline({
@@ -181,7 +210,7 @@ function BuildCompactedEvents(ArgOptions) {
  * The log rewrite happens only after both snapshots land, so an interrupted compaction leaves a
  * usable old log or a complete new compacted log.
  *
- * @param {{ reminderFilePath: string, completionFilePath: string, eventFilePath: string, workspace: string, events: object[], folded: FoldedState, compactionEventCount?: number, Logger?: any }} ArgOptions
+ * @param {{ reminderFilePath: string, completionFilePath: string, eventFilePath: string, workspace: string, events: object[], folded: FoldedState, authoritative?: { reminders?: any[], completed?: any[] }, compactionEventCount?: number, Logger?: any }} ArgOptions
  * @returns {Promise<{ compacted: boolean, replayEventCount: number }>}
  */
 async function WriteSnapshotAndCompactAsync(ArgOptions) {
