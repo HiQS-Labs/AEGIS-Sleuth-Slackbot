@@ -418,6 +418,61 @@ mutation-tested by disabling the throw and confirming the test fails.
 **Net effect on sequencing:** item 6 no longer blocks anything, and the projection needs no further
 change. Items 1–5 stand unchanged.
 
+### Items 1 & 2 DECIDED — 2026-08-09. Generation-binding is abandoned; the read cutover is parked
+
+The plan's own proposal — "bind the marker to a ledger generation: record event count and last event
+id at verification, and have `IsCleanAsync` compare the current ledger against it" — **does not
+survive falsification, and both advisors independently confirmed it.**
+
+**The disproof.** A crashed append never writes anything to the ledger. The only durable record of a
+failed append is `SettleAppend`'s marker write (`ledger-coverage.js:159`), which the crash skips. So
+the ledger file is byte-identical to what was verified — count, last id, any hash of it. A
+generation comparison returns *clean* in exactly the case it was proposed to catch. There is no
+store-side sequence number anywhere in `reminders-module`'s save path to compare against. Codex added
+that a torn final JSONL fragment is not a usable signal either, because production deliberately
+ignores the final line (`event-store.js:380-404`).
+
+**The decision:**
+
+1. **Do not flip `REMINDERS_READ_SOURCE` or `COMPLETED_READ_SOURCE`.** The projection would replace a
+   read of data already in memory (`#PendingRemindersQueue`); the completed path would fold the whole
+   ledger per read where JSON is a direct read. The gain is migration confidence, not latency or
+   scale. Both advisors agreed independently. Leaving the flags at `projection` with the gate
+   refusing is a *safe canary*, not a pending cutover — the fallback is default-deny.
+2. **Keep the `eventCount` comparison, but as fail-closed hardening, never as authorization.** The
+   marker already carries it (`ledger-coverage.js:209`, written by
+   `projection-parity-harness.js:259`) and `IsCleanAsync` never reads it. It closes the
+   "one bad append after verification" window. It does nothing for the crash case.
+3. **Authorization, if ever sought, must be an in-band fail-closed parity check** — not a
+   point-in-time marker and not a periodic script. A background shadow diff is good *detection* and
+   has the same "valid at time T" weakness as the marker.
+
+#### What the consult found that this plan had not — verified in code, not taken on faith
+
+| Sev | Finding | Verified at |
+|---|---|---|
+| **Fail-OPEN** | `WriteMarkerAsync` sets `MarkerCache` **before** the durable write and swallows the failure. A failed `RecordVerifiedAsync` therefore opens the gate for the running process with no durable marker; a failed *gap* write leaves an older on-disk `verified` marker to re-open after restart. | `ledger-coverage.js:123-134` |
+| **Model wrong** | The gate assumes only "JSON store leads the log". Both sides can lead: `#TransitionReminderState` mutates in memory and emits the event, while the JSON save is a separately queued chain — a successful append with an interrupted save leaves the **ledger ahead**, and `SettleAppend(true)` records nothing. | `reminders-module.js:473-497` vs `:3234-3258` |
+| **Ledger can never be complete** | The authoritative store mutates with **no ledger event at all** in at least two places: the load-time backfills re-save (`reminders-module.js:3147-3151`) and `CompletionStore` prunes at load and persists. A ledger-derived generation is unchanged while authoritative state moves. | `reminders-module.js:3074-3150`, `completion-store.js:88-99` |
+| **Behavioural divergence** | `CompletionStore.RETENTION_MS` is 365 days and pruning is durable; **the projection applies no retention whatsoever**. Flipping `COMPLETED_READ_SOURCE` would resurrect completions the store deliberately aged out — a real divergence with no append failure involved. Neither advisor named this; found while verifying theirs. | `completion-store.js:27/207` vs `reminders-projection.js` (no prune) |
+| **Counts not comparable** | The harness counts raw JSONL records while production's `readAll()` skips unknown types and tolerates a torn final line. A naive count comparison would compare two different quantities. Any count check must use the production parser on both sides. | `projection-parity-harness.js:138-156` vs `event-store.js:398-410` |
+| **Compaction blind spot** | Count alone misses an in-place rewrite that lands on the same count. Compaction must invalidate coverage *before* it starts, not after. | `state-snapshot-writer.js:273-276` |
+
+**Where the advisors split, and how it was called.** agy rated the `eventCount` comparison a
+*blocker* because it degenerates — any successful append makes a live workspace unclean. Codex rated
+it safe as conservative hardening. **Called for Codex.** agy's position is internally inconsistent
+with its own recommendation to abandon the cutover: if the flags are not being flipped, a gate that
+refuses *more* often is strictly better, not worse. agy's provenance also showed 4 claims echoed back
+from the prompt, and "it degenerates" was one this plan supplied — it is not independent signal.
+
+**Net:** items 1 and 2 are closed as *decided, not fixed* — the fix they asked for was the wrong fix.
+The gate remains a fail-closed brake and that is now its permanent, documented role. The two
+fail-open defects above are the real work, and they are worth doing regardless of whether any flag is
+ever flipped, because a gate that can fail open is worse than no gate.
+
+**Next step / owner:** fix `WriteMarkerAsync` to persist before caching and to record a durable
+failure (Claude, on request). Everything else here is parked, not pending.
+
 #### Deployed and flipped on both servers — 2026-08-09
 
 All three flags are set to `projection` in `.env.runtime` on dev and production. Both refuse and
