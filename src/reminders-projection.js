@@ -112,8 +112,28 @@ const PROJECTION_FLAGS = new Set([
  * proving parity on real data.
  */
 const BLOCKED_PROJECTION_FLAGS = new Set([
-  // EMPTY as of 2026-08-08. Each entry above has been retired together with the work that made its
-  // fold lossless, which is the condition this list documented for removal.
+  // REPOPULATED 2026-08-09, and this time not because a fold is lossy — because the read cutover was
+  // PARKED BY DECISION. See PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE.md, "Phase 5 close-out".
+  //
+  // The decision rests on a proof, not a preference: a crashed append writes nothing to the ledger,
+  // so no ledger-derived generation can distinguish "no append was attempted" from "an append was
+  // lost". A coverage marker therefore cannot certify completeness, and completeness is what serving
+  // a projection requires. Until that changes, none of these may serve.
+  //
+  // The env vars are also set to `authoritative` on both servers. That is config; THIS is code. The
+  // config alone left a live path from a routine `projection-parity-harness --record-coverage` run
+  // straight to a production cutover, with no deploy and no review.
+  'REMINDERS_READ_SOURCE',
+  'COMPLETED_READ_SOURCE',
+  'REBALANCE_EXPORT_SOURCE',
+  // Not routed through ReadWithProjectionFallbackAsync — it reads process.env directly at
+  // reminders-app-mention-handler.js and so has NO coverage gate of any kind. It consults this set
+  // via IsProjectionRequested() instead, which is why the name has to be listed here.
+  'SUMMARIZE_WEEK_COMPLETED_SOURCE',
+  //
+  // Re-opening one is an intentional code change plus a fresh proposal naming a product consumer —
+  // deliberately not a config edit. Historical note on why this list was emptied and what replaced
+  // it follows; it remains accurate about the gate, and wrong only in assuming a cutover was coming.
   //
   // The blocklist was a BLUNT instrument: a global, compile-time "no", because there was no runtime
   // way to tell a workspace whose ledger can reproduce its JSON store from one whose cannot. There
@@ -711,9 +731,40 @@ async function ReadWithProjectionFallbackAsync(ArgOptions) {
   }
 }
 
+/**
+ * Does this flag ask for a projection, and is it allowed to have one?
+ *
+ * For the three flags that go through `ReadWithProjectionFallbackAsync` the blocklist is already
+ * enforced inside it. This exists for the one that does NOT:
+ * `SUMMARIZE_WEEK_COMPLETED_SOURCE` is read straight from `process.env` at its call site and never
+ * touches the gate — no marker check, no in-flight check, no default-deny. Its only protection was
+ * a `try/catch` that fires on a *thrown* error, so a silently-wrong fold was served without
+ * complaint. Routing that call site through the full fallback helper would mean reshaping it around
+ * a read model it does not use; consulting the same blocklist is the smaller change that closes the
+ * same hole.
+ *
+ * Returns false for a blocked flag, and says so, so an operator who set it sees why it is inert.
+ * @param {string} ArgFlagName
+ * @param {{ env?: Record<string, string|undefined>, Logger?: { warn?: (...args: any[]) => void } }} [ArgOptions]
+ * @returns {boolean}
+ */
+function IsProjectionRequested(ArgFlagName, ArgOptions = {}) {
+  const Environment = ArgOptions.env || process.env;
+  const Wants = String(Environment[ArgFlagName] || '').trim().toLowerCase() === 'projection';
+  if(!Wants) return false;
+  if(BLOCKED_PROJECTION_FLAGS.has(ArgFlagName)) {
+    ArgOptions.Logger?.warn?.(
+      `[reminders-projection] ${ArgFlagName} is set to 'projection' but is BLOCKED — the read cutover is parked by decision. Serving the authoritative store.`
+    );
+    return false;
+  }
+  return true;
+}
+
 module.exports = {
   BLOCKED_PROJECTION_FLAGS,
   BuildProjectedRebalanceExport,
+  IsProjectionRequested,
   FindMissingRelayStateFields,
   FindMissingNativeReminderFields,
   FindMissingTransitionFields,

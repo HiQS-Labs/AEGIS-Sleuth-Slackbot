@@ -2,7 +2,7 @@
 #
 # Run:
 #   .xyz/relay-automation/marathon.sh \
-#     --plan PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml \
+#     --plan PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml \
 #     --pre-advance-cmd "npm test && npm run build && npm run validate:fsm"
 #
 # ALWAYS --dry-run first.
@@ -124,7 +124,7 @@ phases:
   - id: p6
     name: "Phase 5 — convert the remaining reads to projections, with a parity harness"
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
     # package-lock.json added 2026-08-08 after the first fire died on a containment violation: agy
     # ran an npm command, npm noticed package.json (1.4.263) and the lock (1.4.261) disagreed and
     # synced them, and containment reverted that correct repair and failed the turn. If package.json

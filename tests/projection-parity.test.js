@@ -152,8 +152,43 @@ async function AssertFlagIsCoverageGatedAsync(ArgFlagName) {
   assert.equal(Clean.Result.value, 'projection');
 }
 
-test('REMINDERS_READ_SOURCE serves only with proven coverage', async () => {
-  await AssertFlagIsCoverageGatedAsync('REMINDERS_READ_SOURCE');
+/**
+ * The parked contract, for a flag that is blocked outright.
+ *
+ * REPLACED the per-flag coverage-gate assertions on 2026-08-09. Those proved case 4 — "flag on,
+ * coverage proven, NOW it serves" — which is precisely the behaviour the parking decision removes.
+ * The gate contract itself is unchanged and still fully exercised, just under an unblocked
+ * synthetic flag (see the test below), so nothing lost coverage: what changed is which flags are
+ * allowed to reach it.
+ * @param {string} ArgFlagName
+ */
+async function AssertFlagIsParkedAsync(ArgFlagName) {
+  for(const Gate of [undefined, async () => false, async () => true]) {
+    let ProjectionRead = false;
+    const Result = await ReadWithProjectionFallbackAsync({
+      flagName: ArgFlagName,
+      environment: { [ArgFlagName]: 'projection' },
+      Logger: { warn: () => {} },
+      IsCoverageCleanAsync: Gate,
+      ReadAuthoritativeAsync: async () => 'json',
+      ReadProjectionAsync: async () => { ProjectionRead = true; return 'projection'; },
+    });
+    assert.equal(Result.source, 'authoritative', `${ArgFlagName} is parked and must not serve`);
+    assert.equal(Result.value, 'json');
+    assert.equal(ProjectionRead, false, `${ArgFlagName}: a parked flag must not even read the fold`);
+  }
+}
+
+test('REMINDERS_READ_SOURCE is PARKED — never serves, even with proven coverage', async () => {
+  await AssertFlagIsParkedAsync('REMINDERS_READ_SOURCE');
+});
+
+test('the coverage-gate contract itself still holds, for any flag that is not parked', async () => {
+  // Keeps all four cases of the gate covered — including "proven coverage serves" — so parking the
+  // real flags did not quietly retire the mechanism's own tests.
+  const UNPARKED = 'PROJECTION_ERROR_PATH_TEST_ONLY'; // registered in PROJECTION_FLAGS, never parked
+  assert.equal(BLOCKED_PROJECTION_FLAGS.has(UNPARKED), false, 'guard: the probe flag must be free');
+  await AssertFlagIsCoverageGatedAsync(UNPARKED);
 });
 
 // REPLACED 2026-08-08 (QA finding). This asserted COMPLETED_READ_SOURCE was independently
@@ -178,8 +213,9 @@ test('COMPLETED_READ_SOURCE stays on the authoritative store in BOTH flag states
 // Was blocked because rescheduling resets IgnoreSnooze in the live queue while ReminderScheduled did
 // not carry it, so the fold kept a stale value this export would publish externally. Schema v2
 // carries `ignoreSnooze`; the gate below is what proves it for a given workspace's actual data.
-test('REBALANCE_EXPORT_SOURCE serves only with proven coverage', async () => {
-  await AssertFlagIsCoverageGatedAsync('REBALANCE_EXPORT_SOURCE');
+test('REBALANCE_EXPORT_SOURCE is PARKED — never serves, even with proven coverage', async () => {
+  // Descoping the rebalance integration removed its env var; it never blocked the flag. Now blocked.
+  await AssertFlagIsParkedAsync('REBALANCE_EXPORT_SOURCE');
 });
 
 test('a projection error logs and returns the authoritative value', async () => {
@@ -287,15 +323,15 @@ test('COMPLETED_READ_SOURCE cannot select the projection without proven coverage
     ReadProjectionAsync: async () => { ProjectionRead = true; return ['projection']; },
   });
 
-  // The authoritative completedMs used to be stamped with Date.now() while the event carried a
-  // separately sampled ISO instant, so the two could never be byte-identical. Schema v2 threads the
-  // one sampled value to both, which is why this flag is no longer blocked outright — but an
-  // operator who enables it without a recorded parity run still must not be served.
+  // Schema v2 fixed the completedMs mismatch that once blocked this flag, so the refusal is no
+  // longer about a lossy fold — as of 2026-08-09 it is blocked because the read cutover is PARKED.
+  // The observable outcome is the same refusal; only the stated reason moved, and the warning is
+  // asserted below so the two never drift apart silently.
   assert.equal(Result.source, 'authoritative');
   assert.deepEqual(Result.value, ['authoritative']);
   assert.equal(ProjectionRead, false, 'an unverified projection must not even be read');
   assert.equal(Warnings.length, 1, 'a refused read must warn loudly, not fail silently');
-  assert.match(Warnings[0], /no coverage gate/, 'the warning must name the actual reason for refusal');
+  assert.match(Warnings[0], /BLOCKED/, 'the warning must name the actual reason for refusal');
 });
 
 test('relay-state parity applies to BASELINE events too, not just native creations', () => {
