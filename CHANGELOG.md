@@ -33,6 +33,33 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.269 - 2026-08-09
+I was quietly losing part of my own history. Every time I rescheduled a reminder to the next day, the
+note I write to my history log about it was being thrown away — the reminder itself rescheduled
+correctly, so nothing looked wrong from the outside, but my record of why it moved was gone. I have
+also started refusing to answer from my rebuilt history unless that history has been checked against
+my authoritative records first, rather than assuming it is complete.
+
+**Technical:** `#EmitTransitionEvent`'s `ReminderScheduled` payload omitted `ignoreSnooze`, which
+schema v2 requires, so `append()` rejected it as an invalid shape and wrote nothing. The
+creation-time emitter carried the field, so the birth case was covered while every FSM reschedule
+was dropped. It surfaced only as a durable coverage gap on production — appends are best-effort and
+the warning is non-fatal. No test drove a transition INTO `scheduled`;
+`AssertNoDroppedAppendsAsync` now reads the coverage marker at the end of each emission scenario, so
+a rejected append fails the suite instead of changing nothing observable.
+
+The coverage gate is now load-bearing rather than advisory. `ReadWithProjectionFallbackAsync` is
+default-deny: an absent gate, a non-`true` answer, or a gate that throws all serve the authoritative
+store, where previously an absent gate was a bypass and every production call site supplied none.
+`IsCleanAsync` is threaded through all three read sites, and `createLedgerCoverage` returns one
+instance per ledger directory so `web-api` observes `reminders-module`'s in-flight appends instead of
+starting from a blank view. `readAll` no longer answers `[]` for every failure — `ENOENT` still
+means an empty stream, other errors raise `LedgerReadError`, and an unparseable line before the end
+raises `LedgerCorruptionError`, since a torn tail is an interrupted append but a hole in the middle
+means events are missing. `BLOCKED_PROJECTION_FLAGS` is empty and kept as the emergency stop, still
+tested by temporarily adding to it. `projection-parity-harness --record-coverage` is the only
+sanctioned way to reach `verified`, and records a gap when a run finds diffs.
+
 ## 1.4.268 - 2026-08-08
 The code behind `ask-self` — the command that lets me answer questions about my own architecture and
 history — now lives in this repository instead of being installed separately onto the server. Nothing

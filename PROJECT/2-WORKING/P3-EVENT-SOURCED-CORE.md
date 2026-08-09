@@ -120,6 +120,57 @@ which is the precise failure the gate was built to prevent. Fix before any flip:
 `ReadWithProjectionFallbackAsync` (absent callback ⇒ do not serve) and thread
 `#LedgerCoverage.IsCleanAsync` through all three call sites.
 
+> **DONE.** Both landed 2026-08-08. The gate is default-deny (absent, non-`true`, or throwing all
+> refuse), instances are shared per `rootDir` so `web-api` sees `reminders-module`'s in-flight
+> appends, `readAll` signals read errors and mid-file corruption instead of returning `[]`, and
+> `projection-parity-harness --record-coverage` is the one sanctioned way to reach `verified`.
+> `BLOCKED_PROJECTION_FLAGS` is now empty and kept only as the emergency stop.
+
+#### What the gate caught the moment it was pointed at production — 2026-08-09
+
+The first thing it reported was a **real defect in schema v2 itself**, not a coverage question.
+
+`neochrome_ledger_coverage.json` read `{"state":"gap","reason":"append-failed","detail":
+"ReminderScheduled"}`. The cause was not I/O — the log line is
+`event-store: invalid event shape, not written`:
+
+```
+#EmitTransitionEvent → case State.Scheduled:
+  this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt, via })   // no ignoreSnooze
+```
+
+Schema v2 **requires** `ignoreSnooze` on `ReminderScheduled`. The creation-time emitter
+(`reminders-module.js:745`) carries it; the transition-time emitter did not. So **every reschedule
+since the v2 deploy was rejected and silently dropped from the ledger.** Nothing surfaced: appends
+are best-effort, the warning is non-fatal, and the reminder itself reschedules correctly. The only
+durable trace was the coverage marker.
+
+Two conclusions worth keeping:
+
+1. **The mechanism paid for itself before serving a single projection.** A gate whose first act is to
+   refuse on real evidence is behaving correctly; the temptation is to read a `gap` as the gate being
+   broken rather than as the ledger being short.
+2. **No test covered a transition INTO `scheduled`.** The suite drove creation, completion,
+   cancellation, and snooze. `AssertNoDroppedAppendsAsync` now reads the coverage marker at the end
+   of an emission scenario, so any dropped append in any covered path fails the suite — a rejected
+   append changes nothing else a test can observe.
+
+#### Why a flag flip is still inert today, on real data
+
+Rehearsed against a copy of the dev workspace's real ledger (347 events) and again against
+production's (1809 events, 1467 v1 / 342 v2). Even after `--enrich` and compaction, parity does not
+come back clean, for reasons that are data-shape rather than code:
+
+| Symptom | Cause |
+|---|---|
+| `IgnoreSnooze` missing for enriched reminders | their later `ReminderScheduled` events are **v1** and cannot carry it; nothing backfills a v1 transition |
+| ordering differs | the fold emits baseline-imported reminders first, the JSON store keeps queue order — byte parity compares positionally |
+| `AssigneeIDs`, `GitHubRelayStarted/Stopped` differ on every record | the fold sets them; legacy JSON records omit the fields entirely |
+
+So the honest position: the switches are now **verifiable and safe**, and on today's data they
+correctly evaluate to "do not serve". Enabling a flag is therefore a no-op that logs its refusal —
+which is the right thing for it to do, and is not the same as being switched over.
+
 ### Phase 5 read cutover — result of the 2026-08-08 re-run
 
 p6 re-ran on the corrected lane via `MARATHON-P6-ONLY.yaml` and is **APPROVED, gate passed**

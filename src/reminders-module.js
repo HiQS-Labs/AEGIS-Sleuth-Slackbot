@@ -514,7 +514,19 @@ class RemindersModule {
     const DueAtIso = ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null;
     switch(ArgNextState) {
       case State.Scheduled:
-        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt: DueAtIso, via: ArgReason || null });
+        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, {
+          dueAt: DueAtIso,
+          via: ArgReason || null,
+          // v2 REQUIRES this, and omitting it here silently dropped every RESCHEDULE from the
+          // ledger: append() rejected the shape, logged a non-fatal warning, and recorded a durable
+          // coverage gap. The creation-time emitter carried it, so the birth case looked fine while
+          // the transition case lost events — found on production, not in review.
+          //
+          // Read AFTER the in-memory mutation, which is what #TransitionReminderState guarantees:
+          // the reschedule path sets `IgnoreSnooze = false` before transitioning, so this records
+          // the post-reset value the live queue actually holds.
+          ignoreSnooze: Boolean(ArgReminder.IgnoreSnooze),
+        });
         break;
       case State.Completed: {
         // completedMs is sampled ONCE here and shared with the authoritative CompletionRecord, so
