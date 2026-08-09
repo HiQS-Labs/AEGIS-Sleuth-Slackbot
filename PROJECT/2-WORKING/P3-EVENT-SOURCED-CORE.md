@@ -171,6 +171,48 @@ So the honest position: the switches are now **verifiable and safe**, and on tod
 correctly evaluate to "do not serve". Enabling a flag is therefore a no-op that logs its refusal —
 which is the right thing for it to do, and is not the same as being switched over.
 
+#### Deployed and flipped on both servers — 2026-08-09
+
+All three flags are set to `projection` in `.env.runtime` on dev and production. Both refuse and
+serve the authoritative store, which is the whole point: the switch is thrown, and the gate is what
+holds it.
+
+| | dev (`neochrome-dev`) | production (`neochrome`) |
+|---|---|---|
+| service | active, `NRestarts=0` | active, `NRestarts=0` |
+| reminders after restart | 7, unchanged | 23, unchanged |
+| ledger | 347 lines | 1809 lines |
+| gate decision | refuses — "no clean coverage record" | refuses — same |
+| new append failures since deploy | 0 | 0 |
+
+Backups taken before each deploy (`/root/backups/sleuth-app-{CODE,DATA}-<stamp>.tar.gz`, both
+verified readable), and `.env.runtime.bak-preflip` holds the pre-flip env on each host.
+
+**The dev server changed lineage.** It tracked `NeochromeTeam/sleuth-app` (1.4.244) and had none of
+the P3 files; production has run AEGIS code over a private-repo checkout for some time. Dev now
+matches production. The deploy was deliberately **additive — no `--delete`** — because a delete pass
+wanted to remove 5502 paths including dev's entire `.git` (5311) and its private CI workflows.
+Private-repo-only files remain on disk and are inert; `app.js` never requires them.
+
+Two deploy traps worth keeping written down:
+
+- **`--exclude='.git'` must not have a trailing slash.** A git *worktree* has `.git` as a FILE while
+  the server has a DIRECTORY, so `.git/` matches only the latter and rsync fails with
+  `could not make way for new regular file: .git` (exit 23). The same error hit the earlier
+  production deploy.
+- **`/etc/systemd/system/sleuth-app.service` is a symlink INTO the repo**, so an rsync of the repo
+  rewrites the live unit. Here the old and new files were byte-identical, but that is luck, not
+  design — diff the unit against the backup before `daemon-reload`.
+
+Also fixed: `git config --system --add safe.directory /root/sleuth-app` on both hosts. `--global`
+had already been set and did nothing, because the systemd service runs with **no `HOME`** and so
+never reads `/root/.gitconfig`. The symptom was `fatal: detected dubious ownership` on every
+version/changelog lookup.
+
+Unrelated and pre-existing on production: `Notion API connectivity test failed: API token is
+invalid`, first seen 2026-07-22 and 6 times before this deploy. Not caused by this change; the token
+needs rotating.
+
 ### Phase 5 read cutover — result of the 2026-08-08 re-run
 
 p6 re-ran on the corrected lane via `MARATHON-P6-ONLY.yaml` and is **APPROVED, gate passed**
