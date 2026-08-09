@@ -18,7 +18,7 @@ const {
   ReadWithProjectionFallbackAsync,
   BLOCKED_PROJECTION_FLAGS,
 } = require('../src/reminders-projection');
-const { createLedgerCoverage } = require('../src/ledger-coverage');
+const { createLedgerCoverage, CoverageFilePath } = require('../src/ledger-coverage');
 
 // An unblocked flag, so these exercise the coverage gate rather than short-circuiting on the
 // blocked-flag branch above it.
@@ -129,3 +129,110 @@ test('a different rootDir gets its own instance', async (t) => {
   assert.equal(await A.IsCleanAsync('acme'), true);
   assert.equal(await B.IsCleanAsync('acme'), false, 'sharing must be keyed on the directory');
 });
+
+test('FAIL-CLOSED: a verification that cannot be persisted does NOT open the gate', async (t) => {
+  // The gate's whole job is to refuse without proof. WriteMarkerAsync used to cache the marker
+  // before the durable write and swallow the failure, so a RecordVerifiedAsync whose disk write
+  // failed opened the gate for the rest of the process's life with nothing on disk behind it —
+  // a fail-OPEN in a component that exists to fail closed. Found by Codex, 2026-08-09 consult.
+  const Parent = await fs.mkdtemp(path.join(os.tmpdir(), 'coverage-ro-'));
+  t.after(async () => {
+    await fs.chmod(Parent, 0o700).catch(() => {});
+    await fs.rm(Parent, { recursive: true, force: true });
+  });
+  // rootDir does not exist yet and its parent is not writable, so both the mkdir and the write fail.
+  const Root = path.join(Parent, 'nested');
+  await fs.chmod(Parent, 0o500);
+
+  const Gate = createLedgerCoverage({ rootDir: Root, isolate: true });
+  await Gate.RecordVerifiedAsync('acme', { eventCount: 12 });
+
+  assert.equal(await Gate.IsCleanAsync('acme'), false, 'an unproven verification must not serve');
+  assert.match(await Gate.DescribeAsync('acme'), /no verification has ever been recorded/);
+});
+
+test('the gate is not open BEFORE a verification is durable, only after', async (t) => {
+  // The ordering half of the same fix, which the test above does not reach: even on a filesystem
+  // where the write ultimately SUCCEEDS, caching the marker before awaiting it opens the gate
+  // during the write. RecordVerifiedAsync is async and the harness does not await it in lockstep
+  // with reads, so this window is reachable — the marker must not count until it is on disk.
+  const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'coverage-order-'));
+  t.after(() => fs.rm(Root, { recursive: true, force: true }));
+
+  const Gate = createLedgerCoverage({ rootDir: Root, isolate: true });
+  const Recording = Gate.RecordVerifiedAsync('acme', { eventCount: 3 }); // deliberately not awaited
+  assert.equal(await Gate.IsCleanAsync('acme'), false, 'unproven in flight is not clean');
+  await Recording;
+  assert.equal(await Gate.IsCleanAsync('acme'), true, 'and clean once it is durable');
+});
+
+test('a failed RE-verification does not keep serving on the previous proof', async (t) => {
+  // The reset-to-null in the failure path earns its place only here. With a marker already on
+  // disk, dropping the cache entry would send the next read back to that older `verified` — the
+  // proof the failed write was meant to supersede — and the gate would keep serving as if the
+  // re-verification had succeeded.
+  const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'coverage-reverify-'));
+  t.after(() => fs.rm(Root, { recursive: true, force: true }));
+
+  const Gate = createLedgerCoverage({ rootDir: Root, isolate: true });
+  await Gate.RecordVerifiedAsync('acme', { eventCount: 3 });
+  assert.equal(await Gate.IsCleanAsync('acme'), true, 'precondition: an earned marker is on disk');
+
+  // Block only the write; rootDir stays writable, and an older marker stays readable underneath.
+  const MarkerPath = CoverageFilePath(Root, 'acme');
+  await fs.rm(MarkerPath, { force: true });
+  await fs.mkdir(MarkerPath);
+  await fs.writeFile(path.join(MarkerPath, 'blocker'), 'x');
+
+  await Gate.RecordVerifiedAsync('acme', { eventCount: 9 });
+  assert.equal(await Gate.IsCleanAsync('acme'), false,
+    'a re-verification that never reached disk must not inherit the old one');
+});
+
+test('a gap closes the gate IMMEDIATELY, without waiting for the durable write', async (t) => {
+  // SettleAppend returns this promise but the ledger path does not await it. If the cache write
+  // moved after the durable write, there would be a window where the gate still reads `verified`
+  // although this process already knows an append was lost. The gap direction must stay optimistic.
+  const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'coverage-sync-'));
+  t.after(() => fs.rm(Root, { recursive: true, force: true }));
+
+  const Gate = createLedgerCoverage({ rootDir: Root, isolate: true });
+  await Gate.RecordVerifiedAsync('acme', { eventCount: 3 });
+  assert.equal(await Gate.IsCleanAsync('acme'), true, 'precondition: the gate is open');
+
+  Gate.BeginAppend('acme');
+  const Settling = Gate.SettleAppend('acme', false, 'ReminderScheduled'); // deliberately not awaited
+  assert.equal(await Gate.IsCleanAsync('acme'), false, 'the gap must land before the write settles');
+  await Settling;
+});
+
+test('a gap that cannot be persisted REMOVES the stale verified marker, so a restart cannot re-open',
+  async (t) => {
+    // The second half of the same fail-open: this process is safe because the gap is cached, but a
+    // restart reads the disk — and an older `verified` marker there is now provably wrong. Absence
+    // reads as unclean, so removing it is a durable way to fail closed when writing is impossible.
+    const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'coverage-stale-'));
+    t.after(() => fs.rm(Root, { recursive: true, force: true }));
+
+    const Gate = createLedgerCoverage({ rootDir: Root, isolate: true });
+    await Gate.RecordVerifiedAsync('acme', { eventCount: 3 });
+    const MarkerPath = CoverageFilePath(Root, 'acme');
+    assert.equal(JSON.parse(await fs.readFile(MarkerPath, 'utf8')).state, 'verified');
+
+    // Block the write without blocking removal: a directory at the marker path defeats
+    // WriteFileDurableAsync while rootDir itself stays writable.
+    await fs.rm(MarkerPath, { force: true });
+    await fs.mkdir(MarkerPath);
+    await fs.writeFile(path.join(MarkerPath, 'blocker'), 'x');
+
+    Gate.BeginAppend('acme');
+    await Gate.SettleAppend('acme', false, 'ReminderScheduled');
+
+    assert.equal(await Gate.IsCleanAsync('acme'), false, 'this process must see the gap');
+    await assert.rejects(() => fs.stat(MarkerPath), /ENOENT/,
+      'the stale marker must be gone, not left for the next process to trust');
+
+    // A genuinely fresh process reads only the disk. Absence is unclean.
+    const AfterRestart = createLedgerCoverage({ rootDir: Root, isolate: true });
+    assert.equal(await AfterRestart.IsCleanAsync('acme'), false, 'a restart must not re-open the gate');
+  });
