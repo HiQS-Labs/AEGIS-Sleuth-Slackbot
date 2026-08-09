@@ -1,9 +1,9 @@
 ---
 title: P3 — Event-Sourced Core (the log is the source of truth)
 created: 2026-06-12
-updated: 2026-07-06
+updated: 2026-08-08
 branch: development
-status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection). Parked in ROADMAP.md Queue.
+status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 is BLOCKED on an event-schema gap that prevents boot-state reconstruction. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; lanes corrected, but ONLY Phase 5 (p6) may be re-run — Phase 6a is blocked with Phase 4. See "Marathon run 2026-08-08" below for the full accounting.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 model: event-sourcing + projections (strangler migration)
@@ -15,6 +15,7 @@ risk: 2
 effort: 4
 phases: 8
 related:
+  - RELEASES.md -> Release 1.5.0 "Ledger" — the finish-line goal post for this plan (band 1.5.0-1.5.9)
   - PROJECT/RELAY/summarize-week-completion-review.md
   - PROJECT/RELAY/p3-event-sourced-core-review.md
   - PROJECT/2-WORKING/P1-SPLIT.md
@@ -41,7 +42,73 @@ summary: >-
 
 | What was just completed | What's next |
 |---|---|
-| **GH-355 baseline-import SHIPPED — 1.4.211 (2026-07-06), the blocker to Phase 2 cutover is cleared.** The Phase 2 shadow-diff (`scripts/summarize-week-shadow-diff.js`) *was* run against real prod `neochrome` data; it surfaced a Phase-0-anticipated gap — reminders created before the ledger was born (2026-06-17) have no `ReminderCreated` event, so the fold yielded `null` assignee/sourceChannel for them (11 mismatches over two post-floor weeks). `scripts/baseline-import.js` (one-shot, idempotent, scans both active + completed stores, emits `BaselineReminderImported` events carrying every projection-critical field) took the diff to **0** mismatches (only the documented ±1ms `completedMs` divergence remains). Full suite green (1198); prod-validated. See [GH-355](../3-COMPLETED/GH-355-P3-BASELINE-IMPORT.md). **Earlier:** Phase 2 (`summarize-week` projection) built + shipped behind a default-OFF flag — 1.4.197 (2026-06-16) + 1.4.198 (2026-06-17): `summarizeWeekFromEvents(...)` pure fold + shadow-diff CLI, then the staged read-path wiring (`SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`, unset = current behavior byte-for-byte, error-wrapped fallback to `CompletionStore`). Phase 1 (non-authoritative dual-write) shipped 1.4.192/1.4.193, 2026-06-15. | **Cutover is technically UNBLOCKED — one human-gated step remains.** With GH-355 the shadow-diff is clean, so the only work left for Phase 2's exit criterion is the operator decision: run `scripts/baseline-import.js --write` on prod, then flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection` to move users onto the projection. This is a supervised decision, not a build task — the code has been ready since 1.4.198 and the data gap is fixed since 1.4.211. Parked in `ROADMAP.md`'s Queue. Only after that cutover should **Phase 3: Entity Linking Read-Model** (fully spec'd below, zero code) be considered. The authority flips (Phase 4 boot-rebuild, Phase 6 retire-mutable-writes) remain **NOT an assumed continuation** — per the [direction review](#direction-review-codex-2026-06-16) they return as a **fresh proposal** only if Phase 2/3/5 evidence shows the app materially benefits from authoritative replay. |
+| **GH-355 baseline-import SHIPPED — 1.4.211 (2026-07-06), the blocker to Phase 2 cutover is cleared.** The Phase 2 shadow-diff (`scripts/summarize-week-shadow-diff.js`) *was* run against real prod `neochrome` data; it surfaced a Phase-0-anticipated gap — reminders created before the ledger was born (2026-06-17) have no `ReminderCreated` event, so the fold yielded `null` assignee/sourceChannel for them (11 mismatches over two post-floor weeks). `scripts/baseline-import.js` (one-shot, idempotent, scans both active + completed stores, emits `BaselineReminderImported` events carrying every projection-critical field) took the diff to **0** mismatches (only the documented ±1ms `completedMs` divergence remains). Full suite green (1198); prod-validated. See [GH-355](../3-COMPLETED/GH-355-P3-BASELINE-IMPORT.md). **Earlier:** Phase 2 (`summarize-week` projection) built + shipped behind a default-OFF flag — 1.4.197 (2026-06-16) + 1.4.198 (2026-06-17): `summarizeWeekFromEvents(...)` pure fold + shadow-diff CLI, then the staged read-path wiring (`SUMMARIZE_WEEK_COMPLETED_SOURCE=projection`, unset = current behavior byte-for-byte, error-wrapped fallback to `CompletionStore`). Phase 1 (non-authoritative dual-write) shipped 1.4.192/1.4.193, 2026-06-15. | **Cutover is technically UNBLOCKED — one human-gated step remains.** With GH-355 the shadow-diff is clean, so the only work left for Phase 2's exit criterion is the operator decision: run `scripts/baseline-import.js --write` on prod, then flip `SUMMARIZE_WEEK_COMPLETED_SOURCE=projection` to move users onto the projection. This is a supervised decision, not a build task — the code has been ready since 1.4.198 and the data gap is fixed since 1.4.211. Parked in `ROADMAP.md`'s Queue. **Sequencing changed (operator decision 2026-08-07):** this cutover is no longer a front gate on **Phase 3: Entity Linking Read-Model** — which as of 2026-08-08 is **DELIVERED, not "zero code"** (see "Marathon run 2026-08-08" below). It is a **post-deployment switch** — run the import and flip the flag after the phase work merges and deploys. **Current sequence (2026-08-08, corrected after Codex review round 5):** (1) PR the delivered, additive Phase 3 work; (2) re-run **p6 ONLY** on a new branch against the corrected `MARATHON.yaml` lane, to actually convert the reads — Phase 5's cutovers are independently reversible (flag + fallback), so they need nothing from boot-authority; (3) **defer p5 (Phase 4), p7 (Phase 6a) and p8 (the drill) together** behind one event-schema-expansion proposal. p7 is blocked for the *same* reason as p5, which I originally missed: its exit criterion is "flip `REMINDER_STATE_SOURCE` off **after running on the log**, reboot from the derived snapshot" — that requires the log-authoritative boot Phase 4 was meant to deliver, and `REMINDER_STATE_SOURCE` does not exist in `src/` at all. p8's drill asserts the p7 seams, so it waits with them. The Phase 2 prod flip below is an unrelated, human-gated deployment action and is not on that critical path. A switch on a remote server does not gate whether local code is built, reviewed and tested; verified that no phase artifact reads `SUMMARIZE_WEEK_COMPLETED_SOURCE` (it is confined to `src/reminders-app-mention-handler.js:1250`, whose test sets the flag itself). The validation that originally justified the gate already happened — GH-355 took the prod shadow-diff 11 → 0. The authority flips (Phase 4 boot-rebuild, Phase 6 retire-mutable-writes) remain **NOT an assumed continuation** — per the [direction review](#direction-review-codex-2026-06-16) they return as a **fresh proposal** only if Phase 2/3/5 evidence shows the app materially benefits from authoritative replay. |
+
+### Marathon run 2026-08-08 — what actually shipped, and what did not
+
+The `ledger-p3-entity-linking` marathon ran all 8 phases on branch
+`marathon/p3-event-sourced-core-2026-08-08`. Recording the real outcome, because the status above
+described Phase 3 as "fully spec'd, zero code" and that is no longer true.
+
+| Plan phase | Marathon | Outcome |
+|---|---|---|
+| **Phase 3** — entity-linking read-model | p1–p4 | **DELIVERED.** `src/entity-projection-inputs.js`, `src/entity-linking.js`, `src/entity-read-model.js`, `scripts/entity-linking-diagnostics.js` + suites. Additive, no write-path or authority change. Nothing in `src/` imports them — which is Phase 3's stated design ("useful *without* requiring Phase 4 authority changes"). |
+| **Phase 4** — boot-time rebuild | p5 | **HALTED, correctly.** Structurally blocked — see below. No code. |
+| **Phase 5** — remaining projections | p6 | **PARTIAL.** `src/reminders-projection.js` + parity harness built and unit-tested, but **not one read was converted.** Exit criterion ("every downstream view is produced by a fold") unmet. |
+| **Phase 6a** — retire mutable writes | p7 | **PARTIAL.** `src/state-snapshot-writer.js` built, wired to no live reader. |
+| Reversibility drill | p8 | **Correctly RED.** Its stop gate refuses to certify switches that have no owning reader. This is the gate working. |
+
+**Why Phase 4 is blocked (p5's halt analysis, reviewer-confirmed).** The ledger cannot reconstruct
+boot state, so the required deep-equality and fallback guarantees are unreachable without a schema
+change:
+
+- `ReminderCreated` persists only the display/identity subset. It omits `OriginalChannelName`,
+  `OriginalMessageID`, `OriginalThreadTs`, `OriginalSenderID`, `IgnoreSnooze`. `ReminderScheduled`
+  carries only `dueAt` and `via` and cannot backfill them.
+- The ledger deliberately omits the `due`, `overdue`, `posting`, `posted`, `rescheduled`, `failed`
+  and `dead-letter` transitions, so a fold cannot reproduce in-memory state for active reminders
+  even when every creation event is present.
+- `ReminderCompleted` lacks `sourceChannelID`, `dueDate` and `clientId`, so a log-only
+  `CompletionStore` rebuild cannot match the JSON path either.
+- `event-store.readAll()` returns an empty/partial stream on read failure with **no error signal**,
+  so it structurally cannot trigger contract item (c)'s warn-and-fall-back-to-JSON behaviour.
+
+**Phase 4 therefore needs an explicit schema-expansion proposal first** — widen the event payloads,
+extend emission coverage to the omitted transitions, add a strict boot-read error signal, backfill
+the new fields, and only then establish parity. That is its own plan, not a retry of p5.
+
+### Phase 5 read cutover — result of the 2026-08-08 re-run
+
+p6 re-ran on the corrected lane via `MARATHON-P6-ONLY.yaml` and is **APPROVED, gate passed**
+(98 suites / 1561 tests, `tsc` exit 0, `validate:fsm` OK). It converted **two of the three** read
+surfaces and correctly **halted on the third**:
+
+| Read surface | Flag | Owner | Result |
+|---|---|---|---|
+| reminder queue | `REMINDERS_READ_SOURCE` | `src/reminders-module.js` | **converted** |
+| `?format=rebalance` export | `REBALANCE_EXPORT_SOURCE` | `src/web-api.js` | **converted** |
+| completed store | `COMPLETED_READ_SOURCE` | `src/web-api.js` | **BLOCKED** (shipped live in round 1, then blocked after QA) |
+
+`src/reminders-module.js` now imports `reminders-projection` — the integration three earlier
+phases never achieved, because the file was not in their lane.
+
+**Why the completed store halted, verified independently.** `GitHubRelayStarted` and
+`GitHubRelayStopped` are persisted `ReminderInfo` fields (`src/reminders-module.js:87-88`) but are
+**not** in the event-store's accepted event enum, so a fold silently drops them and the read would be
+lossy. The builder refused to ship it and the reviewer approved the halt — the reversibility contract
+doing its job, exactly as it did for p5.
+
+**This adds a requirement to the schema proposal.** The event-schema expansion that unblocks Phase 4
+must ALSO carry the GitHub-relay state fields, or `COMPLETED_READ_SOURCE` stays blocked even after
+Phase 4 lands. That is a new finding from this run, not part of the original Phase 4 blocker list.
+
+**Why Phases 5 and 6a delivered modules but no integration.** Their marathon lanes excluded the
+files they were meant to change — `src/reminders-module.js` and `src/web-api.js` were not in p6's
+`artifact:` list, and containment reverts edits outside a lane. The artifact lists are corrected in
+[MARATHON.yaml](P3-EVENT-SOURCED-CORE/MARATHON.yaml), **but only p6 may now be re-run** — Phase 6a
+(p7) is blocked with Phase 4, not merely awaiting a re-run, because its rollback criterion needs the
+log-authoritative boot Phase 4 never delivered. Run p6 via
+[MARATHON-P6-ONLY.yaml](P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml).
 
 ### Direction review (Codex, 2026-06-16)
 
@@ -65,6 +132,88 @@ to the framing, adopted here:
 
 This caps ambition at the high-confidence wins and keeps the one-way doors (Phase 4/6) behind an
 explicit, evidence-gated re-decision rather than momentum.
+
+## Swarm Preflight Contract
+
+Machine-readable intake contract for `.xyz/utils/swarm-preflight.sh --project-doc`, which turns this
+doc into a marathon-ready run packet. It is the **producer** of the packet, never the executor.
+
+**REWRITTEN 2026-08-08 — this is now a p6-ONLY packet.** The original was an eight-phase greenfield
+contract written when none of the artifacts existed. It is obsolete twice over:
+
+1. **Its probes now lie.** It declared every artifact `path_absent`, but p1–p4 delivered theirs and
+   p6/p7 partially delivered theirs. Preflight would return `4 STALE` (some present) or `7 AMBIGUOUS`
+   (mixed) and refuse to start — correct behaviour on a contract that no longer describes reality.
+2. **Only p6 is runnable.** p5 (Phase 4) is blocked on event-schema expansion. **p7 is blocked on the
+   same thing** — its own exit criterion is "flip `REMINDER_STATE_SOURCE` off *after running on the
+   log*, reboot from the derived snapshot", which requires the log-authoritative boot Phase 4 was
+   supposed to deliver; `REMINDER_STATE_SOURCE` does not exist in `src/` at all. p8's drill asserts
+   the p7 seams, so it waits too. Shipping an eight-phase packet would invite exactly the run that
+   already produced two unwired modules.
+
+So the runnable tranche is **p6 alone**, executed via
+[`MARATHON-P6-ONLY.yaml`](P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml) — a dedicated single-phase
+manifest, because `marathon.sh` has **no phase-selection flag** (`--retry` overrides one phase's task
+id but still walks the whole chain), so pointing it at the 8-phase `MARATHON.yaml` would schedule the
+three deferred phases regardless of what this document says.
+
+**What the prerequisite PR must contain.** These `path_present` probes assert
+`src/reminders-projection.js` and `scripts/projection-parity-harness.js`, which are p6's *partial*
+output — not part of Phase 3's delivered inventory. So the PR that precedes this run **must merge the
+additive p6/p7 artifacts as well as Phase 3**, or preflight stays permanently `6 BLOCKED`. That is
+safe and deliberate: those modules are unit-tested, import nothing, and are imported by nothing, so
+merging them is inert in production while giving the re-run a base to build on rather than restart
+from. p4 is the satisfied prerequisite, asserted by probe rather than re-run.
+
+What the probes are doing:
+
+- **`grep_absent` on the three read flags** — this is how "the fix is still required" is proven now
+  that p6's *files* exist but convert nothing. If `REMINDERS_READ_SOURCE` / `COMPLETED_READ_SOURCE`
+  appear in `src/reminders-module.js`, or `REBALANCE_EXPORT_SOURCE` in `src/web-api.js`, the cutover
+  has landed and preflight exits `4 STALE`. Absent means the work is genuinely outstanding.
+- **`path_present` on the delivered inputs** — Phase 3's read-model, p6's own module and parity
+  harness, and the Phase 1/2 substrate. Any of them missing means this packet is being run against
+  the wrong ref (e.g. before the Phase 3 PR merged), and preflight exits `6 BLOCKED` instead of
+  starting a doomed run.
+- **No `artifacts_new`** — every path in `artifacts` already exists, so the strict existence check
+  applies to all of them, which is what we want for a re-run against real files.
+
+```json
+{
+  "target": { "repo": ".", "ref": "development" },
+  "gate": "npm test",
+  "fix_probes": [
+    { "type": "grep_absent", "path": "src/reminders-module.js", "pattern": "REMINDERS_READ_SOURCE" },
+    { "type": "grep_absent", "path": "src/reminders-module.js", "pattern": "COMPLETED_READ_SOURCE" },
+    { "type": "grep_absent", "path": "src/web-api.js", "pattern": "REBALANCE_EXPORT_SOURCE" },
+    { "type": "path_present", "path": "src/reminders-projection.js" },
+    { "type": "path_present", "path": "scripts/projection-parity-harness.js" },
+    { "type": "path_present", "path": "src/entity-read-model.js" },
+    { "type": "path_present", "path": "src/event-store.js" },
+    { "type": "path_present", "path": "src/summarize-week-projection.js" }
+  ],
+  "artifacts": [
+    "src/reminders-projection.js",
+    "scripts/projection-parity-harness.js",
+    "tests/projection-parity.test.js",
+    "src/reminders-module.js",
+    "src/web-api.js",
+    "package.json",
+    "tests/reminders-integration.test.js",
+    "tests/web-api-reminders.test.js",
+    "tests/completion-store.test.js"
+  ],
+  "remediation": {
+    "source": "PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON.yaml#p6",
+    "criteria": "p6 (plan Phase 5) ONLY. Convert the remaining reads to projections behind default-OFF flags with fallback to the authoritative store: the two JSON stores via RemindersModule.GetAllReminders (src/reminders-module.js:736) and GetCompletedRemindersBetween (:842), and the ?format=rebalance export via the WebAPI read path (src/web-api.js:354, 903-905). Ship the parity harness comparing old JSON/API output against the folded event output, byte-compatible where feasible and semantically diffed where timestamps or ordering legitimately differ. Done when every one of those three views can be produced by a fold behind its flag, the flag unset reproduces today's behaviour byte-for-byte, a projection error falls back to the authoritative store and is logged but never user-visible, and a test flips each switch OFF and asserts correct behaviour. p5, p7 and p8 are OUT OF SCOPE for this packet and are blocked on an event-schema-expansion proposal that has not been written."
+  },
+  "lanes": {
+    "agy_safe": [],
+    "orchestrator_only": ["bin/", ".tick/", "relay-automation/relay-turn-lib.sh"]
+  }
+}
+```
+
 
 ## Plain-English Benefits vs Today
 
@@ -147,6 +296,7 @@ clear statement that pre-log history is partial.**
 
 ## Table of Contents
 
+- [Swarm Preflight Contract](#swarm-preflight-contract)
 - [Plain-English Benefits vs Today](#plain-english-benefits-vs-today)
 - [Plain-English Pros and Cons](#plain-english-pros-and-cons)
 - [Production Server / Existing Data Migration](#production-server--existing-data-migration)
@@ -516,8 +666,12 @@ for how to drive the harness.
 
 ### Phase 3: Entity Linking Read-Model — clients, projects, tasks
 
-- After the Phase 2 cutover gate, use the event ledger as a **non-authoritative semantic substrate**
-  for client ↔ project ↔ task association before considering any authority flip.
+- Use the event ledger as a **non-authoritative semantic substrate** for client ↔ project ↔ task
+  association before considering any authority flip. **Sequencing (operator decision 2026-08-07):**
+  the Phase 2 prod cutover is no longer a front gate on this phase — it is a post-deployment switch.
+  A flag on a remote server governs whether code is *live*, not whether it may be *built*; no
+  artifact in this phase reads `SUMMARIZE_WEEK_COMPLETED_SOURCE`. See
+  `P3-EVENT-SOURCED-CORE/MARATHON.yaml` § POST-DEPLOYMENT SWITCH.
 - Build a workspace-scoped read-model that derives **canonical entities**, **alias tables**,
   and **typed edges** (`task -> project`, `project -> client`, `task -> client`, delegation,
   GitHub/repo association) from reminder events plus denormalized event payload fields.

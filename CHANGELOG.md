@@ -33,6 +33,76 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.267 - 2026-08-08
+When several people share a reminder, anything reading my exported data now sees all of them. It
+used to see only the first, so a shared task looked like it belonged to one person. I also stop
+treating a reminder that joins a thread I am already relaying to GitHub as if that thread had never
+started, and I now record it when a reminder is removed from my queue — previously that removal left
+no trace at all, so a rebuild of my own history could have brought a deleted reminder back to life
+and started posting it again.
+
+**Technical:** P3 event schema v2 (PR #31). `REQUIRED_PAYLOAD_KEYS_V2` sits beside the v1 map and
+`NormalizeEvent` selects the set from the event's own `v`, so every historical event reads exactly as
+before and only new writes face the wider schema — the versioning approach agy argued for over
+Codex's read-time strictness, recorded in the plan doc. Validation now also rejects a required key
+whose value is `undefined`, which `hasOwnProperty` accepted and `JSON.stringify` then dropped.
+`completedMs` is sampled once in `#TransitionReminderState` and threaded to both the
+`CompletionRecord` and the event. New `ReminderStateChanged` covers the seven states the switch
+skipped, `ThreadRelayStateChanged` is thread-scoped on GH-27's `OriginalThreadTs ?? OriginalMessageID`
+with a synthetic `thread:<key>` envelope, and `ReminderRemoved` is emitted from
+`#DeleteRemindersAsync` — the one choke point, so the wastebasket reaction and dead-letter sweep are
+covered too. `assigneeIds` added to the rebalance export in both `web-api.js` and
+`reminders-projection.js`, falling back to a single-element array for legacy records.
+`baseline-import.js` gains `--enrich` and `--retire-orphans`; the replay fold no longer mints a
+phantom row for a transition whose reminder has no creation event. New `src/ledger-coverage.js` is
+the generation-aware gate: an in-flight append, a failed append (durable, since nothing retries it),
+or a workspace never verified all keep a projection from serving. CI now runs `tsc` and
+`validate:fsm`, which it did not before.
+
+**Found by running it against real production data, not by review:** removal was never evented at
+all (11 live reminders folded to a state the JSON store had dropped), imported completions were
+discarded by the fold for want of a `completedAt` (32 of 152 lost), and the backfill only ever ran in
+one direction. Read-model parity on real data went from 34 diffs to zero. Every projection read flag
+remains blocked. 1575 Jest, 90 `node --test`.
+
+## 1.4.266 - 2026-08-07
+I no longer create a second reminder just because a later reply in the same Slack thread happens to
+say “today.” I compare it with the task that thread already scheduled, while still allowing a reply
+to create a genuinely different follow-up reminder.
+
+**Technical:** GH-27. `RemindersAIPipeline` now derives the Slack-thread identity as
+`OriginalThreadTs ?? OriginalMessageID`: a root reminder and its replies therefore share one
+identity. The exact-message duplicate rejection remains first. When an existing open reminder is
+from that same thread, the existing semantic deduplication prompt compares only those candidates;
+unrelated threads keep the zero-extra-AI-call fast path. The prompt explicitly says thread context
+does not make two distinct tasks duplicates. Added pipeline tests for exact-message, duplicate
+root/reply, distinct same-thread follow-up, and unrelated-thread paths, plus a MockSlackApp
+production-shaped regression with the observed timestamps. The force-schedule escape hatch bypasses
+semantic duplicates but still rejects an exact same-message repeat. `package.json` is intentionally unchanged.
+
+## 1.4.265 - 2026-08-07
+There is now a `development` branch, and it is my primary one — everyday work lands there, and
+`main` is reserved for what actually goes to production. My docs said this was how things worked
+before the branch existed, so I have made the docs and the reality agree.
+
+**Technical:** Docs-only; no code change. `development` cut from `main` at `ddc44e2` and set as the
+repo default. This completes a split the repo had already written down but never created:
+`docs/deployhq.md` already mapped the development server to the `development` branch and production
+to `main`, and `.github/workflows/ci.yml` already listed both branches in its `push` and
+`pull_request` filters — so no workflow change was needed.
+- Branch contract added to `CONTRIBUTING.md` (new "Branches" section), `ROUTER.md`, `AGENTS.md`
+  (new §10b), and `README.md` -> Development.
+- `development` is deliberately **unprotected** — an explicit operator call. CI runs on it but does
+  not block; the enforced `test` gate stays on `main`, so the `development` -> `main` PR is where
+  unverified work is caught. Recorded here because "merged to development" does not mean "tests
+  passed", and that is exactly the kind of thing that is obvious now and forgotten in a month.
+- Fixed two doc claims that GH-15 had already made false: `CONTRIBUTING.md` still said "this public
+  repo has no GitHub Actions CI", and `ROUTER.md` + `README.md` described the deploy path as "no
+  GitHub Actions" without scoping it to deploys. Actions does run PR/push CI and the secret scans.
+  The unscoped phrasing is the same misreading that led to CI being deleted in the first place.
+- One consequence worth knowing: GitHub runs `schedule` triggers from the default branch only, so
+  the weekly full-tree TruffleHog scan now runs against `development` rather than `main`.
+
 ## 1.4.264 - 2026-08-06
 Housekeeping on how my own changes get merged. Two proposed changes at the same time used to trip
 over each other every single time, because both edited the same version line — and twice this week

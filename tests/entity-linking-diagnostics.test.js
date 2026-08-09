@@ -1,0 +1,260 @@
+'use strict';
+
+const fs = require('node:fs');
+const {
+  BuildEntityLinkingDiagnostics,
+  RunCLI,
+} = require('../scripts/entity-linking-diagnostics');
+
+/** @param {object} ArgOverrides @returns {object} */
+function MakeEvent(ArgOverrides = {}) {
+  return {
+    id: 'event-1',
+    type: 'ReminderCreated',
+    workspace: 'workspace-a',
+    reminderId: 'task-1',
+    ts: '2026-08-01T12:00:00.000Z',
+    payload: {
+      text: 'Acme payments follow-up',
+      sourceChannelId: 'C_ACME',
+      githubUrls: ['https://github.com/acme/payments/issues/1'],
+    },
+    ...ArgOverrides,
+  };
+}
+
+/** @param {object} ArgOverrides @returns {object} */
+function MakeClient(ArgOverrides = {}) {
+  return {
+    ClientID: 'client-acme',
+    ClientName: 'Acme',
+    Aliases: ['acme'],
+    ChannelIDs: ['C_ACME'],
+    GitHubRepoPatterns: ['acme/payments'],
+    ...ArgOverrides,
+  };
+}
+
+describe('entity-linking diagnostics', () => {
+  test('reports a clean shadow diff when derived and mapping associations agree', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent()], { clients: [MakeClient()] });
+
+    expect(Report.shadowDiff).toEqual({
+      agreements: [{ taskId: 'task-1', clientIds: ['client-acme'] }],
+      disagreements: [],
+      gaps: [],
+    });
+    expect(Report.highConfidenceDisagreements).toEqual([]);
+  });
+
+  test('does not mistake equal-sized but different association sets for an agreement', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
+      clients: [
+        MakeClient({ ClientID: 'client-overlay', ClientName: 'Other', Aliases: ['other'], GitHubRepoPatterns: ['acme/payments'] }),
+        MakeClient({ ClientID: 'client-derived', Aliases: ['acme'] }),
+      ],
+    });
+
+    expect(Report.shadowDiff).toEqual(expect.objectContaining({
+      agreements: [],
+      disagreements: [{
+        taskId: 'task-1',
+        derivedClientIds: ['client-derived'],
+        overlayClientIds: ['client-overlay'],
+      }],
+    }));
+  });
+
+  test('mirrors the mapping overlay channel-name fallback without changing replayed events', () => {
+    const Events = [MakeEvent({ payload: {
+      text: 'unrelated follow-up',
+      sourceChannelId: null,
+      sourceChannelName: 'client-acme-billing',
+      githubUrls: [],
+    } })];
+    const Before = JSON.stringify(Events);
+    const Report = BuildEntityLinkingDiagnostics(Events, {
+      clients: [MakeClient({ ChannelIDs: [], GitHubRepoPatterns: [], ChannelNamePatterns: ['acme'] })],
+    });
+
+    expect(Report.derivedAssociations).toEqual([]);
+    expect(Report.shadowDiff.gaps).toEqual([{
+      taskId: 'task-1',
+      kind: 'overlay_only',
+      derivedClientIds: [],
+      overlayClientIds: ['client-acme'],
+    }]);
+    expect(JSON.stringify(Events)).toBe(Before);
+  });
+
+  test('surfaces a known disagreement and orders near-threshold candidates in the review queue', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
+      clients: [
+        // client-overlay must land at 0.4696 — repo_match (0.32) + channel_match (0.22) under the
+        // noisy-OR in ScoreSignals, below the 0.60 threshold — so it stays an overlay-only
+        // association and the diff is a genuine disagreement. ClientName must be overridden, not
+        // just Aliases: MakeClient defaults it to 'Acme', the event text reads "Acme payments
+        // follow-up", so inheriting it added normalized_text_match (0.30) and carried the score to
+        // 0.62872 — over the threshold, making client-overlay a DERIVED match too, the opposite of
+        // what this test asserts. ChannelIDs is deliberately LEFT inherited: dropping it as well
+        // removes channel_match and lands at 0.32, which no longer matches the near-threshold
+        // expectation below.
+        MakeClient({
+          ClientID: 'client-overlay',
+          ClientName: 'Other',
+          Aliases: ['other'],
+          GitHubRepoPatterns: ['acme/payments'],
+        }),
+        MakeClient({ ClientID: 'client-derived', Aliases: ['acme'] }),
+      ],
+    });
+
+    expect(Report.shadowDiff.disagreements).toEqual([{
+      taskId: 'task-1',
+      derivedClientIds: ['client-derived'],
+      overlayClientIds: ['client-overlay'],
+    }]);
+    expect(Report.highConfidenceDisagreements).toEqual([{
+      taskId: 'task-1',
+      kind: 'conflicting_associations',
+      derivedClientIds: ['client-derived'],
+      overlayClientIds: ['client-overlay'],
+      confidence: 0.62872,
+    }]);
+    expect(Report.lowConfidenceQueue).toEqual(expect.arrayContaining([
+      expect.objectContaining({ to: { type: 'client', id: 'client-overlay' }, confidence: 0.4696 }),
+    ]));
+  });
+
+  test('an override can force a merge without mutating the historical event input', () => {
+    const Events = [MakeEvent({ payload: { text: 'unrelated', sourceChannelId: null, githubUrls: [] } })];
+    const Before = JSON.stringify(Events);
+    const Report = BuildEntityLinkingDiagnostics(Events, {
+      clients: [MakeClient()],
+      overrides: { merges: [{ from: { type: 'task', id: 'task-1' }, to: { type: 'client', id: 'client-acme' } }] },
+      taskId: 'task-1',
+    });
+
+    expect(Report.derivedAssociations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: { type: 'task', id: 'task-1' }, to: { type: 'client', id: 'client-acme' }, override: 'merge' }),
+    ]));
+    expect(Report.traces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ override: 'merge', signals: [{ signal: 'human_override_merge', weight: 1 }] }),
+    ]));
+    expect(JSON.stringify(Events)).toBe(Before);
+  });
+
+  test('an override can force a split over otherwise high-confidence derived evidence', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent()], {
+      clients: [MakeClient()],
+      overrides: { splits: [{ from: { type: 'task', id: 'task-1' }, to: { type: 'client', id: 'client-acme' } }] },
+    });
+
+    expect(Report.derivedAssociations).toEqual([]);
+    expect(Report.shadowDiff.gaps).toEqual([{
+      taskId: 'task-1',
+      kind: 'overlay_only',
+      derivedClientIds: [],
+      overlayClientIds: ['client-acme'],
+    }]);
+    expect(Report.highConfidenceDisagreements).toEqual([{
+      taskId: 'task-1',
+      kind: 'possible_false_split',
+      derivedClientIds: [],
+      overlayClientIds: ['client-acme'],
+      confidence: null,
+    }]);
+  });
+
+  test('an alias override is replayed as derived evidence without changing the client input', () => {
+    const Clients = [MakeClient({ Aliases: [], ChannelIDs: [], GitHubRepoPatterns: [] })];
+    const Before = JSON.stringify(Clients);
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent({ payload: { text: 'Northstar follow-up', sourceChannelId: null, githubUrls: [] } })], {
+      clients: Clients,
+      overrides: { aliases: [{ alias: 'northstar', target: { type: 'client', id: 'client-acme' } }] },
+      threshold: 0.25,
+    });
+
+    expect(Report.derivedAssociations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ to: { type: 'client', id: 'client-acme' }, confidence: 0.3 }),
+    ]));
+    expect(JSON.stringify(Clients)).toBe(Before);
+  });
+
+  test('reports a derived-only accepted link as a possible false merge ordered by confidence', () => {
+    const Report = BuildEntityLinkingDiagnostics([MakeEvent({ payload: { text: 'Acme follow-up', sourceChannelId: null, githubUrls: [] } })], {
+      clients: [MakeClient({ ChannelIDs: [], GitHubRepoPatterns: [] })],
+      threshold: 0.25,
+    });
+
+    expect(Report.shadowDiff.gaps).toEqual([{
+      taskId: 'task-1',
+      kind: 'derived_only',
+      derivedClientIds: ['client-acme'],
+      overlayClientIds: [],
+    }]);
+    expect(Report.highConfidenceDisagreements).toEqual([{
+      taskId: 'task-1',
+      kind: 'possible_false_merge',
+      derivedClientIds: ['client-acme'],
+      overlayClientIds: [],
+      confidence: 0.3,
+    }]);
+  });
+
+  test('returns a stable empty report for an empty event log', () => {
+    expect(BuildEntityLinkingDiagnostics([], { clients: [MakeClient()] })).toEqual(expect.objectContaining({
+      taskCount: 0,
+      candidateCount: 0,
+      derivedAssociations: [],
+      overlayAssociations: [],
+      shadowDiff: { agreements: [], disagreements: [], gaps: [] },
+      lowConfidenceQueue: [],
+    }));
+  });
+
+  test('CLI input replay performs no filesystem writes', () => {
+    const Writes = ['writeFileSync', 'appendFileSync', 'mkdirSync', 'rmSync', 'renameSync']
+      .map(ArgMethod => jest.spyOn(fs, ArgMethod));
+    const InputByPath = {
+      events: `${JSON.stringify(MakeEvent())}\n`,
+      clients: JSON.stringify({ clients: [MakeClient()] }),
+    };
+    const Output = [];
+
+    try {
+      RunCLI(['--events-file', 'events', '--clients-file', 'clients'], {
+        readFileSync: ArgPath => InputByPath[ArgPath],
+        write: ArgText => Output.push(ArgText),
+      });
+      expect(Output).toHaveLength(1);
+      expect(Writes.every(ArgSpy => ArgSpy.mock.calls.length === 0)).toBe(true);
+    } finally {
+      Writes.forEach(ArgSpy => ArgSpy.mockRestore());
+    }
+  });
+
+  // Every other CLI test injects an IO object, so the DEFAULT ArgIo = fs path — the only one a real
+  // operator takes — was never executed. It was broken the whole time: `fs.write` is a function
+  // (fs.write(fd, ...)), so the injected-sink check matched the fs module itself and passed a JSON
+  // string where a file descriptor belongs, killing every invocation with
+  // `The "fd" argument must be of type number`. This test drives the default path.
+  test('the default IO path writes the report to stdout instead of an fs file descriptor', () => {
+    const StdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const ReadSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((/** @type {any} */ ArgPath) => (
+      String(ArgPath).endsWith('events') ? `${JSON.stringify(MakeEvent())}\n` : JSON.stringify({ clients: [MakeClient()] })
+    ));
+
+    try {
+      // Note: no second argument — this is exactly how bin invocation calls it.
+      const Report = RunCLI(['--events-file', 'events', '--clients-file', 'clients']);
+
+      expect(StdoutSpy).toHaveBeenCalledTimes(1);
+      expect(() => JSON.parse(String(StdoutSpy.mock.calls[0][0]))).not.toThrow();
+      expect(JSON.parse(String(StdoutSpy.mock.calls[0][0]))).toEqual(Report);
+    } finally {
+      StdoutSpy.mockRestore();
+      ReadSpy.mockRestore();
+    }
+  });
+});

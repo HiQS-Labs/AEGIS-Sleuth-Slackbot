@@ -4,6 +4,22 @@ const fs = require('fs').promises;
 const path = require('path');
 const DateUtils = require('./date-utils');
 
+/**
+ * Return a stable identity for the Slack thread that produced a reminder.
+ * root messages have no OriginalThreadTs, so their own message ID is the thread identity.
+ * @param {import('./reminders-module').ReminderInfo} ArgReminderInfo
+ * @returns {string|null}
+ */
+function GetReminderThreadIdentity(ArgReminderInfo) {
+  const OriginalThreadTs = ArgReminderInfo?.OriginalThreadTs;
+  if(typeof OriginalThreadTs === 'string' && OriginalThreadTs.trim()) return OriginalThreadTs;
+
+  const OriginalMessageID = ArgReminderInfo?.OriginalMessageID;
+  if(typeof OriginalMessageID === 'string' && OriginalMessageID.trim()) return OriginalMessageID;
+
+  return null;
+}
+
 // import typedefs from workspace-ai.js to avoid duplication.
 /**
  * @typedef {import('./workspace-ai').ResponseSchema} ResponseSchema
@@ -633,7 +649,7 @@ class RemindersAIPipeline {
   /**
    * Check if a reminder is a duplicate of any existing reminders.
    * @param {import('./reminders-module').ReminderInfo} ArgReminderInfo Reminder to check.
-   * @returns {Promise<{recommendation: 'schedule'|'ignore', rationale: string}>}
+   * @returns {Promise<{recommendation: 'schedule'|'ignore', rationale: string, matched_by: 'message_id'|'semantic'|null}>}
    */
   async CheckForDuplicateReminderAsync(ArgReminderInfo) {
     // ensure AI system instructions and schema are loaded.
@@ -650,34 +666,49 @@ class RemindersAIPipeline {
     if(ExistingReminders.length === 0) {
       return {
         recommendation: 'schedule',
-        rationale: 'No existing reminders to check for duplication.'
+        rationale: 'No existing reminders to check for duplication.',
+        matched_by: null,
       };
     }
 
-    // Fast check: is there already a reminder for this message?
+    // Fast check: is there already a reminder for this exact Slack message?
     const FoundDuplicateByMessageID = ExistingReminders.find(
       /** @param {import('./reminders-module').ReminderInfo} reminder */
       (reminder) => reminder.OriginalMessageID === ArgReminderInfo.OriginalMessageID
     );
-    // Skip deduplication — only using OriginalMessageID.
     if (FoundDuplicateByMessageID) {
       return {
         recommendation: 'ignore',
         rationale: `Reminder with same OriginalMessageID (${ArgReminderInfo.OriginalMessageID}) already exists.`,
+        matched_by: 'message_id',
       };
     }
 
-    if (!FoundDuplicateByMessageID) {
+    // a root message's own timestamp is its thread identity; a reply carries that root timestamp
+    // in OriginalThreadTs. Only same-thread candidates need semantic comparison: this avoids an
+    // extra AI call for unrelated reminders while closing the reply-timestamp bypass from GH-27.
+    const NewReminderThreadIdentity = GetReminderThreadIdentity(ArgReminderInfo);
+    const SameThreadReminders = NewReminderThreadIdentity
+      ? ExistingReminders.filter(
+        /** @param {import('./reminders-module').ReminderInfo} ArgExistingReminder */
+        ArgExistingReminder => GetReminderThreadIdentity(ArgExistingReminder) === NewReminderThreadIdentity
+      )
+      : [];
+
+    if(SameThreadReminders.length === 0) {
       return {
         recommendation: 'schedule',
-        rationale: 'No duplicate reminder found by OriginalMessageID.',
+        rationale: 'No duplicate reminder found in the same Slack thread.',
+        matched_by: null,
       };
     }
 
-    // compose the input for the GPT model.
+    // compare only reminders from the same thread. A thread may contain more than one real task,
+    // so the model still decides from the Key task(s) content whether this is a duplicate.
     const InputJson = JSON.stringify({
-      existing_reminders: ExistingReminders,
-      new_reminder: ArgReminderInfo
+      dedup_context: { same_thread: true },
+      existing_reminders: SameThreadReminders,
+      new_reminder: ArgReminderInfo,
     }, null, 2);
 
     // send the reminders to the GPT model for deduplication analysis.
@@ -692,7 +723,7 @@ class RemindersAIPipeline {
       throw new Error('Invalid deduplication response from GPT model.');
 
     // return the deduplication result.
-    return DedupResult;
+    return { ...DedupResult, matched_by: 'semantic' };
   }
 
   /**

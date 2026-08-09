@@ -120,14 +120,26 @@ function ResolveMentionToUserId(ArgRawMention) {
 
 /**
  * Read a user's active (open) reminders through the single shared filter.
- * AssigneeID defaults to the sender at creation time, so this covers self-assigned and delegated reminders.
+ * Membership resolves through `RemindersModule.IsAssignedTo`, the canonical assignee-set helper, so a
+ * reminder shared by several people surfaces for every one of them (GH-22). The direct
+ * `AssigneeID === user` compare this replaced only ever matched the FIRST assignee, which is the
+ * original symptom: the second person's `show-me` silently omitted work assigned to them. Legacy
+ * single-assignee records keep working — the same helper falls back to `AssigneeID`, then
+ * `OriginalSenderID`, so self-assigned and delegated reminders still resolve.
  * @param {import('../reminders-module')} ArgRemindersModule
  * @param {string} ArgUserId
+ * @param {string|null} [ArgBotUserID] Workspace bot ID to exclude from the assignee set.
  * @returns {import('../reminders-module').ReminderInfo[]}
  */
-function GetActiveRemindersForUser(ArgRemindersModule, ArgUserId) {
+function GetActiveRemindersForUser(ArgRemindersModule, ArgUserId, ArgBotUserID = null) {
+  // Deferred require, not a top-level import: src/reminders-module.js reaches this file via
+  // connection-surfacing -> reminder-clustering -> show-me-projects-command, so importing at module
+  // scope would close a require cycle and capture a half-initialized export. Resolving at call time
+  // is cycle-safe and hits Node's module cache.
+  const RemindersModule = require('../reminders-module');
   return ArgRemindersModule.GetAllReminders().filter(
-    ArgReminder => ArgReminder.AssigneeID === ArgUserId && ACTIVE_REMINDER_STATES.has(ArgReminder.State)
+    ArgReminder => RemindersModule.IsAssignedTo(ArgReminder, ArgUserId, ArgBotUserID)
+      && ACTIVE_REMINDER_STATES.has(ArgReminder.State)
   );
 }
 

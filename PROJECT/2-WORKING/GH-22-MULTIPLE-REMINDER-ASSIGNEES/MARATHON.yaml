@@ -1,0 +1,58 @@
+# MARATHON.yaml — "Roundup" (RELEASES.md → Release 1.4.270). Clear the open-issue board.
+#
+# Run:
+#   .xyz/relay-automation/marathon.sh \
+#     --plan PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/MARATHON.yaml \
+#     --pre-advance-cmd "npm test"
+#
+# ALWAYS --dry-run first.
+#
+# --pre-advance-cmd IS REQUIRED: this repo has no root-level validate.sh (the default gate), so the
+# marathon fails fast without it rather than silently skipping the gate. `npm test` is the real gate
+# (1513 tests across 93 suites, ~7s).
+#
+# ── ORDERING ─────────────────────────────────────────────────────────────────────────────────
+# Phases run STRICTLY ONE AT A TIME in plan order; `depends_on` constrains that order, it does not
+# create parallelism. The write-sets here are disjoint (p1 src/+tests/, p2 utils/sanitize-scan.sh,
+# p3 utils/pdda/+RELEASES.md), which is why the depends_on chain is about PRIORITY, not collision:
+# the one user-visible defect goes first, so that if the marathon is halted early the thing users
+# actually feel is already fixed.
+#
+# ── DELIBERATELY NOT A PHASE ─────────────────────────────────────────────────────────────────
+# The snapshot->Slack relay `missing_scope` failure (live since 2026-06-18, see
+# PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md) is real but is fixed by a Slack app admin
+# re-granting a file-upload scope. No code change exists to make, so it cannot be a marathon phase.
+# Track it as ops work.
+
+name: roundup-open-issues
+
+phases:
+  - id: p1
+    name: "GH-22 — multiple assignees for one reminder"
+    reviewer: codex
+    brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p1-gh22-multiple-assignees.md
+    artifact: src/reminders-module.js,src/reminders-display-utils.js,src/lists-module.js,tests/reminders-multiple-assignees.test.js
+    # Raised from 1200 after the 2026-08-07 run: agy's REVIEW turn was killed at the 1200s cap
+    # mid-review, so p1 escalated without ever getting a completed review. This is the widest
+    # artifact set in the plan (4 files, ~290 lines changed by the builder) — the reviewer needs
+    # more wall-clock than the builder did.
+    turn_timeout_s: 2400
+    max_review_rounds: 3
+
+  - id: p2
+    name: "GH-25 — sanitize-scan.sh cannot run from a linked worktree"
+    reviewer: codex
+    brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p2-gh25-worktree-scan.md
+    artifact: utils/sanitize-scan.sh
+    turn_timeout_s: 600
+    max_review_rounds: 2
+    depends_on: p1
+
+  - id: p3
+    name: "GH-26 — RELEASES.md fixture error + Codename absorbed by preceding block"
+    reviewer: codex
+    brief: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES/briefs/p3-gh26-releases-parsing.md
+    artifact: RELEASES.md,utils/pdda/pdda.sh,utils/pdda/pdda-lib.sh
+    turn_timeout_s: 900
+    max_review_rounds: 2
+    depends_on: p2

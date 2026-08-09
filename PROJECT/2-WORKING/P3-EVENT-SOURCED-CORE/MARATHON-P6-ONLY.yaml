@@ -1,0 +1,136 @@
+# MARATHON-P6-ONLY.yaml — the ONLY runnable tranche of Release 1.5.0 "Ledger" as of 2026-08-08.
+#
+# Run:
+#   .xyz/relay-automation/marathon.sh \
+#     --plan PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON-P6-ONLY.yaml \
+#     --pre-advance-cmd "npm test && npm run build && npm run validate:fsm"
+#
+# ALWAYS --dry-run first.
+#
+# ── SCRUB ABSOLUTE PATHS BEFORE YOU PUSH ─────────────────────────────────────────────────────
+# The harness renders `$ROOT/.xyz/bin/tick` and friends as FULLY-QUALIFIED paths into every
+# phases/*/RELAY.md and relay-system/*/marathon-*.md — and .gitignore deliberately TRACKS both
+# (marathon-drive HALTs if it cannot `git add` them). CI's secret/PII gate rejects them:
+# utils/sanitize-scan.sh:231 flags /Users/<name>/ as `absolute-local-path`. This is not
+# hypothetical — PR #30 failed with **281 findings across 39 files** for exactly this reason.
+# After a run, before pushing:
+#   node -e "const{execSync}=require('child_process'),fs=require('fs');
+#     for(const f of execSync('git ls-files --cached --others --exclude-standard phases relay-system',{encoding:'utf8'}).trim().split('\n').filter(Boolean))
+#       fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(/\/Users\/[a-z0-9._-]+\//gi,'<home>/'));"
+#
+# NOTE the `--cached --others --exclude-standard`. A bare `git ls-files` lists only TRACKED files and
+# silently skips a freshly-rendered RELAY.md that is about to be `git add`ed — which is precisely how
+# 7 findings survived the first scrub of PR #30 and failed CI a second time. The relay file a run
+# just created is new; scrub the working tree, not the index.
+# Better long-term fix (not done): teach the harness to render repo-relative paths. Tracked as a
+# triage item; do not let it silently block another PR.
+#
+# ── THE GATE INCLUDES `npm run build` ON PURPOSE ─────────────────────────────────────────────
+# The first run used `npm test` alone. CI does not run tsc either (ci.yml runs npm ci, npm test,
+# sanitize-scan), so NOTHING was checking types — and the phase briefs require "npm test, npm run
+# build, npm run validate:fsm green". Measured 2026-08-08: the two partial modules carry 54 tsc
+# errors that both the marathon gate and CI waved through —
+#   src/reminders-projection.js   39   (p6 partial)
+#   src/state-snapshot-writer.js  15   (p7 partial)
+# mostly TS2339/TS7006 from untyped `object` shapes and un-annotated callback params. Phase 3's four
+# artifacts were in the same state and are now fixed (0 errors). The p6 re-run MUST clear
+# reminders-projection.js as part of its own work; state-snapshot-writer.js belongs to the deferred
+# p7 and is expected to stay red until that phase runs.
+#
+# ── WHY THIS FILE EXISTS ─────────────────────────────────────────────────────────────────────
+# MARATHON.yaml is the full 8-phase plan and marathon.sh has NO phase-selection flag — `--retry`
+# overrides one phase's task id but still walks the whole chain (measured 2026-08-08: retrying p4
+# re-ran p1-p3's gates and then continued onward). So pointing the run command at MARATHON.yaml
+# would schedule p5, p7 and p8, every one of which is deferred. Documenting "run p6 only" was not
+# enough; without this file there was no executable that matched the documented tranche.
+#
+# ── OUTCOME OF THE 2026-08-08 RUN ────────────────────────────────────────────────────────────
+# p6 ran and is APPROVED, gate passed. It converted TWO of the three read surfaces and correctly
+# HALTED on the third:
+#
+#   CONVERTED  reminder queue read      REMINDERS_READ_SOURCE   (src/reminders-module.js)
+#   CONVERTED  ?format=rebalance export REBALANCE_EXPORT_SOURCE (src/web-api.js)
+#   BLOCKED    completed-store read     COMPLETED_READ_SOURCE   — see below (CORRECTED after QA)
+#
+# CORRECTION (QA, 2026-08-08): this file previously said the completed-store surface was "HALTED,
+# not shipped". That was WRONG and I propagated it. The HALT happened in the RETRY round, but round 1
+# had already shipped the flag and wired it live at src/web-api.js:409. Codex QA caught it. The flag
+# is now in BLOCKED_PROJECTION_FLAGS (src/reminders-projection.js) so it can never select the
+# projection, with a loud warning if an operator sets it and a test asserting the projection is not
+# even read. Reality now matches the documentation.
+#
+# The completed-store cutover cannot be lossless: `GitHubRelayStarted` and `GitHubRelayStopped`
+# are persisted ReminderInfo fields (src/reminders-module.js:87-88) but are NOT in the event-store's
+# accepted event enum, so a fold silently drops them. The builder refused to ship a lossy cutover and
+# the reviewer approved the halt — the reversibility contract working exactly as intended, and the
+# same discipline that stopped p5.
+#
+# CONSEQUENCE FOR THE SCHEMA PROPOSAL: the event-schema expansion that unblocks Phase 4 must ALSO
+# carry the GitHub-relay state fields, or COMPLETED_READ_SOURCE stays blocked after Phase 4 lands.
+# This is a NEW requirement discovered by this run, not part of the original Phase 4 blocker list.
+#
+# NOTE on tests/p3-reversibility-drill.test.js: it stays in jest.testPathIgnorePatterns (so Jest
+# never globs a node:test file) but is deliberately NOT in the test:node list. Its stop gate asserts
+# the p6 read flags AND p7's REMINDER_STATE_SOURCE/snapshot wiring together, so registering it before
+# those land makes every phase's gate fail on work that phase cannot do — that is what deadlocked p6
+# and p7 earlier. The p8 lane owns both the drill and package.json and re-registers it as its own
+# deliverable. (This note lived in package.json until npm/jest warned "Unknown option" on it —
+# package.json has no comment syntax; it belongs here.)
+#
+# ── WHAT IS DEFERRED, AND WHY IT IS NOT MERELY "LATER" ───────────────────────────────────────
+#   p5  Phase 4, boot-time rebuild — HALTED. The event schema cannot reconstruct boot state:
+#       ReminderCreated omits OriginalChannelName/OriginalMessageID/OriginalThreadTs/
+#       OriginalSenderID/IgnoreSnooze; the due/overdue/posting/posted/rescheduled/failed/
+#       dead-letter transitions are never emitted; ReminderCompleted lacks sourceChannelID/
+#       dueDate/clientId; and event-store.readAll() collapses every read error to [] with no
+#       signal, so the required warn-and-fall-back cannot even fire.
+#   p7  Phase 6a — BLOCKED BY THE SAME ROOT CAUSE, not sequenced behind p6. Its exit criterion is
+#       "flip REMINDER_STATE_SOURCE off AFTER RUNNING ON THE LOG, reboot from the derived
+#       snapshot" (briefs/p7-retire-mutable-writes.md:57-58) — that presupposes the
+#       log-authoritative boot p5 was to deliver, and REMINDER_STATE_SOURCE exists nowhere in src/.
+#   p8  The reversibility drill asserts the p7 seams, so it defers with them.
+#
+# All three resume together behind ONE event-schema-expansion proposal. Do not add them here.
+#
+# ── PREREQUISITE, ALREADY SATISFIED (not a phase) ────────────────────────────────────────────
+# Phase 3 (marathon p1-p4) is DELIVERED: src/entity-projection-inputs.js, src/entity-linking.js,
+# src/entity-read-model.js, scripts/entity-linking-diagnostics.js + suites. p6 does not depend on
+# it functionally — it is recorded here so nobody re-adds a `depends_on` to a phase that is not in
+# this file. The preflight contract asserts the delivered inputs with path_present probes instead.
+#
+# ── REVERSIBILITY CONTRACT — binding ─────────────────────────────────────────────────────────
+#   (a) every flip is an env var, default OFF; unset == today's behavior byte-for-byte
+#   (b) mutable JSON writes CONTINUE, so the fallback is never stale
+#   (c) any projection error falls back to the authoritative store, logged, never user-visible —
+#       the pattern already shipped at src/reminders-app-mention-handler.js:1250
+#   (d) ships a TESTED rollback: a test that flips each switch OFF and asserts correct behavior
+#   (e) staged rollout, one workspace first
+#
+# A phase that cannot satisfy (a)-(d) must HALT and escalate rather than ship. The first run of
+# this plan produced two modules wired to nothing; a HALT would have been the better outcome.
+#
+# ── ARTIFACT LIST — DERIVED FROM THE EXIT CRITERIA, NOT GUESSED ──────────────────────────────
+# The original p6 lane omitted the two files the phase exists to change, so the lane could not
+# reach its own exit criteria and reported success having converted nothing. The live read owners
+# are RemindersModule.GetAllReminders (src/reminders-module.js:736) and
+# GetCompletedRemindersBetween (:842) for the two JSON stores, and the rebalance response path
+# (src/web-api.js:354, 903-905) for ?format=rebalance. package.json is included because a
+# node:test suite needs registering in BOTH jest.testPathIgnorePatterns and the test:node list.
+# The three integration suites assert today's read behaviour and must move with the reads.
+
+name: ledger-p3-phase5-read-cutover
+
+phases:
+  - id: p6
+    name: "Phase 5 — convert the remaining reads to projections, with a parity harness"
+    reviewer: agy
+    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
+    # package-lock.json added 2026-08-08 after the first fire died on a containment violation: agy
+    # ran an npm command, npm noticed package.json (1.4.263) and the lock (1.4.261) disagreed and
+    # synced them, and containment reverted that correct repair and failed the turn. If package.json
+    # is in a lane its lockfile must be too — npm keeps them together, so a lane that admits one and
+    # forbids the other fails on npm's own housekeeping rather than on anything the phase did. The
+    # underlying version drift was pre-existing on development and is fixed in this branch.
+    artifact: src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js,src/reminders-module.js,src/web-api.js,package.json,package-lock.json,tests/reminders-integration.test.js,tests/web-api-reminders.test.js,tests/completion-store.test.js
+    turn_timeout_s: 1200
+    max_review_rounds: 3

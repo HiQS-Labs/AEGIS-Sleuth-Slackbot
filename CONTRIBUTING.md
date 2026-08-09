@@ -25,13 +25,29 @@ npm test
 `npm run dev` and `node src/app.js` load `.env` from the repo root automatically. For admin setup,
 `npm run admin:setup` does the same (requires `ADMIN_ENCRYPTION_KEY` in `.env`).
 
+## Branches
+
+`development` is the **primary branch** — it is the default, and where day-to-day work lands.
+
+- Cut feature branches from `development`, and open pull requests **into `development`**.
+- `main` is the **release branch**. Production deploys from it, and it is protected: a PR into
+  `main` cannot merge until the `test` check passes.
+- `development` is deliberately **not** protected, so changes land there quickly. CI still runs on
+  every push and PR — it just does not block. A red run on `development` is still a real failure;
+  treat it as one, because the gate at the `main` merge will catch it later and in a larger batch.
+
+Deploys follow the same split: `development` auto-deploys to the development server on push, and
+`main` deploys to production manually. See [`docs/deployhq.md`](docs/deployhq.md).
+
 `npm test` runs the Jest suite plus the `node --test` suites. It should be fully green before you
-open a pull request; if a test is failing on `main`, say so in the PR rather than working around it.
+open a pull request; if a test is failing on `development`, say so in the PR rather than working
+around it.
 
 There are also standing validation gates (`npm run validate:*`) covering prompt catalogs, FSM
 invariants, workspace isolation, reminder rendering, and changelog tone. **Run them locally** —
-this public repo has no GitHub Actions CI. DeployHQ’s build pipeline (`.deploybuild.yaml`) is the
-gate on deploys to development and production; see [`docs/deployhq.md`](docs/deployhq.md).
+they are not part of CI. GitHub Actions (`.github/workflows/ci.yml`) runs typecheck, the test
+suite, and the secret/PII + TruffleHog scans on pushes and PRs, and DeployHQ's build pipeline
+(`.deploybuild.yaml`) gates deploys; see [`docs/deployhq.md`](docs/deployhq.md).
 
 Install local git hooks so the secret scan runs before commit:
 
