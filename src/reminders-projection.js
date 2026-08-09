@@ -311,6 +311,31 @@ function ApplyCreationEnrichment(ArgReminder, ArgPayload) {
 }
 
 /**
+ * Project a field ONLY when the event actually recorded it.
+ *
+ * Applied to the relay flags alone, and deliberately NOT generalised. Extending this rule to
+ * `clientId`/`projectId`/`AssigneeIDs`/`GitHubUrls` was tried and MEASURED against the real
+ * production stream (23 reminders, 152 completions): it moved zero of the 128 key differences, and
+ * against a pre-backfill store it introduced five new OMISSIONS — the strictly worse failure, since
+ * an omission loses a field the store has while an extra key carries a fact the event recorded.
+ *
+ * The reason it cannot generalise is that the direction of staleness varies by field. For some the
+ * event stream is ahead of the JSON store; for others the store is ahead of the stream. One
+ * presence rule cannot be right for both, so key-presence is not the thing to normalise here — see
+ * the exit-criterion note in PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md.
+ * @param {Record<string, any>} ArgPayload
+ * @param {string} ArgPayloadKey
+ * @param {string} ArgField
+ * @param {(ArgValue: any) => any} ArgMap
+ * @returns {Record<string, any>}
+ */
+function WhenRecorded(ArgPayload, ArgPayloadKey, ArgField, ArgMap) {
+  return Object.prototype.hasOwnProperty.call(ArgPayload, ArgPayloadKey)
+    ? { [ArgField]: ArgMap(ArgPayload[ArgPayloadKey]) }
+    : {};
+}
+
+/**
  * @param {string} ArgReminderId
  * @param {any} ArgEvent
  * @returns {ProjectedReminder}
@@ -336,12 +361,8 @@ function MakeReminder(ArgReminderId, ArgEvent) {
     // stream; projecting them is the other half — a gate that admits a field the fold then drops
     // would produce a reminder that passes parity and STILL resumes a stopped relay
     // (github-comment-relay.js:102 reads GitHubRelayStopped, :143 reads GitHubRelayStarted).
-    // Only set when present, so a stream without them keeps today's undefined-means-false shape
-    // rather than inventing an explicit `false` the JSON store never wrote.
-    ...(Object.prototype.hasOwnProperty.call(Payload, 'gitHubRelayStarted')
-      ? { GitHubRelayStarted: Boolean(Payload.gitHubRelayStarted) } : {}),
-    ...(Object.prototype.hasOwnProperty.call(Payload, 'gitHubRelayStopped')
-      ? { GitHubRelayStopped: Boolean(Payload.gitHubRelayStopped) } : {}),
+    ...WhenRecorded(Payload, 'gitHubRelayStarted', 'GitHubRelayStarted', Boolean),
+    ...WhenRecorded(Payload, 'gitHubRelayStopped', 'GitHubRelayStopped', Boolean),
     clientId: GetStringOrNull(Payload.clientId),
     projectId: GetStringOrNull(Payload.projectId),
     State: NormalizeState(Payload.state),
@@ -498,8 +519,21 @@ function FoldReminderReadModels(ArgEvents, ArgOptions = {}) {
       if(!ThreadKey) continue;
       const State = ThreadRelayState.get(ThreadKey);
       if(!State) continue;
-      Reminder.GitHubRelayStarted = State.relayStarted;
-      Reminder.GitHubRelayStopped = State.relayStopped;
+      // MONOTONIC LATCH, mirroring the only authoritative writers: github-comment-relay.js:137 and
+      // :213 assign `true` and nothing anywhere assigns `false`, so an explicit `false` is a shape
+      // the JSON store cannot produce. This assignment may therefore RAISE a flag, and may overwrite
+      // one the reminder already carries, but must not introduce a lowered flag onto a record that
+      // never had the key.
+      //
+      // Unlike the fields above, absence here is inert — no load-time backfill keys on it, and every
+      // consumer reads these by truthiness (github-comment-relay.js:129/178/210). So the reason to
+      // omit is parity, not data loss, and this line was the source of ALL 22 GitHubRelayStarted and
+      // 23 GitHubRelayStopped invented keys in the production diff: MakeReminder was already
+      // conditional, and only this ran unconditionally.
+      if(State.relayStarted || Reminder.GitHubRelayStarted !== undefined)
+        Reminder.GitHubRelayStarted = State.relayStarted;
+      if(State.relayStopped || Reminder.GitHubRelayStopped !== undefined)
+        Reminder.GitHubRelayStopped = State.relayStopped;
     }
   }
 

@@ -117,6 +117,37 @@ function BuildCompactedEvents(ArgOptions) {
   const SourceCompleted = Authoritative && Array.isArray(Authoritative.completed)
     ? Authoritative.completed
     : (Array.isArray(Folded.completed) ? Folded.completed : []);
+  // Compaction is the ONLY irreversible step in this migration, and the payload it writes below is
+  // total: `assigneeIds: [] `, `githubUrls: []`, `clientId: null` are emitted whether or not the
+  // source record actually knows those answers. For three fields that is not a default, it is a
+  // decision — `src/reminders-module.js` treats their ABSENCE as "backfill has not run yet" (:3082,
+  // :3123, :3132) and repairs the record on load. Writing a decided value into the only surviving
+  // event retires that trigger permanently, silently, for every affected record at once.
+  //
+  // So refuse rather than decide. The remedy costs nothing: the backfills run automatically on the
+  // next load of the JSON store and persist themselves, so starting the service once and re-reading
+  // the store clears this. A guard that stops an irreversible operation is worth an extra restart.
+  const Unresolved = [];
+  for(const Reminder of SourceReminders) {
+    const Record = Reminder || {};
+    const ReminderID = typeof Record.ReminderID === 'string' ? Record.ReminderID : '(no id)';
+    // Mirrors reminders-module.js:3132 exactly — `undefined`, not falsy. A stored `null` means
+    // "resolved, no client matched" and is a legitimate, already-decided answer.
+    if(Record.clientId === undefined) Unresolved.push(`${ReminderID}.clientId (reminders-module.js:3132)`);
+    // Mirrors :3123 / :3082 — `Array.isArray`, not truthiness, is what those backfills test.
+    if(!Array.isArray(Record.GitHubUrls)) Unresolved.push(`${ReminderID}.GitHubUrls (reminders-module.js:3123)`);
+    if(!Record.AssigneeID && !Array.isArray(Record.AssigneeIDs))
+      Unresolved.push(`${ReminderID}.AssigneeIDs (reminders-module.js:3082)`);
+  }
+  if(Unresolved.length > 0) {
+    throw new Error(
+      'state-snapshot-writer: refusing to compact — ' + Unresolved.length + ' field(s) whose ABSENCE ' +
+      'is a pending load-time backfill would be frozen as a decided value by the compacted baseline, ' +
+      'irreversibly. Load the authoritative store once (the backfills run and persist themselves), ' +
+      'then re-run compaction. Unresolved: ' + Unresolved.join(', ')
+    );
+  }
+
   const AddBaseline = (/** @type {FoldedReminder} */ ArgReminder, /** @type {string} */ ArgSuffix) => {
     // Cast, not a bare `|| {}`: the runtime null-guard is still wanted, but the untyped `{}` branch
     // widens the union to a property-less object and every field access below becomes TS2339.

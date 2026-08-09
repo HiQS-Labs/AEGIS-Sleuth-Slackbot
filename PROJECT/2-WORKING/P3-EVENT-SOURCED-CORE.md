@@ -328,7 +328,7 @@ contradiction is refused.
 | 3 | **The harness folds with `strict:false`; the served read path uses `strict:true`.** So the harness can record `verified` for a stream the live projection would then refuse — verification and production disagree about what counts as foldable. | `scripts/projection-parity-harness.js` vs `web-api.js` / `reminders-module.js` read paths |
 | 4 | **The harness parses raw JSONL directly instead of going through `event-store.readAll()`**, so it never exercises the corrupt-tail and unknown-type handling that production reads have — including the new `LedgerReadError` / `LedgerCorruptionError` signals. | harness reads the file itself |
 | 5 | **No ledger flush on shutdown.** `#AppendLedgerEvent` is fire-and-forget and nothing awaits outstanding appends during `StopAsync`, so a graceful stop does not prove the log caught up. This makes "stop the service before compacting" insufficient on its own. | `src/reminders-module.js` `#AppendLedgerEvent` / `StopAsync` |
-| 6 | **Absent vs explicit `false` may be a real distinction, not noise.** Both models pushed back on "omit, don't invent": `Boolean()` coercion in compaction erases the difference between "never relayed" and "relay explicitly stopped". Before implementing the omit fix, confirm no consumer needs to tell those apart — `github-comment-relay.js` refusing to relay when `GitHubRelayStopped` is set is the case to check. | flagged by both models |
+| 6 | ~~**Absent vs explicit `false` may be a real distinction, not noise.**~~ **RESOLVED 2026-08-09 — see below. The premise was wrong in both directions, and the omit fix is abandoned.** | measured, not argued |
 
 #### What this changes
 
@@ -345,9 +345,78 @@ reminder change, so it needs pairing with either scheduled re-verification or co
 diffing. Sequencing that trade-off is the next design decision, and it belongs before the flip, not
 after.
 
-Item 6 must be resolved **before** the omit-don't-invent change, not after: if absence and `false`
-are genuinely different, then omitting is the wrong fix and the authoritative records are the thing
-that should gain explicit values.
+### Item 6 RESOLVED — 2026-08-09. "Omit, don't invent" is abandoned; the exit criterion changes instead
+
+Item 6 was resolved by measuring rather than reasoning, and the measurement refuted the plan.
+
+**Is absence distinguishable from `false`?** For the relay flags, no — and nothing needs it to be.
+The only writers are `github-comment-relay.js:137` and `:213`, and both assign `true`; **no code path
+anywhere assigns `false`**, so an explicit `false` is a shape the JSON store cannot produce. No
+consumer reads them other than by truthiness (`:129`, `:178`, `:210`) — there is no `=== undefined`
+and no `hasOwnProperty` check on either flag in the tree. The distinction that actually matters
+operationally, *never relayed* vs *relay stopped*, is carried by the **pair** of latches, not by
+absence-vs-`false` within one, and it survives either encoding.
+
+**For `clientId` the models were right that absence is load-bearing** — `reminders-module.js:3132`
+distinguishes `undefined` ("resolve and save") from `null` ("no client matched, keep as-is", stated
+outright at `:3130`). Two sibling backfills key on absence the same way: `GitHubUrls` at `:3123`
+(`!Array.isArray`, so `null` counts) and `AssigneeIDs` at `:3082`.
+
+**But implementing the omit fix made things worse, measured on the real production stream** (23
+reminders, 152 completions, `neochrome_events.jsonl`):
+
+| Store snapshot | Omit fix | Result |
+|---|---|---|
+| current (post-deploy, 2026-08-08 23:07) | applied | **identical** — 0 of 128 key differences moved |
+| pre-backfill (2026-08-08 16:31) | applied | **5 new OMISSIONS** of `projectId` |
+
+An omission is the strictly worse failure: it loses a field the store has, whereas an extra key
+carries a fact the event genuinely recorded. The fix was reverted; only the relay flags keep the
+conditional they already had.
+
+**Why it cannot work:** *the direction of staleness varies by field.* For the relay flags the event
+stream is ahead of the JSON store; for `projectId` on a pre-backfill store the JSON store is ahead of
+the stream. One key-presence rule cannot be correct for both, so key-presence is the wrong thing to
+normalise.
+
+**What actually explains the 128 "invented" keys:** the fold is not inventing anything. Every one of
+them is a field the event recorded and the legacy JSON record never gained — the store is the stale
+side. Confirmed by the store repairing *itself*: `AssigneeIDs` was absent on all 23 reminders at
+16:31 and absent on **zero** at 16:46, because the load-time backfills ran on the new binary and
+persisted.
+
+**So the exit criterion changes, not the projection.** Byte-identity with the legacy store is
+unreachable without making the fold lie, because the store is behind. The correct gate is:
+
+> the fold must never **omit** a field the store has, and must never **disagree** on a value.
+> Extra keys carrying facts the events recorded are a repair, not a regression — and they are exactly
+> what the current factory writes for any new reminder.
+
+Against the current production state that gate **passes today**: zero omissions, zero value
+differences, in both directions, for both reminders and completions.
+
+### The real hazard this uncovered: compaction decides unknowns, irreversibly — FIXED
+
+Chasing item 6 surfaced a live risk that was next in the queue and is not the one either model named.
+
+`BuildCompactedEvents` writes a **total** payload: `assigneeIds: []`, `githubUrls: []`,
+`clientId: null` are emitted whether or not the source record knows those answers
+(`state-snapshot-writer.js:146/151/158`). For the three backfill-triggered fields that is not a
+default, it is a **decision** — and compaction replaces the log, so the decision lands in the only
+surviving event and retires the backfill permanently, for every affected record at once.
+
+Measured blast radius on the pre-backfill store: **16 of 23 reminders held `GitHubUrls: null`**.
+Compacting that store, seeded from `authoritative`, would have written `githubUrls: []` for all 16 —
+discarding URLs the ledger still held, with no earlier event left to recover them.
+
+`BuildCompactedEvents` now refuses, naming each field and the `reminders-module.js` line whose
+backfill is pending. The remedy costs nothing: the backfills run automatically on the next load of
+the JSON store and persist themselves, so one restart clears it. Verified both ways — the guard
+blocks the pre-backfill store (16 fields) and passes the current one (23 compacted events) — and
+mutation-tested by disabling the throw and confirming the test fails.
+
+**Net effect on sequencing:** item 6 no longer blocks anything, and the projection needs no further
+change. Items 1–5 stand unchanged.
 
 #### Deployed and flipped on both servers — 2026-08-09
 

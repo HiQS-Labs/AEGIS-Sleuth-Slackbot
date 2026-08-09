@@ -162,6 +162,40 @@ test('compaction seeded from the AUTHORITATIVE store wins over the fold', async 
   );
 });
 
+test('compaction REFUSES a record whose load-time backfill has not run', () => {
+  // Measured on the real production store, 2026-08-08 16:31: 16 of 23 reminders held
+  // `GitHubUrls: null`, which reminders-module.js:3123 treats as "backfill pending" (it tests
+  // Array.isArray, not truthiness) and repairs from the message text on the next load.
+  //
+  // BuildCompactedEvents writes a TOTAL payload — `githubUrls: []` whether or not the source knows
+  // the answer. Compaction replaces the log, so seeding it from that store would have written `[]`
+  // into the only surviving event for all 16, discarding URLs the ledger still held and retiring
+  // the backfill permanently. Compaction is the one irreversible step in this migration, so it must
+  // refuse to decide an unknown rather than default it.
+  const Folded = FoldReminderReadModels([BaselineEvent()], { strict: true });
+  const Pending = { ...Folded.reminders[0], GitHubUrls: null };
+
+  assert.throws(
+    () => BuildCompactedEvents({
+      workspace: 'snapshot-test', folded: Folded,
+      authoritative: { reminders: [Pending], completed: [] },
+    }),
+    /refusing to compact.*reminders-module\.js:3123/s,
+    'a pending backfill must block compaction and name the trigger'
+  );
+
+  // The remedy is a plain reload, so a repaired record must pass unobstructed — the guard is an
+  // interlock, not a wall. Verified against the post-deploy production store, where all 23 pass.
+  const Repaired = { ...Folded.reminders[0] };
+  assert.equal(
+    BuildCompactedEvents({
+      workspace: 'snapshot-test', folded: Folded,
+      authoritative: { reminders: [Repaired], completed: [] },
+    }).length,
+    1
+  );
+});
+
 test('WriteSnapshotAndCompactAsync REFUSES an authoritative seed', async (t) => {
   // The two intents are contradictory: that function derives the JSON stores FROM the fold and
   // overwrites them, while `authoritative` means the stores are the truth. Combining them silently
