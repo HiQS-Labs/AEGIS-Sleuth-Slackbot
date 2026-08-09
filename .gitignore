@@ -516,3 +516,11 @@ docs/incident-report-*.md
 .github/workflows/experimental-deploy.yml
 .github/workflows/pr-list-email.yml
 .github/scripts/
+
+# --- Private RAG overlay (sleuth-plugin-rag, see PROJECT/2-WORKING/P1-SPLIT.md:130) ---
+# Deliberately NOT in the public repo: `src/rag/` plus its ask-self command are the unextracted
+# plugin. `chat-module.js` requires them through a guarded optional seam, so a clone without these
+# files runs clean and simply has no ask-self command. Do not "fix" a missing-module error here by
+# committing these — install the overlay on the deployment instead.
+src/rag/
+src/chat-commands/ask-self-command.js
