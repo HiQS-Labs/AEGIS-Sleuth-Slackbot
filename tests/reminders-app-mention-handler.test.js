@@ -781,7 +781,13 @@ describe('RemindersAppMentionHandler', () => {
     }
   });
 
-  test('summarize week sources completions from the event projection when SUMMARIZE_WEEK_COMPLETED_SOURCE=projection', async () => {
+  // INVERTED 2026-08-09. This asserted the projection became the completed source when the flag was
+  // set. That flag is now PARKED along with the other three (reminders-projection.js
+  // BLOCKED_PROJECTION_FLAGS), and this call site was the least protected of them — it reads the
+  // flag at its own call site with no coverage gate at all, so its only guard was a catch that fires
+  // on a thrown error, never on a silently-wrong fold. The fixture is unchanged on purpose: the two
+  // sources still return deliberately different rows, so the assertions below prove which one won.
+  test('summarize week IGNORES SUMMARIZE_WEEK_COMPLETED_SOURCE=projection — the flag is parked', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-06-10T12:00:00.000Z')); // a Wednesday
     const PriorFlag = process.env.SUMMARIZE_WEEK_COMPLETED_SOURCE;
@@ -791,7 +797,7 @@ describe('RemindersAppMentionHandler', () => {
       const CompletedAtIso = new Date(Week.StartMs + 24 * 60 * 60 * 1000).toISOString();
 
       // Events fold to exactly ONE in-window completion. The CompletionStore is deliberately given a
-      // DIFFERENT row so a passing assertion proves the projection — not the store — was the source.
+      // DIFFERENT row, so the assertions below can prove which source actually won.
       const ProjectionEvents = [
         {
           v: 1, id: 'evt_p1', ts: CompletedAtIso, workspace: 'W',
@@ -806,7 +812,7 @@ describe('RemindersAppMentionHandler', () => {
       ];
       CompletedRecords = [{
         reminderId: 'R_STORE_ONLY',
-        summary: 'Store-sourced row that must NOT appear',
+        summary: 'Store-sourced row that MUST appear',
         assigneeID: 'U_STORE', sourceChannelID: 'C_GENERAL', dueDate: null,
         completedMs: Week.StartMs + 2 * 60 * 60 * 1000,
       }];
@@ -836,9 +842,10 @@ describe('RemindersAppMentionHandler', () => {
       expect(WasHandled).toBe(true);
       const Texts = SlackApp.SentMessages.map(ArgMessage => ArgMessage.text);
       expect(Texts.some(ArgText => ArgText.includes('Completed this week (1):'))).toBe(true);
-      expect(Texts.some(ArgText => ArgText.includes('Projected completion summary'))).toBe(true);
-      // The store-only row must NOT appear — proves the completed source switched to the projection.
-      expect(Texts.some(ArgText => ArgText.includes('Store-sourced row that must NOT appear'))).toBe(false);
+      // The AUTHORITATIVE store row is the one that must be rendered, with the flag set to
+      // `projection`. That is the whole point of parking: the setting is inert, not honoured.
+      expect(Texts.some(ArgText => ArgText.includes('Store-sourced row that MUST appear'))).toBe(true);
+      expect(Texts.some(ArgText => ArgText.includes('Projected completion summary'))).toBe(false);
     } finally {
       if(PriorFlag === undefined) delete process.env.SUMMARIZE_WEEK_COMPLETED_SOURCE;
       else process.env.SUMMARIZE_WEEK_COMPLETED_SOURCE = PriorFlag;

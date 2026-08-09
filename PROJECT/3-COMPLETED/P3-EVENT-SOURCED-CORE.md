@@ -1,9 +1,9 @@
 ---
 title: P3 — Event-Sourced Core (the log is the source of truth)
 created: 2026-06-12
-updated: 2026-08-08
+updated: 2026-08-09
 branch: development
-status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 was BLOCKED on an event-schema gap; schema v2 (PR #31, 1.4.267) CLOSED three of that gap's four blockers — what remains is `readAll()` having no read-error signal, plus wiring the coverage gate that currently records state nothing reads. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; lanes corrected, but ONLY Phase 5 (p6) may be re-run — Phase 6a is blocked with Phase 4. All three projection read flags REMAIN BLOCKED and must stay so until the coverage gate is default-deny and wired; see "STATUS UPDATE 2026-08-08 (post-schema-v2)" below for the per-blocker scoring. See "Marathon run 2026-08-08" for the full accounting.
+status: COMPLETE — Phase 5 closed out 2026-08-09. Phases 0-3 delivered. The read cutover is PARKED BY DECISION, not abandoned or pending: generation-binding of the coverage marker was falsified (a crashed append writes nothing to the ledger, so no ledger-derived quantity distinguishes 'never attempted' from 'attempted and lost'), and the two read surfaces gain migration confidence but no latency or scale benefit. The ledger is retained as a NON-AUTHORITATIVE projection/research substrate — not audit-grade, not a deferred authority migration. All FOUR projection flags are blocked in CODE (REMINDERS_READ_SOURCE, COMPLETED_READ_SOURCE, REBALANCE_EXPORT_SOURCE, SUMMARIZE_WEEK_COMPLETED_SOURCE) and set to `authoritative` on both servers. SIGTERM is now handled so shutdown durability no longer depends on an off-repo unit file. Remaining items are DEFERRED WITH TRIGGERS in "PHASE 5 CLOSE-OUT" -> section D; none is a live defect. Re-opening the authority path needs a named product consumer and a fresh proposal. See GH-35.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 model: event-sourcing + projections (strangler migration)
@@ -417,6 +417,77 @@ mutation-tested by disabling the throw and confirming the test fails.
 
 **Net effect on sequencing:** item 6 no longer blocks anything, and the projection needs no further
 change. Items 1–5 stand unchanged.
+
+## PHASE 5 CLOSE-OUT — 2026-08-09. The read cutover is parked; this plan is complete
+
+This section is the decision of record. Everything below it is history and evidence.
+
+### A. What the ledger is for
+
+**The ledger is a non-authoritative projection and research substrate. It is not an audit record and
+it is not a deferred authority migration.**
+
+Not audit-grade, on mechanism rather than preference: appends are mutate-first, best-effort and
+fire-and-forget (`reminders-module.js` `#EmitLifecycleEvent`), so a history that can silently miss
+events cannot be evidence of what happened. Not a future authority, on proof: a crashed append writes
+nothing to the ledger, so **no ledger-derived quantity can distinguish "no append was attempted" from
+"an append was attempted and lost"**. A coverage marker therefore cannot certify completeness, and
+completeness is exactly what serving a projection requires.
+
+**Stop rule.** No further implementation beyond keeping the existing non-authoritative data readable
+and inspectable. Re-opening the authority path requires a named product consumer and a fresh
+proposal — an intentional code change, never a config edit.
+
+**Machinery fate.** `ledger-coverage.js`, the `--record-coverage` marker path, and
+`state-snapshot-writer.js` are **retained, inert, and labelled** rather than deleted. They are the
+tested emergency stop and the tooling any future proposal would need, and deleting them would throw
+away the only mechanism that makes re-opening safe. If no consumer has demonstrated value by the next
+P3 review, retire them rather than carry a second persistence system indefinitely.
+
+### B. Accepted boundaries — NOT defects, do not re-file
+
+Two properties are permanent consequences of the design above. They were repeatedly rediscovered as
+bugs during this phase; they are neither.
+
+1. **Completion retention is a deliberate policy split.** `CompletionStore` durably prunes past 365
+   days (`completion-store.js:27`, `:207`); the fold applies no retention. A projection-completed
+   view therefore has a different history policy and must never claim parity with the completion
+   store across that boundary. Inert for the summarize-week consumer, which is windowed to one week.
+2. **Dual-write coverage can never certify completeness.** The ledger is an asynchronous best-effort
+   observation of lifecycle activity, not a mirror of authoritative state. Either side can lead after
+   an interruption, and snapshot-only changes — load-time normalisation (`reminders-module.js:3147`)
+   and completion pruning (`completion-store.js:88-99`) — produce no lifecycle event at all.
+   Therefore **a clean append or parity run establishes only the stated sample comparison; it can
+   never certify completeness, authorise a read cutover, or turn a coverage marker into a correctness
+   gate.**
+
+### C. What was done to make the parked state hold
+
+- **All four projection flags are blocked in code**, not merely set to `authoritative` in server
+  config: `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE` via
+  `BLOCKED_PROJECTION_FLAGS`, and `SUMMARIZE_WEEK_COMPLETED_SOURCE` via `IsProjectionRequested()`
+  because it never reaches the gate. Config alone left a live path from a routine
+  `projection-parity-harness --record-coverage` run straight to a production cutover with no deploy
+  and no review.
+- **`SIGTERM` is handled alongside `SIGINT`** (`src/app.js`). Node's default action for SIGTERM is
+  immediate exit, which would skip `StopAsync` entirely and lose the reminder queue, channel
+  settings, reminder counter and completion history — not merely the ledger. This deployment survived
+  that only because a unit file on the servers sets `KillSignal=2`; durability is now a property of
+  the code.
+- The env vars remain `authoritative` on dev and production as belt-and-braces.
+
+### D. Deferred, with the trigger that would revive each
+
+Recorded so they are closed with rationale rather than left as pending work. **None is a live defect;
+every read surface serves the authoritative store today, verified in both running processes.**
+
+| Item | Why deferred | Revive when |
+|---|---|---|
+| Ledger flush on shutdown | Loses only non-authoritative ledger data; authoritative JSON and completions are both flushed by `StopAsync` | The ledger gains a consumer whose correctness depends on completeness |
+| Unbounded ledger growth | ~1809 events against a ~50k practical threshold; with every flag blocked, served reads never fold the ledger at all | Event count crosses 50k, or backup/restore time becomes a constraint |
+| Ledger backup (`backup-sleuth-data.sh` omits `data/runtime/events/`) | Nothing consumes the ledger, so losing it loses nothing anyone reads | A consumer is approved under A's stop rule |
+| Harness folds `strict:false` while served paths fold `strict:true`; harness parses raw JSONL rather than `readAll()` | The harness is now a diagnostic, not an authorisation path — nothing acts on its verdict | A fresh proposal re-opens the authority path |
+| Compaction quiescence + marker invalidation | Compaction is not scheduled and has no production caller | Compaction is actually needed, i.e. the growth trigger fires |
 
 ### Items 1 & 2 DECIDED — 2026-08-09. Generation-binding is abandoned; the read cutover is parked
 

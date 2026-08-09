@@ -33,6 +33,19 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.270 - 2026-08-09
+Nothing changes for you day to day — but I've formally closed the book on a long-running internal migration. My reminder data has always lived in JSON files, with an experimental event log kept alongside it. That log will *not* be taking over: it's now permanently marked "reference only", and the switches that could have turned it on are disabled in code rather than just switched off in config. I also handle one more shutdown signal, so nothing in flight gets dropped when I'm restarted.
+
+**Technical:** P3 Phase 5 closed out — the read cutover is **parked by decision**, not abandoned or pending.
+
+- **All four projection flags blocked in code**, not merely `authoritative` in server config: `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE` via `BLOCKED_PROJECTION_FLAGS`, plus `SUMMARIZE_WEEK_COMPLETED_SOURCE` via a new `IsProjectionRequested()` helper — that one reads `process.env` at its own call site and never reaches the coverage gate, making it the least protected of the four. Config alone left a live path from a routine `projection-parity-harness --record-coverage` run to a production cutover with no deploy and no review.
+- **`SIGTERM` handled alongside `SIGINT`** (`src/app.js`). Node exits immediately on an unhandled SIGTERM, skipping `StopAsync` and losing the reminder queue, channel settings, reminder counter and completion history — not just the ledger. This deployment survived only because a server-side unit file sets `KillSignal=2`; durability is now a property of the code.
+- **The decision, on mechanism not preference:** a crashed append writes nothing to the ledger, so no ledger-derived quantity distinguishes "no append was attempted" from "an append was attempted and lost". A coverage marker therefore cannot certify the completeness that serving a projection requires. The ledger is retained as a non-authoritative projection/research substrate — not audit-grade, not a deferred authority migration.
+- Two properties recorded as **accepted boundaries, not defects**: completion retention is a deliberate 365-day policy split between `CompletionStore` and the fold; and dual-write coverage can never certify completeness, since either side can lead and snapshot-only changes emit no event.
+- Tests updated to assert the parked contract rather than the old cutover contract, with the coverage-gate contract still exercised in full under an unblocked synthetic flag so no mechanism lost coverage. Mutation-verified: unblocking the four flags fails 7 tests.
+- Plan doc moved to `PROJECT/3-COMPLETED/`; `ROADMAP.md` reduced to a ledger pointer. Residual items deferred with explicit revival triggers (section D). See GH-35.
+
+
 ## 1.4.269 - 2026-08-09
 I was quietly losing part of my own history. Every time I rescheduled a reminder to the next day, the
 note I write to my history log about it was being thrown away — the reminder itself rescheduled

@@ -418,9 +418,9 @@ async function RunAppAsync() {
   await ApiServer.StartAsync();
   logger.info('web api server started on port:', ApiServer.PortNumber);
 
-  // stop everything on interrupt signal.
+  // stop everything on an interrupt or termination signal.
   let isShuttingDown = false;
-  process.on('SIGINT', async () => {
+  const HandleShutdownSignalAsync = async () => {
     // prevent multiple shutdown attempts.
     if(isShuttingDown) {
       logger.info('shutdown already in progress...');
@@ -498,7 +498,19 @@ async function RunAppAsync() {
       clearTimeout(forceExitTimeout);
       process.exit(1);
     }
-  });
+  };
+
+  // SIGINT and SIGTERM both run the same shutdown. SIGTERM is the one that matters operationally:
+  // it is systemd's default stop signal, and Node's default action for it is to exit IMMEDIATELY —
+  // no handler, no `StopAsync`, so the reminder queue, channel settings, reminder counter, and
+  // completion history would all be lost, not merely the non-authoritative ledger.
+  //
+  // This deployment currently survives that only because the unit sets `KillSignal=2` (SIGINT), a
+  // file that lives on the servers and not in this repo, that no test asserts, and that would
+  // silently revert if the unit were recreated from defaults or the app moved to another supervisor.
+  // Handling the signal here makes durability a property of the code instead.
+  process.on('SIGINT', HandleShutdownSignalAsync);
+  process.on('SIGTERM', HandleShutdownSignalAsync);
 }
 
 // run app.

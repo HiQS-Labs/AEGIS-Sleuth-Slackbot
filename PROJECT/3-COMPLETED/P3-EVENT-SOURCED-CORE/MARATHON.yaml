@@ -1,7 +1,7 @@
 # MARATHON.yaml — "Ledger" (RELEASES.md → Release 1.5.0), Phase 3 ONLY.
 #
 # Run:
-#   .xyz/relay-automation/marathon.sh --plan PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/MARATHON.yaml \
+#   .xyz/relay-automation/marathon.sh --plan PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/MARATHON.yaml \
 #     --pre-advance-cmd "npm test"
 #
 # ALWAYS --dry-run first.
@@ -133,7 +133,7 @@ phases:
   - id: p1
     name: Normalized projection inputs for entity linking
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p1-projection-inputs.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p1-projection-inputs.md
     artifact: src/entity-projection-inputs.js,tests/entity-projection-inputs.test.js
     turn_timeout_s: 900
     max_review_rounds: 2
@@ -141,7 +141,7 @@ phases:
   - id: p2
     name: Candidate generation and multi-signal scoring
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p2-candidates-and-scoring.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p2-candidates-and-scoring.md
     artifact: src/entity-linking.js,tests/entity-linking.test.js
     turn_timeout_s: 900
     max_review_rounds: 2
@@ -150,7 +150,7 @@ phases:
   - id: p3
     name: Clustering into canonical entities and alias table
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p3-clustering.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p3-clustering.md
     artifact: src/entity-read-model.js,tests/entity-read-model.test.js
     turn_timeout_s: 900
     max_review_rounds: 2
@@ -159,7 +159,7 @@ phases:
   - id: p4
     name: Diagnostics, low-confidence queue, human override lane
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p4-diagnostics-and-override.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p4-diagnostics-and-override.md
     artifact: scripts/entity-linking-diagnostics.js,tests/entity-linking-diagnostics.test.js
     turn_timeout_s: 900
     max_review_rounds: 2
@@ -169,7 +169,7 @@ phases:
   - id: p5
     name: "Phase 4 — boot-time rebuild from the log, behind a reversible flag"
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p5-boot-rebuild.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p5-boot-rebuild.md
     artifact: src/reminders-module.js,src/completion-store.js,tests/boot-rebuild-from-log.test.js
     turn_timeout_s: 1200
     max_review_rounds: 3
@@ -178,7 +178,7 @@ phases:
   - id: p6
     name: "Phase 5 — migrate remaining projections, with a parity harness"
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p6-remaining-projections.md
     # CORRECTED 2026-08-08 after the first run delivered nothing usable. The previous list was
     # src/reminders-projection.js,scripts/projection-parity-harness.js,tests/projection-parity.test.js
     # — which EXCLUDED the two files this phase exists to change. Phase 5's spec is "convert the
@@ -209,7 +209,7 @@ phases:
   - id: p7
     name: "Phase 6a — retire the mutable write path, keep a derived snapshot"
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p7-retire-mutable-writes.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p7-retire-mutable-writes.md
     # CORRECTED 2026-08-08: added src/web-api.js (the ?format=rebalance export owner, which p8's
     # stop gate requires to consume REBALANCE_EXPORT_SOURCE) and package.json (node:test
     # registration). The first run built src/state-snapshot-writer.js and wired it to nothing.
@@ -247,7 +247,7 @@ phases:
   - id: p8
     name: "Reversibility drill — prove every switch flips back"
     reviewer: agy
-    brief: PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE/briefs/p8-reversibility-drill.md
+    brief: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/briefs/p8-reversibility-drill.md
     # package.json is IN this lane on purpose. p6 and p7 both wrote their suites against node:test
     # — correctly, since every ledger/projection suite here does — but registering such a file takes
     # TWO package.json edits (jest.testPathIgnorePatterns so Jest does not glob it, and the test:node

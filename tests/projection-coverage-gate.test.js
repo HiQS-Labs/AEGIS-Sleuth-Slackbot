@@ -17,6 +17,7 @@ const path = require('node:path');
 const {
   ReadWithProjectionFallbackAsync,
   BLOCKED_PROJECTION_FLAGS,
+  IsProjectionRequested,
 } = require('../src/reminders-projection');
 const { createLedgerCoverage, CoverageFilePath } = require('../src/ledger-coverage');
 
@@ -39,6 +40,52 @@ test('the test flag really is unblocked, or everything below proves nothing', ()
   // Guard on the instrument. If this flag were blocked, every assertion here would pass via the
   // blocked-flag branch without the coverage gate ever running.
   assert.equal(BLOCKED_PROJECTION_FLAGS.has(OPEN_FLAG), false);
+});
+
+test('PARKED: every real projection flag is blocked in CODE, not only in server config', async () => {
+  // The read cutover is parked by decision. Both servers also have these set to `authoritative` in
+  // `.env.runtime`, but that is config on two machines: it left a live path from a routine
+  // `projection-parity-harness --record-coverage` run straight to a production cutover with no
+  // deploy and no review. This list is the code half, and it is what makes the parked state hold.
+  for(const Flag of [
+    'REMINDERS_READ_SOURCE',
+    'COMPLETED_READ_SOURCE',
+    'REBALANCE_EXPORT_SOURCE',
+    'SUMMARIZE_WEEK_COMPLETED_SOURCE',
+  ]) {
+    assert.equal(BLOCKED_PROJECTION_FLAGS.has(Flag), true, `${Flag} must be blocked while parked`);
+  }
+
+  // And blocked must actually mean "serves authoritative", not merely "is listed".
+  for(const Flag of ['REMINDERS_READ_SOURCE', 'COMPLETED_READ_SOURCE', 'REBALANCE_EXPORT_SOURCE']) {
+    const Result = await Call({
+      flagName: Flag,
+      environment: { [Flag]: 'projection' },
+      // A gate that would say "clean", to prove the block outranks it.
+      IsCoverageCleanAsync: async () => true,
+    });
+    assert.equal(Result.source, 'authoritative', `${Flag} must not serve even with a clean gate`);
+    assert.equal(Result.value, 'authoritative-value');
+  }
+});
+
+test('the ungated summarize-week flag is refused too, via the same list', () => {
+  // SUMMARIZE_WEEK_COMPLETED_SOURCE never reaches ReadWithProjectionFallbackAsync — it is read at
+  // its own call site and has NO coverage gate of any kind, which made it the least protected of
+  // the four. IsProjectionRequested is how it consults the shared blocklist.
+  assert.equal(
+    IsProjectionRequested('SUMMARIZE_WEEK_COMPLETED_SOURCE', {
+      env: { SUMMARIZE_WEEK_COMPLETED_SOURCE: 'projection' },
+    }),
+    false,
+    'a blocked flag must read as "not requested" however it is set'
+  );
+
+  // The helper must still be capable of returning true, or the assertion above proves nothing.
+  assert.equal(
+    IsProjectionRequested(OPEN_FLAG, { env: { [OPEN_FLAG]: 'projection' } }), true);
+  assert.equal(
+    IsProjectionRequested(OPEN_FLAG, { env: { [OPEN_FLAG]: 'authoritative' } }), false);
 });
 
 test('DEFAULT-DENY: a call site that supplies no coverage gate is NOT served a projection', async () => {
@@ -77,11 +124,13 @@ test('a clean gate DOES serve the projection', async () => {
 });
 
 test('the emergency stop still outranks a clean gate', async () => {
-  // BLOCKED_PROJECTION_FLAGS is empty by design now — per-workspace coverage replaced the global
-  // refusal. But it remains the rollback lever for a fold found lossy in a way per-workspace
-  // evidence cannot detect, so it has to keep working. An empty set means no test would otherwise
-  // touch this branch.
-  assert.equal(BLOCKED_PROJECTION_FLAGS.size, 0, 'no flag should be blocked outright today');
+  // Was: "the set is empty by design, per-workspace coverage replaced the global refusal." That is
+  // no longer true — the read cutover is parked and all four real flags are blocked again (see the
+  // PARKED test above). What this test still proves is the ORDERING: a blocked flag serves
+  // authoritative even when the coverage gate would say clean, so re-blocking is a real emergency
+  // stop and not merely advisory. Uses the synthetic flag so it stays independent of which real
+  // flags happen to be listed.
+  assert.equal(BLOCKED_PROJECTION_FLAGS.has(OPEN_FLAG), false, 'precondition: the test flag is free');
 
   BLOCKED_PROJECTION_FLAGS.add(OPEN_FLAG);
   try {

@@ -45,7 +45,7 @@ applying them must not mutate the log.
 
 ## Deliverable beyond code — the checkpoint input
 
-Write a short findings section into `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md` reporting what the
+Write a short findings section into `PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE.md` reporting what the
 shadow-diff actually showed against real data: agreement rate, the disagreement classes found, and
 whether entity linking is carrying its weight.
 
