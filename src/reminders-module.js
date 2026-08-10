@@ -2109,34 +2109,11 @@ class RemindersModule {
       }
     }
 
-    // Extract user mentions from the text
-    const UserMentionPattern = /<@([^>|]+)(?:\|[^>]*)?>/g;
-    /** @type {string[]} */
-    const UserIds = [];
-    let Match;
-    
-    while((Match = UserMentionPattern.exec(TextToSearch)) !== null) {
-      const UserId = Match[1];
-      if(!UserIds.includes(UserId)) {
-        UserIds.push(UserId);
-      }
-    }
-
-    if(UserIds.length === 0) {
-      return [];
-    }
-
-    // Filter out the bot user ID - the bot should never be the assignee
-    const BotUserID = this.#SlackApp.BotUserID;
-    const HumanUserIds = BotUserID
-      ? UserIds.filter(Id => Id !== BotUserID)
-      : UserIds;
-
-    if(HumanUserIds.length === 0) {
-      return [];
-    }
-
-    return HumanUserIds;
+    // GH-44: mention extraction now comes from the ONE shared rule in decision-explain.js, so the
+    // triage view and the replay harness read ownership exactly the way this write path does rather
+    // than from three copies of the same regex that can drift. Behavior is unchanged: same pattern,
+    // same first-appearance de-duplication, same bot exclusion.
+    return DecisionExplain.ExtractMentionIDs(TextToSearch, this.#SlackApp.BotUserID);
   }
 
   /**

@@ -98,6 +98,30 @@ function RenderDecisionFactsSection(ArgTitle, ArgFacts, ArgOptions = {}) {
 }
 
 /**
+ * Extract Slack user-mention IDs from text, in first-appearance order, de-duplicated.
+ *
+ * Shared so the triage view, the replay harness, and the reminder write path all read ownership from
+ * ONE rule rather than three copies of a regex that can drift apart — which is the whole premise of
+ * this consolidation. `<@U123>` and `<@U123|display>` both yield `U123`.
+ * @param {string} ArgText
+ * @param {string} [ArgExcludeID] Optional ID to drop (the bot must never be an assignee).
+ * @returns {string[]}
+ */
+function ExtractMentionIDs(ArgText, ArgExcludeID) {
+  if(!ArgText || typeof ArgText !== 'string') return [];
+
+  const Pattern = /<@([^>|]+)(?:\|[^>]*)?>/g;
+  /** @type {string[]} */
+  const Ids = [];
+  let Match;
+  while((Match = Pattern.exec(ArgText)) !== null) {
+    const Id = Match[1];
+    if(!Ids.includes(Id)) Ids.push(Id);
+  }
+  return ArgExcludeID ? Ids.filter(ArgId => ArgId !== ArgExcludeID) : Ids;
+}
+
+/**
  * Describe how a reminder's assignees were resolved from a message, for the triage view.
  *
  * This is a *diagnostic* of today's behavior, not a fix: ownership currently comes from scraping
@@ -128,5 +152,6 @@ module.exports = {
   RenderDecisionFacts,
   RenderDecisionFactsSection,
   DescribeAssigneeResolution,
+  ExtractMentionIDs,
   MaxValueLength,
 };
