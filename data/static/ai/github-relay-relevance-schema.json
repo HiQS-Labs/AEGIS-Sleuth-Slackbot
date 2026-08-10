@@ -1,0 +1,28 @@
+{
+  "name": "github_relay_relevance_response",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "decision": {
+        "type": "string",
+        "enum": ["relay", "skip"],
+        "description": "'relay' when the follow-up message is a continuation of the linked task and belongs on that GitHub issue; 'skip' when it is a new task, unrelated, or merely conversational."
+      },
+      "confidence": {
+        "type": "number",
+        "description": "Confidence in the decision, from 0.0 (no confidence) to 1.0 (certain). A 'relay' decision below the caller's threshold is treated as 'skip'."
+      },
+      "rationale": {
+        "type": "string",
+        "description": "Brief explanation naming the specific overlap or mismatch between the follow-up message and the linked task."
+      }
+    },
+    "required": [
+      "decision",
+      "confidence",
+      "rationale"
+    ],
+    "additionalProperties": false
+  }
+}

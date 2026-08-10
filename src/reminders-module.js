@@ -431,10 +431,13 @@ class RemindersModule {
     });
 
     // instantiate the GitHub comment relay for forwarding thread replies to GitHub.
+    // WorkspaceAI is passed as a getter, not an instance: it is created in StartAsync, which runs
+    // after this constructor, so capturing it here would capture undefined.
     this.#GitHubCommentRelay = new GitHubCommentRelay(
       this.#SlackApp,
       () => this.#PendingRemindersQueue,
-      () => this.#SaveRemindersAsync()
+      () => this.#SaveRemindersAsync(),
+      () => this.#WorkspaceAI ?? null
     );
 
     // add handlers for message and app mention events.
@@ -443,6 +446,12 @@ class RemindersModule {
     this.#SlackApp.HandleMessage(this.#GitHubCommentRelay.OnMessageAsync.bind(this.#GitHubCommentRelay));
     this.#SlackApp.HandleMessage(this.#OnMessageAsync.bind(this));
     this.#SlackApp.HandleAppMention(this.#AppMentionHandler.OnAppMentionAsync.bind(this.#AppMentionHandler));
+
+    // GH-37: clicking the :octocat: the relay already leaves on a relayed message stops the relay.
+    // Returns false, so the reminders reaction handler still sees ✅/🗑/⏰ on the same message.
+    this.#SlackApp.HandleReactionAdded(
+      this.#GitHubCommentRelay.OnReactionAddedAsync.bind(this.#GitHubCommentRelay)
+    );
   }
 
   /**
