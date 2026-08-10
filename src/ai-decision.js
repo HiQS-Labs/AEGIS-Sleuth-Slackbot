@@ -16,6 +16,20 @@ const path = require('path');
  * @property {string}   InstructionsFile Instructions filename under data/static/ai/.
  * @property {string}   SchemaFile       Response-schema filename under data/static/ai/.
  * @property {string[]} RequiredFields   Response keys that must be present and non-empty.
+ * @property {string}   [ModelName]      Pin a non-default model (e.g. the complex model). Omitted
+ * uses the workspace default, which is what every pre-GH-44 caller did.
+ * @property {string}   [PromptVersion]  Stamped on each corpus record so an offline replay can
+ * bucket by prompt revision (GH-44; mirrors the router-shadow `promptVersion`).
+ * @property {string}   [SchemaVersion]  Stamped on each corpus record; same purpose.
+ * @property {(ArgResponse: any) => void} [Validate] Caller-supplied validation run INSIDE the
+ * chokepoint, after RequiredFields. Its throw propagates unchanged, so a caller with specific error
+ * messages keeps them byte-identical instead of losing them to the generic RequiredFields error —
+ * and the corpus still gets to classify the record `invalid` rather than recording a false `ok`.
+ * `RequiredFields` only tests presence (see {@link HasRequiredFields}); anything type-shaped, or
+ * any message a test asserts on, belongs here.
+ * @property {(ArgInput: any, ArgResponse: any) => object} [DebugFacts] Pure extractor producing the
+ * small fact bag surfaced by the explain surface and stored on the corpus record. Must not throw;
+ * if it does, the throw is swallowed and the record lands without facts.
  */
 
 /**
@@ -26,7 +40,21 @@ const path = require('path');
  * @property {any}    [Fallback] Value returned when the model errors or answers unusably. Null or
  * omitted rethrows instead, which is the right choice when the caller already handles the throw.
  * @property {{warn: Function}} [Logger] Logger used to record a fallback. Optional.
+ * @property {AiDecisionCapture} [Capture] Corpus capture config. **Absent means no capture** — the
+ * subsystem is off unless a caller explicitly opts in, so no existing call site changed behavior
+ * when GH-44 landed.
  */
+
+/**
+ * Corpus capture configuration for one call.
+ * @typedef {Object} AiDecisionCapture
+ * @property {{append: Function}} Store  A decision-corpus store (see decision-corpus-store.js).
+ * @property {string} Workspace          Workspace key the record is filed under.
+ * @property {string} [Mode]             Free-form marker recorded on the row (e.g. 'shadow').
+ */
+
+/** Record outcomes. `invalid` = the model answered but the answer was rejected; `error` = it did not answer. */
+const DecisionOutcome = Object.freeze({ Ok: 'ok', Invalid: 'invalid', Error: 'error' });
 
 // prompt assets live alongside the other static AI files, resolved relative to /src.
 const AssetBasePath = path.join(__dirname, '..', 'data', 'static', 'ai');
@@ -81,6 +109,69 @@ function HasRequiredFields(ArgResponse, ArgRequiredFields) {
 }
 
 /**
+ * Run a spec's DebugFacts extractor defensively. A debug-fact bug must never cost the record it was
+ * attached to, so a throw is swallowed and the record simply lands without facts.
+ * @param {AiDecisionSpec} ArgSpec
+ * @param {any} ArgInput
+ * @param {any} ArgResponse
+ * @returns {object|null}
+ */
+function SafeDebugFacts(ArgSpec, ArgInput, ArgResponse) {
+  if(typeof ArgSpec.DebugFacts !== 'function') return null;
+  try {
+    const Facts = ArgSpec.DebugFacts(ArgInput, ArgResponse);
+    return (Facts && typeof Facts === 'object' && !Array.isArray(Facts)) ? Facts : null;
+  } catch(error) {
+    return null;
+  }
+}
+
+/**
+ * Append one corpus record, best effort. This function NEVER throws and never alters the decision's
+ * own outcome: the store contract already resolves `{ok,error}` instead of rejecting, and the extra
+ * try/catch here covers a caller-supplied store that does not honor that contract.
+ * @param {AiDecisionCapture|null} ArgCapture
+ * @param {AiDecisionSpec} ArgSpec
+ * @param {any} ArgInput
+ * @param {any} ArgResponse
+ * @param {string} ArgOutcome
+ * @param {any} ArgError
+ * @param {number} ArgStartedAtMs
+ * @param {{warn: Function}|null} ArgLogger
+ * @returns {Promise<void>}
+ */
+async function EmitCaptureAsync(
+  ArgCapture, ArgSpec, ArgInput, ArgResponse, ArgOutcome, ArgError, ArgStartedAtMs, ArgLogger,
+) {
+  if(!ArgCapture || !ArgCapture.Store || typeof ArgCapture.Store.append !== 'function') return;
+
+  try {
+    const Record = {
+      decision: ArgSpec.Name,
+      mode: ArgCapture.Mode || 'capture',
+      outcome: ArgOutcome,
+      promptVersion: ArgSpec.PromptVersion || null,
+      schemaVersion: ArgSpec.SchemaVersion || null,
+      modelName: ArgSpec.ModelName || null,
+      input: ArgInput ?? null,
+      output: ArgResponse ?? null,
+      debugFacts: SafeDebugFacts(ArgSpec, ArgInput, ArgResponse),
+      // message only, never the stack: a stack is noise in a replay corpus and can carry absolute
+      // filesystem paths from the host that produced it.
+      error: ArgError ? String(ArgError.message || ArgError) : null,
+      durationMs: Date.now() - ArgStartedAtMs,
+    };
+
+    const Result = await ArgCapture.Store.append(ArgCapture.Workspace, Record);
+    if(Result && Result.ok === false && ArgLogger) {
+      ArgLogger.warn(`[ai-decision] ${ArgSpec.Name} corpus append failed:`, Result.error);
+    }
+  } catch(error) {
+    if(ArgLogger) ArgLogger.warn(`[ai-decision] ${ArgSpec.Name} corpus append threw:`, error);
+  }
+}
+
+/**
  * Ask the workspace's AI for a schema-constrained decision.
  *
  * Owns the mechanics every decision use case shares — asset loading and caching, the model call,
@@ -99,25 +190,60 @@ function HasRequiredFields(ArgResponse, ArgRequiredFields) {
 async function DecideAsync(ArgWorkspaceAI, ArgSpec, ArgInput, ArgOptions = {}) {
   const Fallback = ArgOptions.Fallback ?? null;
   const Logger = ArgOptions.Logger ?? null;
+  const Capture = ArgOptions.Capture ?? null;
+  const StartedAtMs = Date.now();
+
+  let Outcome = DecisionOutcome.Ok;
+  let Response = null;
+  let FailureError = null;
 
   try {
     const { Instructions, Schema } = await LoadAssetsAsync(ArgSpec);
     const InputText = typeof ArgInput === 'string' ? ArgInput : JSON.stringify(ArgInput, null, 2);
 
-    const Response = await ArgWorkspaceAI.ProcessMessageWithJsonResponseAsync(
-      InputText, Instructions, Schema,
-    );
+    // Only pass a model name when the spec pins one: WorkspaceAI applies its own default for the
+    // 3-arg form, and passing `undefined` explicitly is not guaranteed to be the same thing.
+    Response = ArgSpec.ModelName
+      ? await ArgWorkspaceAI.ProcessMessageWithJsonResponseAsync(
+        InputText, Instructions, Schema, ArgSpec.ModelName,
+      )
+      : await ArgWorkspaceAI.ProcessMessageWithJsonResponseAsync(
+        InputText, Instructions, Schema,
+      );
 
-    if(!HasRequiredFields(Response, ArgSpec.RequiredFields))
+    if(!HasRequiredFields(Response, ArgSpec.RequiredFields)) {
+      Outcome = DecisionOutcome.Invalid;
       throw new Error(`Invalid ${ArgSpec.Name} response from the AI model.`);
+    }
+
+    // Caller-supplied validation runs INSIDE the chokepoint so its (specific, often test-asserted)
+    // error is what propagates, while the corpus still sees `invalid` rather than a false `ok`.
+    if(typeof ArgSpec.Validate === 'function') {
+      try {
+        ArgSpec.Validate(Response);
+      } catch(error) {
+        Outcome = DecisionOutcome.Invalid;
+        throw error;
+      }
+    }
 
     return Response;
   } catch(error) {
+    // a failure that is not a rejected answer is a failure to get one at all.
+    if(Outcome === DecisionOutcome.Ok) Outcome = DecisionOutcome.Error;
+    FailureError = error;
+
     // no fallback configured means the caller owns the failure — preserve the throw.
     if(Fallback === null) throw error;
 
     if(Logger) Logger.warn(`[ai-decision] ${ArgSpec.Name} failed, falling back:`, error);
     return Fallback;
+  } finally {
+    // Awaited deliberately rather than fire-and-forget: the append is a non-fsync'd local write, and
+    // making it ordered keeps "one decision emits exactly one record" a deterministic assertion
+    // instead of a race. Capture is off by default, so this cost is only paid when an operator has
+    // asked for it. Never throws — see EmitCaptureAsync.
+    await EmitCaptureAsync(Capture, ArgSpec, ArgInput, Response, Outcome, FailureError, StartedAtMs, Logger);
   }
 }
 
@@ -133,4 +259,5 @@ function ResetAssetCache() {
 module.exports = {
   DecideAsync,
   ResetAssetCache,
+  DecisionOutcome,
 };
