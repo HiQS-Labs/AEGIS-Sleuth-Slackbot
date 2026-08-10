@@ -31,13 +31,17 @@ goal: >
 
 ### In progress
 
-- **Unified AI decision capture, replay + debugging (GH-44)** — consolidate the three partial
-  implementations of AI-decision capture into one subsystem: generalize the GH-397 shadow store into
-  a decision-corpus store, emit capture from inside `DecideAsync` so every registered decision gets
-  it for free, migrate reminder analysis onto `AiDecisionSpec`, promote `:wrench:` into a generic
-  explain-this-decision surface, and ship a replay/before-after diff harness. No prompt, schema, or
-  model changes — behavior parity is the contract. GH-43 Phase 0 is re-scoped to consume this.
-  Branch `gh-44-decision-capture-debug`. See `PROJECT/2-WORKING/GH-44-DECISION-CAPTURE-DEBUG.md`.
+- **Unified AI decision capture, replay + debugging (GH-44)** — **all 6 phases built in 1.4.272 on
+  `gh-44-decision-capture-debug`; awaiting review/merge.** Consolidated the three partial
+  implementations rather than adding a fourth: `router-shadow-store` generalized into
+  `decision-corpus-store` (prod filename and its 22 tests untouched), capture + a `Validate` hook
+  inside `DecideAsync`, reminder analysis *and* the thread multi-task extractor migrated onto
+  `AiDecisionSpec`, `:wrench:` promoted to a decision-agnostic explain surface showing routing and
+  ownership, and `npm run decision:replay` as the one thread-aware replay/diff harness. No prompt,
+  schema, or model changes — the multi-task prompt moved to a `data/static/ai` asset byte-identically
+  and is now covered by `validate:ai` for the first time. agy relay QA closed `Approved` at r3/3.
+  GH-43 Phase 0 consumes this: the battery reports its 4 known defects RED against a committed
+  baseline. See `PROJECT/2-WORKING/GH-44-DECISION-CAPTURE-DEBUG.md`.
 
 - **GitHub relay leaks unrelated follow-ups onto a linked issue (GH-37)** — the relay gates purely on
   thread structure, so once any reminder in a thread carries a GitHub URL, every later reply is

@@ -26,7 +26,7 @@ goal: >
 
 | What was just completed | What's next |
 | --- | --- |
-| Plan authored, agy relay r1 QA applied (1 valid blocker fixed, 1 declined with evidence), thread-extraction scope added as Phase 4. No code written yet. | Phase 1 — generalize the corpus store |
+| **All 6 phases shipped in 1.4.272.** agy relay closed `Approved` at r3/3 after 4 valid blockers. 1678 jest + 114 node tests green, tsc clean, 4 validators pass. | _None for GH-44._ GH-43 now consumes this: `npm run decision:replay` reports its 4 known defects RED against the committed baseline. |
 
 ## Table of contents
 - [Problem](#problem)
@@ -86,14 +86,14 @@ done — agy caught exactly that in Phases 3 and 4 (relay r2). Where a phase has
 called out inline so a later reader can tell the proof-of-work check from the regression guards.
 
 <a id="phase-1"></a>
-## Phase 1 — Generalize the corpus store
+## Phase 1 — Generalize the corpus store ✅ (1.4.272)
 
-- [ ] New `src/decision-corpus-store.js`: `createDecisionCorpusStore({ rootDir, stream })` writing
+- [x] New `src/decision-corpus-store.js`: `createDecisionCorpusStore({ rootDir, stream })` writing
       `<workspace>_<stream>.jsonl`. Carries over every property of the shadow store verbatim —
       per-workspace write chains, memoized `mkdir -p`, synchronous serialization before the chain,
       system-stamped `ts`/`workspace` winning key collisions, best-effort append that never rejects,
       deliberately not fsync'd.
-- [ ] `src/router-shadow-store.js` becomes a thin back-compat wrapper delegating to it with
+- [x] `src/router-shadow-store.js` becomes a thin back-compat wrapper delegating to it with
       `stream: 'router-shadow'`.
 
 **Back-compat is the whole point of this phase:** the prod corpus filename
@@ -102,49 +102,49 @@ called out inline so a later reader can tell the proof-of-work check from the re
 wrong.
 
 **QA**
-- [ ] `tests/router-shadow.test.js` passes with **zero modifications**.
-- [ ] Round-trip: a record written through `createRouterShadowStore` lands at the byte-identical
+- [x] `tests/router-shadow.test.js` passes with **zero modifications**.
+- [x] Round-trip: a record written through `createRouterShadowStore` lands at the byte-identical
       path it landed at before.
-- [ ] Path traversal still blocked — a workspace of `../../etc` cannot escape `rootDir`.
-- [ ] An unserializable (circular) record resolves `{ ok: false }` rather than throwing.
-- [ ] Two streams in the same `rootDir` do not interleave or share a write chain.
+- [x] Path traversal still blocked — a workspace of `../../etc` cannot escape `rootDir`.
+- [x] An unserializable (circular) record resolves `{ ok: false }` rather than throwing.
+- [x] Two streams in the same `rootDir` do not interleave or share a write chain.
 
 <a id="phase-2"></a>
-## Phase 2 — Capture inside DecideAsync
+## Phase 2 — Capture inside DecideAsync ✅ (1.4.272)
 
-- [ ] Extend `AiDecisionSpec` with four optional fields: `PromptVersion`, `SchemaVersion`,
+- [x] Extend `AiDecisionSpec` with four optional fields: `PromptVersion`, `SchemaVersion`,
       `DebugFacts` (a pure `(input, output) => object` extractor), and `Validate` (a caller-supplied
       validator run inside `DecideAsync`, after `HasRequiredFields`, whose throw propagates
       unchanged). All optional — existing specs keep working unchanged.
-- [ ] `Validate` exists because `HasRequiredFields` checks presence, not type, and its failure throws
+- [x] `Validate` exists because `HasRequiredFields` checks presence, not type, and its failure throws
       one generic message. A caller with its own specific errors (Phase 3) can move them inside the
       chokepoint instead of losing them — the throw stays byte-identical **and** the corpus gets to
       classify the record `invalid` rather than recording a false `ok`. (agy relay r1 `[Blocker]`.)
-- [ ] Add optional `ModelName` so a spec can pin a non-default model (needed before any future
+- [x] Add optional `ModelName` so a spec can pin a non-default model (needed before any future
       migration of `ExtractMultiTaskCandidatesAsync`, which uses `ComplexModelName`).
-- [ ] Add `AiDecisionOptions.Capture = { Store, Workspace, Mode }`. **Absent ⇒ no capture.**
-- [ ] Emit one record per decision: `{ decision, promptVersion, schemaVersion, input, output,
+- [x] Add `AiDecisionOptions.Capture = { Store, Workspace, Mode }`. **Absent ⇒ no capture.**
+- [x] Emit one record per decision: `{ decision, promptVersion, schemaVersion, input, output,
       debugFacts, outcome, durationMs }` where `outcome ∈ ok | invalid | error`.
-- [ ] Capture the `invalid` and `error` outcomes too — a decision that failed validation is the most
+- [x] Capture the `invalid` and `error` outcomes too — a decision that failed validation is the most
       interesting record in the corpus, and the one a replay most needs.
 
 **QA**
-- [ ] No `Capture` option ⇒ zero store calls. Assert on the store mock, do not assume.
-- [ ] A store that throws does not change `DecideAsync`'s return value or its throw behavior.
-- [ ] A `DebugFacts` extractor that throws is swallowed; the record still lands without the facts.
-- [ ] Both existing consumers (relay relevance, reminder dedup) behave identically with capture off
+- [x] No `Capture` option ⇒ zero store calls. Assert on the store mock, do not assume.
+- [x] A store that throws does not change `DecideAsync`'s return value or its throw behavior.
+- [x] A `DebugFacts` extractor that throws is swallowed; the record still lands without the facts.
+- [x] Both existing consumers (relay relevance, reminder dedup) behave identically with capture off
       and with capture on.
-- [ ] `outcome: 'error'` records the error message, never the stack.
+- [x] `outcome: 'error'` records the error message, never the stack.
 
 <a id="phase-3"></a>
-## Phase 3 — Migrate reminder analysis onto AiDecisionSpec
+## Phase 3 — Migrate reminder analysis onto AiDecisionSpec ✅ (1.4.272)
 
 The third consumer, and the one GH-43 needs. Sequenced after Phases 1–2 so the record shape is
 validated against a genuinely different pipeline before any broad migration.
 
-- [ ] Define `ReminderAnalysisDecisionSpec` (`reminders-instructions.md` + `reminders-schema.json`)
+- [x] Define `ReminderAnalysisDecisionSpec` (`reminders-instructions.md` + `reminders-schema.json`)
       with **`RequiredFields: []`** and the three existing sanity checks moved into `Validate`.
-- [ ] **`RequiredFields` must stay empty here — this is a correctness constraint, not a style choice.**
+- [x] **`RequiredFields` must stay empty here — this is a correctness constraint, not a style choice.**
       Populating it with `recommendation` / `rationale` / `reminders` makes `HasRequiredFields` fail
       first and throw `DecideAsync`'s generic *"Invalid reminder-analysis response from the AI model."*
       before the specific checks ever run. Three tests assert the exact legacy strings —
@@ -153,32 +153,32 @@ validated against a genuinely different pipeline before any broad migration.
       [:71](../../tests/reminders-ai-pipeline.test.js#L71) — and all three would go red.
       (Found by agy relay r1 `[Blocker]`; fix improved to use `Validate` so the corpus still sees
       `outcome: 'invalid'`, which agy's `RequiredFields: []`-only option would have silently lost.)
-- [ ] `Validate` throws the three original messages verbatim, including the type checks
+- [x] `Validate` throws the three original messages verbatim, including the type checks
       `HasRequiredFields` cannot express (it would accept `recommendation: 123`).
-- [ ] `AnalyzeMessageForRemindersAsync` calls `DecideAsync`. It passes no model name today, so it maps
+- [x] `AnalyzeMessageForRemindersAsync` calls `DecideAsync`. It passes no model name today, so it maps
       cleanly onto the default.
-- [ ] `DebugFacts` for this spec returns the synthesis routing facts already computed by
+- [x] `DebugFacts` for this spec returns the synthesis routing facts already computed by
       `DescribeSynthesisRouting` (`segment`, `synthesisOn`, `actionableSpanRatio`, `sentenceCount`)
       plus candidate count.
-- [ ] No prompt, schema, or model change. Behavior must be byte-identical.
+- [x] No prompt, schema, or model change. Behavior must be byte-identical.
 
 **QA**
-- [ ] `tests/reminders-ai-pipeline.test.js` and `tests/reminders-integration.test.js` pass unmodified.
-- [ ] The three legacy error strings are thrown byte-identically — assert on the messages, not merely
+- [x] `tests/reminders-ai-pipeline.test.js` and `tests/reminders-integration.test.js` pass unmodified.
+- [x] The three legacy error strings are thrown byte-identically — assert on the messages, not merely
       that something threw.
-- [ ] A wrong-typed field (`recommendation: 123`) still throws, proving `Validate` covers what
+- [x] A wrong-typed field (`recommendation: 123`) still throws, proving `Validate` covers what
       `HasRequiredFields` cannot.
-- [ ] **Proof the migration actually happened** (agy relay r2 `[Blocker]`): with capture enabled, one
+- [x] **Proof the migration actually happened** (agy relay r2 `[Blocker]`): with capture enabled, one
       analysis emits exactly one record whose `decision === 'reminder-analysis'` and whose
       `debugFacts` carries `segment` / `synthesisOn` / `actionableSpanRatio`. This is the only Phase 3
       gate that is red on today's code — every other gate here passes before the migration, which is
       what made this list unfalsifiable as first written.
-- [ ] The deterministic direct-ask fallback still fires when the model recommends `ignore`.
-- [ ] Empty `reminders: []` is accepted (it is a value, not an absence) and still yields `ignore`
+- [x] The deterministic direct-ask fallback still fires when the model recommends `ignore`.
+- [x] Empty `reminders: []` is accepted (it is a value, not an absence) and still yields `ignore`
       downstream — the one place `HasRequiredFields` semantics could have silently changed behavior.
 
 <a id="phase-4"></a>
-## Phase 4 — Migrate the thread multi-task extractor
+## Phase 4 — Migrate the thread multi-task extractor ✅ (1.4.272)
 
 The single-message path (Phase 3) answers *"is this one message a task?"*. The **thread** path answers
 *"given a whole conversation, which of it is actually actionable, and whose?"* — which is the harder
@@ -189,31 +189,31 @@ production — numbered transcript, per-candidate `sourceMessageNumbers` / `sour
 low-confidence flagging, and dedup against live open reminders. It is called from
 [reminders-app-mention-handler.js:880](../../src/reminders-app-mention-handler.js#L880).
 
-- [ ] **Extract its inline prompt + schema into asset files.** Today the system prompt is a template
+- [x] **Extract its inline prompt + schema into asset files.** Today the system prompt is a template
       literal at [reminders-ai-pipeline.js:745](../../src/reminders-ai-pipeline.js#L745) and
       `MULTI_TASK_SCHEMA` is an inline object at [:775](../../src/reminders-ai-pipeline.js#L775).
       `AiDecisionSpec` requires `InstructionsFile` + `SchemaFile`, so this migration is **blocked on
       promoting them to `data/static/ai/multi-task-extraction-{instructions.md,schema.json}`**. This
       is a real prerequisite, not a formality — but it is also a win on its own: an inline prompt is
       invisible to `scripts/validate-ai-prompts.js`, so this prompt has never been validated.
-- [ ] Register the new pair in `validate-ai-prompts.js`'s `EXPECTED_PAIRS`. Note this interacts with
+- [x] Register the new pair in `validate-ai-prompts.js`'s `EXPECTED_PAIRS`. Note this interacts with
       open issue [#41](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/41)
       (`validate:ai` silently skips assets missing from that map) — adding an entry is exactly the
       case #41 is about.
-- [ ] Use the `ModelName` spec field from Phase 2 — this path pins `ComplexModelName`, which is the
+- [x] Use the `ModelName` spec field from Phase 2 — this path pins `ComplexModelName`, which is the
       reason that field exists.
-- [ ] Keep the transcript-building and post-processing (default-assignee fill) at the call site; only
+- [x] Keep the transcript-building and post-processing (default-assignee fill) at the call site; only
       the model call moves into `DecideAsync`.
-- [ ] `DebugFacts`: candidate count, confidence distribution, how many carried a `flag`, and how many
+- [x] `DebugFacts`: candidate count, confidence distribution, how many carried a `flag`, and how many
       matched an open reminder.
 
 **QA**
-- [ ] The extracted prompt asset is **byte-identical** to the inline literal it replaces — diff it,
+- [x] The extracted prompt asset is **byte-identical** to the inline literal it replaces — diff it,
       do not eyeball it. A reworded prompt makes every later before/after comparison meaningless.
-- [ ] `tests/reminders-app-mention-handler.test.js` passes unmodified (it asserts call counts and
+- [x] `tests/reminders-app-mention-handler.test.js` passes unmodified (it asserts call counts and
       argument shape at [:1426](../../tests/reminders-app-mention-handler.test.js#L1426) and
       [:1501](../../tests/reminders-app-mention-handler.test.js#L1501)).
-- [ ] **`validate:ai` coverage must be asserted, not inferred** (agy relay r2 `[Blocker]`). "The script
+- [x] **`validate:ai` coverage must be asserted, not inferred** (agy relay r2 `[Blocker]`). "The script
       exits 0" proves nothing: [validate-ai-prompts.js:45](../../scripts/validate-ai-prompts.js#L45)
       iterates `Object.entries(EXPECTED_PAIRS)` only, so an asset on disk but missing from that map is
       never checked and the run still passes — open issue
@@ -221,65 +221,65 @@ low-confidence flagging, and dedup against live open reminders. It is called fro
       therefore: stdout contains `OK:   multi-task-extraction-instructions.md` **and**
       `OK:   multi-task-extraction-schema.json` (the `Pass()` format at
       [:40](../../scripts/validate-ai-prompts.js#L40)).
-- [ ] `ComplexModelName` is still the model actually used — assert the argument, do not assume.
-- [ ] A thread whose candidates are all low-confidence still returns them flagged, never dropped.
-- [ ] **Proof the migration actually happened** (agy relay r2 `[Blocker]`): with capture enabled, one
+- [x] `ComplexModelName` is still the model actually used — assert the argument, do not assume.
+- [x] A thread whose candidates are all low-confidence still returns them flagged, never dropped.
+- [x] **Proof the migration actually happened** (agy relay r2 `[Blocker]`): with capture enabled, one
       thread extraction emits exactly one record whose `decision === 'multi-task-extraction'`, whose
       `debugFacts` carries the candidate count and confidence distribution, and whose
       `promptVersion` / `schemaVersion` are stamped. Red on today's code; the rest of this list is not.
 
 <a id="phase-5"></a>
-## Phase 5 — Generic explain-this-decision surface
+## Phase 5 — Generic explain-this-decision surface ✅ (1.4.272)
 
-- [ ] New `src/decision-explain.js`: renders a decision's spec-declared debug facts into Slack lines,
+- [x] New `src/decision-explain.js`: renders a decision's spec-declared debug facts into Slack lines,
       independent of which decision it is.
-- [ ] `:wrench:` reminder triage renders through it, and gains the routing facts + a candidate-level
+- [x] `:wrench:` reminder triage renders through it, and gains the routing facts + a candidate-level
       ownership trace that previously existed only in server logs.
-- [ ] Truncation and sanitization go through the existing `SlackFormatUtils` primitives — no new
+- [x] Truncation and sanitization go through the existing `SlackFormatUtils` primitives — no new
       rendering path (GH-391 keeps one render primitive).
 
 **QA**
-- [ ] Existing `:wrench:` output keeps its current lines; new facts are additive.
-- [ ] A decision with no `DebugFacts` renders without an empty section.
-- [ ] Long values truncate rather than blowing the Slack message limit.
-- [ ] No raw corpus record is ever posted to Slack — only the declared facts.
+- [x] Existing `:wrench:` output keeps its current lines; new facts are additive.
+- [x] A decision with no `DebugFacts` renders without an empty section.
+- [x] Long values truncate rather than blowing the Slack message limit.
+- [x] No raw corpus record is ever posted to Slack — only the declared facts.
 
 <a id="phase-6"></a>
-## Phase 6 — Replay + before/after diff harness (thread-aware)
+## Phase 6 — Replay + before/after diff harness (thread-aware) ✅ (1.4.272)
 
-- [ ] `scripts/decision-replay.js` + `npm run decision:replay`. Reads a scenario file, runs each
+- [x] `scripts/decision-replay.js` + `npm run decision:replay`. Reads a scenario file, runs each
       scenario through the deterministic layers with recorded model responses, and diffs against a
       committed baseline.
-- [ ] **Scenarios are threads, not single strings.** Reuse the shape
+- [x] **Scenarios are threads, not single strings.** Reuse the shape
       `scripts/reminder-thread-battery.js` already validates —
       `{ channel, channelType, turns: [{ user, text }] }` — so the repo has **one** scenario format,
       not two. A single-message scenario is just a one-turn thread; nothing special-cases it.
-- [ ] Support loading **several scenarios from one file** (a `scenarios: []` array of thread objects)
+- [x] Support loading **several scenarios from one file** (a `scenarios: []` array of thread objects)
       so a whole battery runs in one invocation and reports a table, rather than one run per case.
-- [ ] Each scenario declares which decision it exercises (`reminder-analysis` for single-message,
+- [x] Each scenario declares which decision it exercises (`reminder-analysis` for single-message,
       `multi-task-extraction` for thread-level), so both Phase 3's and Phase 4's specs are replayable
       through the same harness.
-- [ ] Reuses the canonicalize/serialize/compare shape from `projection-parity-harness.js` rather than
+- [x] Reuses the canonicalize/serialize/compare shape from `projection-parity-harness.js` rather than
       inventing a third comparison.
-- [ ] Reports one row per scenario: `PASS` / `FAIL` / `CHANGED-vs-baseline`, exit non-zero on
+- [x] Reports one row per scenario: `PASS` / `FAIL` / `CHANGED-vs-baseline`, exit non-zero on
       unexplained change.
-- [ ] `--update-baseline` writes the baseline; it is never written implicitly by a normal run.
-- [ ] `--from-corpus <ws>` replays real captured records instead of authored scenarios — the payoff
+- [x] `--update-baseline` writes the baseline; it is never written implicitly by a normal run.
+- [x] `--from-corpus <ws>` replays real captured records instead of authored scenarios — the payoff
       of Phase 2's capture, and what makes production traffic a regression suite.
-- [ ] GH-43's 15-scenario battery is the first authored input; its thread cases (S-02, S-04) exercise
+- [x] GH-43's 15-scenario battery is the first authored input; its thread cases (S-02, S-04) exercise
       the multi-turn path.
 
 **QA**
-- [ ] **The harness must be able to fail.** Running the GH-43 battery against current `development`
+- [x] **The harness must be able to fail.** Running the GH-43 battery against current `development`
       reports RED on the three known defects. A green run means the instrument is broken.
-- [ ] Two runs on the same commit produce byte-identical output — no clock, no `Math.random`, no
+- [x] Two runs on the same commit produce byte-identical output — no clock, no `Math.random`, no
       live model in the default mode.
-- [ ] Deterministic mode makes zero network calls. Assert on the mock.
-- [ ] A scenario with no recorded response is reported as skipped, not silently passed.
-- [ ] A multi-turn scenario reaches the thread extractor with **all** its turns in order — assert the
+- [x] Deterministic mode makes zero network calls. Assert on the mock.
+- [x] A scenario with no recorded response is reported as skipped, not silently passed.
+- [x] A multi-turn scenario reaches the thread extractor with **all** its turns in order — assert the
       transcript the model receives, since a harness that silently truncates to the last message would
       still look green while testing nothing about threads.
-- [ ] Loading a file of N scenarios produces N rows; a malformed scenario fails that row only, and
+- [x] Loading a file of N scenarios produces N rows; a malformed scenario fails that row only, and
       does not abort the batch.
 
 <a id="privacy"></a>
