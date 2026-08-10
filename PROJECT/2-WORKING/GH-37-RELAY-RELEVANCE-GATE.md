@@ -57,6 +57,57 @@ landed as one commit — recorded here rather than presented as a clean three-wa
 The bot-guard on the octocat trigger was mutation-checked: deleting the guard fails
 `the bot adding octocat does not stop the relay it just started`, so that test is not vacuous.
 
+## Round 2 QA — merge resolution (Codex via /relay-xyz, 2026-08-10)
+
+Second review round, scoped to the merge with `origin/development` (event schema v2), which no
+reviewer had seen. Both findings **accepted and fixed**; both fixes mutation-tested.
+
+**Round 1 of this pass failed and was re-run.** `codex exec exceeded 1500s wall-clock cap — killed`
+on a 1724-line diff with 7 multi-part questions at high reasoning effort; the relay log was empty.
+Re-run with the diff narrowed to the 396-line merge surface, 4 focused questions, and
+`RELAY_TURN_TIMEOUT_S=3000`. Recorded because an empty relay log reads exactly like a clean review.
+
+### [Blocker] `NewlyStarted` narrowing recreated the parity divergence — fixed
+
+Narrowing the relay-started write to the gate-filtered `RelevantReminders` leaves a non-relayed
+reminder unset in the JSON store, while the emitted ledger event is **thread**-scoped and says
+`relayStarted: true`. `src/reminders-projection.js:533-554` folds one thread's ledger state onto
+*every* reminder in that thread, so the projection raises the flag the JSON store never set — the
+exact invented-key divergence that file documents ("the source of ALL 22 `GitHubRelayStarted` ...
+invented keys in the production diff").
+
+Found independently while Codex was still running, then confirmed by Codex with the same diagnosis
+and the same fix. Reverted to `MatchingReminders`: `GitHubRelayStarted` is thread-scoped, not
+per-issue. The cost is the cosmetic permalink omission described under #3b — parity outranks it.
+
+Regression test: *a partial relay keeps the JSON store in parity with the thread-scoped ledger
+event*. The partial-relay case did not exist before GH-37, which is why nothing caught this.
+
+### [Should] Stop path could persist without recording — fixed
+
+In `#StopRelayAsync` the Slack acknowledgement was awaited *before* the ledger emit. A failed
+`AddReactionAsync` threw to the handler's outer catch, leaving the JSON store persisted-stopped while
+the ledger never heard about it — the same divergence in the other direction. Emit now runs
+immediately after a successful save, and the acknowledgement is best-effort in its own try/catch.
+
+Pre-existing on `development` (their code had the same ordering), but this branch widened it to a
+second path via the reaction trigger, so it is fixed here rather than deferred.
+
+Regression test: *records the stop in the ledger even when the Slack acknowledgement fails*.
+
+### Passes
+
+Constructor ordering correctly wired at `src/reminders-module.js` (hook 4th, AI getter 5th), no
+swapped production call site; the gate fails closed before the posting loop; both event entry points
+catch unexpected errors.
+
+### Process note
+
+Both fixes were first written **while the Codex turn was still in flight**, and the harness's
+containment reverted them mid-session — the documented GH-141 hazard. Recovered from
+`.tick/orphan-backups/`, reapplied after the turn ended, and re-verified. Do not edit a clone while a
+driven turn is running in it.
+
 ## GUIDING-PRINCIPLES alignment
 
 Engineering Philosophy, judged against the shipped diff:

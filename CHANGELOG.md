@@ -61,7 +61,17 @@ cache holds only static repo assets. Dedup passes no fallback, so its throw-on-i
 behavior is unchanged — the migration is behavior-identical, evidenced by the existing 36 pipeline
 tests passing unmodified. Field validation treats undefined/null/empty-string as missing rather than
 using a falsy check, so a numeric `confidence` of 0 counts as a real answer. New prompt pair
-registered in `scripts/validate-ai-prompts.js`. 46 relay tests and 12 new `ai-decision` tests.
+registered in `scripts/validate-ai-prompts.js`. 55 relay tests and 12 new `ai-decision` tests.
+
+Merged with the event schema v2 relay work: the ledger hook keeps constructor position 4 and the
+workspace-AI getter takes position 5; the thread-scoped relay-state emit now fires from the shared
+`#StopRelayAsync`, so the new reaction stop trigger records to the ledger too. Two parity defects
+fixed during that merge, both mutation-tested: `GitHubRelayStarted` is written for every reminder in
+the thread rather than the gate-filtered subset (`reminders-projection.js:533-554` folds thread state
+onto every reminder, so a narrowed write would let the projection invent keys the JSON store never
+had); and the stop path emits immediately after a successful save, with the Slack acknowledgement
+demoted to best-effort, so a failed reaction can no longer leave the store stopped while the ledger
+is silent.
 ## 1.4.270 - 2026-08-09
 Nothing changes for you day to day — but I've formally closed the book on a long-running internal migration. My reminder data has always lived in JSON files, with an experimental event log kept alongside it. That log will *not* be taking over: it's now permanently marked "reference only", and the switches that could have turned it on are disabled in code rather than just switched off in config. I also handle one more shutdown signal, so nothing in flight gets dropped when I'm restarted.
 

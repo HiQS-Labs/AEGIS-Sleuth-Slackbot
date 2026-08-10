@@ -833,9 +833,59 @@ describe('GitHubCommentRelay relevance gate (GH-37)', () => {
     expect(FetchSpy).toHaveBeenCalledTimes(1);
     expect(FetchSpy.mock.calls[0][0]).toBe('https://api.github.com/repos/owner/repo/issues/19/comments');
 
-    // only the relayed-to reminder is marked as started.
+    // GitHubRelayStarted is thread-scoped, so BOTH reminders are marked even though only one issue
+    // received a comment. reminders-projection.js:533-554 folds one thread's ledger state onto every
+    // reminder in that thread; marking only the relayed-to subset would leave the other unset in the
+    // JSON store while the projection raises it, which is the invented-key parity divergence that
+    // file documents. The comment fan-out is what the gate narrows — not this flag.
     expect(YardIdsReminder.GitHubRelayStarted).toBe(true);
-    expect(CountdownReminder.GitHubRelayStarted).toBeUndefined();
+    expect(CountdownReminder.GitHubRelayStarted).toBe(true);
+  });
+
+  test('a partial relay keeps the JSON store in parity with the thread-scoped ledger event', async () => {
+    // regression guard for the merge with development's event schema v2: the gate relays to a
+    // SUBSET of a thread's linked issues, which is a case that did not exist before GH-37. The
+    // emitted event is thread-scoped, so every reminder in the thread must agree with it.
+    const ParentTS = '1700000300.000011';
+    const Relayed = CreateMonitoredReminder(ParentTS, 'C_DEV', ['https://github.com/owner/repo/issues/18']);
+    Relayed.ReminderID = 'rem-relayed';
+    Relayed.ReminderMessageText = 'fix NN Yard IDs for email notifications';
+
+    const NotRelayed = CreateMonitoredReminder(ParentTS, 'C_DEV', ['https://github.com/owner/repo/issues/19']);
+    NotRelayed.ReminderID = 'rem-not-relayed';
+    NotRelayed.ReminderMessageText = 'SACT countdown reminder';
+
+    const Emit = jest.fn();
+    const ScoringAI = () => ({
+      ProcessMessageWithJsonResponseAsync: jest.fn(ArgInput => Promise.resolve(
+        ArgInput.includes('Yard IDs')
+          ? { decision: 'relay', confidence: 0.95, rationale: 'same work' }
+          : { decision: 'skip', confidence: 0.95, rationale: 'different task' }
+      )),
+    });
+
+    const Relay = new GitHubCommentRelay(
+      SlackApp, () => [Relayed, NotRelayed], jest.fn().mockResolvedValue(undefined), Emit, ScoringAI
+    );
+    SlackApp.HandleMessage(Relay.OnMessageAsync.bind(Relay));
+
+    await SlackApp.SimulateMessageAsync({
+      channel: 'C_DEV',
+      text: 'the yard id mapping is still wrong',
+      ts: '1700000300.000110',
+      thread_ts: ParentTS,
+      user: 'U_ALICE',
+    });
+
+    // exactly one issue received a comment...
+    expect(FetchSpy).toHaveBeenCalledTimes(1);
+    expect(FetchSpy.mock.calls[0][0]).toContain('/issues/18/');
+
+    // ...but the thread-scoped event says the thread is relaying, so every reminder in the thread
+    // must carry the flag or a projection fold would invent it.
+    expect(Emit).toHaveBeenCalledWith(ParentTS, { relayStarted: true, relayStopped: false });
+    expect(Relayed.GitHubRelayStarted).toBe(true);
+    expect(NotRelayed.GitHubRelayStarted).toBe(true);
   });
 
   test('gives the gate the linked task text and the follow-up message', async () => {
@@ -1052,6 +1102,30 @@ describe('GitHubCommentRelay.OnReactionAddedAsync (GH-37)', () => {
 
     // a user must not be told the relay stopped when that will not survive a restart.
     expect(SlackApp.AddedReactions).toHaveLength(0);
+  });
+
+  test('records the stop in the ledger even when the Slack acknowledgement fails', async () => {
+    // the acknowledgement is a network call. If it threw before the emit, the JSON store would be
+    // persisted-stopped while the ledger never heard about it — the parity divergence in reverse.
+    const ParentTS = '1700000400.000012';
+    const Reminder = CreateMonitoredReminder(ParentTS, 'C_DEV', ['https://github.com/owner/repo/issues/42']);
+    const Emit = jest.fn();
+    const MockSave = jest.fn().mockResolvedValue(undefined);
+
+    jest.spyOn(SlackApp, 'AddReactionAsync').mockRejectedValue(new Error('slack down'));
+
+    const Relay = new GitHubCommentRelay(SlackApp, () => [Reminder], MockSave, Emit, AlwaysRelayAI);
+    SlackApp.HandleReactionAdded(Relay.OnReactionAddedAsync.bind(Relay));
+
+    await SlackApp.SimulateReactionAddedAsync({
+      user: 'U_ALICE',
+      reaction: 'octocat',
+      item: { channel: 'C_DEV', ts: ParentTS },
+    });
+
+    expect(Reminder.GitHubRelayStopped).toBe(true);
+    expect(MockSave).toHaveBeenCalledTimes(1);
+    expect(Emit).toHaveBeenCalledWith(ParentTS, { relayStarted: false, relayStopped: true });
   });
 
   test('never consumes the reaction, so the reminders handler still sees it', async () => {

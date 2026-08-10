@@ -186,18 +186,28 @@ class GitHubCommentRelay {
     }
 
     if(SaveSucceeded) {
-      await ArgSlackApp.AddReactionAsync(ArgChannelID, ArgAckMessageTS, 'no_entry_sign');
-      this.#SlackApp.Logger.info(
-        `[github-comment-relay] relay stopped for thread ${ArgThreadTs} in channel ${ArgChannelID}`
-      );
-      // Emit the thread's resulting state, not a delta, so the fold is a plain assignment.
-      // Only after the authoritative save succeeded — the ledger must never claim a stop the
-      // JSON store does not have.
+      // Emit the thread's resulting state, not a delta, so the fold is a plain assignment. Only
+      // after the authoritative save succeeded — the ledger must never claim a stop the JSON store
+      // does not have. This runs BEFORE the Slack acknowledgement: the acknowledgement is a network
+      // call that can throw, and ordering it first would leave the JSON store stopped while the
+      // ledger never heard about it, which is the same parity divergence in the other direction.
       this.#EmitThreadRelayState(
         ArgThreadTs,
         ArgReminders.some(ArgR => Boolean(ArgR.GitHubRelayStarted)),
         true
       );
+
+      this.#SlackApp.Logger.info(
+        `[github-comment-relay] relay stopped for thread ${ArgThreadTs} in channel ${ArgChannelID}`
+      );
+
+      // best-effort acknowledgement: the stop is already persisted and recorded, so a failed
+      // reaction must not unwind either.
+      try {
+        await ArgSlackApp.AddReactionAsync(ArgChannelID, ArgAckMessageTS, 'no_entry_sign');
+      } catch(error) {
+        this.#SlackApp.Logger.warn('[github-comment-relay] relay stopped but acknowledgement failed:', error);
+      }
     }
   }
 
@@ -389,9 +399,16 @@ class GitHubCommentRelay {
         // IsFirstRelay — the old form recorded a reminder created after the relay began as
         // never-relayed forever, and made the JSON store and the thread-scoped ledger event disagree
         // about the same thread. The save stays conditional, so a steady-state relay costs no extra
-        // write. GH-37 narrows the set from every reminder in the thread to the ones this reply was
-        // actually relayed to: a reminder whose issue received no comment has not started relaying.
-        const NewlyStarted = RelevantReminders.filter(ArgR => !ArgR.GitHubRelayStarted);
+        // write.
+        //
+        // GH-37 note: this stays MatchingReminders, not the gate-filtered RelevantReminders, even
+        // though only some issues received a comment. GitHubRelayStarted is thread-scoped, not
+        // per-issue: reminders-projection.js:533-554 folds one thread's ledger state onto every
+        // reminder in that thread, so marking only the relayed-to subset leaves the others unset in
+        // the JSON store while the projection raises them — the invented-key parity divergence that
+        // file documents. Parity outranks the cosmetic cost, which is that a later first comment on
+        // a not-yet-relayed issue in the same thread omits the Slack permalink.
+        const NewlyStarted = MatchingReminders.filter(ArgR => !ArgR.GitHubRelayStarted);
         if(NewlyStarted.length > 0) {
           for(const StartedReminder of NewlyStarted)
             StartedReminder.GitHubRelayStarted = true;
