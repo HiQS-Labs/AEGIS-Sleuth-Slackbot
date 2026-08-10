@@ -68,13 +68,13 @@ const MultiTaskExtractionDecisionSpec = Object.freeze({
    * @returns {object}
    */
   DebugFacts: (ArgInput, ArgResponse) => {
-    const Candidates = (ArgResponse && ArgResponse.candidates) || [];
+    const Candidates = /** @type {any[]} */ (((ArgResponse && ArgResponse.candidates) || []));
     return {
       candidateCount: Candidates.length,
-      highConfidence: Candidates.filter(ArgC => ArgC && ArgC.confidence === 'high').length,
-      lowConfidence: Candidates.filter(ArgC => ArgC && ArgC.confidence === 'low').length,
-      flagged: Candidates.filter(ArgC => ArgC && ArgC.flag).length,
-      duplicatesOfOpenReminders: Candidates.filter(ArgC => ArgC && ArgC.duplicateOpenReminderID).length,
+      highConfidence: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.confidence === 'high').length,
+      lowConfidence: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.confidence === 'low').length,
+      flagged: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.flag).length,
+      duplicatesOfOpenReminders: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.duplicateOpenReminderID).length,
     };
   },
 });
@@ -83,7 +83,7 @@ const MultiTaskExtractionDecisionSpec = Object.freeze({
  * The multi-task spec bound to a concrete model name. The model is a per-workspace runtime value, so
  * it cannot be frozen into the module-level spec; this returns a shallow clone carrying it.
  * @param {string} ArgModelName Model to pin (the workspace's complex model).
- * @returns {object}
+ * @returns {import('./ai-decision').AiDecisionSpec}
  */
 function WithComplexModel(ArgModelName) {
   return { ...MultiTaskExtractionDecisionSpec, ModelName: ArgModelName };
@@ -594,8 +594,13 @@ class RemindersAIPipeline {
 
   /**
    * Build structured triage diagnostics for reminder analysis and date extraction.
+   *
+   * GH-44 Phase 5: also returns the decision's `debugFacts` — the same bag the corpus records —
+   * so the `:wrench:` view can explain WHY the output looks the way it does (which synthesis segment
+   * the message routed to, and whether synthesis was on) rather than only WHAT was decided. Sourced
+   * from the spec's own extractor, so this stays correct if the facts change.
    * @param {string} ArgMessageText Message to triage.
-   * @returns {Promise<{analysis: GptReminderResponse, dateExtractions: DateExtractionResult[]}>}
+   * @returns {Promise<{analysis: GptReminderResponse, dateExtractions: DateExtractionResult[], debugFacts: object|null}>}
    */
   async GetReminderTriageAsync(ArgMessageText) {
     const AnalysisResult = await this.AnalyzeMessageForRemindersAsync(ArgMessageText);
@@ -606,9 +611,18 @@ class RemindersAIPipeline {
       DateExtractions.push(DateExtraction);
     }
 
+    // best effort: a debug-fact bug must never break the triage view it was meant to illuminate.
+    let DebugFacts = null;
+    try {
+      DebugFacts = ReminderAnalysisDecisionSpec.DebugFacts(ArgMessageText, AnalysisResult);
+    } catch(error) {
+      DebugFacts = null;
+    }
+
     return {
       analysis: AnalysisResult,
       dateExtractions: DateExtractions,
+      debugFacts: DebugFacts,
     };
   }
 

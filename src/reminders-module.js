@@ -9,6 +9,7 @@ const RemindersChannelSettings = require('./reminders-channel-settings');
 const RemindersAIPipeline = require('./reminders-ai-pipeline');
 const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
+const DecisionExplain = require('./decision-explain');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -1919,6 +1920,28 @@ class RemindersModule {
       `• Rationale: ${SlackFormatUtils.SanitizeForInlineSlack(TriageResult.analysis.rationale, 400)}`,
       `• Reminder candidates: ${TriageResult.analysis.reminders.length}`,
     );
+
+    // GH-44 Phase 5: why the displayed task text looks the way it does. These routing facts decide
+    // verbatim-vs-synthesized and previously existed only in a server log line — the one place a
+    // person debugging a wrong reminder from inside Slack could never see them. Additive: renders
+    // nothing at all when the decision carries no facts.
+    FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+      'Why this task text', TriageResult.debugFacts,
+    ));
+
+    // GH-44 Phase 5: how ownership WOULD resolve for this message. A diagnostic of current behavior,
+    // not a fix — assignees still come from scraping every mention in the source, with the sender
+    // used only when that set is empty. `senderExcludedByMentions: yes` is the GH-43
+    // "mentioned ≠ assigned" defect made visible while someone is staring at a wrong reminder.
+    const TriageSenderID = OriginalMessage.user || '';
+    const TriageMentionedIDs = this.#ExtractAssigneeIDsFromReminderText(OriginalText);
+    const TriageAssigneeIDs = TriageMentionedIDs.length > 0
+      ? TriageMentionedIDs
+      : [TriageSenderID].filter(Boolean);
+    FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+      'How ownership resolved',
+      DecisionExplain.DescribeAssigneeResolution(TriageMentionedIDs, TriageAssigneeIDs, TriageSenderID),
+    ));
 
     if(TriageResult.analysis.reminders.length === 0) {
       FeedbackLines.push('• No reminder candidates were extracted from this message.');

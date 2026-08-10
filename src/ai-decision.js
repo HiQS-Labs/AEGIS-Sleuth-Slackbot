@@ -193,8 +193,10 @@ async function DecideAsync(ArgWorkspaceAI, ArgSpec, ArgInput, ArgOptions = {}) {
   const Capture = ArgOptions.Capture ?? null;
   const StartedAtMs = Date.now();
 
+  /** @type {'ok'|'invalid'|'error'} */
   let Outcome = DecisionOutcome.Ok;
   let Response = null;
+  /** @type {any} */
   let FailureError = null;
 
   try {
