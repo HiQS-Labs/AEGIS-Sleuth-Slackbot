@@ -57,6 +57,87 @@ landed as one commit — recorded here rather than presented as a clean three-wa
 The bot-guard on the octocat trigger was mutation-checked: deleting the guard fails
 `the bot adding octocat does not stop the relay it just started`, so that test is not vacuous.
 
+## GUIDING-PRINCIPLES alignment
+
+Engineering Philosophy, judged against the shipped diff:
+
+| § | Principle | Verdict |
+|---|---|---|
+| 1 | Complexity is the enemy | **Pass.** No force-relay escape hatch, no env-tunable threshold, no per-workspace config — all deferred until a real requirement appears. |
+| 2 | One decision, one owner | **Pass.** "Should this reply reach GitHub" is decided in exactly one place, `#SelectRelevantRemindersAsync`. The stop-and-acknowledge sequence, previously inline, is now the single `#StopRelayAsync` used by both stop paths. |
+| 3 | No abstraction without a second real case | **Pass.** `ai-decision.js` ships with two real callers, not one plus a hypothetical. Independently confirmed by agy. |
+| 4 | Pull complexity downward | **Pass.** The helper absorbs caching, validation, and failure policy so both callers shrink; it is not a pass-through. Confirmed by agy. |
+| 5 | Keep essential complexity | **Pass.** Fail-closed behavior, the bot-reaction guard, and the thread-root resolution were all kept rather than simplified away. This is also the basis for declining agy's #2. |
+| 6 | Respect the neighborhood | **Pass.** 13 frontmatter, 11 roadmap-coverage, and 54 TS errors were found pre-existing and left alone; `validate:commands`'s `ask-reminders` failure likewise. Only `validate-ai-prompts.js` was touched, because this change adds an asset that gate must cover. |
+| 7 | Prefer reversible changes | **Pass.** The gate is one method and one constant; the stop trigger is one handler registration. Both delete cleanly. Prompt assets are data, not code. |
+| 8 | Leave a concrete check | **Pass.** 12 helper tests + 20 relay tests, and the bot guard is mutation-tested rather than merely asserted. |
+
+Doc-governance principles: the capture doc, `ROADMAP.md` pointer, and `CHANGELOG.md` entry were
+written as the work landed, so a cold agent can recover state from the docs alone (§2) and each fact
+lives in one place (§4).
+
+## QA adjudication (agy via /relay-xyz, 2026-08-10)
+
+Headless review turn driven with `relay-drive.sh --review-once`; thread at
+`.xyz/relay-system/2026-08-10/gh37-qa.md` (gitignored, local-only). Verdict: changes requested,
+9 findings. Adjudicated against `GUIDING-PRINCIPLES.md` below — 3 accepted, 2 rejected on evidence,
+1 acknowledged-and-declined, 3 confirmations.
+
+| # | agy severity | Adjudication | Basis |
+|---|---|---|---|
+| 1 | Pass | Confirmed | `ai-decision.js` absorbs real complexity, not a pass-through (§4). |
+| 2 | Nit — dedup falsy parity | **Acknowledged, declined** | Correct observation, wrong fix. |
+| 3 | Pass — no comment leak | Confirmed | All gate paths fail closed. |
+| 3b | Should — `IsFirstRelay` bookkeeping | **Accepted** — deferred to follow-up | Real but cosmetic; pre-existing class. |
+| 4 | Pass — bot guard | Confirmed | Independently mutation-tested. |
+| 4b | Should — `GetMessageThreadTsAsync` null | **Rejected** | Factually wrong about the implementation. |
+| 5 | Pass — `AssetCache` isolation | Confirmed | Static repo assets only, no tenant data. |
+| 5b | Should — `WorkspaceAI` startup window | **Accepted as documented behavior** | Real, narrow, fail-closed by design, logs a warn. |
+| 6 | **Blocker** — reaction handler untested | **Rejected** | Factually wrong. |
+
+### Rejected on evidence
+
+**#6 "OnReactionAddedAsync is entirely untested" — false.**
+`tests/github-comment-relay.test.js:894` opens
+`describe('GitHubCommentRelay.OnReactionAddedAsync (GH-37)')` with **11 tests**, all passing
+(`npx jest -t "OnReactionAddedAsync"` → 11 passed). The symbol appears 5 times in the very diff agy
+was given, so this is a review miss, not a coverage gap. The bot guard is additionally
+mutation-tested: deleting it fails `the bot adding octocat does not stop the relay it just started`.
+No action.
+
+**#4b "`GetMessageThreadTsAsync` may return null for a top-level message with no replies" — false.**
+`src/slack-app.js:904` returns `MessageInfo.thread_ts ?? MessageInfo.ts ?? null` — a top-level
+message has no `thread_ts` but always has `ts`, so it returns `ts`. Null occurs only when the API
+call fails or throws (`:902`, `:906`), and in that case the thread root is genuinely unknown.
+Falling back to `MessageTS` there, as agy proposed, would match reminders against an unverified
+timestamp — strictly worse than bailing. Current behavior is correct. No action.
+
+### Acknowledged and declined
+
+**#2 dedup falsy parity.** The observation is right: the old check rejected `false`/`0`, the new one
+accepts them. But dedup's two required fields are `recommendation` (a string enum) and `rationale`
+(a string), and the schema is `strict: true` — neither can be `false` or `0`, which agy itself
+notes. Adopting the proposed fix would reintroduce the exact trap the new check exists to avoid: the
+relay gate's `confidence: 0` is a real answer, and a falsy check would reject it and force the
+fallback. Declining preserves both call sites' correctness; §5 ("keep essential complexity") over a
+parity that cannot be observed.
+
+### Accepted
+
+**#3b `IsFirstRelay` bookkeeping.** Real. When a reply is relevant to both an already-relayed and a
+not-yet-relayed reminder, `RelevantReminders.every(...)` is false, so the second issue's first
+comment omits the "View Slack thread" permalink. Cosmetic, and the same shape existed before this
+change (it was computed over `MatchingReminders`). A proper fix means per-reminder permalink
+decisions, i.e. building a distinct comment body per reminder — wider than this issue's scope
+(§6, respect the neighborhood). **Deferred to a follow-up issue; owner: noel.**
+
+**#5b `WorkspaceAI` startup window.** Real. Handlers register in the `RemindersModule` constructor
+while `#WorkspaceAI` is assigned in `StartAsync`, and per AGENTS.md §2 `SlackApp` starts before
+`RemindersModule`, so a reply arriving in that window finds a null AI. Behavior is correct by design
+— the gate fails closed and no wrong comment can be posted — and it is **not silent**: the null path
+logs a `warn`. Before this change the relay would have posted unscored during that window, so this
+is a strict improvement. Documented, no code change.
+
 ## Plan (as designed)
 
 Three commits, in order, each green before the next lands.
