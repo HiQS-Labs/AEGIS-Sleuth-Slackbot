@@ -31,6 +31,14 @@ goal: >
 
 ### In progress
 
+- **Unified AI decision capture, replay + debugging (GH-44)** — consolidate the three partial
+  implementations of AI-decision capture into one subsystem: generalize the GH-397 shadow store into
+  a decision-corpus store, emit capture from inside `DecideAsync` so every registered decision gets
+  it for free, migrate reminder analysis onto `AiDecisionSpec`, promote `:wrench:` into a generic
+  explain-this-decision surface, and ship a replay/before-after diff harness. No prompt, schema, or
+  model changes — behavior parity is the contract. GH-43 Phase 0 is re-scoped to consume this.
+  Branch `gh-44-decision-capture-debug`. See `PROJECT/2-WORKING/GH-44-DECISION-CAPTURE-DEBUG.md`.
+
 - **GitHub relay leaks unrelated follow-ups onto a linked issue (GH-37)** — the relay gates purely on
   thread structure, so once any reminder in a thread carries a GitHub URL, every later reply is
   commented onto that issue: observed live when a new, unrelated task ("fix NN Yard IDs") was posted
@@ -94,6 +102,16 @@ goal: >
 - **"Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362)** — a 6-lane marathon that ends the "compute → render → discard" pattern: stamp client/project identity at creation + operator-defaults config (**#361 A**), `ask-reminders` over live authoritative data (**#361 B**), whole-thread multi-task inference (**#360**), durable deterministic-first project map (**#361 C**), deterministic proactive digest signals (**#362 P1**), then **p6 — an end-to-end net-improvement acceptance test** (`tests/marathon-360-361-362-e2e.test.js`) proving p1-p5 actually connect (data one phase persists is data a later phase reads), not just that each ships in isolation. Cross-model consult (Codex + agy) adjudicated + folded in. Ordered dependency chain, not a concurrency wave. **SHIPPED + merged to main 2026-07-13 (`marathon.complete`, v1.4.212 line); docs closed out to `3-COMPLETED` 2026-07-14.** All 6 lanes green incl. p6 e2e. **Caveat:** only GH-362 **Phase 1** shipped; GH-362 Phases 2 & 3 deferred → **GH-366** (in progress, `feat/gh-366-proactive-phases-2-3`). → [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md)
 
 ### Queue / parked intake
+
+- **Reminder extraction fidelity (GH-43)** — one production message exposed three defects at once: the
+  synthesis gate never fired (sentence count missed unpunctuated lines) so the task bullet was the whole
+  message verbatim; task and context had no separate fields; and every `<@…>` mention became an assignee,
+  so a first-person commitment was assigned to the two people it was merely addressed to and **not** to
+  the person who made it. GH-337 follow-up (its open Phase 4 threshold item is the direct parent).
+  Phase 0 is a spike that builds a 15-scenario battery + before/after harness and captures a baseline
+  *before* any fix lands. Ownership fix must not regress GH-22 shared assignment. Ratings provisional.
+  See `PROJECT/1-INBOX/GH-43-REMINDER-EXTRACTION-FIDELITY.md` and its corpus companion
+  `PROJECT/1-INBOX/REMINDER-EXTRACTION-BATTERY-CORPUS.md`.
 
 - **CI deadlock + lost verified-secret scanning (GH-15)** — merging GH-14 (DeployHQ adoption) deleted
   `.github/workflows/ci.yml`, the sole producer of the `test` status context that `main`'s branch
