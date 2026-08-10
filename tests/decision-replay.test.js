@@ -65,7 +65,11 @@ describe('RunScenarioAsync', () => {
   test('observes ownership and routing for a single-message decision', async () => {
     const Row = await RunScenarioAsync(MakeScenario());
     expect(Row.status).toBe('PASS');
-    expect(Row.observed.ownership).toMatchObject({ resolvedFrom: 'sender-fallback', senderIsAssignee: true });
+    // "I will deploy tomorrow morning." is a first-person commitment, so Phase 1A attributes it to
+    // the speaker by that rule rather than by the no-mentions fallback it used to land in.
+    expect(Row.observed.ownership).toMatchObject({
+      resolvedFrom: 'first-person-commitment', senderIsAssignee: true,
+    });
     expect(Row.observed.routing).toMatchObject({ segment: expect.any(String) });
   });
 
@@ -99,20 +103,37 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     expect(new Set(Rows.map(ArgR => ArgR.id)).size).toBe(15);
   });
 
-  test('THE INSTRUMENT CAN FAIL: the known GH-43 defects are red on current code', () => {
+  test('THE INSTRUMENT CAN FAIL: the OPEN GH-43 defect (verbatim task text) is red', () => {
     const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
 
-    // S-01 is the reported production message. All three defects in one row.
+    // S-01 is the reported production message. Its task text is still the whole message, because
+    // the synthesis gate is GH-43 Phase 2 and has not landed yet.
     expect(ById['S-01'].status).toBe('FAIL');
-    expect(ById['S-01'].error).toMatch(/root cause/);          // whole message dumped as the task
-    expect(ById['S-01'].error).toMatch(/owner should be the sender/); // mentioned != assigned
+    expect(ById['S-01'].error).toMatch(/root cause/);
     expect(ById['S-01'].observed.displayedTasks[0].length).toBeGreaterThan(400);
-    expect(ById['S-01'].observed.ownership.senderIsAssignee).toBe(false);
 
-    // the synthesis gate misses unpunctuated long notes
-    expect(ById['S-07'].status).toBe('FAIL');
+    // the gate misses it because unpunctuated lines undercount sentences
     expect(ById['S-01'].observed.routing.sentenceCount).toBeLessThan(4);
     expect(ById['S-01'].observed.routing.synthesisOn).toBe(false);
+    expect(ById['S-07'].status).toBe('FAIL');
+    expect(ById['S-12'].status).toBe('FAIL');
+  });
+
+  test('GH-43 Phase 1A CLOSED the ownership defect — S-01 now belongs to its author', () => {
+    const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
+
+    // this assertion is the inverse of the one that shipped with GH-44: before Phase 1A the same
+    // row resolved to ["U_ALPHA","U_BETA"] with senderIsAssignee false.
+    expect(ById['S-01'].observed.ownership.assignees).toEqual(['U_SENDER']);
+    expect(ById['S-01'].observed.ownership.senderIsAssignee).toBe(true);
+    expect(ById['S-01'].observed.ownership.resolvedFrom).toBe('first-person-commitment');
+    // the addressees are retained as interested parties rather than silently dropped
+    expect(ById['S-01'].observed.ownership.notify).toEqual(['U_ALPHA', 'U_BETA']);
+    // and S-01 no longer fails for ownership — only for its task text
+    expect(ById['S-01'].error).not.toMatch(/owner/);
+
+    // the mention-as-subject case is fixed too
+    expect(ById['S-05'].observed.ownership.assignees).toEqual(['U_SENDER']);
   });
 
   test('the GH-22 shared-assignment guard stays GREEN — the harness is not just failing everything', () => {
