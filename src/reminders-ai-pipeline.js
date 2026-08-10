@@ -15,6 +15,64 @@ const DedupDecisionSpec = Object.freeze({
 });
 
 /**
+ * Validate a reminder-analysis response, throwing the exact messages this path has always thrown.
+ *
+ * GH-44 Phase 3: these three checks used to sit inline after the model call. They live in the spec's
+ * `Validate` hook now so they run INSIDE `DecideAsync` — which keeps the messages byte-identical for
+ * the tests that assert them (`tests/reminders-ai-pipeline.test.js:48/59/71`) while letting the
+ * decision corpus classify the record `invalid` instead of recording a false `ok`.
+ *
+ * `RequiredFields` is deliberately EMPTY for this spec: a populated list makes `HasRequiredFields`
+ * fail first and throw `DecideAsync`'s generic "Invalid reminder-analysis response…", which would
+ * take those three tests red. It also cannot express the type half of these checks — it treats
+ * `recommendation: 123` as present. (Caught by agy in the GH-44 plan relay, round 1.)
+ * @param {any} ArgResponse Parsed model response.
+ * @returns {void}
+ */
+function ValidateReminderAnalysis(ArgResponse) {
+  if(!('recommendation' in ArgResponse) || (typeof ArgResponse.recommendation !== 'string'))
+    throw new Error('GPT response is missing recommendation property or it is not a string.');
+
+  if(!('rationale' in ArgResponse) || (typeof ArgResponse.rationale !== 'string'))
+    throw new Error('GPT response is missing rationale property or it is not a string.');
+
+  if(!('reminders' in ArgResponse) || !Array.isArray(ArgResponse.reminders))
+    throw new Error('GPT response is missing reminders property or it is not an array.');
+}
+
+/**
+ * Single-message reminder analysis decision. Same prompt, schema, and (default) model as before the
+ * GH-44 migration — only the plumbing moved.
+ */
+const ReminderAnalysisDecisionSpec = Object.freeze({
+  Name: 'reminder-analysis',
+  InstructionsFile: 'reminders-instructions.md',
+  SchemaFile: 'reminders-schema.json',
+  RequiredFields: [],
+  Validate: ValidateReminderAnalysis,
+  PromptVersion: 'reminders-v1',
+  SchemaVersion: 'reminders-schema-v1',
+  /**
+   * Facts a human needs to explain why this message rendered the reminder it did. These are the
+   * GH-337 Phase 4 routing facts, which until now existed only in a server log line.
+   * @param {any} ArgInput Original message text.
+   * @param {any} ArgResponse Analysis result.
+   * @returns {object}
+   */
+  DebugFacts: (ArgInput, ArgResponse) => {
+    const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+      RemindersAIPipeline.NormalizeOriginalReminderText(typeof ArgInput === 'string' ? ArgInput : ''),
+      (ArgResponse && ArgResponse.reminders) || [],
+    );
+    return {
+      ...Routing,
+      recommendation: (ArgResponse && ArgResponse.recommendation) || null,
+      candidateCount: ((ArgResponse && ArgResponse.reminders) || []).length,
+    };
+  },
+});
+
+/**
  * Return a stable identity for the Slack thread that produced a reminder.
  * root messages have no OriginalThreadTs, so their own message ID is the thread identity.
  * @param {import('./reminders-module').ReminderInfo} ArgReminderInfo
@@ -108,17 +166,10 @@ function GetReminderThreadIdentity(ArgReminderInfo) {
  * Owns all GPT interactions and instruction/schema loading for the reminder pipeline.
  */
 class RemindersAIPipeline {
-  /**
-   * Reminder analysis instructions.
-   * @type {string}
-   */
-  #RemindersInstructions;
-
-  /**
-   * Reminder analysis schema.
-   * @type {ResponseSchema}
-   */
-  #RemindersSchema;
+  // NOTE (GH-44 Phase 3): the reminder-analysis instructions/schema fields that used to live here
+  // are gone. That path now goes through `ai-decision.js`, which owns its own cached asset loading
+  // from the same two files — keeping a second copy here would have been exactly the duplication
+  // this consolidation exists to remove. The remaining fields below still back un-migrated paths.
 
   /**
    * Date extraction instructions.
@@ -169,6 +220,12 @@ class RemindersAIPipeline {
   #GetPendingReminders;
 
   /**
+   * Decision-corpus capture config, or null for no capture (the default). GH-44.
+   * @type {{Store: {append: Function}, Workspace: string, Mode?: string}|null}
+   */
+  #DecisionCapture = null;
+
+  /**
    * Create a new RemindersAIPipeline instance.
    * @param {import('./workspace-ai')} ArgWorkspaceAI WorkspaceAI instance.
    * @param {import('./slack-app')} ArgSlackApp SlackApp instance.
@@ -181,6 +238,17 @@ class RemindersAIPipeline {
   }
 
   /**
+   * Enable (or with null, disable) decision-corpus capture for this pipeline's AI decisions.
+   * Off by default: constructed pipelines capture nothing until an operator wires a store in, so
+   * this is additive to every existing call site. GH-44.
+   * @param {{Store: {append: Function}, Workspace: string, Mode?: string}|null} ArgCapture
+   * @returns {void}
+   */
+  SetDecisionCapture(ArgCapture) {
+    this.#DecisionCapture = ArgCapture || null;
+  }
+
+  /**
    * Load instructions and schema files from disk if not already loaded.
    * @returns {Promise<void>}
    */
@@ -189,18 +257,8 @@ class RemindersAIPipeline {
     // the /data/static/ai folder, both of which are rooted in the project folder).
     const BasePath = path.join(__dirname, '..', 'data', 'static', 'ai');
 
-    // load the reminders instructions if not already loaded.
-    if(!this.#RemindersInstructions) {
-      const RemindersInstructionsPath = path.join(BasePath, 'reminders-instructions.md');
-      this.#RemindersInstructions = await fs.readFile(RemindersInstructionsPath, 'utf8');
-    }
-
-    // load the reminders schema if not already loaded.
-    if(!this.#RemindersSchema) {
-      const RemindersSchemaPath = path.join(BasePath, 'reminders-schema.json');
-      const RemindersSchemaContent = await fs.readFile(RemindersSchemaPath, 'utf8');
-      this.#RemindersSchema = JSON.parse(RemindersSchemaContent);
-    }
+    // (GH-44 Phase 3) reminders-instructions.md / reminders-schema.json are no longer read here —
+    // ai-decision.js loads and caches them for the reminder-analysis decision.
 
     // load the manual reminder task extraction instructions if not already loaded.
     if(!this.#ManualReminderTaskInstructions) {
@@ -243,27 +301,16 @@ class RemindersAIPipeline {
    * @returns {Promise<GptReminderResponse>}
    */
   async AnalyzeMessageForRemindersAsync(ArgMessageText) {
-    // ensure AI system instructions and schema are loaded.
-    await this.LoadInstructionsAndSchemaAsync();
-
-    // send the message to the OpenAI chat API for analysis.
+    // GH-44 Phase 3: routed through the shared decision chokepoint. Prompt assets, the model call,
+    // and the three structural checks (now ValidateReminderAnalysis) all live behind DecideAsync, so
+    // this path gets corpus capture for free while its errors stay byte-identical. No fallback is
+    // configured — the caller has always owned this throw.
     const AnalysisResult = /** @type {GptReminderResponse} */(
-      await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
-        ArgMessageText, this.#RemindersInstructions, this.#RemindersSchema
-      )
+      await DecideAsync(this.#WorkspaceAI, ReminderAnalysisDecisionSpec, ArgMessageText, {
+        Capture: this.#DecisionCapture,
+        Logger: this.#SlackApp && this.#SlackApp.Logger,
+      })
     );
-
-    // sanity check the GPT analysis result to make sure it has the basic structure we expect.
-    {
-      if(!('recommendation' in AnalysisResult) || (typeof AnalysisResult.recommendation !== 'string'))
-        throw new Error('GPT response is missing recommendation property or it is not a string.');
-
-      if(!('rationale' in AnalysisResult) || (typeof AnalysisResult.rationale !== 'string'))
-        throw new Error('GPT response is missing rationale property or it is not a string.');
-
-      if(!('reminders' in AnalysisResult) || !Array.isArray(AnalysisResult.reminders))
-        throw new Error('GPT response is missing reminders property or it is not an array.');
-    }
 
     // apply deterministic fallback for direct asks with explicit time terms if the model recommended ignore.
     if(AnalysisResult.recommendation === 'ignore') {
@@ -701,7 +748,7 @@ class RemindersAIPipeline {
     // send the reminders to the GPT model for deduplication analysis. No fallback is configured, so
     // an unusable response still throws to this caller exactly as it did before the helper existed.
     const DedupResult = /** @type {{recommendation: 'schedule'|'ignore', rationale: string}} */ (
-      await DecideAsync(this.#WorkspaceAI, DedupDecisionSpec, InputJson)
+      await DecideAsync(this.#WorkspaceAI, DedupDecisionSpec, InputJson, { Capture: this.#DecisionCapture })
     );
 
     // return the deduplication result.
