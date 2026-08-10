@@ -1,6 +1,6 @@
 ---
 title: "GitHub relay posts unrelated follow-up messages onto a linked issue in multi-task threads"
-status: Active (2-WORKING) — defect confirmed in source, three-commit fix in progress
+status: Active (2-WORKING) — built and green on gh-37-relay-relevance-gate; QA + PR outstanding
 created: 2026-08-10
 updated: 2026-08-10
 owner: noel
@@ -42,7 +42,22 @@ linked reminder**.
 - **The emoji you see is the emoji you click.** 🐙 already marks a relayed message, so it is the
   discoverable stop affordance — 🛑/⏹ require memory.
 
-## Plan
+## What shipped
+
+Two commits, not the three planned. Commit A landed and went green on its own as intended. B and C
+both rewrite the same regions of `github-comment-relay.js`, so they could not be split by file and
+landed as one commit — recorded here rather than presented as a clean three-way split.
+
+- `ed99e8f` — this capture doc + roadmap park.
+- `067dcad` — Commit A: `src/ai-decision.js` + dedup migration. 12 new tests; the existing 36
+  pipeline tests pass unmodified, which is the zero-behavior-delta evidence.
+- `ae9e4ea` — Commits B and C: relevance gate + octocat stop trigger. 46 relay tests (26 pre-existing,
+  all still passing, plus 20 new).
+
+The bot-guard on the octocat trigger was mutation-checked: deleting the guard fails
+`the bot adding octocat does not stop the relay it just started`, so that test is not vacuous.
+
+## Plan (as designed)
 
 Three commits, in order, each green before the next lands.
 
