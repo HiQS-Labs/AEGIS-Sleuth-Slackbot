@@ -31,6 +31,16 @@ goal: >
 
 ### In progress
 
+- **GitHub relay leaks unrelated follow-ups onto a linked issue (GH-37)** — the relay gates purely on
+  thread structure, so once any reminder in a thread carries a GitHub URL, every later reply is
+  commented onto that issue: observed live when a new, unrelated task ("fix NN Yard IDs") was posted
+  onto GH 18's countdown-reminder issue and deleted by hand. A second defect in the same path unions
+  URLs across all matching reminders, fanning every reply out to every linked issue. Fix is a
+  high-confidence AI relevance gate scored **per reminder** (fail-closed to `skip`), sharing a new
+  `src/ai-decision.js` helper with the existing dedup call, plus the 🐙 reaction as a discoverable
+  stop trigger. →
+  [PROJECT/2-WORKING/GH-37-RELAY-RELEVANCE-GATE.md](PROJECT/2-WORKING/GH-37-RELAY-RELEVANCE-GATE.md)
+
 - **sanitize-scan.sh cannot run from a linked worktree (GH-25)** — the public repo's secret/PII gate
   dies with `FATAL: … is not a git repository` (exit 2) in any `git worktree`, because
   `utils/sanitize-scan.sh:80` tests `[ -d .git ]` and `.git` is a *file* in a linked worktree. CI and

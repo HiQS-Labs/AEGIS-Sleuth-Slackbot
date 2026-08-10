@@ -33,6 +33,45 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.271 - 2026-08-10
+When a Slack thread is linked to a GitHub issue, I no longer copy every later reply onto it. I check
+first whether the reply is really about that task, and if it looks like a new or unrelated one I
+leave GitHub alone and just schedule it as its own reminder. You can also stop me relaying a thread
+by clicking the 🐙 I already put on the messages I've relayed — no need to remember a separate emoji.
+
+**Technical:** GH-37. `GitHubCommentRelay` previously gated only on thread structure, so any reminder
+in a thread carrying a GitHub URL authorized every subsequent reply to be posted as a comment on that
+issue. Each linked reminder is now scored independently against the incoming reply via a new
+`github-relay-relevance` prompt pair, and the comment is posted only to the URLs of reminders
+returning `decision: 'relay'` at `confidence >= 0.7`. Scoring per reminder rather than per message
+also fixes the fan-out defect where a thread with two linked issues copied every reply onto both.
+The gate fails closed — model error, unusable response, or absent workspace AI all resolve to `skip`
+— and a skipped message still falls through to `RemindersModule` and becomes its own reminder.
+
+`OnReactionAddedAsync` adds the `octocat`/`github` reaction as a stop trigger alongside the existing
+🛑/⏹/`stop relay` message triggers. It guards against the bot's own acknowledgement reaction (which
+would otherwise stop the relay it just started) and resolves `item.ts` through
+`SlackApp.GetMessageThreadTsAsync` because a reaction event carries no thread context. It returns
+`false`, so `RemindersModule` still sees ✅/🗑/⏰ on the same message.
+
+Supporting refactor: `src/ai-decision.js` now owns the prompt-asset loading, caching, model call,
+required-field validation, and failure policy shared by this gate and the existing reminder-dedup
+call. `WorkspaceAI` is passed in explicitly (per-workspace, per AGENTS.md §0.1); the module-level
+cache holds only static repo assets. Dedup passes no fallback, so its throw-on-invalid-response
+behavior is unchanged — the migration is behavior-identical, evidenced by the existing 36 pipeline
+tests passing unmodified. Field validation treats undefined/null/empty-string as missing rather than
+using a falsy check, so a numeric `confidence` of 0 counts as a real answer. New prompt pair
+registered in `scripts/validate-ai-prompts.js`. 55 relay tests and 12 new `ai-decision` tests.
+
+Merged with the event schema v2 relay work: the ledger hook keeps constructor position 4 and the
+workspace-AI getter takes position 5; the thread-scoped relay-state emit now fires from the shared
+`#StopRelayAsync`, so the new reaction stop trigger records to the ledger too. Two parity defects
+fixed during that merge, both mutation-tested: `GitHubRelayStarted` is written for every reminder in
+the thread rather than the gate-filtered subset (`reminders-projection.js:533-554` folds thread state
+onto every reminder, so a narrowed write would let the projection invent keys the JSON store never
+had); and the stop path emits immediately after a successful save, with the Slack acknowledgement
+demoted to best-effort, so a failed reaction can no longer leave the store stopped while the ledger
+is silent.
 ## 1.4.270 - 2026-08-09
 Nothing changes for you day to day — but I've formally closed the book on a long-running internal migration. My reminder data has always lived in JSON files, with an experimental event log kept alongside it. That log will *not* be taking over: it's now permanently marked "reference only", and the switches that could have turned it on are disabled in code rather than just switched off in config. I also handle one more shutdown signal, so nothing in flight gets dropped when I'm restarted.
 

@@ -23,6 +23,7 @@ const EXPECTED_PAIRS = {
   'manual-reminder-task-instructions.md': 'manual-reminder-task-schema.json',
   'date-extraction-instructions.md': 'date-extraction-schema.json',
   'reminders-dedup-instructions.md': 'reminders-dedup-schema.json',
+  'github-relay-relevance-instructions.md': 'github-relay-relevance-schema.json',
   'rmm-instructions.md': 'rmm-schema.json',
   'code-task-synthesis-instructions.md': 'code-task-synthesis-schema.json',
   'chat-instructions.md': null, // chat has no structured output schema.
