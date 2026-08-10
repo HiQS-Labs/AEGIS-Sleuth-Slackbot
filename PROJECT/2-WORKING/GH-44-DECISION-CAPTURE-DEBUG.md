@@ -80,6 +80,11 @@ Two invariants hold throughout: **capture is off unless explicitly configured**,
 this subsystem may throw into a hot path** — it inherits the never-rejects contract the shadow store
 already carries.
 
+**Every phase's QA list must contain at least one gate that is RED on today's code.** A list made
+entirely of "the existing tests still pass" proves the code was not broken, never that the work was
+done — agy caught exactly that in Phases 3 and 4 (relay r2). Where a phase has such a gate, it is
+called out inline so a later reader can tell the proof-of-work check from the regression guards.
+
 <a id="phase-1"></a>
 ## Phase 1 — Generalize the corpus store
 
@@ -163,6 +168,11 @@ validated against a genuinely different pipeline before any broad migration.
       that something threw.
 - [ ] A wrong-typed field (`recommendation: 123`) still throws, proving `Validate` covers what
       `HasRequiredFields` cannot.
+- [ ] **Proof the migration actually happened** (agy relay r2 `[Blocker]`): with capture enabled, one
+      analysis emits exactly one record whose `decision === 'reminder-analysis'` and whose
+      `debugFacts` carries `segment` / `synthesisOn` / `actionableSpanRatio`. This is the only Phase 3
+      gate that is red on today's code — every other gate here passes before the migration, which is
+      what made this list unfalsifiable as first written.
 - [ ] The deterministic direct-ask fallback still fires when the model recommends `ignore`.
 - [ ] Empty `reminders: []` is accepted (it is a value, not an absence) and still yields `ignore`
       downstream — the one place `HasRequiredFields` semantics could have silently changed behavior.
@@ -203,9 +213,20 @@ low-confidence flagging, and dedup against live open reminders. It is called fro
 - [ ] `tests/reminders-app-mention-handler.test.js` passes unmodified (it asserts call counts and
       argument shape at [:1426](../../tests/reminders-app-mention-handler.test.js#L1426) and
       [:1501](../../tests/reminders-app-mention-handler.test.js#L1501)).
-- [ ] `npm run validate:ai` passes and now covers the new pair.
+- [ ] **`validate:ai` coverage must be asserted, not inferred** (agy relay r2 `[Blocker]`). "The script
+      exits 0" proves nothing: [validate-ai-prompts.js:45](../../scripts/validate-ai-prompts.js#L45)
+      iterates `Object.entries(EXPECTED_PAIRS)` only, so an asset on disk but missing from that map is
+      never checked and the run still passes — open issue
+      [#41](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/41) exactly. The gate is
+      therefore: stdout contains `OK:   multi-task-extraction-instructions.md` **and**
+      `OK:   multi-task-extraction-schema.json` (the `Pass()` format at
+      [:40](../../scripts/validate-ai-prompts.js#L40)).
 - [ ] `ComplexModelName` is still the model actually used — assert the argument, do not assume.
 - [ ] A thread whose candidates are all low-confidence still returns them flagged, never dropped.
+- [ ] **Proof the migration actually happened** (agy relay r2 `[Blocker]`): with capture enabled, one
+      thread extraction emits exactly one record whose `decision === 'multi-task-extraction'`, whose
+      `debugFacts` carries the candidate count and confidence distribution, and whose
+      `promptVersion` / `schemaVersion` are stamped. Red on today's code; the rest of this list is not.
 
 <a id="phase-5"></a>
 ## Phase 5 — Generic explain-this-decision surface
