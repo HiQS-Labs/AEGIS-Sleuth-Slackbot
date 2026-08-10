@@ -7,6 +7,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { createLedgerCoverage } = require('../src/ledger-coverage');
 const {
   BuildProjectedRebalanceExport,
   FoldReminderReadModels,
@@ -159,7 +160,7 @@ function ParseEvents(ArgText, ArgPath) {
  * Compare the three Phase 5 read surfaces.  `rebalance` is optional because it
  * must be captured from the current API separately; when absent the report says
  * so rather than inventing a parity result.
- * @param {{ workspace: string, events: any[], reminders: any[], completed: any[], rebalance?: any|null, remindersRaw?: string, completedRaw?: string, rebalanceRaw?: string }} ArgInput
+ * @param {{ workspace: string, events: any[], reminders: any[], completed: any[], rebalance?: any|null, rebalanceProjection?: any|null, remindersRaw?: string, completedRaw?: string, rebalanceRaw?: string, rebalanceProjectionRaw?: string }} ArgInput
  * @returns {object}
  */
 function BuildParityReport(ArgInput) {
@@ -170,12 +171,23 @@ function BuildParityReport(ArgInput) {
     completed: { authoritative: ArgInput.completed, authoritativeRaw: ArgInput.completedRaw, projection: Folded.completed },
   };
   if(ArgInput.rebalance !== null && ArgInput.rebalance !== undefined) {
-    Surfaces.rebalance = { authoritative: ArgInput.rebalance, authoritativeRaw: ArgInput.rebalanceRaw, projection: ProjectedRebalance };
+    // The real export includes Slack-resolved display fields and a capture timestamp.
+    // A flag-on API capture therefore supplies the projection side here; the pure
+    // shape remains the explicit fallback for fixture diagnosis before that capture.
+    Surfaces.rebalance = {
+      authoritative: ArgInput.rebalance,
+      authoritativeRaw: ArgInput.rebalanceRaw,
+      projection: ArgInput.rebalanceProjection ?? ProjectedRebalance,
+      projectionRaw: ArgInput.rebalanceProjectionRaw,
+    };
   }
 
   const Report = { workspace: ArgInput.workspace, byteDiffs: {}, semanticDiffs: {}, missingSurfaces: [] };
   for(const [Name, Values] of Object.entries(Surfaces)) {
-    Report.byteDiffs[Name] = CompareBytes(Values.authoritativeRaw || SerializeCanonical(Values.authoritative), SerializeCanonical(Values.projection));
+    Report.byteDiffs[Name] = CompareBytes(
+      Values.authoritativeRaw || SerializeCanonical(Values.authoritative),
+      Values.projectionRaw || SerializeCanonical(Values.projection)
+    );
     Report.semanticDiffs[Name] = CompareSemantics(Values.authoritative, Values.projection);
   }
   if(!Object.prototype.hasOwnProperty.call(Surfaces, 'rebalance')) Report.missingSurfaces.push('rebalance');
@@ -187,17 +199,29 @@ function BuildParityReport(ArgInput) {
 
 /**
  * @param {string[]} ArgArgv
- * @returns {{ workspace: string, events: string, reminders: string, completed: string, rebalance: string|null }}
+ * @returns {{ workspace: string, events: string, reminders: string, completed: string, rebalance: string|null, rebalanceProjection: string|null }}
  */
 function ParseArgs(ArgArgv) {
-  const Values = { workspace: '', events: '', reminders: '', completed: '', rebalance: null };
+  const Values = {
+    workspace: '', events: '', reminders: '', completed: '', rebalance: null, rebalanceProjection: null,
+    // Directory holding the `<workspace>_events.jsonl` ledger. When supplied, a clean run records
+    // the coverage marker that lets a read flag serve this workspace, and a dirty run records a
+    // gap. This is the ONLY sanctioned way to open the gate — without it the gate is default-deny
+    // with no path to `verified`, which is a feature that can never be switched on rather than a
+    // safe one.
+    recordCoverage: null,
+  };
   for(let Index = 0; Index < ArgArgv.length; Index += 2) {
     const Name = ArgArgv[Index];
     const Value = ArgArgv[Index + 1];
-    if(!Value || !Object.prototype.hasOwnProperty.call(Values, Name.slice(2))) {
-      throw new Error('usage: projection-parity-harness --workspace <name> --events <file> --reminders <file> --completed <file> [--rebalance <api-json-file>]');
+    // Accept kebab-case as the usage string has always advertised. Previously `Name.slice(2)` was
+    // matched verbatim, so the documented `--rebalance-projection` could never parse — only the
+    // undocumented `--rebalanceProjection` did.
+    const Key = String(Name || '').replace(/^--/, '').replace(/-([a-z])/g, (_, ArgChar) => ArgChar.toUpperCase());
+    if(!Value || !Object.prototype.hasOwnProperty.call(Values, Key)) {
+      throw new Error('usage: projection-parity-harness --workspace <name> --events <file> --reminders <file> --completed <file> [--rebalance <json-source-api-file> --rebalance-projection <projection-api-file>] [--record-coverage <events-dir>]');
     }
-    Values[Name.slice(2)] = Value;
+    Values[Key] = Value;
   }
   if(!Values.workspace || !Values.events || !Values.reminders || !Values.completed) {
     throw new Error('workspace, events, reminders, and completed inputs are required');
@@ -205,28 +229,53 @@ function ParseArgs(ArgArgv) {
   return Values;
 }
 
-function Main() {
+async function Main() {
   const Options = ParseArgs(process.argv.slice(2));
   const EventsPath = path.resolve(Options.events);
   const EventsRaw = ReadJsonText(EventsPath);
   const RemindersRaw = ReadJsonText(path.resolve(Options.reminders));
   const CompletedRaw = ReadJsonText(path.resolve(Options.completed));
   const RebalanceRaw = Options.rebalance ? ReadJsonText(path.resolve(Options.rebalance)) : null;
+  const RebalanceProjectionRaw = Options.rebalanceProjection ? ReadJsonText(path.resolve(Options.rebalanceProjection)) : null;
   const Report = BuildParityReport({
     workspace: Options.workspace,
     events: ParseEvents(EventsRaw, EventsPath),
     reminders: JSON.parse(RemindersRaw),
     completed: JSON.parse(CompletedRaw),
     rebalance: RebalanceRaw ? JSON.parse(RebalanceRaw) : null,
+    rebalanceProjection: RebalanceProjectionRaw ? JSON.parse(RebalanceProjectionRaw) : null,
     remindersRaw: RemindersRaw,
     completedRaw: CompletedRaw,
     rebalanceRaw: RebalanceRaw || undefined,
+    rebalanceProjectionRaw: RebalanceProjectionRaw || undefined,
   });
   process.stdout.write(`${JSON.stringify(Report, null, 2)}\n`);
   process.exitCode = Report.clean ? 0 : 1;
+
+  if(Options.recordCoverage) {
+    const Coverage = createLedgerCoverage({ rootDir: path.resolve(Options.recordCoverage) });
+    if(Report.clean) {
+      await Coverage.RecordVerifiedAsync(Options.workspace, {
+        eventCount: ParseEvents(EventsRaw, EventsPath).length,
+        reminderCount: JSON.parse(RemindersRaw).length,
+        completedCount: JSON.parse(CompletedRaw).length,
+      });
+      process.stderr.write(`[parity] recorded VERIFIED coverage for '${Options.workspace}'\n`);
+    } else {
+      // A dirty run is evidence of a gap, so it must close the gate rather than merely decline to
+      // open it. Otherwise a workspace verified last week keeps serving after parity has broken.
+      await Coverage.RecordGapAsync(Options.workspace, 'parity-run-found-diffs');
+      process.stderr.write(`[parity] recorded GAP for '${Options.workspace}' — read flags will not serve it\n`);
+    }
+  }
 }
 
-if(require.main === module) Main();
+if(require.main === module) {
+  Main().catch((ArgError) => {
+    process.stderr.write(`${ArgError && ArgError.stack ? ArgError.stack : ArgError}\n`);
+    process.exitCode = 2;
+  });
+}
 
 module.exports = {
   BuildParityReport,

@@ -15,6 +15,7 @@ const {
 } = require('./client-mapping');
 const { CommandRouter } = require('./chat-command-router');
 const { summarizeWeekFromEvents } = require('./summarize-week-projection');
+const { IsProjectionRequested } = require('./reminders-projection');
 const HandleRememberAboveCommandAsync = require('./chat-commands/remember-above-command');
 const HandleSendToGithubCommandAsync = require('./chat-commands/send-to-github-command');
 
@@ -1246,8 +1247,13 @@ class RemindersAppMentionHandler {
     // parity. The projection path is also wrapped so it can never break the weekly summary: any error
     // falls back to the authoritative CompletionStore. Projection completed-rows are field-compatible
     // (summary / assigneeID / completedMs) so the rendering below is unchanged either way.
-    const UseProjectionForCompleted =
-      String(process.env.SUMMARIZE_WEEK_COMPLETED_SOURCE || '').toLowerCase() === 'projection';
+    // Goes through the shared blocklist rather than reading process.env directly. This call site has
+    // no coverage gate at all, so before this it was the LEAST protected of the four projection
+    // flags — the catch below only fires on a thrown error, and a silently-wrong fold is not an
+    // error. Parked by decision along with the other three (see the blocklist's comment).
+    const UseProjectionForCompleted = IsProjectionRequested('SUMMARIZE_WEEK_COMPLETED_SOURCE', {
+      Logger: ArgSlackApp.Logger,
+    });
     let CompletedRows;
     if(UseProjectionForCompleted) {
       try {

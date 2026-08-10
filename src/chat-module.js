@@ -30,6 +30,29 @@ const HandleRunDailyDigestCommandAsync = require('./chat-commands/run-daily-dige
 const HandleClearChannelModelCommandAsync = require('./chat-commands/clear-channel-model-command');
 const HandleShowChannelModelCommandAsync = require('./chat-commands/show-channel-model-command');
 const HandleAskCodeCommandAsync = require('./chat-commands/ask-code-command');
+
+// OPTIONAL private plugin seam. `src/rag/` is planned as `sleuth-plugin-rag` (PROJECT/2-WORKING/
+// P1-SPLIT.md:130) and is deliberately absent from the public repo, so this require MUST NOT be
+// allowed to fail the process. When the overlay is missing, ask-self simply does not exist; when it
+// is installed, the command and its triage path light up with no further wiring.
+//
+// This guard exists because the feature has already been lost once: a deploy that replaced the tree
+// with a copy lacking `src/rag/` silently dropped ask-self, and nothing announced it. An absent
+// overlay is now a supported state rather than an accident.
+/** @type {{ HandleAskSelfCommandAsync: Function, PostAskSelfTriageAsync: Function }|null} */
+let RagChatIntegration = null;
+try {
+  // @ts-ignore — resolved at runtime only. The overlay is absent from the public tree by design, so
+  // static resolution MUST NOT be a build error; `tsc` correctly reports TS2307 without this, which
+  // would make the public repo unbuildable for a feature it deliberately does not ship.
+  RagChatIntegration = require('./rag/chat-integration');
+} catch(error) {
+  // MODULE_NOT_FOUND is the expected public-repo case. Anything else means the overlay IS present
+  // but broken, which an operator needs to see rather than have swallowed as "not installed".
+  if(!error || error.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[chat-module] RAG overlay present but failed to load:', error && error.message);
+  }
+}
 const HandleAskWooCommandAsync = require('./chat-commands/ask-woo-command');
 const HandleWebSearchProviderCommandAsync = require('./chat-commands/web-search-provider-command');
 const HandleHelpFeaturesCommandAsync = require('./chat-commands/help-features-command');
@@ -100,6 +123,14 @@ class ChatModule {
    * @type {RegExp}
    */
   static AskCodeCommandRegex = /^ask-code\b[\s,:;.!?]+(.+)/is;
+
+  /**
+   * `ask-self <query>`. Kept in the public core even though its handler is an optional overlay:
+   * the pattern is not proprietary, and keeping it here means the router and the reaction path
+   * agree on what counts as an ask-self message whether or not the overlay is installed.
+   * @type {RegExp}
+   */
+  static AskSelfCommandRegex = /^ask-self\b[\s,:;.!?]+(.+)/is;
 
   /**
    * Slack app instance.
@@ -480,6 +511,18 @@ class ChatModule {
       Handle: (ArgEventInfo, ArgQuery) =>
         HandleAskCodeCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
     });
+
+    // Registered only when the private RAG overlay is installed, so the public build does not
+    // advertise a command that cannot answer. The handler itself is tenancy-gated on
+    // NEOCHROME_TEAM_ID and fail-closed, so this is the outer of two independent gates.
+    if(RagChatIntegration) {
+      Router.Register({
+        Pattern: ChatModule.AskSelfCommandRegex,
+        Route: 'ask-self',
+        Handle: (ArgEventInfo, ArgQuery) =>
+          RagChatIntegration.HandleAskSelfCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
+      });
+    }
 
     Router.Register({
       Pattern: /^ask-woo(?:\s+(.+))?$/is,
@@ -1614,11 +1657,30 @@ class ChatModule {
     );
     if(MessageMetadata?.event_type === 'sleuth-ai-reminder-ids') return false;
 
-    // strip the bot mention so the regex matches both leading-mention and trailing-mention forms.
-    // strip the bot mention so route description matches both leading- and trailing-mention forms.
+    // strip the bot mention so the regex matches both leading-mention and trailing-mention forms,
+    // and so a route description matches either placement too.
     const TextWithoutMention = ArgSlackApp.AppMentionString
       ? OriginalMessage.text.replace(ArgSlackApp.AppMentionString, '').trim()
       : OriginalMessage.text.trim();
+
+    // ask-self gets its own triage rather than the generic chat one, because the useful diagnosis
+    // is the tenancy gate and the RAG module's real error — neither of which the generic path can
+    // see. Only reachable when the private overlay is installed; otherwise a wrench on an ask-self
+    // message falls through to normal chat triage, which is the honest answer for a build where
+    // the command does not exist.
+    if(RagChatIntegration) {
+      const AskSelfMatch = TextWithoutMention.match(ChatModule.AskSelfCommandRegex);
+      if(AskSelfMatch) {
+        await RagChatIntegration.PostAskSelfTriageAsync(
+          ArgSlackApp,
+          ArgEventInfo.item.channel,
+          ArgEventInfo.item.ts,
+          ArgEventInfo.user,
+          AskSelfMatch[1].trim()
+        );
+        return true;
+      }
+    }
 
     const ThreadDebugInfo = this.#GetThreadDebugInfo(
       ArgSlackApp,

@@ -88,7 +88,7 @@ Headless review turn driven with `relay-drive.sh --review-once`; thread at
 | 1 | Pass | Confirmed | `ai-decision.js` absorbs real complexity, not a pass-through (§4). |
 | 2 | Nit — dedup falsy parity | **Acknowledged, declined** | Correct observation, wrong fix. |
 | 3 | Pass — no comment leak | Confirmed | All gate paths fail closed. |
-| 3b | Should — `IsFirstRelay` bookkeeping | **Accepted** — deferred to follow-up | Real but cosmetic; pre-existing class. |
+| 3b | Should — `IsFirstRelay` bookkeeping | **Accepted — fixed in the merge** | Independently fixed on `development`; adopted and narrowed. |
 | 4 | Pass — bot guard | Confirmed | Independently mutation-tested. |
 | 4b | Should — `GetMessageThreadTsAsync` null | **Rejected** | Factually wrong about the implementation. |
 | 5 | Pass — `AssetCache` isolation | Confirmed | Static repo assets only, no tenant data. |
@@ -124,12 +124,18 @@ parity that cannot be observed.
 
 ### Accepted
 
-**#3b `IsFirstRelay` bookkeeping.** Real. When a reply is relevant to both an already-relayed and a
-not-yet-relayed reminder, `RelevantReminders.every(...)` is false, so the second issue's first
-comment omits the "View Slack thread" permalink. Cosmetic, and the same shape existed before this
-change (it was computed over `MatchingReminders`). A proper fix means per-reminder permalink
-decisions, i.e. building a distinct comment body per reminder — wider than this issue's scope
-(§6, respect the neighborhood). **Deferred to a follow-up issue; owner: noel.**
+**#3b `IsFirstRelay` bookkeeping — accepted, and resolved during the merge.** agy was right that
+gating the relay-started write on `IsFirstRelay` leaves a reminder unmarked. It was first deferred as
+cosmetic; merging `origin/development` (PR #31, event schema v2) showed that lane had independently
+found and fixed the same defect, replacing the `IsFirstRelay` gate with
+`NewlyStarted = MatchingReminders.filter(r => !r.GitHubRelayStarted)` — for a stronger reason than
+the permalink: the unmarked reminder made the JSON store and the new thread-scoped ledger event
+disagree, so parity could never hold.
+
+Their fix was adopted and **narrowed to `RelevantReminders`**: a reminder whose issue received no
+comment has not started relaying, so marking every reminder in the thread would be wrong under the
+GH-37 gate. `IsFirstRelay` survives only for the permalink decision, which is its correct remaining
+role. No follow-up issue is needed.
 
 **#5b `WorkspaceAI` startup window.** Real. Handlers register in the `RemindersModule` constructor
 while `#WorkspaceAI` is assigned in `StartAsync`, and per AGENTS.md §2 `SlackApp` starts before

@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 1.4.267 - 2026-08-10
+## 1.4.271 - 2026-08-10
 When a Slack thread is linked to a GitHub issue, I no longer copy every later reply onto it. I check
 first whether the reply is really about that task, and if it looks like a new or unrelated one I
 leave GitHub alone and just schedule it as its own reminder. You can also stop me relaying a thread
@@ -62,6 +62,93 @@ behavior is unchanged — the migration is behavior-identical, evidenced by the 
 tests passing unmodified. Field validation treats undefined/null/empty-string as missing rather than
 using a falsy check, so a numeric `confidence` of 0 counts as a real answer. New prompt pair
 registered in `scripts/validate-ai-prompts.js`. 46 relay tests and 12 new `ai-decision` tests.
+## 1.4.270 - 2026-08-09
+Nothing changes for you day to day — but I've formally closed the book on a long-running internal migration. My reminder data has always lived in JSON files, with an experimental event log kept alongside it. That log will *not* be taking over: it's now permanently marked "reference only", and the switches that could have turned it on are disabled in code rather than just switched off in config. I also handle one more shutdown signal, so nothing in flight gets dropped when I'm restarted.
+
+**Technical:** P3 Phase 5 closed out — the read cutover is **parked by decision**, not abandoned or pending.
+
+- **All four projection flags blocked in code**, not merely `authoritative` in server config: `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE` via `BLOCKED_PROJECTION_FLAGS`, plus `SUMMARIZE_WEEK_COMPLETED_SOURCE` via a new `IsProjectionRequested()` helper — that one reads `process.env` at its own call site and never reaches the coverage gate, making it the least protected of the four. Config alone left a live path from a routine `projection-parity-harness --record-coverage` run to a production cutover with no deploy and no review.
+- **`SIGTERM` handled alongside `SIGINT`** (`src/app.js`). Node exits immediately on an unhandled SIGTERM, skipping `StopAsync` and losing the reminder queue, channel settings, reminder counter and completion history — not just the ledger. This deployment survived only because a server-side unit file sets `KillSignal=2`; durability is now a property of the code.
+- **The decision, on mechanism not preference:** a crashed append writes nothing to the ledger, so no ledger-derived quantity distinguishes "no append was attempted" from "an append was attempted and lost". A coverage marker therefore cannot certify the completeness that serving a projection requires. The ledger is retained as a non-authoritative projection/research substrate — not audit-grade, not a deferred authority migration.
+- Two properties recorded as **accepted boundaries, not defects**: completion retention is a deliberate 365-day policy split between `CompletionStore` and the fold; and dual-write coverage can never certify completeness, since either side can lead and snapshot-only changes emit no event.
+- Tests updated to assert the parked contract rather than the old cutover contract, with the coverage-gate contract still exercised in full under an unblocked synthetic flag so no mechanism lost coverage. Mutation-verified: unblocking the four flags fails 7 tests.
+- Plan doc moved to `PROJECT/3-COMPLETED/`; `ROADMAP.md` reduced to a ledger pointer. Residual items deferred with explicit revival triggers (section D). See GH-35.
+
+
+## 1.4.269 - 2026-08-09
+I was quietly losing part of my own history. Every time I rescheduled a reminder to the next day, the
+note I write to my history log about it was being thrown away — the reminder itself rescheduled
+correctly, so nothing looked wrong from the outside, but my record of why it moved was gone. I have
+also started refusing to answer from my rebuilt history unless that history has been checked against
+my authoritative records first, rather than assuming it is complete.
+
+**Technical:** `#EmitTransitionEvent`'s `ReminderScheduled` payload omitted `ignoreSnooze`, which
+schema v2 requires, so `append()` rejected it as an invalid shape and wrote nothing. The
+creation-time emitter carried the field, so the birth case was covered while every FSM reschedule
+was dropped. It surfaced only as a durable coverage gap on production — appends are best-effort and
+the warning is non-fatal. No test drove a transition INTO `scheduled`;
+`AssertNoDroppedAppendsAsync` now reads the coverage marker at the end of each emission scenario, so
+a rejected append fails the suite instead of changing nothing observable.
+
+The coverage gate is now load-bearing rather than advisory. `ReadWithProjectionFallbackAsync` is
+default-deny: an absent gate, a non-`true` answer, or a gate that throws all serve the authoritative
+store, where previously an absent gate was a bypass and every production call site supplied none.
+`IsCleanAsync` is threaded through all three read sites, and `createLedgerCoverage` returns one
+instance per ledger directory so `web-api` observes `reminders-module`'s in-flight appends instead of
+starting from a blank view. `readAll` no longer answers `[]` for every failure — `ENOENT` still
+means an empty stream, other errors raise `LedgerReadError`, and an unparseable line before the end
+raises `LedgerCorruptionError`, since a torn tail is an interrupted append but a hole in the middle
+means events are missing. `BLOCKED_PROJECTION_FLAGS` is empty and kept as the emergency stop, still
+tested by temporarily adding to it. `projection-parity-harness --record-coverage` is the only
+sanctioned way to reach `verified`, and records a gap when a run finds diffs.
+
+## 1.4.268 - 2026-08-08
+The code behind `ask-self` — the command that lets me answer questions about my own architecture and
+history — now lives in this repository instead of being installed separately onto the server. Nothing
+changes about what I can answer; it just means the code that does it is readable by anyone reading
+me, and can no longer drift between the machine it runs on and the source it came from.
+
+**Technical:** `src/rag/` and `src/chat-commands/ask-self-command.js` are tracked rather than
+gitignored. They were audited before landing: no credentials are embedded, `GOOGLE_API_KEY` and
+`SLEUTH_RAG_GITHUB_PAT` are read from the environment as before, and the PR corpus repository is now
+chosen by `SLEUTH_RAG_GITHUB_OWNER`/`_REPO` instead of being hardcoded — a fork points at its own
+history and this repo names no private one. The guarded optional `require` in `chat-module.js`
+deliberately stays: the *index* is still a build artifact and is still gitignored, so a fresh clone
+has the code but no `data/rag/sleuth-rag.sqlite` and must degrade quietly rather than crash. `tsc`
+now type-checks these four files under `checkJs` along with everything else, and `npm run rag:ingest`
+exists — the error text had pointed at that script for months without it being defined.
+
+## 1.4.267 - 2026-08-08
+When several people share a reminder, anything reading my exported data now sees all of them. It
+used to see only the first, so a shared task looked like it belonged to one person. I also stop
+treating a reminder that joins a thread I am already relaying to GitHub as if that thread had never
+started, and I now record it when a reminder is removed from my queue — previously that removal left
+no trace at all, so a rebuild of my own history could have brought a deleted reminder back to life
+and started posting it again.
+
+**Technical:** P3 event schema v2 (PR #31). `REQUIRED_PAYLOAD_KEYS_V2` sits beside the v1 map and
+`NormalizeEvent` selects the set from the event's own `v`, so every historical event reads exactly as
+before and only new writes face the wider schema — the versioning approach agy argued for over
+Codex's read-time strictness, recorded in the plan doc. Validation now also rejects a required key
+whose value is `undefined`, which `hasOwnProperty` accepted and `JSON.stringify` then dropped.
+`completedMs` is sampled once in `#TransitionReminderState` and threaded to both the
+`CompletionRecord` and the event. New `ReminderStateChanged` covers the seven states the switch
+skipped, `ThreadRelayStateChanged` is thread-scoped on GH-27's `OriginalThreadTs ?? OriginalMessageID`
+with a synthetic `thread:<key>` envelope, and `ReminderRemoved` is emitted from
+`#DeleteRemindersAsync` — the one choke point, so the wastebasket reaction and dead-letter sweep are
+covered too. `assigneeIds` added to the rebalance export in both `web-api.js` and
+`reminders-projection.js`, falling back to a single-element array for legacy records.
+`baseline-import.js` gains `--enrich` and `--retire-orphans`; the replay fold no longer mints a
+phantom row for a transition whose reminder has no creation event. New `src/ledger-coverage.js` is
+the generation-aware gate: an in-flight append, a failed append (durable, since nothing retries it),
+or a workspace never verified all keep a projection from serving. CI now runs `tsc` and
+`validate:fsm`, which it did not before.
+
+**Found by running it against real production data, not by review:** removal was never evented at
+all (11 live reminders folded to a state the JSON store had dropped), imported completions were
+discarded by the fold for want of a `completedAt` (32 of 152 lost), and the backfill only ever ran in
+one direction. Read-model parity on real data went from 34 diffs to zero. Every projection read flag
+remains blocked. 1575 Jest, 90 `node --test`.
 
 ## 1.4.266 - 2026-08-07
 I no longer create a second reminder just because a later reply in the same Slack thread happens to

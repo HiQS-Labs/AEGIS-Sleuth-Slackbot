@@ -1,9 +1,9 @@
 ---
 title: P3 — Event-Sourced Core (the log is the source of truth)
 created: 2026-06-12
-updated: 2026-08-08
+updated: 2026-08-09
 branch: development
-status: Phase 0/1 done; Phase 2 built + shipped behind a default-OFF flag (1.4.197/1.4.198). The shadow-diff WAS run against real prod neochrome data and surfaced a pre-ledger data gap (reminders created before the ledger was born 2026-06-17 have no ReminderCreated event → null assignee/sourceChannel in the fold). GH-355 baseline-import (1.4.211, 2026-07-06) fixed it — the prod shadow-diff went 11 → 0 mismatches (only the documented ±1ms completedMs divergence remains). Cutover is now technically UNBLOCKED and reduces to one human-gated step (run the import on prod + flip SUMMARIZE_WEEK_COMPLETED_SOURCE=projection), now scheduled as a POST-DEPLOYMENT switch rather than a front gate. Phase 3 (entity-linking read-model) is DELIVERED as of the 2026-08-08 marathon. Phase 4 is BLOCKED on an event-schema gap that prevents boot-state reconstruction. Phases 5 and 6a produced modules but converted no reads, because their marathon lanes excluded the files they were meant to change; lanes corrected, but ONLY Phase 5 (p6) may be re-run — Phase 6a is blocked with Phase 4. See "Marathon run 2026-08-08" below for the full accounting.
+status: COMPLETE — Phase 5 closed out 2026-08-09. Phases 0-3 delivered. The read cutover is PARKED BY DECISION, not abandoned or pending: generation-binding of the coverage marker was falsified (a crashed append writes nothing to the ledger, so no ledger-derived quantity distinguishes 'never attempted' from 'attempted and lost'), and the two read surfaces gain migration confidence but no latency or scale benefit. The ledger is retained as a NON-AUTHORITATIVE projection/research substrate — not audit-grade, not a deferred authority migration. All FOUR projection flags are blocked in CODE (REMINDERS_READ_SOURCE, COMPLETED_READ_SOURCE, REBALANCE_EXPORT_SOURCE, SUMMARIZE_WEEK_COMPLETED_SOURCE) and set to `authoritative` on both servers. SIGTERM is now handled so shutdown durability no longer depends on an off-repo unit file. Remaining items are DEFERRED WITH TRIGGERS in "PHASE 5 CLOSE-OUT" -> section D; none is a live defect. Re-opening the authority path needs a named product consumer and a fresh proposal. See GH-35.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 model: event-sourcing + projections (strangler migration)
@@ -76,6 +76,546 @@ change:
 **Phase 4 therefore needs an explicit schema-expansion proposal first** — widen the event payloads,
 extend emission coverage to the omitted transitions, add a strict boot-read error signal, backfill
 the new fields, and only then establish parity. That is its own plan, not a retry of p5.
+
+#### STATUS UPDATE 2026-08-08 (post-schema-v2) — three of those four blockers are CLOSED
+
+The schema expansion called for above was written and shipped as **schema v2 (PR #31, 1.4.267)**, see
+[`P3-EVENT-SCHEMA-EXPANSION.md`](./P3-EVENT-SCHEMA-EXPANSION.md). Scoring the four blockers above
+against `src/event-store.js` as it now stands, rather than leaving the list reading as though none had
+moved:
+
+| # | Blocker above | Status |
+|---|---|---|
+| 1 | `ReminderCreated` omits `Original*` / `IgnoreSnooze` | **CLOSED.** v2 requires `createdOn`, `originalSenderId`, `originalMessageId`, `originalThreadTs`, `originalChannelName`, `ignoreSnooze`, `assigneeIds`, `clientId`. |
+| 2 | omitted `due`/`overdue`/`posting`/`posted`/`rescheduled`/`failed`/`dead-letter` transitions | **CLOSED.** `ReminderStateChanged` covers all seven; `ReminderRemoved` covers queue exit, which this list never identified and real data proved was the worst of them. |
+| 3 | `ReminderCompleted` lacks `sourceChannelID`, `dueDate`, `clientId` | **CLOSED.** v2 requires those three plus `completedMs`, sampled once and threaded to both writes. |
+| 4 | `readAll()` degrades to an empty stream with **no error signal** | **STILL OPEN.** `src/event-store.js` still returns `[]` for *any* read error, so I/O failure is indistinguishable from a genuinely empty ledger and contract item (c) remains structurally untriggerable. |
+
+The separate GitHub-relay finding recorded under the Phase 5 table below is also **CLOSED**: v2
+carries `gitHubRelayStarted`/`gitHubRelayStopped` on creation and import, and `ThreadRelayStateChanged`
+carries every later change, thread-scoped.
+
+**Phase 4 is therefore no longer blocked on schema.** It is blocked on blocker 4 plus the coverage
+wiring described below. That is a materially smaller remaining scope than this section implied, and
+the distinction matters: leaving it unstated caused `ask-self` to report the schema gap as open
+weeks after it was closed, because this document is what it reads.
+
+#### The gate that does not yet gate — found 2026-08-08
+
+`src/ledger-coverage.js` exists and is correct, and `ReadWithProjectionFallbackAsync` accepts an
+`IsCoverageCleanAsync` callback. **Neither is connected.** Two defects, both verified in code:
+
+1. **No production caller supplies it.** `IsCleanAsync` appears nowhere outside
+   `tests/ledger-coverage.test.js`. All three read sites — `reminders-module.js:2984`,
+   `web-api.js:408`, and the export path at `web-api.js:937` — omit the callback. The append path
+   records coverage faithfully (`BeginAppend`/`SettleAppend`); nothing ever asks for the result.
+2. **The gate fails OPEN when omitted.** The check is wrapped in
+   `if(typeof ArgOptions.IsCoverageCleanAsync === 'function')`, so a caller that supplies nothing
+   skips it and serves the projection. Its own comment says an ungated caller "is simply unverified,
+   which is itself a reason not to serve" — the code does not do that. `ledger-coverage.js` defaults
+   to unclean; this call site defaults to permissive, which cancels it out.
+
+Consequence: unblocking any flag today would serve a projection with **no coverage gate at all**,
+which is the precise failure the gate was built to prevent. Fix before any flip: default-deny in
+`ReadWithProjectionFallbackAsync` (absent callback ⇒ do not serve) and thread
+`#LedgerCoverage.IsCleanAsync` through all three call sites.
+
+> **DONE.** Both landed 2026-08-08. The gate is default-deny (absent, non-`true`, or throwing all
+> refuse), instances are shared per `rootDir` so `web-api` sees `reminders-module`'s in-flight
+> appends, `readAll` signals read errors and mid-file corruption instead of returning `[]`, and
+> `projection-parity-harness --record-coverage` is the one sanctioned way to reach `verified`.
+> `BLOCKED_PROJECTION_FLAGS` is now empty and kept only as the emergency stop.
+
+#### What the gate caught the moment it was pointed at production — 2026-08-09
+
+The first thing it reported was a **real defect in schema v2 itself**, not a coverage question.
+
+`neochrome_ledger_coverage.json` read `{"state":"gap","reason":"append-failed","detail":
+"ReminderScheduled"}`. The cause was not I/O — the log line is
+`event-store: invalid event shape, not written`:
+
+```
+#EmitTransitionEvent → case State.Scheduled:
+  this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt, via })   // no ignoreSnooze
+```
+
+Schema v2 **requires** `ignoreSnooze` on `ReminderScheduled`. The creation-time emitter
+(`reminders-module.js:745`) carries it; the transition-time emitter did not. So **every reschedule
+since the v2 deploy was rejected and silently dropped from the ledger.** Nothing surfaced: appends
+are best-effort, the warning is non-fatal, and the reminder itself reschedules correctly. The only
+durable trace was the coverage marker.
+
+Two conclusions worth keeping:
+
+1. **The mechanism paid for itself before serving a single projection.** A gate whose first act is to
+   refuse on real evidence is behaving correctly; the temptation is to read a `gap` as the gate being
+   broken rather than as the ledger being short.
+2. **No test covered a transition INTO `scheduled`.** The suite drove creation, completion,
+   cancellation, and snooze. `AssertNoDroppedAppendsAsync` now reads the coverage marker at the end
+   of an emission scenario, so any dropped append in any covered path fails the suite — a rejected
+   append changes nothing else a test can observe.
+
+#### Why a flag flip is still inert today, on real data
+
+Rehearsed against a copy of the dev workspace's real ledger (347 events) and again against
+production's (1809 events, 1467 v1 / 342 v2). Even after `--enrich` and compaction, parity does not
+come back clean, for reasons that are data-shape rather than code:
+
+| Symptom | Cause |
+|---|---|
+| `IgnoreSnooze` missing for enriched reminders | their later `ReminderScheduled` events are **v1** and cannot carry it; nothing backfills a v1 transition |
+| ordering differs | the fold emits baseline-imported reminders first, the JSON store keeps queue order — byte parity compares positionally |
+| `AssigneeIDs`, `GitHubRelayStarted/Stopped` differ on every record | the fold sets them; legacy JSON records omit the fields entirely |
+
+So the honest position: the switches are now **verifiable and safe**, and on today's data they
+correctly evaluate to "do not serve". Enabling a flag is therefore a no-op that logs its refusal —
+which is the right thing for it to do, and is not the same as being switched over.
+
+> **SUPERSEDED, same day.** The table above was written before compaction was seeded from the
+> authoritative store. Two of its three rows no longer apply. See the corrected accounting below,
+> which is the one to trust.
+
+### THE COMPLETE REMAINING INVENTORY — 2026-08-09
+
+Written in one pass, after an exhaustive sweep, because this plan had been surfacing its own gaps one
+at a time. Everything known to stand between today and a served projection is in this section. Where
+something is *not* known, that is stated rather than omitted.
+
+#### What compaction actually achieves, measured on a copy of production
+
+`BuildCompactedEvents` now accepts `authoritative` and prefers it over the fold. Compaction replaces
+the log, so seeding it from the fold would bake in whatever the ledger was missing with no earlier
+event left to correct it — which was not hypothetical: reminder `9ba4c949` held a due date two days
+stale because its reschedules were the events the emitter bug dropped.
+
+| Measure | Fold-seeded | Authoritative-seeded |
+|---|---|---|
+| events | 1809 → 327 | 1809 → 327 |
+| strict fold | PASSES | PASSES |
+| reminder id set | matches | matches |
+| ordering | ✗ differs | **✓ matches** |
+| `ShouldPostOn` | ✗ 1 stale (`9ba4c949`) | **✓ none** |
+| `CreatedOn` ±1ms | ✗ 3 records | **✓ none** |
+
+#### The one remaining parity gap, exhaustively characterised
+
+Comparing every key of every record, in both directions, on real production data:
+
+| Class | Count | Fields |
+|---|---|---|
+| Fold **invents** a key absent from the authoritative record | 128 | `GitHubRelayStarted` (22), `GitHubRelayStopped` (23), `clientId` (83) |
+| Fold **omits** a key the authoritative record has | **0** | — |
+| Both present, **values differ** | **0** | — |
+
+One class, three field names, nothing else. `undefined` vs `false`/`null` is semantically identical,
+but the harness requires byte equality, so it blocks a `verified` marker and therefore the gate.
+
+**Fix — omit, don't invent.** The projected read model must not materialise a key nothing ever set.
+This is a *read-model* change only: v2 still requires those keys in the **event payload**, where they
+stay explicit, so the relay-safety property (`github-comment-relay.js:102` refuses to relay when
+`GitHubRelayStopped` is set) is untouched. The two layers must not be conflated.
+
+#### Everything else that is missing, and was not previously written down
+
+1. **Compaction has no operator entry point.** `WriteSnapshotAndCompactAsync` and
+   `BuildCompactedEvents` are called by **tests only** — no production caller, no CLI, no npm script.
+   Needs `scripts/compact-ledger.js` that reads the ledger and both authoritative stores, folds
+   non-strict, and passes `authoritative` through. Without it there is no sanctioned way to compact.
+2. **Compaction races a running service.** It rewrites the whole log while the app appends to it.
+   The service must be stopped for the duration, or the operation needs a lock. Nothing enforces this
+   today, and nothing warns about it.
+3. **Compaction is irreversible** — it discards the v1 audit trail permanently. Requires a verified
+   backup first and an explicit decision, every time. `docs/p3-rollback-runbook.md` exists but
+   predates all of this and does not cover it.
+4. **No test covers the `authoritative` compaction option.** It was added without one; the existing
+   suite only exercises the fold-seeded path.
+5. **Coverage markers are per workspace.** Production has seven workspaces but only `neochrome` has
+   any reminders (23) or a ledger. The other six are correctly refused for want of a marker, and
+   `readAll` returns `[]` for their absent ledgers. Only one workspace needs verifying.
+6. **A clean harness verdict needs the `rebalance` surface**, which only the running web API can
+   produce (`missingSurfaces: ['rebalance']`). With the rebalance integration descoped (below) the
+   harness must be able to reach `clean` without it, or it can never pass.
+7. **`PROJECTION_ERROR_PATH_TEST_ONLY` is registered and unblocked.** It exists so the error-fallback
+   path is testable. It is inert unless someone sets that exact env var, but it is a live code path
+   in production and should be named rather than forgotten.
+
+#### The post-deployment integration this plan never accounted for
+
+`deploy/reminders-export/` is a **separately installed component** — it lives at
+`/root/sleuth-reminders-export/`, outside `/root/sleuth-app/`, so a deploy of the app does not touch
+it. A systemd timer runs it every 5 minutes:
+
+```
+sleuth-reminders-export.timer  (OnCalendar=*:0/5, Persistent=true)
+  └─ publish-reminders-export.mjs
+       GET http://127.0.0.1:2020/workspace/<ws>/reminders?format=rebalance&activeOnly=true
+       └─ commits the JSON to a private git repo, which rebalance-OS reads
+```
+
+This is what those `REBALANCE_EXPORT_SOURCE requested…` log lines every five minutes actually are.
+
+Two problems found:
+
+- **The installed copy has drifted from the repo.** `publish-reminders-export.mjs` and
+  `export-payload.js` differ by checksum, and `events-projection.js` and `completions-payload.js`
+  exist in the repo but were **never installed**. Nobody has reconciled them; the repo is not a
+  description of what is running.
+- **It fails whenever the app restarts.** It polls loopback, so a restart inside its 5-minute window
+  produces `local API request failed: fetch failed` and a unit failure. Observed at 06:30:04 today,
+  caused by a restart of ours. Self-healing on the next tick, but it means every deploy writes a
+  failure into the journal and briefly staleness into the export.
+
+#### Rebalance is descoped — deliberately, not removed
+
+Per the operator: the rebalance integration is being decoupled from the `neochrome` workspace and is
+not to be dealt with further unless a **security or performance** issue appears. Nothing was torn
+down. `REBALANCE_EXPORT_SOURCE` was removed from `.env.runtime` on both hosts, which only changes
+*which store the export reads from* — it reads the authoritative JSON, exactly as it already was,
+since the gate was refusing anyway. The endpoint, the payload builder, the timer, and the export are
+untouched and still running every 5 minutes.
+
+For the record, on the two dimensions that would bring it back into scope:
+
+- **Performance** — leaving the flag off is also the cheaper option. The projection path folds the
+  entire ledger on every call; the authoritative path reads one JSON file. At a 5-minute poll the
+  difference is small but strictly in favour of off.
+- **Security** — the endpoint is bearer-token protected on loopback only, and the transport is a
+  private git repo rather than an inbound port. No open port, no tunnel. Nothing found.
+
+The consequence for this plan is that **the cutover is now two flags, not three**:
+`REMINDERS_READ_SOURCE` and `COMPLETED_READ_SOURCE`, both inward-facing. The one flag whose failure
+mode left the building is out of scope by decision.
+
+#### Ordered plan to a served projection
+
+1. Omit-don't-invent in the fold (3 fields) — the last code change for parity.
+2. `scripts/compact-ledger.js`, passing `authoritative`, with a mandatory backup and a refusal to run
+   while the service is up.
+3. Make a `clean` verdict reachable without the `rebalance` surface.
+4. Test for the `authoritative` compaction path.
+5. Stop service → back up → compact `neochrome` → restart.
+6. `projection-parity-harness --record-coverage` → expect `verified`.
+7. Confirm the gate opens and the two flags serve the projection; watch for one full reminder cycle.
+8. Reconcile `deploy/reminders-export/` drift, or record deliberately that it is frozen.
+
+### Cross-model consult, 2026-08-09 — the inventory above was NOT complete
+
+Codex and agy reviewed the inventory independently. Both found real defects, and they converge on
+the same theme: **the gate proves a moment, and nothing binds that proof to the moment it was taken.**
+Each item below was re-verified in the code before being written down — the consult runner flagged
+`FIRSTHAND_COUNT=0` for both models, so nothing here is recorded on their say-so alone.
+
+#### Verified and FIXED immediately (a defect introduced by this session's own change)
+
+**`WriteSnapshotAndCompactAsync` would have overwritten the authoritative stores from the fold.**
+It calls `WriteDerivedSnapshotAsync` first, which writes `reminderFilePath` and `completionFilePath`
+from `ArgOptions.folded`. Adding `authoritative` to `BuildCompactedEvents` alone made one options
+object mean "trust the fold" in one function and "trust the store" in the other — so an operator
+compacting with an authoritative seed would have had the JSON store clobbered by the short fold
+*first*, destroying the very `ShouldPostOn` the seeding exists to preserve.
+
+Fixed: the function now **throws** when `authoritative` is supplied, rather than picking a winner.
+Authoritative-seeded compaction must use `BuildCompactedEvents` and write only the event log. Two
+tests cover it — one proving the authoritative due date survives compaction, one proving the
+contradiction is refused.
+
+#### Verified, still OPEN
+
+| # | Finding | Evidence |
+|---|---|---|
+| 1 | **A crash mid-append leaves the marker `verified` while the log is short.** `BeginAppend` increments an in-memory counter only; `SettleAppend(false)` is what writes a durable gap. Kill the process between them and the shortfall is real but unrecorded — the very case `ledger-coverage.js`'s own comment claims to handle ("the shortfall is in the file, not merely in this process's memory"). | `src/ledger-coverage.js` — `BeginAppend` is `InFlight.set(...)` and nothing else |
+| 2 | **A successful-but-wrong append never invalidates the proof.** `SettleAppend(ok=true)` only decrements the counter. A schema-valid event carrying a wrong value, or a reducer bug shipped after verification, keeps serving under the old `verified` marker. The marker is not bound to a ledger generation. | `src/ledger-coverage.js:IsCleanAsync` tests `Marker.state === 'verified'` and nothing about the ledger's current content |
+| 3 | **The harness folds with `strict:false`; the served read path uses `strict:true`.** So the harness can record `verified` for a stream the live projection would then refuse — verification and production disagree about what counts as foldable. | `scripts/projection-parity-harness.js` vs `web-api.js` / `reminders-module.js` read paths |
+| 4 | **The harness parses raw JSONL directly instead of going through `event-store.readAll()`**, so it never exercises the corrupt-tail and unknown-type handling that production reads have — including the new `LedgerReadError` / `LedgerCorruptionError` signals. | harness reads the file itself |
+| 5 | **No ledger flush on shutdown.** `#AppendLedgerEvent` is fire-and-forget and nothing awaits outstanding appends during `StopAsync`, so a graceful stop does not prove the log caught up. This makes "stop the service before compacting" insufficient on its own. | `src/reminders-module.js` `#AppendLedgerEvent` / `StopAsync` |
+| 6 | ~~**Absent vs explicit `false` may be a real distinction, not noise.**~~ **RESOLVED 2026-08-09 — see below. The premise was wrong in both directions, and the omit fix is abandoned.** | measured, not argued |
+
+#### What this changes
+
+Items 1–5 mean the current gate is a **fail-closed brake, not a proof**: it reliably refuses when it
+knows something is wrong, and it does not know about crashes, wrong-but-valid events, or the gap
+between how verification folds and how production folds. That is adequate for keeping the flags shut
+— which is what it is doing today — and **not** adequate as the sole authorisation to serve.
+
+The cheapest fix that addresses 1, 2 and part of 3 together is to bind the marker to a **ledger
+generation**: record event count and last event id at verification, and have `IsCleanAsync` compare
+the current ledger against it. Any divergence — crash-lost, failed, or merely new — reads as unclean.
+That is strict enough that a continuously-appending workspace would re-close the gate on every
+reminder change, so it needs pairing with either scheduled re-verification or continuous shadow
+diffing. Sequencing that trade-off is the next design decision, and it belongs before the flip, not
+after.
+
+### Item 6 RESOLVED — 2026-08-09. "Omit, don't invent" is abandoned; the exit criterion changes instead
+
+Item 6 was resolved by measuring rather than reasoning, and the measurement refuted the plan.
+
+**Is absence distinguishable from `false`?** For the relay flags, no — and nothing needs it to be.
+The only writers are `github-comment-relay.js:137` and `:213`, and both assign `true`; **no code path
+anywhere assigns `false`**, so an explicit `false` is a shape the JSON store cannot produce. No
+consumer reads them other than by truthiness (`:129`, `:178`, `:210`) — there is no `=== undefined`
+and no `hasOwnProperty` check on either flag in the tree. The distinction that actually matters
+operationally, *never relayed* vs *relay stopped*, is carried by the **pair** of latches, not by
+absence-vs-`false` within one, and it survives either encoding.
+
+**For `clientId` the models were right that absence is load-bearing** — `reminders-module.js:3132`
+distinguishes `undefined` ("resolve and save") from `null` ("no client matched, keep as-is", stated
+outright at `:3130`). Two sibling backfills key on absence the same way: `GitHubUrls` at `:3123`
+(`!Array.isArray`, so `null` counts) and `AssigneeIDs` at `:3082`.
+
+**But implementing the omit fix made things worse, measured on the real production stream** (23
+reminders, 152 completions, `neochrome_events.jsonl`):
+
+| Store snapshot | Omit fix | Result |
+|---|---|---|
+| current (post-deploy, 2026-08-08 23:07) | applied | **identical** — 0 of 128 key differences moved |
+| pre-backfill (2026-08-08 16:31) | applied | **5 new OMISSIONS** of `projectId` |
+
+An omission is the strictly worse failure: it loses a field the store has, whereas an extra key
+carries a fact the event genuinely recorded. The fix was reverted; only the relay flags keep the
+conditional they already had.
+
+**Why it cannot work:** *the direction of staleness varies by field.* For the relay flags the event
+stream is ahead of the JSON store; for `projectId` on a pre-backfill store the JSON store is ahead of
+the stream. One key-presence rule cannot be correct for both, so key-presence is the wrong thing to
+normalise.
+
+**What actually explains the 128 "invented" keys:** the fold is not inventing anything. Every one of
+them is a field the event recorded and the legacy JSON record never gained — the store is the stale
+side. Confirmed by the store repairing *itself*: `AssigneeIDs` was absent on all 23 reminders at
+16:31 and absent on **zero** at 16:46, because the load-time backfills ran on the new binary and
+persisted.
+
+**So the exit criterion changes, not the projection.** Byte-identity with the legacy store is
+unreachable without making the fold lie, because the store is behind. The correct gate is:
+
+> the fold must never **omit** a field the store has, and must never **disagree** on a value.
+> Extra keys carrying facts the events recorded are a repair, not a regression — and they are exactly
+> what the current factory writes for any new reminder.
+
+Against the current production state that gate **passes today**: zero omissions, zero value
+differences, in both directions, for both reminders and completions.
+
+### The real hazard this uncovered: compaction decides unknowns, irreversibly — FIXED
+
+Chasing item 6 surfaced a live risk that was next in the queue and is not the one either model named.
+
+`BuildCompactedEvents` writes a **total** payload: `assigneeIds: []`, `githubUrls: []`,
+`clientId: null` are emitted whether or not the source record knows those answers
+(`state-snapshot-writer.js:146/151/158`). For the three backfill-triggered fields that is not a
+default, it is a **decision** — and compaction replaces the log, so the decision lands in the only
+surviving event and retires the backfill permanently, for every affected record at once.
+
+Measured blast radius on the pre-backfill store: **16 of 23 reminders held `GitHubUrls: null`**.
+Compacting that store, seeded from `authoritative`, would have written `githubUrls: []` for all 16 —
+discarding URLs the ledger still held, with no earlier event left to recover them.
+
+`BuildCompactedEvents` now refuses, naming each field and the `reminders-module.js` line whose
+backfill is pending. The remedy costs nothing: the backfills run automatically on the next load of
+the JSON store and persist themselves, so one restart clears it. Verified both ways — the guard
+blocks the pre-backfill store (16 fields) and passes the current one (23 compacted events) — and
+mutation-tested by disabling the throw and confirming the test fails.
+
+**Net effect on sequencing:** item 6 no longer blocks anything, and the projection needs no further
+change. Items 1–5 stand unchanged.
+
+## PHASE 5 CLOSE-OUT — 2026-08-09. The read cutover is parked; this plan is complete
+
+This section is the decision of record. Everything below it is history and evidence.
+
+### A. What the ledger is for
+
+**The ledger is a non-authoritative projection and research substrate. It is not an audit record and
+it is not a deferred authority migration.**
+
+Not audit-grade, on mechanism rather than preference: appends are mutate-first, best-effort and
+fire-and-forget (`reminders-module.js` `#EmitLifecycleEvent`), so a history that can silently miss
+events cannot be evidence of what happened. Not a future authority, on proof: a crashed append writes
+nothing to the ledger, so **no ledger-derived quantity can distinguish "no append was attempted" from
+"an append was attempted and lost"**. A coverage marker therefore cannot certify completeness, and
+completeness is exactly what serving a projection requires.
+
+**Stop rule.** No further implementation beyond keeping the existing non-authoritative data readable
+and inspectable. Re-opening the authority path requires a named product consumer and a fresh
+proposal — an intentional code change, never a config edit.
+
+**Machinery fate.** `ledger-coverage.js`, the `--record-coverage` marker path, and
+`state-snapshot-writer.js` are **retained, inert, and labelled** rather than deleted. They are the
+tested emergency stop and the tooling any future proposal would need, and deleting them would throw
+away the only mechanism that makes re-opening safe. If no consumer has demonstrated value by the next
+P3 review, retire them rather than carry a second persistence system indefinitely.
+
+### B. Accepted boundaries — NOT defects, do not re-file
+
+Two properties are permanent consequences of the design above. They were repeatedly rediscovered as
+bugs during this phase; they are neither.
+
+1. **Completion retention is a deliberate policy split.** `CompletionStore` durably prunes past 365
+   days (`completion-store.js:27`, `:207`); the fold applies no retention. A projection-completed
+   view therefore has a different history policy and must never claim parity with the completion
+   store across that boundary. Inert for the summarize-week consumer, which is windowed to one week.
+2. **Dual-write coverage can never certify completeness.** The ledger is an asynchronous best-effort
+   observation of lifecycle activity, not a mirror of authoritative state. Either side can lead after
+   an interruption, and snapshot-only changes — load-time normalisation (`reminders-module.js:3147`)
+   and completion pruning (`completion-store.js:88-99`) — produce no lifecycle event at all.
+   Therefore **a clean append or parity run establishes only the stated sample comparison; it can
+   never certify completeness, authorise a read cutover, or turn a coverage marker into a correctness
+   gate.**
+
+### C. What was done to make the parked state hold
+
+- **All four projection flags are blocked in code**, not merely set to `authoritative` in server
+  config: `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE` via
+  `BLOCKED_PROJECTION_FLAGS`, and `SUMMARIZE_WEEK_COMPLETED_SOURCE` via `IsProjectionRequested()`
+  because it never reaches the gate. Config alone left a live path from a routine
+  `projection-parity-harness --record-coverage` run straight to a production cutover with no deploy
+  and no review.
+- **`SIGTERM` is handled alongside `SIGINT`** (`src/app.js`). Node's default action for SIGTERM is
+  immediate exit, which would skip `StopAsync` entirely and lose the reminder queue, channel
+  settings, reminder counter and completion history — not merely the ledger. This deployment survived
+  that only because a unit file on the servers sets `KillSignal=2`; durability is now a property of
+  the code.
+- The env vars remain `authoritative` on dev and production as belt-and-braces.
+
+### D. Deferred, with the trigger that would revive each
+
+Recorded so they are closed with rationale rather than left as pending work. **None is a live defect;
+every read surface serves the authoritative store today, verified in both running processes.**
+
+| Item | Why deferred | Revive when |
+|---|---|---|
+| Ledger flush on shutdown | Loses only non-authoritative ledger data; authoritative JSON and completions are both flushed by `StopAsync` | The ledger gains a consumer whose correctness depends on completeness |
+| Unbounded ledger growth | ~1809 events against a ~50k practical threshold; with every flag blocked, served reads never fold the ledger at all | Event count crosses 50k, or backup/restore time becomes a constraint |
+| Ledger backup (`backup-sleuth-data.sh` omits `data/runtime/events/`) | Nothing consumes the ledger, so losing it loses nothing anyone reads | A consumer is approved under A's stop rule |
+| Harness folds `strict:false` while served paths fold `strict:true`; harness parses raw JSONL rather than `readAll()` | The harness is now a diagnostic, not an authorisation path — nothing acts on its verdict | A fresh proposal re-opens the authority path |
+| Compaction quiescence + marker invalidation | Compaction is not scheduled and has no production caller | Compaction is actually needed, i.e. the growth trigger fires |
+
+### Items 1 & 2 DECIDED — 2026-08-09. Generation-binding is abandoned; the read cutover is parked
+
+The plan's own proposal — "bind the marker to a ledger generation: record event count and last event
+id at verification, and have `IsCleanAsync` compare the current ledger against it" — **does not
+survive falsification, and both advisors independently confirmed it.**
+
+**The disproof.** A crashed append never writes anything to the ledger. The only durable record of a
+failed append is `SettleAppend`'s marker write (`ledger-coverage.js:159`), which the crash skips. So
+the ledger file is byte-identical to what was verified — count, last id, any hash of it. A
+generation comparison returns *clean* in exactly the case it was proposed to catch. There is no
+store-side sequence number anywhere in `reminders-module`'s save path to compare against. Codex added
+that a torn final JSONL fragment is not a usable signal either, because production deliberately
+ignores the final line (`event-store.js:380-404`).
+
+**The decision:**
+
+1. **Do not flip `REMINDERS_READ_SOURCE` or `COMPLETED_READ_SOURCE`.** The projection would replace a
+   read of data already in memory (`#PendingRemindersQueue`); the completed path would fold the whole
+   ledger per read where JSON is a direct read. The gain is migration confidence, not latency or
+   scale. Both advisors agreed independently. Leaving the flags at `projection` with the gate
+   refusing is a *safe canary*, not a pending cutover — the fallback is default-deny.
+2. **Keep the `eventCount` comparison, but as fail-closed hardening, never as authorization.** The
+   marker already carries it (`ledger-coverage.js:209`, written by
+   `projection-parity-harness.js:259`) and `IsCleanAsync` never reads it. It closes the
+   "one bad append after verification" window. It does nothing for the crash case.
+3. **Authorization, if ever sought, must be an in-band fail-closed parity check** — not a
+   point-in-time marker and not a periodic script. A background shadow diff is good *detection* and
+   has the same "valid at time T" weakness as the marker.
+
+#### What the consult found that this plan had not — verified in code, not taken on faith
+
+| Sev | Finding | Verified at |
+|---|---|---|
+| **Fail-OPEN** | `WriteMarkerAsync` sets `MarkerCache` **before** the durable write and swallows the failure. A failed `RecordVerifiedAsync` therefore opens the gate for the running process with no durable marker; a failed *gap* write leaves an older on-disk `verified` marker to re-open after restart. | `ledger-coverage.js:123-134` |
+| **Model wrong** | The gate assumes only "JSON store leads the log". Both sides can lead: `#TransitionReminderState` mutates in memory and emits the event, while the JSON save is a separately queued chain — a successful append with an interrupted save leaves the **ledger ahead**, and `SettleAppend(true)` records nothing. | `reminders-module.js:473-497` vs `:3234-3258` |
+| **Ledger can never be complete** | The authoritative store mutates with **no ledger event at all** in at least two places: the load-time backfills re-save (`reminders-module.js:3147-3151`) and `CompletionStore` prunes at load and persists. A ledger-derived generation is unchanged while authoritative state moves. | `reminders-module.js:3074-3150`, `completion-store.js:88-99` |
+| **Behavioural divergence** | `CompletionStore.RETENTION_MS` is 365 days and pruning is durable; **the projection applies no retention whatsoever**. Flipping `COMPLETED_READ_SOURCE` would resurrect completions the store deliberately aged out — a real divergence with no append failure involved. Neither advisor named this; found while verifying theirs. | `completion-store.js:27/207` vs `reminders-projection.js` (no prune) |
+| **Counts not comparable** | The harness counts raw JSONL records while production's `readAll()` skips unknown types and tolerates a torn final line. A naive count comparison would compare two different quantities. Any count check must use the production parser on both sides. | `projection-parity-harness.js:138-156` vs `event-store.js:398-410` |
+| **Compaction blind spot** | Count alone misses an in-place rewrite that lands on the same count. Compaction must invalidate coverage *before* it starts, not after. | `state-snapshot-writer.js:273-276` |
+
+**Where the advisors split, and how it was called.** agy rated the `eventCount` comparison a
+*blocker* because it degenerates — any successful append makes a live workspace unclean. Codex rated
+it safe as conservative hardening. **Called for Codex.** agy's position is internally inconsistent
+with its own recommendation to abandon the cutover: if the flags are not being flipped, a gate that
+refuses *more* often is strictly better, not worse. agy's provenance also showed 4 claims echoed back
+from the prompt, and "it degenerates" was one this plan supplied — it is not independent signal.
+
+**Net:** items 1 and 2 are closed as *decided, not fixed* — the fix they asked for was the wrong fix.
+The gate remains a fail-closed brake and that is now its permanent, documented role. The two
+fail-open defects above are the real work, and they are worth doing regardless of whether any flag is
+ever flipped, because a gate that can fail open is worse than no gate.
+
+**Next step / owner:** fix `WriteMarkerAsync` to persist before caching and to record a durable
+failure (Claude, on request). Everything else here is parked, not pending.
+
+#### Deployed and flipped on both servers — 2026-08-09
+
+All three flags are set to `projection` in `.env.runtime` on dev and production. Both refuse and
+serve the authoritative store, which is the whole point: the switch is thrown, and the gate is what
+holds it.
+
+| | dev (`neochrome-dev`) | production (`neochrome`) |
+|---|---|---|
+| service | active, `NRestarts=0` | active, `NRestarts=0` |
+| reminders after restart | 7, unchanged | 23, unchanged |
+| ledger | 347 lines | 1809 lines |
+| gate decision | refuses — "no clean coverage record" | refuses — same |
+| new append failures since deploy | 0 | 0 |
+
+Backups taken before each deploy (`/root/backups/sleuth-app-{CODE,DATA}-<stamp>.tar.gz`, both
+verified readable), and `.env.runtime.bak-preflip` holds the pre-flip env on each host.
+
+**The dev server changed lineage.** It tracked `NeochromeTeam/sleuth-app` (1.4.244) and had none of
+the P3 files; production has run AEGIS code over a private-repo checkout for some time. Dev now
+matches production. The deploy was deliberately **additive — no `--delete`** — because a delete pass
+wanted to remove 5502 paths including dev's entire `.git` (5311) and its private CI workflows.
+Private-repo-only files remain on disk and are inert; `app.js` never requires them.
+
+Two deploy traps worth keeping written down:
+
+- **`--exclude='.git'` must not have a trailing slash.** A git *worktree* has `.git` as a FILE while
+  the server has a DIRECTORY, so `.git/` matches only the latter and rsync fails with
+  `could not make way for new regular file: .git` (exit 23). The same error hit the earlier
+  production deploy.
+- **`/etc/systemd/system/sleuth-app.service` is a symlink INTO the repo**, so an rsync of the repo
+  rewrites the live unit. Here the old and new files were byte-identical, but that is luck, not
+  design — diff the unit against the backup before `daemon-reload`.
+
+Also fixed: `git config --system --add safe.directory /root/sleuth-app` on both hosts. `--global`
+had already been set and did nothing, because the systemd service runs with **no `HOME`** and so
+never reads `/root/.gitconfig`. The symptom was `fatal: detected dubious ownership` on every
+version/changelog lookup.
+
+Unrelated and pre-existing on production: `Notion API connectivity test failed: API token is
+invalid`, first seen 2026-07-22 and 6 times before this deploy. Not caused by this change; the token
+needs rotating.
+
+### Phase 5 read cutover — result of the 2026-08-08 re-run
+
+p6 re-ran on the corrected lane via `MARATHON-P6-ONLY.yaml` and is **APPROVED, gate passed**
+(98 suites / 1561 tests, `tsc` exit 0, `validate:fsm` OK). It converted **two of the three** read
+surfaces and correctly **halted on the third**:
+
+| Read surface | Flag | Owner | Result |
+|---|---|---|---|
+| reminder queue | `REMINDERS_READ_SOURCE` | `src/reminders-module.js` | **converted** |
+| `?format=rebalance` export | `REBALANCE_EXPORT_SOURCE` | `src/web-api.js` | **converted** |
+| completed store | `COMPLETED_READ_SOURCE` | `src/web-api.js` | **BLOCKED** (shipped live in round 1, then blocked after QA) |
+
+`src/reminders-module.js` now imports `reminders-projection` — the integration three earlier
+phases never achieved, because the file was not in their lane.
+
+**Why the completed store halted, verified independently.** `GitHubRelayStarted` and
+`GitHubRelayStopped` are persisted `ReminderInfo` fields (`src/reminders-module.js:87-88`) but are
+**not** in the event-store's accepted event enum, so a fold silently drops them and the read would be
+lossy. The builder refused to ship it and the reviewer approved the halt — the reversibility contract
+doing its job, exactly as it did for p5.
+
+**This adds a requirement to the schema proposal.** The event-schema expansion that unblocks Phase 4
+must ALSO carry the GitHub-relay state fields, or `COMPLETED_READ_SOURCE` stays blocked even after
+Phase 4 lands. That is a new finding from this run, not part of the original Phase 4 blocker list.
+
+> **DONE — schema v2, 2026-08-08.** `gitHubRelayStarted`/`gitHubRelayStopped` are required on
+> `ReminderCreated` and `BaselineReminderImported`, and `ThreadRelayStateChanged` carries later
+> changes thread-scoped on `OriginalThreadTs ?? OriginalMessageID`. The "converted" marks in the table
+> above describe the p6 marathon lane, **not** production: all three flags are in
+> `BLOCKED_PROJECTION_FLAGS` and every one of them serves the authoritative JSON store today.
 
 **Why Phases 5 and 6a delivered modules but no integration.** Their marathon lanes excluded the
 files they were meant to change — `src/reminders-module.js` and `src/web-api.js` were not in p6's

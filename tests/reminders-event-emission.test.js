@@ -5,6 +5,9 @@
 // changing transition behavior. Drives a real completion through the public FSM entry point and
 // asserts (a) the transition still succeeds and (b) a ReminderCompleted event lands in the ledger.
 
+// Assert the CURRENT schema version rather than a literal: the ledger moved to v2 in the schema
+// expansion, and pinning a number here means the next bump fails a test instead of being noticed.
+const { CURRENT_SCHEMA_VERSION } = require('../src/event-store');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -42,12 +45,36 @@ function EventsFilePath(ArgWorkspace) {
   return path.join(RuntimeRoot, 'events', `${ArgWorkspace}_events.jsonl`);
 }
 
+function CoverageFilePathFor(ArgWorkspace) {
+  return path.join(RuntimeRoot, 'events', `${ArgWorkspace}_ledger_coverage.json`);
+}
+
 async function CleanupAsync(ArgWorkspace) {
   await fs.mkdir(path.join(RuntimeRoot, 'reminders'), { recursive: true });
   for(const FileName of ['reminders.json', 'reminder_counter.json', 'enabled_channels.json', 'completed.json']) {
     await fs.rm(path.join(RuntimeRoot, 'reminders', `${ArgWorkspace}_${FileName}`), { force: true });
   }
   await fs.rm(EventsFilePath(ArgWorkspace), { force: true });
+  await fs.rm(CoverageFilePathFor(ArgWorkspace), { force: true });
+}
+
+/**
+ * Assert no append was REJECTED while driving a scenario.
+ *
+ * A payload that omits a v2-required key does not throw and does not fail the transition — append()
+ * resolves `{ ok:false }`, the module logs a non-fatal warning, and the event is simply never
+ * written. So a test can drive a path, assert the user-visible behaviour, pass, and leave the ledger
+ * silently short. The only durable trace is the coverage gap marker, which is what this reads.
+ *
+ * That is exactly how the reschedule emitter shipped without `ignoreSnooze`: every other assertion
+ * still held. Calling this at the end of an emission scenario turns each one into a shape check for
+ * whatever paths it happens to touch.
+ */
+async function AssertNoDroppedAppendsAsync(ArgWorkspace) {
+  let Raw = null;
+  try { Raw = await fs.readFile(CoverageFilePathFor(ArgWorkspace), 'utf8'); } catch { return; }
+  const Marker = JSON.parse(Raw);
+  expect(Marker).toMatchObject({ state: expect.not.stringMatching(/^gap$/) });
 }
 
 /** Poll the ledger file until ArgPredicate(parsedLines) is satisfied (fire-and-forget append may lag). */
@@ -64,9 +91,22 @@ async function ReadLedgerUntilAsync(ArgWorkspace, ArgPredicate, ArgTimeoutMs = 2
   return Lines;
 }
 
-/** Poll until the ledger has at least one line for ArgReminderID. */
-function ReadLedgerForAsync(ArgWorkspace, ArgReminderID, ArgTimeoutMs = 2000) {
-  return ReadLedgerUntilAsync(ArgWorkspace, ArgLines => ArgLines.some(ArgEvent => ArgEvent.reminderId === ArgReminderID), ArgTimeoutMs);
+/**
+ * Poll until the ledger has the SPECIFIC event the caller is about to assert on.
+ *
+ * This replaces a helper that waited only for the FIRST line bearing this reminder id. That stopped
+ * being a sufficient wait once v2 added a generic ReminderStateChanged to every transition: a
+ * transition now writes two events, so the weaker predicate could return on the first while the one
+ * under test was still in flight. It surfaced as a real full-suite failure while the same test
+ * passed in isolation in 0.6s — the signature of a wait that is too weak, not of an emission that is
+ * missing.
+ */
+function ReadLedgerForTypeAsync(ArgWorkspace, ArgReminderID, ArgType, ArgTimeoutMs = 2000) {
+  return ReadLedgerUntilAsync(
+    ArgWorkspace,
+    ArgLines => ArgLines.some(ArgEvent => ArgEvent.reminderId === ArgReminderID && ArgEvent.type === ArgType),
+    ArgTimeoutMs
+  );
 }
 
 describe('P3 Phase 1 — non-authoritative event emission from the FSM', () => {
@@ -111,11 +151,11 @@ describe('P3 Phase 1 — non-authoritative event emission from the FSM', () => {
       expect(Recorded.some(ArgRow => ArgRow.reminderId === ReminderID)).toBe(true);
 
       // (b) The non-authoritative ledger captured a ReminderCompleted event for this reminder.
-      const Ledger = await ReadLedgerForAsync(Workspace, ReminderID);
+      const Ledger = await ReadLedgerForTypeAsync(Workspace, ReminderID, 'ReminderCompleted');
       const Completion = Ledger.find(ArgEvent => ArgEvent.type === 'ReminderCompleted' && ArgEvent.reminderId === ReminderID);
       expect(Completion).toBeDefined();
       expect(Completion.workspace).toBe(Workspace);
-      expect(Completion.v).toBe(1);
+      expect(Completion.v).toBe(CURRENT_SCHEMA_VERSION);
       expect(typeof Completion.id).toBe('string');
       expect(typeof Completion.ts).toBe('string');
       expect(Completion.payload.by).toBe('U_REQUESTER');
@@ -259,15 +299,27 @@ describe('P3 Phase 1 — non-authoritative event emission from the FSM', () => {
       // which are frozen under fake timers. The fire-and-forget append itself is real fs I/O.
       jest.useRealTimers();
 
-      const Ledger = await ReadLedgerForAsync(Workspace, ReminderID);
+      const Ledger = await ReadLedgerForTypeAsync(Workspace, ReminderID, 'ReminderSnoozed');
       const Snoozed = Ledger.find(ArgEvent => ArgEvent.type === 'ReminderSnoozed' && ArgEvent.reminderId === ReminderID);
       expect(Snoozed).toBeDefined();
       expect(Snoozed.workspace).toBe(Workspace);
-      expect(Snoozed.v).toBe(1);
+      expect(Snoozed.v).toBe(CURRENT_SCHEMA_VERSION);
       expect(typeof Snoozed.id).toBe('string');
       expect(typeof Snoozed.ts).toBe('string');
       expect(Snoozed.payload.by).toBe('U_ASSIGNEE');
       expect(typeof Snoozed.payload.until).toBe('string');
+
+      // This cycle also advances the reminder back INTO `scheduled`, so it exercises the
+      // transition-time ReminderScheduled emitter — the one that shipped without `ignoreSnooze` and
+      // had every one of its appends rejected on production. The assertions above all passed while
+      // that was true, because a dropped append changes nothing a caller can see.
+      const Rescheduled = (await ReadLedgerForTypeAsync(Workspace, ReminderID, 'ReminderScheduled'))
+        .filter(ArgEvent => ArgEvent.type === 'ReminderScheduled' && ArgEvent.reminderId === ReminderID)
+        .pop();
+      expect(Rescheduled).toBeDefined();
+      expect(Rescheduled.payload).toHaveProperty('ignoreSnooze');
+      expect(typeof Rescheduled.payload.ignoreSnooze).toBe('boolean');
+      await AssertNoDroppedAppendsAsync(Workspace);
     } finally {
       jest.useRealTimers();
       await Reminders.StopAsync();

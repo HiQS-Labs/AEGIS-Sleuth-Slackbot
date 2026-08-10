@@ -22,7 +22,9 @@ const { FindRelatedOpenReminders, BuildRelatedFootnote } = require('./connection
 const GitHubCommentRelay = require('./github-comment-relay');
 const SlackFormatUtils = require('./slack-format-utils');
 const CompletionStore = require('./completion-store');
-const { createEventStore } = require('./event-store');
+const { createEventStore, CURRENT_SCHEMA_VERSION } = require('./event-store');
+const { createLedgerCoverage } = require('./ledger-coverage');
+const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
 /**
@@ -211,6 +213,14 @@ class RemindersModule {
    * @type {string|null}
    */
   #EventWorkspace = null;
+
+  /**
+   * Generation-aware coverage gate for the ledger (P3 Phase C). Answers the one question a payload
+   * check cannot: is there any reason to believe this workspace's log is MISSING an event? Created
+   * in StartAsync; null before then, in which case every call below is an optional-chained no-op.
+   * @type {ReturnType<typeof createLedgerCoverage>|null}
+   */
+  #LedgerCoverage = null;
 
   /**
    * Path to the file where the reminder counter info is stored on disk.
@@ -437,6 +447,9 @@ class RemindersModule {
       this.#SlackApp,
       () => this.#PendingRemindersQueue,
       () => this.#SaveRemindersAsync(),
+      // Ledger hook. The relay owns the only path that mutates GitHubRelayStarted/Stopped, so this
+      // is the one place a thread's relay state can change after creation.
+      (ArgThreadKey, ArgState) => this.#EmitThreadRelayStateChanged(ArgThreadKey, ArgState),
       () => this.#WorkspaceAI ?? null
     );
 
@@ -475,15 +488,22 @@ class RemindersModule {
 
     // Every completion path (✅ reaction, list checkbox, chat command, github-sync) funnels through
     // this single transition, so capturing here records 100% of completions to Sleuth's own history.
+    // Sample the completion instant ONCE and share it with BOTH the authoritative CompletionRecord
+    // and the ledger event. Previously each sampled its own Date.now(), so the stored and projected
+    // completedMs were two different clock reads and could never be byte-identical — which is why
+    // COMPLETED_READ_SOURCE had to be blocked. Codex confirmed this does not breach the FSM
+    // contract: validate-fsm-invariants governs state assignment and construction bypasses.
+    let CompletedMs = null;
     if(ArgNextState === RemindersModule.ReminderState.Completed) {
-      this.#RecordCompletion(ArgReminder);
+      CompletedMs = Date.now();
+      this.#RecordCompletion(ArgReminder, CompletedMs);
     }
 
     // P3 Phase 1 (NON-authoritative): mirror the lifecycle change into the append-only event
     // ledger. Emitted AFTER the in-memory mutation above (mutate-first leads). Best-effort and
     // fire-and-forget — append() is async, never rejects, and a log failure cannot block or fail
     // this transition. Keeps #TransitionReminderState synchronous, exactly like #RecordCompletion.
-    this.#EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason);
+    this.#EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason, CompletedMs, PreviousState);
   }
 
   /**
@@ -493,22 +513,49 @@ class RemindersModule {
    * @param {ReminderInfo} ArgReminder
    * @param {string} ArgNextState
    * @param {string} ArgReason
+   * @param {number|null} [ArgCompletedMs] Completion instant sampled once by the caller and shared
+   *   with the authoritative CompletionRecord, so the stored and projected values are one number.
+   * @param {string|null} [ArgPreviousState] State before the transition, for the generic
+   *   ReminderStateChanged event.
    */
-  #EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason) {
+  #EmitTransitionEvent(ArgReminder, ArgNextState, ArgReason, ArgCompletedMs = null, ArgPreviousState = null) {
     const State = RemindersModule.ReminderState;
     const DueAtIso = ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null;
     switch(ArgNextState) {
       case State.Scheduled:
-        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt: DueAtIso, via: ArgReason || null });
+        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, {
+          dueAt: DueAtIso,
+          via: ArgReason || null,
+          // v2 REQUIRES this, and omitting it here silently dropped every RESCHEDULE from the
+          // ledger: append() rejected the shape, logged a non-fatal warning, and recorded a durable
+          // coverage gap. The creation-time emitter carried it, so the birth case looked fine while
+          // the transition case lost events — found on production, not in review.
+          //
+          // Read AFTER the in-memory mutation, which is what #TransitionReminderState guarantees:
+          // the reschedule path sets `IgnoreSnooze = false` before transitioning, so this records
+          // the post-reset value the live queue actually holds.
+          ignoreSnooze: Boolean(ArgReminder.IgnoreSnooze),
+        });
         break;
-      case State.Completed:
+      case State.Completed: {
+        // completedMs is sampled ONCE here and shared with the authoritative CompletionRecord, so
+        // the projected and stored values are the same number rather than two clock reads that can
+        // never be byte-identical. Codex confirmed in consult that this does not breach the FSM
+        // contract: validate-fsm-invariants governs state assignment and construction bypasses, not
+        // timestamp provenance.
+        const CompletedMs = typeof ArgCompletedMs === 'number' ? ArgCompletedMs : Date.now();
         this.#EmitLifecycleEvent('ReminderCompleted', ArgReminder, {
           by: ArgReminder.AssigneeID || null,
           method: ArgReason || 'fsm',
           summary: ArgReminder.ReminderMessageText || null,
-          completedAt: new Date().toISOString(),
+          completedAt: new Date(CompletedMs).toISOString(),
+          completedMs: CompletedMs,
+          sourceChannelId: ArgReminder.OriginalChannelID || ArgReminder.TargetChannelID || null,
+          dueDate: DueAtIso,
+          clientId: ArgReminder.clientId ?? null,
         });
         break;
+      }
       case State.Snoozed:
         this.#EmitLifecycleEvent('ReminderSnoozed', ArgReminder, { until: DueAtIso, by: ArgReminder.AssigneeID || null });
         break;
@@ -518,6 +565,18 @@ class RemindersModule {
       default:
         break;
     }
+
+    // v2: a GENERIC transition event for every state change, including the seven this switch
+    // deliberately skipped (due, overdue, posting, posted, rescheduled, failed, dead-letter).
+    // Without it a fold silently retained `scheduled` for a reminder that had actually gone
+    // overdue — and production persists at least `overdue` when no posting occurs
+    // (#CheckRemindersAsync), so this was never theoretical. Emitted IN ADDITION to the specific
+    // events above so existing folds are unaffected.
+    this.#EmitLifecycleEvent('ReminderStateChanged', ArgReminder, {
+      fromState: ArgPreviousState,
+      toState: ArgNextState,
+      reason: ArgReason || null,
+    });
   }
 
   /**
@@ -537,29 +596,73 @@ class RemindersModule {
     // Lazy rebuild happens on the next GetWorkspaceSnapshot() call — no work on the FSM hot path.
     this.#WorkspaceSnapshot = null;
 
+    this.#AppendLedgerEvent(ArgType, ArgReminder.ReminderID, ArgPayload);
+  }
+
+  /**
+   * Append one thread-scoped relay-state event. Separate from #EmitLifecycleEvent because relay
+   * state belongs to a THREAD, not a reminder: one Slack thread can carry several reminders, and a
+   * new one can join a thread that is already relaying. The envelope still needs a `reminderId`, so
+   * this carries the synthetic `thread:<key>` rather than naming an arbitrary member — see
+   * src/event-store.js for why. Does NOT invalidate the routing snapshot: relay state is not an
+   * input to mention routing.
+   * @param {string} ArgThreadKey `OriginalThreadTs ?? OriginalMessageID` for the thread (GH-27).
+   * @param {{ relayStarted: boolean, relayStopped: boolean }} ArgState Resulting thread state.
+   */
+  #EmitThreadRelayStateChanged(ArgThreadKey, ArgState) {
+    if(typeof ArgThreadKey !== 'string' || ArgThreadKey.length === 0) return;
+    this.#AppendLedgerEvent('ThreadRelayStateChanged', `thread:${ArgThreadKey}`, {
+      threadKey: ArgThreadKey,
+      relayStarted: Boolean(ArgState && ArgState.relayStarted),
+      relayStopped: Boolean(ArgState && ArgState.relayStopped),
+    });
+  }
+
+  /**
+   * The low-level, best-effort ledger append shared by every emitter. No-op before the store is
+   * initialized. Fire-and-forget and non-throwing, per the contract described on #EmitLifecycleEvent.
+   * @param {string} ArgType One of the closed event-enum types.
+   * @param {string} ArgReminderId Envelope id — a real ReminderID, or a synthetic scope key.
+   * @param {object} ArgPayload Fully-formed payload for ArgType.
+   */
+  #AppendLedgerEvent(ArgType, ArgReminderId, ArgPayload) {
     if(!this.#EventStore || !this.#EventWorkspace) {
       return;
     }
+    // Opened BEFORE the append is submitted and closed when it settles, so the window in which the
+    // JSON store may lead the log is always covered. A failed append durably marks a gap: nothing
+    // retries it, so the log is short from that moment until a parity run says otherwise.
+    this.#LedgerCoverage?.BeginAppend(this.#EventWorkspace);
     try {
       this.#EventStore.append(this.#EventWorkspace, {
+        // Stamp the current schema version so the append is validated against the WIDER v2
+        // requirement set. Historical v1 events keep reading unchanged — the version gate lives in
+        // NormalizeEvent, which treats a missing `v` as v1.
+        v: CURRENT_SCHEMA_VERSION,
         type: ArgType,
-        reminderId: ArgReminder.ReminderID,
+        reminderId: ArgReminderId,
         payload: ArgPayload,
       }).then(
         (ArgResult) => {
-          if(ArgResult && ArgResult.ok === false) {
+          const Ok = !(ArgResult && ArgResult.ok === false);
+          if(!Ok) {
             this.#SlackApp.Logger.warn(
-              `[event-ledger] append failed (non-fatal): ${ArgType} ${ArgReminder.ReminderID}`,
+              `[event-ledger] append failed (non-fatal): ${ArgType} ${ArgReminderId}`,
               ArgResult.error
             );
           }
+          this.#LedgerCoverage?.SettleAppend(this.#EventWorkspace, Ok, ArgType);
         },
         (ArgError) => {
           this.#SlackApp.Logger.warn(`[event-ledger] append rejected (non-fatal): ${ArgType}`, ArgError);
+          this.#LedgerCoverage?.SettleAppend(this.#EventWorkspace, false, ArgType);
         }
       );
     } catch(error) {
       this.#SlackApp.Logger.warn(`[event-ledger] emit threw (non-fatal): ${ArgType}`, error);
+      // A throw means the append never reached the store, so the in-flight count opened above would
+      // otherwise never close — and the gate would stay shut forever for the wrong reason.
+      this.#LedgerCoverage?.SettleAppend(this.#EventWorkspace, false, ArgType);
     }
   }
 
@@ -570,7 +673,7 @@ class RemindersModule {
    * (e.g. unit tests that exercise the FSM without StartAsync).
    * @param {ReminderInfo} ArgReminder
    */
-  #RecordCompletion(ArgReminder) {
+  #RecordCompletion(ArgReminder, /** @type {number|undefined} */ ArgCompletedMs) {
     if(!this.#CompletionStore) {
       return;
     }
@@ -580,7 +683,8 @@ class RemindersModule {
       assigneeID: ArgReminder.AssigneeID || null,
       sourceChannelID: ArgReminder.OriginalChannelID || ArgReminder.TargetChannelID || null,
       dueDate: ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null,
-      completedMs: Date.now(),
+      // Shared with the ledger event rather than re-sampled — see #TransitionReminderState.
+      completedMs: typeof ArgCompletedMs === 'number' ? ArgCompletedMs : Date.now(),
       clientId: ArgReminder.clientId || null,
     });
   }
@@ -635,6 +739,21 @@ class RemindersModule {
       githubUrls: Array.isArray(Reminder.GitHubUrls) ? Reminder.GitHubUrls : [],
       clientId: Reminder.clientId,
       projectId: Reminder.projectId,
+      // Phase 5 read cutover: these legacy-shape fields make a native creation event
+      // lossless. Older events lack them and deliberately make the projection fall
+      // back to the authoritative JSON file.
+      createdOn: new Date(Reminder.CreatedOn).toISOString(),
+      originalSenderId: Reminder.OriginalSenderID || null,
+      originalMessageId: Reminder.OriginalMessageID || null,
+      originalThreadTs: Reminder.OriginalThreadTs || null,
+      originalChannelName: Reminder.OriginalChannelName || null,
+      ignoreSnooze: Boolean(Reminder.IgnoreSnooze),
+      // Relay state's starting value. Always false for a native creation — a reminder that has
+      // never existed cannot have relayed — but written as a fact rather than left to a default,
+      // because `undefined` reads as "not stopped" and would resume a relay a user had stopped.
+      // Every later change arrives as a thread-scoped ThreadRelayStateChanged.
+      gitHubRelayStarted: Boolean(Reminder.GitHubRelayStarted),
+      gitHubRelayStopped: Boolean(Reminder.GitHubRelayStopped),
     });
 
     // A reminder is BORN State=Scheduled (the factory sets it; there is no transition INTO Scheduled
@@ -647,6 +766,9 @@ class RemindersModule {
       this.#EmitLifecycleEvent('ReminderScheduled', Reminder, {
         dueAt: new Date(Reminder.ShouldPostOn).toISOString(),
         via: 'created',
+        // v2: scheduling RESETS IgnoreSnooze in the live queue, so a fold that does not replay it
+        // keeps a stale value — which the rebalance export then publishes to an external consumer.
+        ignoreSnooze: Boolean(Reminder.IgnoreSnooze),
       });
     }
 
@@ -861,7 +983,17 @@ class RemindersModule {
    */
   async ReadAllEventsAsync() {
     if(!this.#EventStore || !this.#EventWorkspace) return [];
-    return this.#EventStore.readAll(this.#EventWorkspace);
+    try {
+      return await this.#EventStore.readAll(this.#EventWorkspace);
+    } catch(error) {
+      // `readAll` signals a genuine read failure now, rather than returning `[]` for everything.
+      // That signal exists for the PROJECTION read path, which must fall back to the authoritative
+      // store instead of serving an empty fold. This method backs a Slack-facing shadow comparison
+      // whose documented contract is "[] when there is nothing to read", so it keeps absorbing the
+      // failure — loudly, rather than by pretending the ledger was empty.
+      this.#SlackApp.Logger?.warn?.('[reminders] event ledger unreadable; treating as empty for the shadow read', error);
+      return [];
+    }
   }
 
   /**
@@ -1076,6 +1208,14 @@ class RemindersModule {
       rootDir: path.join(RemindersDirPath, '..', 'events'),
     });
     this.#EventWorkspace = WorkspaceName;
+
+    // The coverage gate lives beside the log it describes. A failed append records a DURABLE gap
+    // here, because the shortfall is in the file, not merely in this process's memory — a restart
+    // must not forget it.
+    this.#LedgerCoverage = createLedgerCoverage({
+      rootDir: path.join(RemindersDirPath, '..', 'events'),
+      Logger: this.#SlackApp.Logger,
+    });
 
     // instantiate the channel settings manager.
     this.#ChannelSettings = new RemindersChannelSettings(this.#SlackApp, EnabledChannelsFilePath);
@@ -2869,17 +3009,51 @@ class RemindersModule {
       // cleanup, so without this they would accumulate for the life of the deployment.
       await SweepStaleTempsAsync(this.#ReminderFilePath, { Logger: this.#SlackApp.Logger });
 
-      // read the reminders file from disk.
-      const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
-
-      // parse the reminders file. We need a reviver function to convert ISO date strings back to Date objects
-      // otherwise they will be treated as strings and later date-related comparisons will not work as expected.
       let Parsed;
+      let UsedAuthoritativeSource = true;
       try {
-        Parsed = JSON.parse(RemindersJSON, (ArgKey, ArgValue) => {
-          return (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue;
+        const Result = await ReadWithProjectionFallbackAsync({
+          flagName: 'REMINDERS_READ_SOURCE',
+          Logger: this.#SlackApp.Logger,
+          // The gate is default-deny, so omitting this is not a soft option — it would serve the
+          // authoritative store forever. A missing coverage object means the ledger was never
+          // initialized, which is itself a reason not to project.
+          IsCoverageCleanAsync: async () => {
+            if(!this.#LedgerCoverage || !this.#EventWorkspace) return false;
+            return this.#LedgerCoverage.IsCleanAsync(this.#EventWorkspace);
+          },
+          ReadAuthoritativeAsync: async () => {
+            const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
+            // Date revival preserves the in-memory contract used by the reminder scheduler.
+            return JSON.parse(RemindersJSON, (ArgKey, ArgValue) => {
+              return (ArgKey === 'CreatedOn' || ArgKey === 'ShouldPostOn') ? new Date(ArgValue) : ArgValue;
+            });
+          },
+          ReadProjectionAsync: async () => {
+            if(!this.#EventStore || !this.#EventWorkspace)
+              throw new Error('event ledger is not initialized');
+            const Events = await this.#EventStore.readAll(this.#EventWorkspace);
+            if(Events.length === 0)
+              throw new Error('event ledger is empty');
+            const Folded = FoldReminderReadModels(Events, { strict: true });
+            return Folded.reminders.map(ArgReminder => ({
+              ...ArgReminder,
+              CreatedOn: ArgReminder.CreatedOn ? new Date(ArgReminder.CreatedOn) : ArgReminder.CreatedOn,
+              ShouldPostOn: ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn) : ArgReminder.ShouldPostOn,
+            }));
+          },
         });
+        Parsed = Result.value;
+        UsedAuthoritativeSource = Result.source === 'authoritative';
       } catch(parseError) {
+        if(parseError && parseError.code === 'ENOENT') {
+          this.#SlackApp.Logger.warn('no reminders file found, starting with an empty list.');
+          this.#DataLoadError = 'file not found';
+          this.#PendingRemindersQueue = [];
+          this.#DataLoaded = false;
+          this.#BuildReminderIndexes();
+          return;
+        }
         // Unparseable bytes on disk. Historically this fell through to "start with an empty list",
         // and because nothing gates saves on #DataLoaded the next ordinary save then wrote []
         // straight over the survivor data — silent, permanent loss (GH-12).
@@ -2887,7 +3061,7 @@ class RemindersModule {
         // Quarantine instead: move the bytes aside so they remain recoverable, and let the module
         // continue with an empty queue. Refusing to save at all would brick the workspace; deleting
         // would destroy the only copy. Renaming does neither.
-        await this.#QuarantineRemindersFileAsync(parseError);
+        if(UsedAuthoritativeSource) await this.#QuarantineRemindersFileAsync(parseError);
         this.#PendingRemindersQueue = [];
         this.#DataLoaded = false;
         this.#DataLoadError = `corrupt reminders file quarantined: ${parseError.message}`;
@@ -2898,7 +3072,7 @@ class RemindersModule {
       if(Parsed !== null && !Array.isArray(Parsed)) {
         // Parsed cleanly but is not the array shape this store persists. Same reasoning as above.
         const ShapeError = new Error(`reminders file contained ${typeof Parsed}, expected an array`);
-        await this.#QuarantineRemindersFileAsync(ShapeError);
+        if(UsedAuthoritativeSource) await this.#QuarantineRemindersFileAsync(ShapeError);
         this.#PendingRemindersQueue = [];
         this.#DataLoaded = false;
         this.#DataLoadError = `corrupt reminders file quarantined: ${ShapeError.message}`;
@@ -3521,6 +3695,20 @@ class RemindersModule {
   async #DeleteRemindersAsync(ArgReminderIDs, ArgReason = 'canceled') {
     // convert reminder IDs array to a Set for faster lookups.
     const ReminderIDSet = new Set(ArgReminderIDs);
+
+    // P3 schema v2: this is the ONE choke point through which a reminder leaves the queue, so
+    // emitting here covers every caller — including the wastebasket reaction and the dead-letter
+    // sweep, which reach this without any preceding terminal transition. Emitted BEFORE the filter,
+    // while the reminders are still in hand.
+    //
+    // Real-data parity (neochrome, 2026-08-08) found 11 reminders folding to a live `scheduled`
+    // state that the JSON store had already dropped. Under a read flag those would have come back
+    // and resumed posting to Slack. A terminal transition is NOT a substitute: several paths here
+    // never make one.
+    for(const RemovedReminder of this.#PendingRemindersQueue) {
+      if(!ReminderIDSet.has(RemovedReminder.ReminderID)) continue;
+      this.#EmitLifecycleEvent('ReminderRemoved', RemovedReminder, { reason: ArgReason || 'removed' });
+    }
 
     // keep only the reminders that are NOT in the set of reminder IDs to delete.
     this.#PendingRemindersQueue = this.#PendingRemindersQueue.filter(
