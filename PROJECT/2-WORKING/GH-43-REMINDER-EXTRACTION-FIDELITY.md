@@ -2,8 +2,11 @@
 gh_issue: 43
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/43
 title: "Reminder extraction fidelity — verbatim task text, wrong assignee, no context/task split (GH-337 follow-up)"
-status: Proposed (1-INBOX — not yet active)
+status: IN PROGRESS
 created: 2026-08-10
+updated: 2026-08-10
+owner: noel
+branch: gh-43-reminder-extraction-fidelity
 doc_type: bugfix
 effort: 4
 complexity: 4
@@ -12,9 +15,20 @@ phases: 4
 ratings_provisional: true
 related: "GH-337 (shipped Phases 1-4; its Phase 4 threshold-tuning item is the direct parent of Defect 1). GH-22 (multiple assignees — Defect 3 must not regress shared assignment)."
 companion: "REMINDER-EXTRACTION-BATTERY-CORPUS.md (the scenario battery this plan is measured against)"
+goal: >
+  Fix the three defects one production reminder exposed at once: the synthesis gate never firing
+  so the task bullet is the whole message verbatim, task and context sharing one field, and every
+  @-mention becoming an assignee so a first-person commitment is assigned to its audience instead of
+  its author. Measured against the GH-44 replay baseline, not asserted.
 ---
 
 # GH-43 — Reminder extraction fidelity
+
+## Status
+
+| What was just completed | What's next |
+| --- | --- |
+| Phase 0 closed by GH-44: the replay harness exists, the baseline is committed, and the battery reports the defects RED (S-01, S-05, S-07, S-12). | Phase 1A — deterministic ownership pre-filter (leading address block + first-person actionable language) |
 
 ## Problem
 

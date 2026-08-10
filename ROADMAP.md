@@ -31,6 +31,16 @@ goal: >
 
 ### In progress
 
+- **Reminder extraction fidelity (GH-43)** — fixing the three defects one production message exposed
+  at once: the synthesis gate never fires (sentence counting misses unpunctuated lines) so the task
+  bullet is the whole message verbatim; task and context share one field; and every `<@…>` mention
+  becomes an assignee, so a first-person commitment is assigned to the two people it was merely
+  addressed to and **not** to its author. Phase 0 is closed by GH-44 — the replay harness and a
+  committed baseline exist, and the battery reports S-01/S-05/S-07/S-12 RED, so each fix is measured
+  rather than asserted. Branch `gh-43-reminder-extraction-fidelity`, **stacked on
+  `gh-44-decision-capture-debug`** (needs its harness). Ownership work must not regress GH-22 shared
+  assignment (guard: S-06). See `PROJECT/2-WORKING/GH-43-REMINDER-EXTRACTION-FIDELITY.md`.
+
 - **Unified AI decision capture, replay + debugging (GH-44)** — **all 6 phases built in 1.4.272 on
   `gh-44-decision-capture-debug`; awaiting review/merge.** Consolidated the three partial
   implementations rather than adding a fourth: `router-shadow-store` generalized into

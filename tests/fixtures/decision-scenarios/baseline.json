@@ -7,11 +7,14 @@
     ],
     "ownership": {
       "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [
         "U_ALPHA",
         "U_BETA"
       ],
-      "resolvedFrom": "mentions",
-      "senderIsAssignee": false
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
@@ -46,7 +49,8 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
@@ -87,10 +91,13 @@
     ],
     "ownership": {
       "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [
         "U_ALPHA"
       ],
-      "resolvedFrom": "mentions",
-      "senderIsAssignee": false
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
@@ -114,7 +121,8 @@
         "U_ALPHA",
         "U_BETA"
       ],
-      "resolvedFrom": "mentions",
+      "notify": [],
+      "resolvedFrom": "second-person-ask",
       "senderIsAssignee": false
     },
     "recommendation": "schedule",
@@ -138,7 +146,8 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
@@ -162,6 +171,7 @@
       "assignees": [
         "U_SENDER"
       ],
+      "notify": [],
       "resolvedFrom": "sender-fallback",
       "senderIsAssignee": true
     },
@@ -186,7 +196,8 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
@@ -208,6 +219,7 @@
       "assignees": [
         "U_SENDER"
       ],
+      "notify": [],
       "resolvedFrom": "sender-fallback",
       "senderIsAssignee": true
     },
@@ -230,7 +242,8 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
@@ -254,7 +267,8 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
@@ -278,6 +292,7 @@
       "assignees": [
         "U_SENDER"
       ],
+      "notify": [],
       "resolvedFrom": "sender-fallback",
       "senderIsAssignee": true
     },
@@ -301,6 +316,7 @@
         "U_ALPHA",
         "U_BETA"
       ],
+      "notify": [],
       "resolvedFrom": "mentions",
       "senderIsAssignee": false
     },
@@ -321,6 +337,7 @@
       "assignees": [
         "U_ALPHA"
       ],
+      "notify": [],
       "resolvedFrom": "mentions",
       "senderIsAssignee": false
     },

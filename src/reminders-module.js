@@ -10,6 +10,7 @@ const RemindersAIPipeline = require('./reminders-ai-pipeline');
 const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
 const DecisionExplain = require('./decision-explain');
+const ReminderOwnership = require('./reminder-ownership');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -1709,10 +1710,30 @@ class RemindersModule {
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
       const TargetChannelID = await this.#GetReminderChannelIdAsync(ArgChannelID);
 
-      // Extract every explicitly mentioned human assignee from the original quoted source. The
-      // factory retains the first one in AssigneeID for older readers while the array is authoritative.
+      // GH-43 Phase 1A: ownership is resolved from the GRAMMATICAL SUBJECT of the commitment, not
+      // from mention-scraping alone. Previously any `<@…>` in the source became an assignee and the
+      // sender was used only when that set was empty, so a status report addressed to two colleagues
+      // and ending "i am going to deploy the changes tomorrow morning" assigned the deploy to its
+      // audience and left its author off entirely. Mentions still win for a second-person ask, which
+      // is what keeps GH-22 shared assignment ("can you both test this") intact.
       const ExtractedAssigneeIDs = this.#ExtractAssigneeIDsFromReminderText(NewReminderMessageText);
-      const AssigneeIDs = ExtractedAssigneeIDs.length > 0 ? ExtractedAssigneeIDs : [ArgUserID];
+      // the actionable spans for THIS trigger group — not the whole message, so an unrelated
+      // first-person sentence elsewhere in a long note cannot hijack ownership.
+      const GroupActionableLanguage = CurrentReminders
+        .map(ArgCandidate => ArgCandidate.actionable_language || '')
+        .join(' ')
+        .trim();
+      const Ownership = ReminderOwnership.ResolveAssignees({
+        MessageText: DisplaySourceMessageText,
+        ActionableLanguage: GroupActionableLanguage,
+        MentionedIDs: ExtractedAssigneeIDs,
+        SenderID: ArgUserID,
+      });
+      const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [ArgUserID];
+      ArgSlackApp.Logger.info(
+        `reminder ownership: resolved_by=${Ownership.resolvedBy} assignees=${AssigneeIDs.length}` +
+        ` mentions=${ExtractedAssigneeIDs.length} notify=${Ownership.notifyIDs.length}`
+      );
 
       // get channel name while we have access (bot received the message, so it should have access)
       const OriginalChannelName = await this.#SlackApp.GetChannelNameAsync(ArgChannelID);

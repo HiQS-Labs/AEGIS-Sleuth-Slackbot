@@ -29,6 +29,7 @@ const path = require('path');
 const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
 const { ResetAssetCache } = require('../src/ai-decision');
 const DecisionExplain = require('../src/decision-explain');
+const ReminderOwnership = require('../src/reminder-ownership');
 
 const DefaultScenariosPath = path.join(
   __dirname, '..', 'tests', 'fixtures', 'decision-scenarios', 'reminder-extraction-battery.json',
@@ -186,11 +187,16 @@ async function RunScenarioAsync(ArgScenario) {
       RemindersAIPipeline.NormalizeOriginalReminderText(MessageText), Analysis.reminders,
     );
 
-    // ownership as the write path resolves it today: mentions win, sender only as fallback.
-    // Read through the SHARED rule so this measures real behavior, not a re-implementation.
+    // Ownership read through the SHARED resolver the write path uses, so this measures real
+    // behavior rather than a re-implementation that could drift from it.
     const SenderID = ArgScenario.sender || 'U_SENDER';
     const MentionedIDs = DecisionExplain.ExtractMentionIDs(MessageText);
-    const AssigneeIDs = MentionedIDs.length > 0 ? MentionedIDs : [SenderID];
+    const GroupActionable = Analysis.reminders
+      .map((/** @type {any} */ ArgR) => ArgR.actionable_language || '').join(' ').trim();
+    const Ownership = ReminderOwnership.ResolveAssignees({
+      MessageText, ActionableLanguage: GroupActionable, MentionedIDs, SenderID,
+    });
+    const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [SenderID];
 
     // The displayed bullet, as #SelectReminderTaskText would choose it. This is what makes the
     // verbatim-dump defect observable to the harness instead of invisible behind the raw candidate.
@@ -211,7 +217,8 @@ async function RunScenarioAsync(ArgScenario) {
         ownership: {
           assignees: AssigneeIDs,
           senderIsAssignee: AssigneeIDs.includes(SenderID),
-          resolvedFrom: MentionedIDs.length > 0 ? 'mentions' : 'sender-fallback',
+          resolvedFrom: Ownership.resolvedBy,
+          notify: Ownership.notifyIDs,
         },
         routing: {
           segment: Routing.segment,
@@ -262,11 +269,14 @@ function CheckExpectations(ArgScenario, ArgObserved) {
     if(TooLong.length > 0)
       Reasons.push(`task text ${TooLong[0].length} chars > max ${Expected.maxTaskLength}`);
   }
+  // `owner` states WHO ends up owning the reminder, not which internal rule fired. Asserting the
+  // rule label instead would make every refinement of the resolver look like a regression — it did
+  // exactly that when Phase 1A split the old catch-all `mentions` path into `second-person-ask`.
   if(Expected.owner === 'sender' && ArgObserved.ownership && !ArgObserved.ownership.senderIsAssignee)
     Reasons.push(`owner should be the sender, got [${ArgObserved.ownership.assignees.join(', ')}]`);
   if(Expected.owner === 'mentions' && ArgObserved.ownership
-     && ArgObserved.ownership.resolvedFrom !== 'mentions')
-    Reasons.push('owner should come from mentions');
+     && ArgObserved.ownership.senderIsAssignee)
+    Reasons.push(`owner should be the mentioned users, but the sender is assigned [${ArgObserved.ownership.assignees.join(', ')}]`);
   if(Array.isArray(Expected.assignees) && ArgObserved.ownership) {
     const Got = [...ArgObserved.ownership.assignees].sort().join(',');
     const Want = [...Expected.assignees].sort().join(',');

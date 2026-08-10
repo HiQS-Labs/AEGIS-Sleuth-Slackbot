@@ -1,7 +1,13 @@
 ---
 title: "Reminder extraction battery corpus — before/after scenarios for GH-43"
-status: Proposed (1-INBOX — not yet active)
+status: IN PROGRESS
 created: 2026-08-10
+updated: 2026-08-10
+owner: noel
+goal: >
+  The scenario set GH-43 is measured against; the executable copy lives at
+  tests/fixtures/decision-scenarios/reminder-extraction-battery.json.
+roadmap_exempt: true
 doc_type: reference
 gh_issue: 43
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/43
@@ -17,9 +23,11 @@ should say).
 
 ## Status of this file
 
-**This is a specification, not yet an executable fixture.** Nothing parses it today. Phase 0 Q5 of
-the plan decides whether the harness reads this file directly or generates a fixture from it — and
-if a fixture, this doc becomes a pointer to it rather than a second copy of the data.
+**Resolved 2026-08-10 (GH-44 Phase 6).** Phase 0 Q5 is answered: the harness reads a machine copy at
+`tests/fixtures/decision-scenarios/reminder-extraction-battery.json`, and **that file is now the
+source of truth** for scenario text, recorded responses, and expectations. This doc is the readable
+companion — the rationale for why each scenario exists — and must not be edited as if it were the
+data. Run the battery with `npm run decision:replay`.
 
 ## How to read the baseline column
 
