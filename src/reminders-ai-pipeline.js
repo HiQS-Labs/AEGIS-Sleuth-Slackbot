@@ -3,6 +3,16 @@
 const fs = require('fs').promises;
 const path = require('path');
 const DateUtils = require('./date-utils');
+const { DecideAsync } = require('./ai-decision');
+
+// deduplication decision spec. Prompt assets and validation live with the shared decision helper;
+// only the payload shaping below is dedup-specific.
+const DedupDecisionSpec = Object.freeze({
+  Name: 'reminder-dedup',
+  InstructionsFile: 'reminders-dedup-instructions.md',
+  SchemaFile: 'reminders-dedup-schema.json',
+  RequiredFields: ['recommendation', 'rationale'],
+});
 
 /**
  * Return a stable identity for the Slack thread that produced a reminder.
@@ -123,18 +133,6 @@ class RemindersAIPipeline {
   #DateExtractionSchema;
 
   /**
-   * Reminder deduplication instructions.
-   * @type {string}
-   */
-  #DedupInstructions;
-
-  /**
-   * Reminder deduplication schema.
-   * @type {ResponseSchema}
-   */
-  #DedupSchema;
-
-  /**
    * Manual reminder task extraction instructions.
    * @type {string}
    */
@@ -217,18 +215,7 @@ class RemindersAIPipeline {
       this.#ManualReminderTaskSchema = JSON.parse(ManualReminderTaskSchemaContent);
     }
 
-    // load the deduplication instructions if not already loaded.
-    if(!this.#DedupInstructions) {
-      const DedupInstructionsPath = path.join(BasePath, 'reminders-dedup-instructions.md');
-      this.#DedupInstructions = await fs.readFile(DedupInstructionsPath, 'utf8');
-    }
-
-    // load the deduplication schema if not already loaded.
-    if(!this.#DedupSchema) {
-      const DedupSchemaPath = path.join(BasePath, 'reminders-dedup-schema.json');
-      const DedupSchemaContent = await fs.readFile(DedupSchemaPath, 'utf8');
-      this.#DedupSchema = JSON.parse(DedupSchemaContent);
-    }
+    // deduplication assets are loaded and cached on demand by the shared ai-decision helper.
 
     // load the date extraction instructions if not already loaded.
     if(!this.#DateExtractionInstructions) {
@@ -711,16 +698,11 @@ class RemindersAIPipeline {
       new_reminder: ArgReminderInfo,
     }, null, 2);
 
-    // send the reminders to the GPT model for deduplication analysis.
+    // send the reminders to the GPT model for deduplication analysis. No fallback is configured, so
+    // an unusable response still throws to this caller exactly as it did before the helper existed.
     const DedupResult = /** @type {{recommendation: 'schedule'|'ignore', rationale: string}} */ (
-      await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
-        InputJson, this.#DedupInstructions, this.#DedupSchema,
-      )
+      await DecideAsync(this.#WorkspaceAI, DedupDecisionSpec, InputJson)
     );
-
-    // verify that the response has the required properties.
-    if(!DedupResult || !DedupResult.recommendation || !DedupResult.rationale)
-      throw new Error('Invalid deduplication response from GPT model.');
 
     // return the deduplication result.
     return { ...DedupResult, matched_by: 'semantic' };
