@@ -123,6 +123,107 @@ describe('GH-44 Phase 3 — reminder analysis emits decision-corpus records', ()
   });
 });
 
+describe('GH-44 Phase 4 — thread multi-task extraction through the chokepoint', () => {
+  beforeEach(() => { ResetAssetCache(); });
+
+  const ThreadResponse = Object.freeze({
+    candidates: [
+      {
+        taskIndex: 1, title: 'deploy the changes', sourceMessageNumbers: [2], sourceTs: ['2.0'],
+        assigneeID: 'U_SENDER', deadline: 'tomorrow morning', deadlineResolution: 'explicit',
+        confidence: 'high', flag: null, duplicateOpenReminderID: null,
+      },
+      {
+        taskIndex: 2, title: 'run the smoke tests', sourceMessageNumbers: [3], sourceTs: ['3.0'],
+        assigneeID: 'U_ALPHA', deadline: null, deadlineResolution: 'blank',
+        confidence: 'low', flag: 'no explicit deadline', duplicateOpenReminderID: 'R-99',
+      },
+    ],
+    rationale: 'two distinct commitments',
+  });
+
+  /** A three-turn thread — the multi-message case the single-message analyzer cannot express. */
+  const Thread = [
+    { ts: '1.0', user: 'U_SENDER', text: 'root cause: the scan only ever saw a fixed batch' },
+    { ts: '2.0', user: 'U_SENDER', text: 'i am going to deploy the changes tomorrow morning' },
+    { ts: '3.0', user: 'U_ALPHA', text: 'i can run the smoke tests after that' },
+  ];
+
+  test('emits one multi-task-extraction record with confidence + dedup debug facts', async () => {
+    const RootDir = await MakeRootDir();
+    const Store = createDecisionCorpusStore({ rootDir: RootDir, stream: 'decisions' });
+    const WorkspaceAI = MakeWorkspaceAI(ThreadResponse);
+    WorkspaceAI.ComplexModelName = 'complex-model-x';
+
+    const Pipeline = MakePipeline(WorkspaceAI);
+    Pipeline.SetDecisionCapture({ Store, Workspace: 'ws1' });
+
+    await Pipeline.ExtractMultiTaskCandidatesAsync(Thread, null, [], []);
+
+    const Rows = await Store.readAll('ws1');
+    expect(Rows).toHaveLength(1);
+    expect(Rows[0]).toMatchObject({
+      decision: 'multi-task-extraction',
+      outcome: DecisionOutcome.Ok,
+      promptVersion: 'multi-task-v1',
+      schemaVersion: 'multi-task-schema-v1',
+      modelName: 'complex-model-x',
+    });
+    expect(Rows[0].debugFacts).toEqual({
+      candidateCount: 2, highConfidence: 1, lowConfidence: 1, flagged: 1, duplicatesOfOpenReminders: 1,
+    });
+  });
+
+  test('the complex model is actually used — asserted on the call, not assumed', async () => {
+    const WorkspaceAI = MakeWorkspaceAI(ThreadResponse);
+    WorkspaceAI.ComplexModelName = 'complex-model-x';
+    await MakePipeline(WorkspaceAI).ExtractMultiTaskCandidatesAsync(Thread, null, [], []);
+
+    expect(WorkspaceAI.ProcessMessageWithJsonResponseAsync.mock.calls[0][3]).toBe('complex-model-x');
+  });
+
+  test('every thread turn reaches the model, in order — a harness that truncated would look green', async () => {
+    const WorkspaceAI = MakeWorkspaceAI(ThreadResponse);
+    WorkspaceAI.ComplexModelName = 'complex-model-x';
+    await MakePipeline(WorkspaceAI).ExtractMultiTaskCandidatesAsync(Thread, null, [], []);
+
+    const InputText = WorkspaceAI.ProcessMessageWithJsonResponseAsync.mock.calls[0][0];
+    expect(InputText).toContain('[msg:1 user:U_SENDER ts:1.0] root cause');
+    expect(InputText).toContain('[msg:2 user:U_SENDER ts:2.0] i am going to deploy');
+    expect(InputText).toContain('[msg:3 user:U_ALPHA ts:3.0] i can run the smoke tests');
+    expect(InputText.indexOf('msg:1')).toBeLessThan(InputText.indexOf('msg:2'));
+    expect(InputText.indexOf('msg:2')).toBeLessThan(InputText.indexOf('msg:3'));
+  });
+
+  test('the prompt the model receives is the extracted asset, not a rewrite', async () => {
+    const Fs = require('fs');
+    const Asset = Fs.readFileSync(
+      path.join(__dirname, '..', 'data', 'static', 'ai', 'multi-task-extraction-instructions.md'), 'utf8',
+    );
+    const WorkspaceAI = MakeWorkspaceAI(ThreadResponse);
+    WorkspaceAI.ComplexModelName = 'complex-model-x';
+    await MakePipeline(WorkspaceAI).ExtractMultiTaskCandidatesAsync(Thread, null, [], []);
+
+    expect(WorkspaceAI.ProcessMessageWithJsonResponseAsync.mock.calls[0][1]).toBe(Asset);
+  });
+
+  test('low-confidence candidates are flagged, never dropped', async () => {
+    const WorkspaceAI = MakeWorkspaceAI(ThreadResponse);
+    WorkspaceAI.ComplexModelName = 'complex-model-x';
+    const Result = await MakePipeline(WorkspaceAI).ExtractMultiTaskCandidatesAsync(Thread, null, [], []);
+
+    expect(Result.candidates).toHaveLength(2);
+    expect(Result.candidates.find(ArgC => ArgC.confidence === 'low').flag).toBe('no explicit deadline');
+  });
+
+  test('a non-array candidates field still throws the original message', async () => {
+    const WorkspaceAI = MakeWorkspaceAI({ candidates: 'nope', rationale: 'x' });
+    WorkspaceAI.ComplexModelName = 'complex-model-x';
+    await expect(MakePipeline(WorkspaceAI).ExtractMultiTaskCandidatesAsync(Thread, null, [], []))
+      .rejects.toThrow('Multi-task extraction: invalid response from model.');
+  });
+});
+
 describe('GH-44 Phase 3 — behavior parity (the errors that keep migrated callers honest)', () => {
   beforeEach(() => { ResetAssetCache(); });
 

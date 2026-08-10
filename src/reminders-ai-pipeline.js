@@ -44,6 +44,51 @@ function ValidateReminderAnalysis(ArgResponse) {
  * Single-message reminder analysis decision. Same prompt, schema, and (default) model as before the
  * GH-44 migration — only the plumbing moved.
  */
+const MultiTaskExtractionDecisionSpec = Object.freeze({
+  Name: 'multi-task-extraction',
+  InstructionsFile: 'multi-task-extraction-instructions.md',
+  SchemaFile: 'multi-task-extraction-schema.json',
+  // presence-only; the array/shape check below is the real gate, same as it was pre-migration.
+  RequiredFields: [],
+  // this path has always used the complex model — the reason AiDecisionSpec grew ModelName.
+  ModelName: null, // set per-call in ExtractMultiTaskCandidatesAsync (see WithComplexModel below)
+  PromptVersion: 'multi-task-v1',
+  SchemaVersion: 'multi-task-schema-v1',
+  /**
+   * @param {any} ArgResponse
+   * @returns {void}
+   */
+  Validate: (ArgResponse) => {
+    if(!ArgResponse || !Array.isArray(ArgResponse.candidates))
+      throw new Error('Multi-task extraction: invalid response from model.');
+  },
+  /**
+   * @param {any} ArgInput Serialized prompt payload.
+   * @param {any} ArgResponse Extraction result.
+   * @returns {object}
+   */
+  DebugFacts: (ArgInput, ArgResponse) => {
+    const Candidates = (ArgResponse && ArgResponse.candidates) || [];
+    return {
+      candidateCount: Candidates.length,
+      highConfidence: Candidates.filter(ArgC => ArgC && ArgC.confidence === 'high').length,
+      lowConfidence: Candidates.filter(ArgC => ArgC && ArgC.confidence === 'low').length,
+      flagged: Candidates.filter(ArgC => ArgC && ArgC.flag).length,
+      duplicatesOfOpenReminders: Candidates.filter(ArgC => ArgC && ArgC.duplicateOpenReminderID).length,
+    };
+  },
+});
+
+/**
+ * The multi-task spec bound to a concrete model name. The model is a per-workspace runtime value, so
+ * it cannot be frozen into the module-level spec; this returns a shallow clone carrying it.
+ * @param {string} ArgModelName Model to pin (the workspace's complex model).
+ * @returns {object}
+ */
+function WithComplexModel(ArgModelName) {
+  return { ...MultiTaskExtractionDecisionSpec, ModelName: ArgModelName };
+}
+
 const ReminderAnalysisDecisionSpec = Object.freeze({
   Name: 'reminder-analysis',
   InstructionsFile: 'reminders-instructions.md',
@@ -789,77 +834,22 @@ class RemindersAIPipeline {
       DeadlineConvention ? `DeadlineConvention: ${DeadlineConvention}` : 'DeadlineConvention: (none)',
     ].join('\n');
 
-    const SystemPrompt = `You are a task extraction assistant. Given a multi-party Slack thread, identify ALL distinct actionable tasks mentioned. For each task:
-- Extract ONLY text that appears verbatim in the thread. Never invent or paraphrase.
-- Record the source message number(s) the task comes from.
-- Assign confidence: "high" if the task is explicitly stated and unambiguous; "low" if inferred or missing context.
-- For low-confidence candidates, add a "flag" note explaining what context is missing.
-- Resolve assignee: use DefaultAssigneeID if provided, otherwise the user from the source message. Never invent users.
-- Resolve deadline: if the thread contains an explicit date/time for the task, use it verbatim. If vague (e.g. "next week"), use DeadlineConvention slot if set, else leave blank. Never silently guess.
-- Flag any candidate that duplicates an already-open reminder (provide the open reminder ID).
-
-Output a JSON object with this exact schema:
-{
-  "candidates": [
-    {
-      "taskIndex": 1,
-      "title": "<verbatim task text from thread>",
-      "sourceMessageNumbers": [1, 2],
-      "sourceTs": ["<ts of source message>"],
-      "assigneeID": "<user ID or null>",
-      "deadline": "<verbatim deadline text or null>",
-      "deadlineResolution": "explicit | convention | blank",
-      "confidence": "high | low",
-      "flag": "<null or explanation if low-confidence or duplicate>",
-      "duplicateOpenReminderID": "<reminder ID or null>"
-    }
-  ],
-  "rationale": "<brief explanation of extraction decisions>"
-}`;
-
+    // GH-44 Phase 4: the system prompt and response schema moved to
+    // data/static/ai/multi-task-extraction-{instructions.md,schema.json}, byte-identical to the
+    // inline literals they replace. They were invisible to scripts/validate-ai-prompts.js while
+    // inline, so this prompt had never been validated; it is registered in EXPECTED_PAIRS now.
     const InputText = `OPERATOR DEFAULTS:\n${DefaultsBlock}\n\nTHREAD TRANSCRIPT:\n${Transcript}\n\nOPEN REMINDERS (for dedup check):\n${OpenRemindersSummary || '(none)'}`;
 
-    const MULTI_TASK_SCHEMA = {
-      name: 'multi_task_extraction',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          candidates: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                taskIndex: { type: 'number' },
-                title: { type: 'string' },
-                sourceMessageNumbers: { type: 'array', items: { type: 'number' } },
-                sourceTs: { type: 'array', items: { type: 'string' } },
-                assigneeID: { type: ['string', 'null'] },
-                deadline: { type: ['string', 'null'] },
-                deadlineResolution: { type: 'string', enum: ['explicit', 'convention', 'blank'] },
-                confidence: { type: 'string', enum: ['high', 'low'] },
-                flag: { type: ['string', 'null'] },
-                duplicateOpenReminderID: { type: ['string', 'null'] },
-              },
-              required: ['taskIndex', 'title', 'sourceMessageNumbers', 'sourceTs', 'assigneeID', 'deadline', 'deadlineResolution', 'confidence', 'flag', 'duplicateOpenReminderID'],
-              additionalProperties: false,
-            },
-          },
-          rationale: { type: 'string' },
-        },
-        required: ['candidates', 'rationale'],
-        additionalProperties: false,
-      },
-    };
-
+    // The array-shape check that used to sit below the call is now the spec's Validate hook, so it
+    // runs inside the chokepoint and throws the same message while the corpus records `invalid`.
     const Result = /** @type {MultiTaskExtractionResult} */ (
-      await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
-        InputText, SystemPrompt, MULTI_TASK_SCHEMA, this.#WorkspaceAI.ComplexModelName
+      await DecideAsync(
+        this.#WorkspaceAI,
+        WithComplexModel(this.#WorkspaceAI.ComplexModelName),
+        InputText,
+        { Capture: this.#DecisionCapture, Logger: this.#SlackApp && this.#SlackApp.Logger },
       )
     );
-
-    if(!Result || !Array.isArray(Result.candidates))
-      throw new Error('Multi-task extraction: invalid response from model.');
 
     // Apply default assignee to any candidate missing one.
     for(const Candidate of Result.candidates) {
