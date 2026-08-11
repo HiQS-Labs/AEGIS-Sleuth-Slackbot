@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 1.4.272 - 2026-08-10
+## 1.4.273 - 2026-08-10
 When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not
 just what I decided, but what drove it — whether I shortened your text or kept it whole and why, and
 how I worked out who the reminder was for. That second one is worth a look: if you addressed a message
@@ -68,6 +68,11 @@ committed baseline. Scenarios carry expectations as well as a baseline, because 
 have enshrined current behavior as correct; against `development` the GH-43 battery reports 4 FAIL /
 11 PASS, with S-01 reproducing all three reported defects and the GH-22 shared-assignment guard
 staying green.
+
+## 1.4.272 - 2026-08-10
+I no longer publish internal workspace, host, or New Relic fallback-key references in the public documentation.
+
+**Technical:** Replaced the production workspace census, server host/path references, and New Relic fallback-key references in `HONEST.md` and `deploy/reminders-export/README.md` with `[redacted]`.
 
 ## 1.4.271 - 2026-08-10
 When a Slack thread is linked to a GitHub issue, I no longer copy every later reply onto it. I check
