@@ -271,3 +271,38 @@ test('compaction carries NotifyIDs, and only for reminders that actually have th
 
   await fs.rm(Root, { recursive: true, force: true });
 });
+
+// Codex branch relay r2 [Should]: the WhenRecorded key-presence contract held only for the FIRST
+// creation-shaped event. ApplyCreationEnrichment fills strings, assignee arrays, GitHub URLs and
+// booleans, and never applied a recorded notifyIds — so a ReminderCreated followed by a same-id
+// BaselineReminderImported carrying the field silently dropped it. Import/enrichment is exactly the
+// shape production streams have.
+test('a later enrichment event fills NotifyIDs, and absence still stays absence', () => {
+  const Payload = {
+    text: 't', assigneeId: 'U_S', assigneeIds: ['U_S'], sourceChannelId: 'C', targetChannelId: 'C',
+    dueAt: '2030-01-01T00:00:00.000Z', state: 'scheduled', githubUrls: [], clientId: null,
+    createdOn: '2026-08-10T00:00:00.000Z', originalSenderId: 'U_S', originalMessageId: '1.0',
+    originalThreadTs: null, originalChannelName: null, ignoreSnooze: false,
+    gitHubRelayStarted: false, gitHubRelayStopped: false,
+  };
+  /**
+   * @param {string} ArgId
+   * @param {object} [ArgExtra]
+   * @returns {any[]}
+   */
+  const Stream = (ArgId, ArgExtra) => ([
+    { v: 2, type: 'ReminderCreated', reminderId: ArgId, ts: '2026-08-10T00:00:00.000Z', payload: { ...Payload } },
+    {
+      v: 2, type: 'BaselineReminderImported', reminderId: ArgId, ts: '2026-08-10T01:00:00.000Z',
+      payload: { ...Payload, ...(ArgExtra || {}) },
+    },
+  ]);
+
+  const Enriched = FoldReminderReadModels(Stream('rem-enriched', { notifyIds: ['U_ALPHA'] })).reminders[0];
+  assert.deepEqual(Enriched.NotifyIDs, ['U_ALPHA'],
+    'an enrichment event that records the key must fill it in');
+
+  const Untouched = FoldReminderReadModels(Stream('rem-plain')).reminders[0];
+  assert.equal(Object.prototype.hasOwnProperty.call(Untouched, 'NotifyIDs'), false,
+    'a stream that never records the key must not gain it — parity compares key presence');
+});

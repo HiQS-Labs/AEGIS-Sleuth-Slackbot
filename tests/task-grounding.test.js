@@ -113,9 +113,26 @@ describe('UngroundedTerms — word-fragment bypasses (regression)', () => {
     expect(IsTitleGrounded('Bump it by 42', 'ticket 1425 is the one')).toBe(false);
   });
 
-  test('a homoglyph that normalizes to a prefix is rejected rather than silently accepted', () => {
-    // the Cyrillic "х" is stripped by tokenization, leaving "ngin" — which must not match "nginx".
+  test('a TRAILING homoglyph is rejected', () => {
     expect(IsTitleGrounded('Restart Nginх', 'restart nginx tonight')).toBe(false);
+  });
+
+  // Codex branch relay r2. The trailing case above passed for the wrong reason — it left an ASCII
+  // "Ngin" behind to reject. A LEADING lookalike was a real bypass: the ASCII-only `[A-Z]` capital
+  // test did not recognize a Cyrillic capital as a capital, so the word was never extracted as a
+  // term, nothing was checked, and the invented name rendered to the user.
+  test.each([
+    ['Cyrillic А', 'Deploy Аcme'],
+    ['Greek Α', 'Deploy Αcme'],
+  ])('a LEADING %s lookalike is still extracted as a term and rejected', (ArgName, ArgTitle) => {
+    expect(ExtractGroundedTerms(ArgTitle)).toHaveLength(1);
+    expect(IsTitleGrounded(ArgTitle, 'we will deploy acme tomorrow')).toBe(false);
+  });
+
+  test('genuine non-ASCII names are NOT collateral damage', () => {
+    // the fix must not reject a real accented name the author actually wrote
+    expect(IsTitleGrounded('Ask José', 'ask josé about it tomorrow')).toBe(true);
+    expect(IsTitleGrounded('Deploy Acme', 'we will deploy acme tomorrow')).toBe(true);
   });
 });
 

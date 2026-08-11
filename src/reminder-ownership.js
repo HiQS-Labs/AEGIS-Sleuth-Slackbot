@@ -25,10 +25,19 @@ const { ExtractMentionIDs } = require('./decision-explain');
  */
 
 /**
- * First-person singular commitment markers. Kept to the singular deliberately: "we" is ambiguous
- * between the speaker and the team, and guessing wrong reassigns someone else's work.
+ * First-person **subject** markers — the speaker as the one doing the thing.
+ *
+ * Deliberately SUBJECT forms only. `my`, `me`, and `myself` used to be in this list and were a
+ * genuine mis-assignment bug (found by Codex in the branch relay, round 2): they are possessive and
+ * object forms, so they say the speaker is *involved*, never that the speaker is *acting*.
+ * `<@U_ALPHA> will deploy my report tomorrow` was assigned to the sender purely because `my`
+ * appeared — the exact "mentioned ≠ assigned" error inverted, with the module claiming to read the
+ * grammatical subject while actually matching any first-person token anywhere.
+ *
+ * Kept to the singular: "we" is ambiguous between the speaker and the team, and guessing wrong
+ * reassigns someone else's work.
  */
-const FirstPersonPattern = /\b(i|i'm|im|i'll|ill|i've|ive|i'd|my|me|myself)\b/i;
+const FirstPersonPattern = /\b(i|i'm|im|i'll|ill|i've|ive|i'd)\b/i;
 
 /** Second-person ask markers — the signal that someone else is being asked to act. */
 const SecondPersonPattern = /\b(can you|could you|would you|will you|can u|please|pls|kindly|you should|you need to|you both|you all|your turn)\b/i;
@@ -64,9 +73,39 @@ function DetectLeadingAddressBlock(ArgText) {
 function HasFirstPersonCommitment(ArgActionableLanguage) {
   const Text = (ArgActionableLanguage || '').trim();
   if(!Text) return false;
-  // a second-person ask wins even when it contains a stray "my"/"me" ("can you send me the logs")
+  // a second-person ask wins even when it contains a stray first-person token
+  // ("can you send me the logs")
   if(SecondPersonPattern.test(Text)) return false;
   return FirstPersonPattern.test(Text);
+}
+
+/**
+ * Whether an actionable span sits inside a quotation in the original message — i.e. it is somebody
+ * else's **reported speech**, not the author committing to anything.
+ *
+ * `<@U_ALPHA> said "I will deploy the patch tomorrow"` yields the span `I will deploy the patch`,
+ * which is first-person and would otherwise assign the deploy to the message's author. The commitment
+ * is Alpha's; the author is only reporting it. (Codex, branch relay round 2.)
+ *
+ * Only DOUBLE quotes count. Single quotes are indistinguishable from the apostrophes in `I'll` and
+ * `don't`, so treating them as quotation would misread ordinary contractions as reported speech.
+ * @param {string} ArgMessageText Full original message text.
+ * @param {string} ArgActionableLanguage The quoted actionable span.
+ * @returns {boolean}
+ */
+function IsSpanInsideQuotedSpeech(ArgMessageText, ArgActionableLanguage) {
+  const Span = (ArgActionableLanguage || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const Message = ArgMessageText || '';
+  if(!Span || !Message) return false;
+
+  for(const Match of Message.matchAll(/["“]([^"”]+)["”]/g)) {
+    const Quoted = (Match[1] || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    // the quotation must CONTAIN the span. A span that merely contains a short quoted fragment — the
+    // quoted-task-name case, `I need to work on "On-going Project: X"` — is the author's own
+    // commitment and must keep resolving to them.
+    if(Quoted.length >= Span.length && Quoted.includes(Span)) return true;
+  }
+  return false;
 }
 
 /**
@@ -142,8 +181,11 @@ function ResolveAssignees(ArgInput) {
     ? ArgInput.MentionedIDs
     : ExtractMentionIDs(MessageText);
 
-  // 1. the speaker committed to it themselves.
-  if(HasFirstPersonCommitment(ActionableLanguage)) {
+  // 1. the speaker committed to it themselves — unless the commitment is somebody else's reported
+  // speech, in which case the strong override must NOT fire and the case falls through to the
+  // analyzer verdict and the mention fallbacks below.
+  if(HasFirstPersonCommitment(ActionableLanguage)
+    && !IsSpanInsideQuotedSpeech(MessageText, ActionableLanguage)) {
     return {
       assigneeIDs: SenderID ? [SenderID] : MentionedIDs,
       // people who were addressed but did not take the work — real interested parties, not owners.
@@ -221,6 +263,7 @@ module.exports = {
   ResolveAssignees,
   ConstrainAssigneeToParticipants,
   ReduceGroupOwner,
+  IsSpanInsideQuotedSpeech,
   DetectLeadingAddressBlock,
   HasFirstPersonCommitment,
   HasSecondPersonAsk,

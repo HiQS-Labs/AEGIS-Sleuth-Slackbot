@@ -2,7 +2,7 @@
 
 const {
   ResolveAssignees, DetectLeadingAddressBlock, HasFirstPersonCommitment, HasSecondPersonAsk,
-  ConstrainAssigneeToParticipants, ReduceGroupOwner,
+  ConstrainAssigneeToParticipants, ReduceGroupOwner, IsSpanInsideQuotedSpeech,
 } = require('../src/reminder-ownership');
 
 // GH-43 Phase 1A — ownership from the grammatical subject of the commitment, not mention-scraping.
@@ -386,5 +386,63 @@ describe('GH-43: the triage and scheduling ownership inputs cannot diverge', () 
     expect(Narrowed).toMatchObject({
       assigneeIDs: ['U_ALPHA'], notifyIDs: ['U_BETA'], resolvedBy: 'analyzer-mentioned',
     });
+  });
+});
+
+// Codex branch relay r2 [Blocker]: HasFirstPersonCommitment was not a commitment parser. It matched
+// ANY first-person token, so a possessive or a piece of reported speech produced the strong
+// sender override — the module claimed to read the grammatical subject while doing nothing of the
+// kind. Both witnesses below assigned the work to the wrong person before this fix.
+describe('GH-43: first person must mean the speaker is ACTING', () => {
+  test('THE WITNESS: reported speech belongs to the person quoted, not the reporter', () => {
+    const Result = ResolveAssignees({
+      MessageText: '<@U_ALPHA> said "I will deploy the patch tomorrow"',
+      ActionableLanguage: 'I will deploy the patch',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
+    expect(Result.resolvedBy).not.toBe('first-person-commitment');
+  });
+
+  test('THE WITNESS: a possessive is not a commitment', () => {
+    // "my report" says the speaker OWNS the report, not that they are deploying it.
+    const Result = ResolveAssignees({
+      MessageText: '<@U_ALPHA> will deploy my report tomorrow',
+      ActionableLanguage: 'will deploy my report',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
+  });
+
+  test.each(['my', 'me', 'myself'])('"%s" alone no longer reads as a commitment', (ArgToken) => {
+    expect(HasFirstPersonCommitment(`will deploy ${ArgToken} thing`)).toBe(false);
+  });
+
+  test('genuine subject-form commitments still resolve to the sender', () => {
+    // the reported production message must not become collateral damage
+    expect(ResolveAssignees({
+      MessageText: '<@U_ALPHA> <@U_BETA> root cause: the scan only saw a fixed batch. i am going to deploy the changes tomorrow',
+      ActionableLanguage: 'i am going to deploy the changes',
+      MentionedIDs: ['U_ALPHA', 'U_BETA'],
+      SenderID: 'U_SENDER',
+    })).toMatchObject({ assigneeIDs: ['U_SENDER'], resolvedBy: 'first-person-commitment' });
+  });
+
+  test('the QUOTED TASK NAME rule is not mistaken for reported speech', () => {
+    // here the span CONTAINS a short quotation rather than sitting inside one — it is the author's
+    // own commitment and must keep resolving to them (battery S-11).
+    expect(ResolveAssignees({
+      MessageText: 'I need to work on "On-going Project: Yard Photo Backfill" tomorrow',
+      ActionableLanguage: 'I need to work on "On-going Project: Yard Photo Backfill"',
+      MentionedIDs: [],
+      SenderID: 'U_SENDER',
+    })).toMatchObject({ assigneeIDs: ['U_SENDER'], resolvedBy: 'first-person-commitment' });
+  });
+
+  test('single quotes are NOT treated as quotation — they are apostrophes', () => {
+    // "I'll" and "don't" would otherwise read as reported speech
+    expect(IsSpanInsideQuotedSpeech("I'll patch it and don't worry", "I'll patch it")).toBe(false);
   });
 });

@@ -57,16 +57,23 @@ const CapitalizedNonEntities = new Set([
  * @returns {string}
  */
 function NormalizeForGrounding(ArgText) {
-  return (ArgText || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return (ArgText || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 /**
- * Split text into lowercase alphanumeric word tokens.
+ * Split text into lowercase letter/number word tokens.
+ *
+ * **Unicode-aware on purpose.** An earlier ASCII-only version (`[^a-z0-9]`) silently *deleted* every
+ * non-ASCII letter, which is a homoglyph bypass rather than a cosmetic limitation: a title of
+ * `Deploy Аcme` written with a Cyrillic `А` lost that character entirely, so nothing was left to
+ * check and an invented product name rendered to the user. Keeping the codepoints means `аcme`
+ * (Cyrillic) simply is not the token `acme` (ASCII) and fails grounding, which is the correct answer.
+ * Caught by Codex in the branch relay, round 2.
  * @param {string} ArgText
  * @returns {string[]}
  */
 function GroundingTokens(ArgText) {
-  return (ArgText || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return (ArgText || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
 /**
@@ -162,19 +169,22 @@ function ExtractGroundedTerms(ArgTitle) {
   const Words = Unquoted.split(/\s+/).filter(Boolean);
 
   Words.forEach((ArgWord, ArgIndex) => {
-    // trailing/leading punctuation is not part of the token
-    const Word = ArgWord.replace(/^[^\w"'’-]+|[^\w"'’-]+$/g, '');
+    // trailing/leading punctuation is not part of the token. Unicode letters and marks are kept, so
+    // a homoglyph cannot be stripped away into invisibility (see GroundingTokens).
+    const Word = ArgWord.replace(/^[^\p{L}\p{N}_"'’-]+|[^\p{L}\p{N}_"'’-]+$/gu, '');
     if(!Word) return;
 
     // 3. identifier-shaped: internal separator, internal capital, or a letter/digit mix.
-    const HasInternalSeparator = /[\w][-_./][\w]/.test(Word);
-    const HasInternalCapital = /^[A-Za-z]+[A-Z]/.test(Word);
-    const HasLetterDigitMix = /[A-Za-z]/.test(Word) && /\d/.test(Word);
+    const HasInternalSeparator = /[\p{L}\p{N}_][-_./][\p{L}\p{N}_]/u.test(Word);
+    const HasInternalCapital = /^\p{L}+\p{Lu}/u.test(Word);
+    const HasLetterDigitMix = /\p{L}/u.test(Word) && /\p{N}/u.test(Word);
     if(HasInternalSeparator || HasInternalCapital || HasLetterDigitMix) { Add(Word); return; }
 
     // 4. proper nouns — capitalized, not the leading imperative verb, not a routine capital.
+    // `\p{Lu}` rather than `[A-Z]`: an ASCII-only test does not recognize a Cyrillic or Greek capital
+    // as a capital at all, so a lookalike proper noun was never extracted and never checked.
     if(ArgIndex === 0) return;
-    if(!/^[A-Z]/.test(Word)) return;
+    if(!/^\p{Lu}/u.test(Word)) return;
     if(CapitalizedNonEntities.has(Word.toLowerCase())) return;
     Add(Word);
   });
