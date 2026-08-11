@@ -584,16 +584,27 @@ class RemindersAIPipeline {
       const SpanLength = (ArgReminder?.actionable_language || '').trim().length;
       return SpanLength > ArgMax ? SpanLength : ArgMax;
     }, 0);
-    const ActionableSpanRatio = Original.length > 0
-      ? Math.min(1, Number((LongestSpan / Original.length).toFixed(2)))
+    // GH-51: keep the RAW ratio for every decision and round ONLY for reporting.
+    //
+    // Rounding first was a defect. `toFixed(2)` collapses any span under 0.5% of the message to
+    // exactly `0`, and the usability gate below then read that `0` as "no span was quoted at all".
+    // So a 35-character task quoted verbatim out of a 7,000-character note — the most deeply buried
+    // task there is, and precisely the case this gate exists to catch — was classified as having no
+    // evidence of a buried task. The gate failed hardest exactly where it mattered most.
+    const RawSpanRatio = Original.length > 0
+      ? Math.min(1, LongestSpan / Original.length)
       : 0;
+    // reported/logged only — two decimals keeps the existing telemetry format readable.
+    const ActionableSpanRatio = Number(RawSpanRatio.toFixed(2));
 
-    // a ratio of 0 means no span was quoted at all — there is no evidence of a buried task, so the
-    // gate must not claim one. A synthetic span (force-schedule) is likewise not evidence.
-    const SpanRatioUsable = !ArgOptions?.SyntheticActionableSpan && ActionableSpanRatio > 0;
+    // "was a span quoted at all" is a fact about the MEASUREMENT, not about its rounded report, so
+    // ask the span directly. A synthetic span (force-schedule) is likewise not evidence.
+    const SpanRatioUsable = !ArgOptions?.SyntheticActionableSpan && LongestSpan > 0;
+    // compare on the raw ratio too: `BURIED_TASK_MAX_SPAN_RATIO` should mean what it says, rather
+    // than silently admitting up to 0.3549… because that rounds down to the threshold.
     const IsBuriedTask = SpanRatioUsable
       && Original.length >= RemindersAIPipeline.BURIED_TASK_MIN_LENGTH
-      && ActionableSpanRatio <= RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO;
+      && RawSpanRatio <= RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO;
 
     const Segment = /** @type {'normal'|'long'} */ (IsBuriedTask ? 'long' : SentenceSegment);
 

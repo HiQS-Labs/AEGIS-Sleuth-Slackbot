@@ -33,6 +33,32 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.277 - 2026-08-11
+When a very long note contains one short thing you promised to do, I now shorten it to that task
+instead of pasting the whole note into the reminder. I was already meant to do this, but I was
+measuring the task's share of the message so coarsely that a small enough task rounded away to
+nothing and I concluded there was no task to find at all.
+
+**Technical:** GH-51. `DescribeSynthesisRouting` rounded the actionable-span ratio with `toFixed(2)`
+*before* the buried-task gate read it. That collapses any span under 0.5% of the message to exactly
+`0`, and `SpanRatioUsable` read that `0` as "no span was quoted at all" — so a 35-character
+commitment quoted from a 7,000-character note, the most deeply buried task there is and precisely
+what the gate exists to catch, was classified as having no evidence of a buried task.
+
+- **Fix** — `RawSpanRatio` (unrounded) now drives both decisions: `SpanRatioUsable` asks
+  `LongestSpan > 0` (the measurement, not its report), and the `BURIED_TASK_MAX_SPAN_RATIO` ceiling
+  is compared raw, so it no longer silently admits up to 0.3549…. `actionableSpanRatio` stays 2dp as
+  the **reported** value, leaving the telemetry format unchanged; the existing `ratio_usable=` field
+  simply becomes truthful.
+- **Tests** — 3 new regressions (sub-0.5% span still routes by the ratio gate; reported-0-from-tiny
+  stays distinguishable from reported-0-from-absent; ceiling compared raw). Mutation-tested, both
+  mutations caught. 109 suites / 1852 jest / 116 node / 0 failures / `tsc` exit 0, GH-43's replay
+  battery included.
+- **Scope, measured not assumed:** against 30 days of production telemetry (216 messages, 128 with
+  `ratio=0`) this explains **at most 1** of them — the median zero-ratio message is 241 chars, where
+  nothing rounds away. The other ~127 are an empty `actionable_language` from the analyzer, a
+  separate cause. **Issue #51 stays open** for that, blocked on the GH-50 corpus.
+
 ## 1.4.275 - 2026-08-11
 Nothing changes in how I behave — this is a fix to my own test setup. My test run could fail for a
 reason that had nothing to do with the change being tested, which made it hard to trust. It no longer
