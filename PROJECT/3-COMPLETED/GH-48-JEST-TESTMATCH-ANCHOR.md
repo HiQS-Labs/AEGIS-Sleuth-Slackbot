@@ -1,6 +1,6 @@
 ---
 title: "npm test breaks nondeterministically: unanchored jest testMatch collects relay-harness orphan backups under .tick/"
-status: Active (2-WORKING) — fixed and verified on gh-48-anchor-jest-testmatch; PR open
+status: Completed (3-COMPLETED) — merged to development 2026-08-11 via PR #49; CI green
 created: 2026-08-11
 updated: 2026-08-11
 owner: noel
@@ -19,7 +19,7 @@ context_tags: [jest, test-config, relay-harness, merge-gate, tooling]
 
 | What was just completed | What's next |
 |---|---|
-| Both jest globs anchored to `<rootDir>`; reproduced the failure first, then mutation-tested the fix. Full gate green with an orphan backup still on disk: 109 suites / 1849 jest tests, 116 node tests, `npm run build` exit 0. Suite count unchanged, no legitimate suite dropped. | PR into `development` open — awaiting CI and review. Nothing else outstanding; the fix is config-only. |
+| Both jest globs anchored to `<rootDir>`; reproduced the failure first, then mutation-tested the fix. Full gate green with an orphan backup still on disk: 109 suites / 1849 jest tests, 116 node tests, `npm run build` exit 0. Suite count unchanged, no legitimate suite dropped. **Merged to `development` 2026-08-11 via PR #49.** | Done. The anchor is now protecting the gate for downstream work (GH-50, GH-51) on the same branch lineage. |
 
 ## Why this exists
 
