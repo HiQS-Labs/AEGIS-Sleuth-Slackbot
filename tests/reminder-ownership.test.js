@@ -2,6 +2,7 @@
 
 const {
   ResolveAssignees, DetectLeadingAddressBlock, HasFirstPersonCommitment, HasSecondPersonAsk,
+  ConstrainAssigneeToParticipants, ReduceGroupOwner,
 } = require('../src/reminder-ownership');
 
 // GH-43 Phase 1A — ownership from the grammatical subject of the commitment, not mention-scraping.
@@ -168,5 +169,156 @@ describe('ResolveAssignees', () => {
       SenderID: 'U_SENDER',
     });
     expect(Result.assigneeIDs).toEqual(['U_ALPHA', 'U_BETA']);
+  });
+});
+
+// GH-43 Phase 1B — the analyzer's ownership verdict. Red before this phase: ResolveAssignees ignored
+// both new arguments, so every case below fell through to the mentions/sender fallbacks.
+describe('ConstrainAssigneeToParticipants', () => {
+  test('THE GUARANTEE: a user absent from the source is discarded, not assigned', () => {
+    expect(ConstrainAssigneeToParticipants('U_GHOST', ['U_A', 'U_B'], null))
+      .toEqual({ assigneeID: null, wasRejected: true });
+  });
+
+  test('a user present in the source passes through untouched', () => {
+    expect(ConstrainAssigneeToParticipants('U_A', ['U_A', 'U_B']))
+      .toEqual({ assigneeID: 'U_A', wasRejected: false });
+  });
+
+  test('an absent proposal takes the fallback and is NOT reported as a rejection', () => {
+    // nothing was hallucinated here — the model simply declined to name anyone.
+    expect(ConstrainAssigneeToParticipants(null, ['U_A'], 'U_DEFAULT'))
+      .toEqual({ assigneeID: 'U_DEFAULT', wasRejected: false });
+    expect(ConstrainAssigneeToParticipants('   ', ['U_A'], 'U_DEFAULT').wasRejected).toBe(false);
+  });
+
+  test('a rejected proposal still falls back rather than dropping the assignee entirely', () => {
+    expect(ConstrainAssigneeToParticipants('U_GHOST', ['U_A'], 'U_DEFAULT'))
+      .toEqual({ assigneeID: 'U_DEFAULT', wasRejected: true });
+  });
+
+  test('an empty allow-list rejects everything — it never fails open', () => {
+    expect(ConstrainAssigneeToParticipants('U_A', []).assigneeID).toBeNull();
+    expect(ConstrainAssigneeToParticipants('U_A', /** @type {any} */ (null)).assigneeID).toBeNull();
+  });
+});
+
+describe('ReduceGroupOwner', () => {
+  test('unanimous candidates keep their verdict; disagreement collapses to unclear', () => {
+    expect(ReduceGroupOwner([{ owner: 'speaker' }, { owner: 'speaker' }]).owner).toBe('speaker');
+    // one candidate says the author owns it, another says a mentioned user does. Picking a winner
+    // would be guessing, and the deterministic rules handle ambiguity better than a coin flip.
+    expect(ReduceGroupOwner([{ owner: 'speaker' }, { owner: 'mentioned' }]).owner).toBe('unclear');
+  });
+
+  test('candidates with no owner field at all yield null, not a guess', () => {
+    expect(ReduceGroupOwner([{}, {}])).toEqual({ owner: null, ownerMentions: [] });
+    expect(ReduceGroupOwner([])).toEqual({ owner: null, ownerMentions: [] });
+  });
+
+  test('owner_mentions are unioned across candidates and de-duplicated', () => {
+    expect(ReduceGroupOwner([
+      { owner: 'mentioned', owner_mentions: ['U_A'] },
+      { owner: 'mentioned', owner_mentions: ['U_A', 'U_B'] },
+    ]).ownerMentions).toEqual(['U_A', 'U_B']);
+  });
+});
+
+describe('ResolveAssignees with the analyzer verdict', () => {
+  test('a STRONG grammatical signal beats the analyzer — Phase 1A is not overridable', () => {
+    // the analyzer is wrong here; the explicit first-person commitment is not.
+    const Result = ResolveAssignees({
+      MessageText: "<@U_ALPHA> I'll patch it tomorrow",
+      ActionableLanguage: "I'll patch it",
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      AnalyzerOwnerMentions: ['U_ALPHA'],
+    });
+    expect(Result.assigneeIDs).toEqual(['U_SENDER']);
+    expect(Result.resolvedBy).toBe('first-person-commitment');
+  });
+
+  test('GH-22 GUARD: the analyzer cannot take a shared ask away from the people asked', () => {
+    const Result = ResolveAssignees({
+      MessageText: '<@U_ALPHA> <@U_BETA> can you both test the release tomorrow?',
+      ActionableLanguage: 'can you both test the release',
+      MentionedIDs: ['U_ALPHA', 'U_BETA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'speaker',
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA', 'U_BETA']);
+    expect(Result.resolvedBy).toBe('second-person-ask');
+  });
+
+  test('owner=speaker resolves an AMBIGUOUS message Phase 1A could not reach', () => {
+    // no first- or second-person marker anywhere: Phase 1A alone would assign to the address block.
+    const Input = {
+      MessageText: '<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning',
+      ActionableLanguage: 'the connection-pool patch goes out',
+      MentionedIDs: ['U_ALPHA', 'U_BETA'],
+      SenderID: 'U_SENDER',
+    };
+    expect(ResolveAssignees(Input).assigneeIDs).toEqual(['U_ALPHA', 'U_BETA']);
+
+    const WithVerdict = ResolveAssignees({ ...Input, AnalyzerOwner: 'speaker' });
+    expect(WithVerdict.assigneeIDs).toEqual(['U_SENDER']);
+    expect(WithVerdict.resolvedBy).toBe('analyzer-speaker');
+    expect(WithVerdict.notifyIDs).toEqual(['U_ALPHA', 'U_BETA']);
+  });
+
+  test('THE INTERSECTION IS LOAD BEARING: owner_mentions can narrow but never extend', () => {
+    const Result = ResolveAssignees({
+      MessageText: '<@U_ALPHA> <@U_BETA> the cert rotation is tomorrow morning',
+      ActionableLanguage: 'the cert rotation',
+      MentionedIDs: ['U_ALPHA', 'U_BETA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      // U_GHOST was never in the message. U_BETA was, but is not being asked.
+      AnalyzerOwnerMentions: ['U_GHOST', 'U_ALPHA'],
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
+    expect(Result.assigneeIDs).not.toContain('U_GHOST');
+    expect(Result.resolvedBy).toBe('analyzer-mentioned');
+    // the mentioned user who was NOT asked becomes an interested party rather than vanishing
+    expect(Result.notifyIDs).toEqual(['U_BETA']);
+  });
+
+  test('an entirely invented owner_mentions set falls through rather than assigning nobody', () => {
+    // a dropped reminder is worse than a slightly wrong assignee.
+    const Result = ResolveAssignees({
+      MessageText: '<@U_ALPHA> the cert rotation is tomorrow morning',
+      ActionableLanguage: 'the cert rotation',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      AnalyzerOwnerMentions: ['U_GHOST'],
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
+    expect(Result.resolvedBy).toBe('mentions');
+  });
+
+  test('owner=unclear and a missing verdict both leave Phase 1A behavior byte-identical', () => {
+    const Base = {
+      MessageText: '<@U_ALPHA> the deploy is tomorrow morning',
+      ActionableLanguage: 'the deploy is tomorrow morning',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+    };
+    const Without = ResolveAssignees(Base);
+    expect(ResolveAssignees({ ...Base, AnalyzerOwner: 'unclear' })).toEqual(Without);
+    expect(ResolveAssignees({ ...Base, AnalyzerOwner: null })).toEqual(Without);
+    expect(Without.resolvedBy).toBe('mentions');
+  });
+
+  test('owner=speaker with no known sender does not produce an empty assignee set', () => {
+    const Result = ResolveAssignees({
+      MessageText: '<@U_ALPHA> the deploy is tomorrow',
+      ActionableLanguage: 'the deploy is tomorrow',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: '',
+      AnalyzerOwner: 'speaker',
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
   });
 });

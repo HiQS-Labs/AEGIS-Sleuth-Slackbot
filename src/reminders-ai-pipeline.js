@@ -4,6 +4,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const DateUtils = require('./date-utils');
 const { DecideAsync } = require('./ai-decision');
+const DecisionExplain = require('./decision-explain');
+const ReminderOwnership = require('./reminder-ownership');
 
 // deduplication decision spec. Prompt assets and validation live with the shared decision helper;
 // only the payload shaping below is dedup-specific.
@@ -192,6 +194,12 @@ function GetReminderThreadIdentity(ArgReminderInfo) {
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.
  * @property {string} scheduling_trigger Verbatim quotation of the trigger associated with the actionable language.
  * @property {string} reminder_message Brief reminder of the actionable task that a user should perform.
+ * @property {'speaker'|'mentioned'|'unclear'} [owner] GH-43 Phase 1B: who the analyzer judged is going
+ * to DO this task, from the grammatical subject of the actionable language. Optional because recorded
+ * responses and older captures predate the field.
+ * @property {string[]} [owner_mentions] Slack user IDs the analyzer says were asked to do it.
+ * Populated only when `owner` is `mentioned`, and always intersected with the mentions actually
+ * present in the source before use — the model may narrow the set, never extend it.
  */
 
 /**
@@ -954,10 +962,37 @@ class RemindersAIPipeline {
       )
     );
 
-    // Apply default assignee to any candidate missing one.
+    // GH-43 Phase 1B — reconcile the two ownership paths.
+    //
+    // This path's prompt has always said "Never invent users", and until now nothing enforced it: the
+    // model's `assigneeID` was taken verbatim. A prompt instruction is not a guarantee. The
+    // single-message path gained a code-level intersection guard in this phase, so the same guard
+    // applies here — the model may only ever name somebody who genuinely appears in the thread, as an
+    // author or as an `<@U…>` mention.
+    const ThreadParticipantIDs = /** @type {string[]} */ ([]);
+    for(const Message of ArgThreadMessages || []) {
+      if(Message.user && !ThreadParticipantIDs.includes(Message.user)) ThreadParticipantIDs.push(Message.user);
+      for(const MentionID of DecisionExplain.ExtractMentionIDs(Message.text || '')) {
+        if(!ThreadParticipantIDs.includes(MentionID)) ThreadParticipantIDs.push(MentionID);
+      }
+    }
+    // an operator-configured default is legitimate even when absent from the thread.
+    const AllowedAssigneeIDs = DefaultAssigneeID
+      ? ThreadParticipantIDs.concat([DefaultAssigneeID])
+      : ThreadParticipantIDs;
+
     for(const Candidate of Result.candidates) {
-      if(!Candidate.assigneeID && DefaultAssigneeID)
-        Candidate.assigneeID = DefaultAssigneeID;
+      const Constrained = ReminderOwnership.ConstrainAssigneeToParticipants(
+        Candidate.assigneeID, AllowedAssigneeIDs, DefaultAssigneeID,
+      );
+      if(Constrained.wasRejected && this.#SlackApp && this.#SlackApp.Logger) {
+        // worth a line: a rejected id means the model named somebody who is not in the thread.
+        this.#SlackApp.Logger.warn(
+          `multi-task extraction proposed an assignee absent from the thread; discarded. ` +
+          `candidates=${Result.candidates.length} participants=${ThreadParticipantIDs.length}`
+        );
+      }
+      Candidate.assigneeID = Constrained.assigneeID;
     }
 
     return Result;

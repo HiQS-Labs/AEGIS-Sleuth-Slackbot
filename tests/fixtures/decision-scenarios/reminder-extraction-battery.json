@@ -540,6 +540,129 @@
         ],
         "maxTaskLength": 80
       }
+    },
+    {
+      "id": "S-17",
+      "name": "ADVERSARIAL: multi-task response assigns to a user who does not appear in the thread",
+      "decision": "multi-task-extraction",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> can you rotate the staging certs tomorrow morning?"
+        },
+        {
+          "user": "U_ALPHA",
+          "text": "yep on it"
+        }
+      ],
+      "recordedResponse": {
+        "candidates": [
+          {
+            "taskIndex": 1,
+            "title": "rotate the staging certs",
+            "sourceMessageNumbers": [
+              1
+            ],
+            "sourceTs": [
+              "1.0"
+            ],
+            "assigneeID": "U_GHOST",
+            "deadline": "tomorrow morning",
+            "deadlineResolution": "explicit",
+            "confidence": "high",
+            "flag": null,
+            "duplicateOpenReminderID": null
+          }
+        ],
+        "rationale": "adversarial: U_GHOST is not an author and is not mentioned anywhere in the thread"
+      },
+      "expected": {
+        "assigneesNeverInclude": [
+          "U_GHOST"
+        ],
+        "candidateAssignees": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "S-18",
+      "name": "ADVERSARIAL: analyzer owner_mentions names a user absent from the message",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> the staging cert rotation is tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "adversarial: no grammatical subject, so the analyzer verdict is consulted",
+        "reminders": [
+          {
+            "actionable_language": "the staging cert rotation",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Rotate the staging certs",
+            "owner": "mentioned",
+            "owner_mentions": [
+              "U_GHOST",
+              "U_ALPHA"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "assignees": [
+          "U_ALPHA"
+        ],
+        "assigneesNeverInclude": [
+          "U_GHOST"
+        ]
+      }
+    },
+    {
+      "id": "S-19",
+      "name": "analyzer owner=speaker resolves an address block that has no grammatical subject",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "no first- or second-person marker; the analyzer attributes it to the author",
+        "reminders": [
+          {
+            "actionable_language": "the connection-pool patch goes out",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Ship the connection-pool patch",
+            "owner": "speaker",
+            "owner_mentions": []
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "assignees": [
+          "U_SENDER"
+        ]
+      }
     }
   ]
 }

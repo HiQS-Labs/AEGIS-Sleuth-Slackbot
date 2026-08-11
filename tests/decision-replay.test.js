@@ -161,6 +161,36 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual([]);
   });
 
+  test('GH-43 Phase 1B: the never-invent-users guard is real, not just a prompt instruction', async () => {
+    const Battery = require(BatteryPath);
+    const Ownership = require('../src/reminder-ownership');
+    const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
+
+    // shipped behavior: a fabricated id reaches neither path.
+    expect(ById['S-17'].status).toBe('PASS');
+    expect(ById['S-17'].observed.candidates[0].assigneeID).toBeNull();
+    expect(ById['S-18'].status).toBe('PASS');
+    expect(ById['S-18'].observed.ownership.assignees).toEqual(['U_ALPHA']);
+    expect(ById['S-18'].observed.ownership.resolvedFrom).toBe('analyzer-mentioned');
+
+    // and the ambiguous case the deterministic rules could not reach is now resolved.
+    expect(ById['S-19'].observed.ownership.assignees).toEqual(['U_SENDER']);
+    expect(ById['S-19'].observed.ownership.resolvedFrom).toBe('analyzer-speaker');
+
+    // PERTURBATION: make the guard fail open, exactly as an un-enforced prompt rule would behave.
+    const Original = Ownership.ConstrainAssigneeToParticipants;
+    Ownership.ConstrainAssigneeToParticipants = (/** @type {any} */ ArgProposed) =>
+      ({ assigneeID: ArgProposed || null, wasRejected: false });
+    try {
+      const Failed = (await RunAllAsync(Battery.scenarios))
+        .filter(ArgR => ArgR.status === 'FAIL');
+      expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-17']);
+      expect(Failed[0].error).toMatch(/INVENTED USER U_GHOST/);
+    } finally {
+      Ownership.ConstrainAssigneeToParticipants = Original;
+    }
+  });
+
   test('GH-43 Phase 1A CLOSED the ownership defect — S-01 now belongs to its author', () => {
     const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
 
@@ -193,6 +223,23 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     const Battery = require(BatteryPath);
     const Again = await RunAllAsync(Battery.scenarios);
     expect(SerializeCanonical(Again)).toBe(SerializeCanonical(Rows));
+  });
+
+  test('a replay never mutates the fixture it replays', async () => {
+    // Found while building the Phase 1B adversarial gate. The pipeline legitimately writes back to
+    // the object a model returns (ExtractMultiTaskCandidatesAsync overwrites a rejected assigneeID
+    // in place), and the harness was handing out the fixture BY REFERENCE — so the first run scrubbed
+    // U_GHOST out of the require-cached scenario and every later run in that process replayed a
+    // response the file never contained. The determinism test above could not see it, because the
+    // corruption is idempotent: run 2 and run 3 agree with each other, just not with the fixture.
+    const Battery = require(BatteryPath);
+    const Adversarial = Battery.scenarios.find((/** @type {any} */ ArgS) => ArgS.id === 'S-17');
+    const Before = JSON.stringify(Adversarial.recordedResponse);
+
+    await RunAllAsync(Battery.scenarios);
+
+    expect(JSON.stringify(Adversarial.recordedResponse)).toBe(Before);
+    expect(Adversarial.recordedResponse.candidates[0].assigneeID).toBe('U_GHOST');
   });
 });
 

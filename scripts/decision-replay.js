@@ -116,6 +116,14 @@ function PrintUsage() {
 /**
  * A WorkspaceAI double that replays one recorded response. Fails loudly if the pipeline tries to
  * make a call the scenario did not record, so a silent live-model fallback can never happen.
+ *
+ * **The response is deep-cloned on every call, and that is load bearing.** The pipeline legitimately
+ * mutates what a model hands back — `ExtractMultiTaskCandidatesAsync` overwrites `assigneeID` in
+ * place when the intersection guard rejects it. Handing out the fixture object by reference meant the
+ * FIRST replay rewrote the scenario's own `recordedResponse` inside the require cache, so a second
+ * run in the same process replayed a response the fixture file never contained. That silently
+ * defeated the adversarial scenarios: run once, `U_GHOST` was scrubbed from the fixture, and a
+ * deliberately broken guard then had nothing left to leak.
  * @param {any} ArgRecorded
  * @returns {any}
  */
@@ -130,7 +138,7 @@ function MakeReplayWorkspaceAI(ArgRecorded) {
         // date extraction et al. are not part of this comparison; only the first decision is.
         throw new Error('decision-replay: unexpected second model call in a replayed scenario');
       }
-      return ArgRecorded;
+      return ArgRecorded === undefined ? ArgRecorded : JSON.parse(JSON.stringify(ArgRecorded));
     },
   };
 }
@@ -194,8 +202,12 @@ async function RunScenarioAsync(ArgScenario) {
     const MentionedIDs = DecisionExplain.ExtractMentionIDs(MessageText);
     const GroupActionable = Analysis.reminders
       .map((/** @type {any} */ ArgR) => ArgR.actionable_language || '').join(' ').trim();
+    // GH-43 Phase 1B: the analyzer's `owner` verdict, collapsed exactly as the write path does it.
+    // Omitting it here would make the harness measure a resolution production no longer performs.
+    const GroupOwner = ReminderOwnership.ReduceGroupOwner(Analysis.reminders);
     const Ownership = ReminderOwnership.ResolveAssignees({
       MessageText, ActionableLanguage: GroupActionable, MentionedIDs, SenderID,
+      AnalyzerOwner: GroupOwner.owner, AnalyzerOwnerMentions: GroupOwner.ownerMentions,
     });
     const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [SenderID];
 
@@ -288,6 +300,24 @@ function CheckExpectations(ArgScenario, ArgObserved) {
   if(typeof Expected.synthesisOn === 'boolean' && ArgObserved.routing
      && ArgObserved.routing.synthesisOn !== Expected.synthesisOn) {
     Reasons.push(`synthesisOn ${ArgObserved.routing.synthesisOn} != ${Expected.synthesisOn}`);
+  }
+
+  // GH-43 Phase 1B — the "never invent users" guarantee, checkable on the thread path.
+  if(Array.isArray(Expected.candidateAssignees) && Array.isArray(ArgObserved.candidates)) {
+    const Got = ArgObserved.candidates.map((/** @type {any} */ ArgC) => ArgC.assigneeID);
+    const Want = Expected.candidateAssignees;
+    if(JSON.stringify(Got) !== JSON.stringify(Want))
+      Reasons.push(`candidate assignees ${JSON.stringify(Got)} != ${JSON.stringify(Want)}`);
+  }
+  // stated separately from the above so an adversarial scenario says WHY it failed: a fabricated id
+  // reaching a persisted reminder is a different bug than an assignee simply being wrong.
+  for(const Ghost of (Expected.assigneesNeverInclude || [])) {
+    const Everywhere = []
+      .concat(ArgObserved.ownership ? ArgObserved.ownership.assignees : [])
+      .concat(ArgObserved.ownership ? ArgObserved.ownership.notify : [])
+      .concat((ArgObserved.candidates || []).map((/** @type {any} */ ArgC) => ArgC.assigneeID));
+    if(Everywhere.includes(Ghost))
+      Reasons.push(`INVENTED USER ${Ghost} reached the reminder — the intersection guard did not hold`);
   }
 
   return Reasons;

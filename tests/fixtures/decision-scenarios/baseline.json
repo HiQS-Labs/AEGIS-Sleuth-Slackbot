@@ -402,5 +402,74 @@
     "triggers": [
       "tomorrow morning"
     ]
+  },
+  "S-17": {
+    "candidates": [
+      {
+        "assigneeID": null,
+        "confidence": "high",
+        "deadline": "tomorrow morning",
+        "flag": null,
+        "title": "rotate the staging certs"
+      }
+    ],
+    "decision": "multi-task-extraction"
+  },
+  "S-18": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "<@U_ALPHA> the staging cert rotation is tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "notify": [],
+      "resolvedFrom": "analyzer-mentioned",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.45,
+      "messageLength": 56,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-19": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [
+        "U_ALPHA",
+        "U_BETA"
+      ],
+      "resolvedFrom": "analyzer-speaker",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.47,
+      "messageLength": 72,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
   }
 }

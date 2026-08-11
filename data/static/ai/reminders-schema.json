@@ -29,12 +29,24 @@
             "reminder_message": {
               "type": "string",
               "description": "The task reminder text. IMPORTANT: If the original message contains text enclosed in quotes (single or double), use that quoted text verbatim as the reminder_message, including the quote marks. Do not summarize or shorten quoted text."
+            },
+            "owner": {
+              "type": "string",
+              "enum": ["speaker", "mentioned", "unclear"],
+              "description": "Who is going to DO this task, judged from the grammatical subject of the actionable language. 'speaker' when the message author commits to it themselves ('I will…', 'i am going to…'). 'mentioned' when the author asks one or more @-mentioned people to do it ('@alpha can you…', '@alpha @beta please…'). 'unclear' when the actionable language names no subject. Being @-mentioned at the START of a message is being ADDRESSED, not assigned — that alone is never 'mentioned'."
+            },
+            "owner_mentions": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Slack user IDs of the people being asked to do this task. Populate ONLY when owner is 'mentioned', and only with IDs that appear verbatim as <@U…> in the source message, scoped to the clause carrying the commitment. Empty array otherwise. Never invent a user ID."
             }
           },
           "required": [
             "actionable_language",
             "scheduling_trigger",
-            "reminder_message"
+            "reminder_message",
+            "owner",
+            "owner_mentions"
           ],
           "additionalProperties": false
         },

@@ -39,6 +39,12 @@ const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./r
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.
  * @property {string} scheduling_trigger Verbatim quotation of the trigger associated with the actionable language.
  * @property {string} reminder_message Brief reminder of the actionable task that a user should perform.
+ * @property {'speaker'|'mentioned'|'unclear'} [owner] GH-43 Phase 1B: who the analyzer judged is going
+ * to DO this task, from the grammatical subject of the actionable language. Optional because recorded
+ * responses and older captures predate the field.
+ * @property {string[]} [owner_mentions] Slack user IDs the analyzer says were asked to do it.
+ * Populated only when `owner` is `mentioned`, and always intersected with the mentions actually
+ * present in the source before use — the model may narrow the set, never extend it.
  */
 
 /**
@@ -1736,16 +1742,22 @@ class RemindersModule {
         .map(ArgCandidate => ArgCandidate.actionable_language || '')
         .join(' ')
         .trim();
+      // GH-43 Phase 1B: the analyzer's own per-candidate `owner` verdict, collapsed across this
+      // trigger group. It only gets consulted when the grammar is ambiguous — see ResolveAssignees.
+      const GroupOwner = ReminderOwnership.ReduceGroupOwner(CurrentReminders);
       const Ownership = ReminderOwnership.ResolveAssignees({
         MessageText: DisplaySourceMessageText,
         ActionableLanguage: GroupActionableLanguage,
         MentionedIDs: ExtractedAssigneeIDs,
         SenderID: ArgUserID,
+        AnalyzerOwner: GroupOwner.owner,
+        AnalyzerOwnerMentions: GroupOwner.ownerMentions,
       });
       const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [ArgUserID];
       ArgSlackApp.Logger.info(
         `reminder ownership: resolved_by=${Ownership.resolvedBy} assignees=${AssigneeIDs.length}` +
-        ` mentions=${ExtractedAssigneeIDs.length} notify=${Ownership.notifyIDs.length}`
+        ` mentions=${ExtractedAssigneeIDs.length} notify=${Ownership.notifyIDs.length}` +
+        ` analyzer_owner=${GroupOwner.owner || 'none'}`
       );
 
       // get channel name while we have access (bot received the message, so it should have access)
