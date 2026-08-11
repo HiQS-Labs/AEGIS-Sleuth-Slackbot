@@ -30,7 +30,9 @@ const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
 const { ResetAssetCache } = require('../src/ai-decision');
 const DecisionExplain = require('../src/decision-explain');
 const ReminderOwnership = require('../src/reminder-ownership');
-const TaskGrounding = require('../src/task-grounding');
+// NOTE: this file deliberately does NOT import task-grounding directly. Calling it here is what let
+// the harness hold its own copy of the display rule and report a bullet production would not render.
+// Everything display-related goes through reminder-display-selection, which production also calls.
 const ReminderDisplaySelection = require('../src/reminder-display-selection');
 
 const DefaultScenariosPath = path.join(
