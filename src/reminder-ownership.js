@@ -349,6 +349,32 @@ function ReduceGroupOwner(ArgCandidates) {
 }
 
 /**
+ * Group analyzer candidates by their scheduling trigger — **the boundary at which ownership is
+ * decided**, because one trigger group becomes one reminder with one assignee set.
+ *
+ * Shared so scheduling and the `:wrench:` triage cannot disagree about what a "group" is. They did:
+ * scheduling resolved each trigger independently while triage concatenated every trigger's actionable
+ * span into one resolver call, so a message with `tomorrow`/"I will deploy" and `friday`/"please
+ * review" scheduled correctly as two reminders (`U_SENDER`, then `U_ALPHA`) while triage confidently
+ * explained the whole thing as `U_ALPHA` / `second-person-ask`. Patching the warning that was supposed
+ * to catch that only treated the symptom; this is the cause. (Codex, branch relay round 9.)
+ * @param {Array<{scheduling_trigger?: string}>} ArgCandidates
+ * @returns {Array<{trigger: string, candidates: any[]}>} groups in first-seen order.
+ */
+function GroupCandidatesByTrigger(ArgCandidates) {
+  /** @type {Map<string, any[]>} */
+  const ByTrigger = new Map();
+  for(const Candidate of (Array.isArray(ArgCandidates) ? ArgCandidates : [])) {
+    const Trigger = (Candidate && Candidate.scheduling_trigger) || '';
+    if(!ByTrigger.has(Trigger)) ByTrigger.set(Trigger, []);
+    /** @type {any[]} */ (ByTrigger.get(Trigger)).push(Candidate);
+  }
+  return [...ByTrigger.entries()].map(([ArgTrigger, ArgGroup]) => ({
+    trigger: ArgTrigger, candidates: ArgGroup,
+  }));
+}
+
+/**
  * Distinct, decided owner verdicts among a trigger group's candidates.
  *
  * One trigger group becomes ONE reminder with ONE assignee set, so a message that commits the author
@@ -399,6 +425,7 @@ module.exports = {
   ResolveAssignees,
   ConstrainAssigneeToParticipants,
   ReduceGroupOwner,
+  GroupCandidatesByTrigger,
   FindOwnerDisagreement,
   StripQuotedRegions,
   IsSpanInsideQuotedSpeech,

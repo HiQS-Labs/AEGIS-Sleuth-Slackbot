@@ -1690,15 +1690,13 @@ class RemindersModule {
     // exit early if there are no reminders to schedule. This should not happen unless the GPT model is broken.
     if(AnalysisResult.reminders.length === 0) return false;
 
-    // group reminders by their scheduling trigger so we can schedule them together.
+    // Group reminders by their scheduling trigger so we can schedule them together. The grouping
+    // rule is shared with the :wrench: triage (GH-43) — a trigger group is the boundary at which
+    // ownership is decided, and the two paths disagreeing about what a group is produced a triage
+    // that confidently explained a rule the reminders had not followed.
     const RemindersByTrigger = /** @type {Record<string, GptReminderInfo[]>} */ ({});
-    for(const CurrentReminderInfo of AnalysisResult.reminders) {
-      // initialize the array for the current trigger if it doesn't exist.
-      if(!RemindersByTrigger[CurrentReminderInfo.scheduling_trigger])
-        RemindersByTrigger[CurrentReminderInfo.scheduling_trigger] = [];
-
-      // add the reminder to the array for the current trigger.
-      RemindersByTrigger[CurrentReminderInfo.scheduling_trigger].push(CurrentReminderInfo);
+    for(const Group of ReminderOwnership.GroupCandidatesByTrigger(AnalysisResult.reminders)) {
+      RemindersByTrigger[Group.trigger] = Group.candidates;
     }
 
     // track successfully scheduled reminders for display in the feedback message.
@@ -2026,52 +2024,64 @@ class RemindersModule {
     // REAL resolver rather than re-implementing the old mention-scraping rule, so the triage view and
     // the scheduling path cannot drift apart — a triage that explains a rule the pipeline no longer
     // follows is worse than no triage at all.
+    // RESOLVED PER TRIGGER GROUP, exactly as scheduling does it (GH-43, Codex branch relay r9).
+    // This used to concatenate every trigger's actionable span into ONE resolver call, so a message
+    // with `tomorrow`/"I will deploy" and `friday`/"@alpha please review" scheduled correctly as two
+    // reminders — U_SENDER, then U_ALPHA — while the triage explained the whole thing as U_ALPHA /
+    // second-person-ask. Patching the mixed-owner warning treated the symptom; grouping here is the
+    // cause, and it removes the divergence rather than annotating it.
     const TriageSenderID = OriginalMessage.user || '';
     const TriageMentionedIDs = this.#ExtractAssigneeIDsFromReminderText(OriginalText);
-    const TriageActionableLanguage = TriageResult.analysis.reminders
-      .map(ArgCandidate => ArgCandidate.actionable_language || '')
-      .join(' ')
-      .trim();
-    // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver
-    // different inputs than the scheduling path does is the same drift this section claims to
-    // prevent, just one level down — without these two fields an ambiguous addressed message whose
-    // analyzer said `owner: speaker` schedules as `analyzer-speaker` while :wrench: reports
-    // `mentions`, so the triage would confidently explain a rule the reminder did not follow.
-    // (Caught by Codex in the branch relay.)
-    const TriageGroupOwner = ReminderOwnership.ReduceGroupOwner(TriageResult.analysis.reminders);
-    const TriageOwnership = ReminderOwnership.ResolveAssignees({
-      MessageText: RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText),
-      ActionableLanguage: TriageActionableLanguage,
-      MentionedIDs: TriageMentionedIDs,
-      SenderID: TriageSenderID,
-      AnalyzerOwner: TriageGroupOwner.owner,
-      AnalyzerOwnerMentions: TriageGroupOwner.ownerMentions,
-    });
-    const TriageAssigneeIDs = TriageOwnership.assigneeIDs.length > 0
-      ? TriageOwnership.assigneeIDs
-      : [TriageSenderID].filter(Boolean);
-    FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
-      'How ownership resolved',
-      DecisionExplain.DescribeAssigneeResolution(
-        TriageMentionedIDs, TriageAssigneeIDs, TriageSenderID,
-        { ResolvedBy: TriageOwnership.resolvedBy, NotifyIDs: TriageOwnership.notifyIDs },
-      ),
-    ));
+    const TriageNormalizedText = RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText);
+    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageResult.analysis.reminders);
 
-    // GH-43 known limitation, surfaced where a human is actually looking. The scheduling path logs
-    // this server-side; without the same line here, somebody debugging a wrong assignee sees a
-    // confident single `resolvedBy` and no hint that two candidates disagreed. Same helper both
-    // sides, so the triage cannot describe a rule the reminder did not follow.
-    // (Caught by Codex, branch relay round 7.)
-    const TriageOwnerDisagreement = ReminderOwnership.FindOwnerDisagreement(TriageResult.analysis.reminders);
-    if(TriageOwnerDisagreement.length > 0) {
-      FeedbackLines.push(
-        `• :warning: This message mixes ${TriageOwnerDisagreement.length} different owners ` +
-        `(${SlackFormatUtils.SanitizeForInlineSlack(TriageOwnerDisagreement.join(', '))}) under one ` +
-        'scheduling trigger. One trigger produces one reminder with one assignee set, so they were ' +
-        'collapsed — this is a known limitation, not a misread. Split the asks into separate ' +
-        'messages, or use whole-thread extraction, which assigns each task independently.'
-      );
+    for(const Group of TriageGroups) {
+      // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver
+      // different inputs than the scheduling path does is the same drift this section exists to
+      // prevent, one level down.
+      const GroupOwnerVerdict = ReminderOwnership.ReduceGroupOwner(Group.candidates);
+      const GroupOwnership = ReminderOwnership.ResolveAssignees({
+        MessageText: TriageNormalizedText,
+        ActionableLanguage: Group.candidates
+          .map((/** @type {any} */ ArgCandidate) => ArgCandidate.actionable_language || '')
+          .join(' ')
+          .trim(),
+        MentionedIDs: TriageMentionedIDs,
+        SenderID: TriageSenderID,
+        AnalyzerOwner: GroupOwnerVerdict.owner,
+        AnalyzerOwnerMentions: GroupOwnerVerdict.ownerMentions,
+      });
+      const GroupAssigneeIDs = GroupOwnership.assigneeIDs.length > 0
+        ? GroupOwnership.assigneeIDs
+        : [TriageSenderID].filter(Boolean);
+
+      // labelled by trigger only when there is more than one, so the common single-trigger case
+      // reads exactly as it did before.
+      const SectionTitle = TriageGroups.length > 1
+        ? `How ownership resolved — "${SlackFormatUtils.SanitizeForInlineSlack(Group.trigger)}"`
+        : 'How ownership resolved';
+      FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+        SectionTitle,
+        DecisionExplain.DescribeAssigneeResolution(
+          TriageMentionedIDs, GroupAssigneeIDs, TriageSenderID,
+          { ResolvedBy: GroupOwnership.resolvedBy, NotifyIDs: GroupOwnership.notifyIDs },
+        ),
+      ));
+
+      // The one shape grouping genuinely cannot fix: candidates that disagree about the owner WITHIN
+      // a single trigger. One trigger is one reminder with one assignee set, so they get collapsed.
+      // Surfaced here rather than only in the server log, so somebody debugging a wrong assignee sees
+      // the limitation instead of a confident single `resolvedBy`. (Codex r7; scoped per-trigger r8.)
+      const GroupDisagreement = ReminderOwnership.FindOwnerDisagreement(Group.candidates);
+      if(GroupDisagreement.length > 0) {
+        FeedbackLines.push(
+          `• :warning: This trigger mixes ${GroupDisagreement.length} different owners ` +
+          `(${SlackFormatUtils.SanitizeForInlineSlack(GroupDisagreement.join(', '))}). One trigger ` +
+          'produces one reminder with one assignee set, so they were collapsed — a known limitation, ' +
+          'not a misread. Split the asks into separate messages, or use whole-thread extraction, ' +
+          'which assigns each task independently.'
+        );
+      }
     }
 
     if(TriageResult.analysis.reminders.length === 0) {
