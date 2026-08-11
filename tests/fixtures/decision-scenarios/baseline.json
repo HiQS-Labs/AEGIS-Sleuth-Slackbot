@@ -2,6 +2,9 @@
   "S-01": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      "the scan only ever saw a small fixed batch of photos"
+    ],
     "displayedTasks": [
       "deploy the changes"
     ],
@@ -44,6 +47,9 @@
   "S-03": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "I'll deploy the changes tomorrow morning."
     ],
@@ -90,6 +96,9 @@
   "S-05": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "<@U_ALPHA> found the root cause in the cron job. I'll patch it tomorrow morning."
     ],
@@ -119,6 +128,9 @@
   "S-06": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "<@U_ALPHA> <@U_BETA> can you both test the new release tomorrow morning?"
     ],
@@ -147,6 +159,9 @@
   "S-07": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Ship the billing-sync retry patch"
     ],
@@ -174,6 +189,9 @@
   "S-08": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Deploy the hotfix tomorrow morning."
     ],
@@ -201,6 +219,9 @@
   "S-09": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Merge and deploy the connection-pool leak fix"
     ],
@@ -228,6 +249,7 @@
   "S-10": {
     "candidateCount": 0,
     "decision": "reminder-analysis",
+    "displayedContext": [],
     "displayedTasks": [],
     "ownership": {
       "assignees": [
@@ -251,6 +273,9 @@
   "S-11": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "I need to work on \"On-going Project: Yard Photo Backfill\" tomorrow morning."
     ],
@@ -278,6 +303,9 @@
   "S-12": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      "the nightly export was writing to the old bucket after the migration"
+    ],
     "displayedTasks": [
       "Roll out the export bucket config fix"
     ],
@@ -305,6 +333,9 @@
   "S-13": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Can you please review the Development branch and if it's safe push to Production this morning?"
     ],
@@ -332,6 +363,7 @@
   "S-14": {
     "candidateCount": 0,
     "decision": "reminder-analysis",
+    "displayedContext": [],
     "displayedTasks": [],
     "ownership": {
       "assignees": [
@@ -356,6 +388,7 @@
   "S-15": {
     "candidateCount": 0,
     "decision": "reminder-analysis",
+    "displayedContext": [],
     "displayedTasks": [],
     "ownership": {
       "assignees": [
@@ -379,6 +412,9 @@
   "S-16": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Push the warehouse-sync connector config change"
     ],
@@ -418,6 +454,9 @@
   "S-18": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "<@U_ALPHA> the staging cert rotation is tomorrow morning"
     ],
@@ -445,6 +484,9 @@
   "S-19": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning"
     ],
@@ -467,6 +509,36 @@
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-20": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "i will push that fix"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.07,
+      "messageLength": 268,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
+      "sentenceCount": 3,
+      "synthesisOn": true
     },
     "triggers": [
       "tomorrow morning"

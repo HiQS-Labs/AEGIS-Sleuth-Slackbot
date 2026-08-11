@@ -30,6 +30,7 @@ const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
 const { ResetAssetCache } = require('../src/ai-decision');
 const DecisionExplain = require('../src/decision-explain');
 const ReminderOwnership = require('../src/reminder-ownership');
+const TaskGrounding = require('../src/task-grounding');
 
 const DefaultScenariosPath = path.join(
   __dirname, '..', 'tests', 'fixtures', 'decision-scenarios', 'reminder-extraction-battery.json',
@@ -213,10 +214,32 @@ async function RunScenarioAsync(ArgScenario) {
 
     // The displayed bullet, as #SelectReminderTaskText would choose it. This is what makes the
     // verbatim-dump defect observable to the harness instead of invisible behind the raw candidate.
+    //
+    // GH-43 Phase 3: the grounding constraint is applied here too. Leaving it out would let the
+    // harness report a hallucinated title as the displayed task when production would have rejected
+    // it — the harness would measure a reminder no user could ever receive.
+    const NormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(MessageText);
+    /**
+     * @param {any} ArgReminder
+     * @returns {string} the title after grounding, or '' when it was rejected.
+     */
+    const GroundedTitle = (ArgReminder) => {
+      const Title = (ArgReminder.reminder_message || '').trim();
+      if(!Title) return '';
+      const Source = `${NormalizedOriginal} ${(ArgReminder.actionable_language || '').trim()}`;
+      return TaskGrounding.UngroundedTerms(Title, Source).length > 0 ? '' : Title;
+    };
     const DisplayedTasks = Analysis.reminders.map((/** @type {any} */ ArgR) =>
       Routing.synthesisOn
-        ? (ArgR.reminder_message || ArgR.actionable_language || '')
-        : RemindersAIPipeline.NormalizeOriginalReminderText(MessageText));
+        ? (GroundedTitle(ArgR) || ArgR.actionable_language || '')
+        : NormalizedOriginal);
+    // the subordinate context line, suppressed the same three ways production suppresses it.
+    const DisplayedContext = Analysis.reminders.map((/** @type {any} */ ArgR) => {
+      const Context = (ArgR.context || '').trim();
+      if(!Context || !Routing.synthesisOn) return '';
+      const Source = `${NormalizedOriginal} ${(ArgR.actionable_language || '').trim()}`;
+      return TaskGrounding.UngroundedTerms(Context, Source).length > 0 ? '' : Context;
+    });
 
     return {
       id: Id,
@@ -226,6 +249,7 @@ async function RunScenarioAsync(ArgScenario) {
         recommendation: Analysis.recommendation,
         candidateCount: Analysis.reminders.length,
         displayedTasks: DisplayedTasks,
+        displayedContext: DisplayedContext,
         triggers: Analysis.reminders.map((/** @type {any} */ ArgR) => ArgR.scheduling_trigger),
         ownership: {
           assignees: AssigneeIDs,
@@ -300,6 +324,26 @@ function CheckExpectations(ArgScenario, ArgObserved) {
   if(typeof Expected.synthesisOn === 'boolean' && ArgObserved.routing
      && ArgObserved.routing.synthesisOn !== Expected.synthesisOn) {
     Reasons.push(`synthesisOn ${ArgObserved.routing.synthesisOn} != ${Expected.synthesisOn}`);
+  }
+
+  // GH-43 Phase 3 — the task/context split and the grounding constraint.
+  const Contexts = ArgObserved.displayedContext || [];
+  for(const Needle of (Expected.contextContains || [])) {
+    if(!Contexts.join(' | ').toLowerCase().includes(String(Needle).toLowerCase()))
+      Reasons.push(`context missing ${JSON.stringify(Needle)}`);
+  }
+  if(Expected.contextEmpty === true && Contexts.some((/** @type {string} */ ArgC) => ArgC))
+    Reasons.push(`expected no context line, got ${JSON.stringify(Contexts.filter(Boolean))}`);
+  // the context must never restate the task — that is the defect this phase exists to fix.
+  if(Expected.contextDistinctFromTask === true) {
+    Contexts.forEach((/** @type {string} */ ArgC, /** @type {number} */ ArgI) => {
+      if(ArgC && ArgC.trim() === (Tasks[ArgI] || '').trim())
+        Reasons.push('context is a verbatim copy of the task');
+    });
+  }
+  for(const Ghost of (Expected.displayNeverIncludes || [])) {
+    if(`${Joined} ${Contexts.join(' | ')}`.toLowerCase().includes(String(Ghost).toLowerCase()))
+      Reasons.push(`UNGROUNDED TERM ${JSON.stringify(Ghost)} reached the display — the grounding constraint did not hold`);
   }
 
   // GH-43 Phase 1B — the "never invent users" guarantee, checkable on the thread path.

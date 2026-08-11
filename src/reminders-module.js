@@ -11,6 +11,7 @@ const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
 const DecisionExplain = require('./decision-explain');
 const ReminderOwnership = require('./reminder-ownership');
+const TaskGrounding = require('./task-grounding');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -39,6 +40,9 @@ const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./r
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.
  * @property {string} scheduling_trigger Verbatim quotation of the trigger associated with the actionable language.
  * @property {string} reminder_message Brief reminder of the actionable task that a user should perform.
+ * @property {string} [context] GH-43 Phase 3: one short line of WHY this task matters, drawn from the
+ * surrounding message. Rendered subordinately beneath the task bullet, never fused into it. Optional
+ * because recorded responses and older captures predate the field.
  * @property {'speaker'|'mentioned'|'unclear'} [owner] GH-43 Phase 1B: who the analyzer judged is going
  * to DO this task, from the grammatical subject of the actionable language. Optional because recorded
  * responses and older captures predate the field.
@@ -92,6 +96,7 @@ const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./r
  * @property {boolean} IgnoreSnooze        Post on snoozed days when true.
  * @property {string|null} [AssigneeID]    Deprecated compatibility mirror of the first AssigneeIDs entry. Retained for older readers.
  * @property {string[]} [AssigneeIDs]      Authoritative ordered, de-duplicated human Slack user IDs assigned to this shared reminder.
+ * @property {string[]} [NotifyIDs]        GH-43 Phase 3: people the message was ADDRESSED to who did not take the work — interested parties, never owners. Disjoint from AssigneeIDs by construction. Absent on records written before this phase, which is indistinguishable from "nobody to notify" and safe: nothing keys off it. Never used for assignment, completion, or any lifecycle decision (backwards compatible).
  * @property {string[]|null} [GitHubUrls]  GitHub issue or PR URLs extracted from the original message (backwards compatible).
  * @property {boolean} [GitHubRelayStopped] When true, no further Slack thread messages will be relayed to linked GitHub issues (backwards compatible).
  * @property {boolean} [GitHubRelayStarted] When true, at least one message has already been relayed; the first relay includes the Slack thread permalink (backwards compatible).
@@ -741,6 +746,15 @@ class RemindersModule {
       text: Reminder.ReminderMessageText || null,
       assigneeId: Reminder.AssigneeID || null,
       assigneeIds: Reminder.AssigneeIDs,
+      // GH-43 Phase 3. Additive and non-authoritative; an older reader ignoring the key sees exactly
+      // the reminder it would have seen before this phase.
+      //
+      // EMITTED ONLY WHEN THE REMINDER ACTUALLY HAS IT, and that conditional is load bearing for
+      // projection parity. The list-row creation path (#CreateReminderFromListRow) never sets
+      // NotifyIDs, so its JSON record has no such key; emitting `notifyIds: []` there anyway would
+      // make the fold rehydrate `NotifyIDs: []` and the projected reminder would carry a key the
+      // authoritative store does not. Absent has to stay absent on both sides.
+      ...(Array.isArray(Reminder.NotifyIDs) ? { notifyIds: Reminder.NotifyIDs } : {}),
       sourceChannelId: Reminder.OriginalChannelID || Reminder.TargetChannelID || null,
       targetChannelId: Reminder.TargetChannelID || null,
       source: 'fsm',
@@ -1723,7 +1737,13 @@ class RemindersModule {
       // append bulleted list of key tasks to the reminder message. NOTE: the reminder messages shown here were
       // extracted by the GPT model and are not the same as the message text sent by the user.
       NewReminderMessageText = CurrentReminders.reduce((ArgAccumulatedText, ArgCurrentReminder) => {
-        return ArgAccumulatedText + `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn)}`;
+        const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn)}`;
+        // GH-43 Phase 3: context renders SUBORDINATELY on its own indented italic line, never inline
+        // in the bullet. Fusing the two is the second defect from the report — the root-cause
+        // paragraph and the commitment sharing one string. The full original stays in the blockquote
+        // above, so the bullet is free to be short and the context is free to be optional.
+        return ArgAccumulatedText + TaskLine
+          + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn);
       }, NewReminderMessageText + "\n\nKey task(s):");
 
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
@@ -1775,6 +1795,10 @@ class RemindersModule {
         ReminderMessageText: NewReminderMessageText,
         AssigneeID: AssigneeIDs[0],
         AssigneeIDs: AssigneeIDs,
+        // GH-43 Phase 3: the addressees of a first-person commitment. Before this they were computed
+        // and thrown away, so "@a @b … i'll deploy tomorrow" lost every trace that @a and @b were
+        // told. Persisted as a record of intent only — see the ReminderInfo typedef.
+        NotifyIDs: Ownership.notifyIDs.filter(ArgID => !AssigneeIDs.includes(ArgID)),
         GitHubUrls: GitHubUrls.length > 0 ? GitHubUrls : null,
       });
 
@@ -2070,8 +2094,25 @@ class RemindersModule {
 
     // synthesis path: reuse the analyzer's brief, with a deterministic quality fallback to the quoted
     // actionable span when the brief looks suspiciously over-compressed relative to that span.
-    const ReminderMessage = ArgReminderInfo.reminder_message?.trim() || '';
+    const RawReminderMessage = ArgReminderInfo.reminder_message?.trim() || '';
     const ActionableLanguage = ArgReminderInfo.actionable_language?.trim() || '';
+
+    // GH-43 Phase 3 — THE GROUNDING CONSTRAINT. Synthesis is only safe because the title is checked
+    // against the source before it is shown: the model may re-word freely, but every entity,
+    // identifier, and number it names must already appear in the message. A title that invents one is
+    // discarded here and the quoted span is shown instead — a clumsier reminder beats a confidently
+    // wrong one. The evidence span itself is never rewritten; that guarantee is untouched.
+    const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage}`;
+    const UngroundedInTitle = RawReminderMessage
+      ? TaskGrounding.UngroundedTerms(RawReminderMessage, GroundingSource)
+      : [];
+    if(UngroundedInTitle.length > 0) {
+      this.#SlackApp.Logger.warn(
+        `discarding an ungrounded reminder title: it names ${UngroundedInTitle.length} term(s) absent ` +
+        `from the source message. Falling back to the quoted actionable span.`
+      );
+    }
+    const ReminderMessage = UngroundedInTitle.length > 0 ? '' : RawReminderMessage;
     const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
     const IsLikelyOverCompressed = ReminderWordCount <= 3 && ActionableLanguage.length > (ReminderMessage.length + 12);
 
@@ -2080,6 +2121,47 @@ class RemindersModule {
       : (ReminderMessage || ActionableLanguage || NormalizedOriginal || 'Task not specified');
 
     return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(TaskText);
+  }
+
+  /**
+   * The subordinate context line rendered beneath a task bullet, or `''` when there is none
+   * (GH-43 Phase 3).
+   *
+   * Returns a leading `\n` so callers can concatenate unconditionally — the empty string is the
+   * common case and must add nothing at all, not a blank line.
+   *
+   * Three things suppress it, each for its own reason:
+   *  - **synthesis off** — the bullet is already the whole verbatim message, so a context line would
+   *    restate text the reader is looking at.
+   *  - **ungrounded** — the same constraint that governs the title. Context is prose *about* the
+   *    message and is exactly where an invented detail would be most plausible and least checkable.
+   *  - **redundant with the task** — a model that echoes the title as context adds noise.
+   * @param {GptReminderInfo} ArgReminderInfo Reminder candidate from the AI analyzer.
+   * @param {string} [ArgNormalizedOriginalText] Normalized original message text.
+   * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message.
+   * @returns {string} `'\n  _<context>_'`, or `''`.
+   */
+  #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+    const Context = ArgReminderInfo.context?.trim() || '';
+    if(!Context) return '';
+
+    const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
+    const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
+      ? ArgSynthesisOn
+      : RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal);
+    if(NormalizedOriginal && !SynthesisOn) return '';
+
+    const ActionableLanguage = ArgReminderInfo.actionable_language?.trim() || '';
+    if(TaskGrounding.UngroundedTerms(Context, `${NormalizedOriginal} ${ActionableLanguage}`).length > 0) {
+      this.#SlackApp.Logger.warn('discarding an ungrounded reminder context line.');
+      return '';
+    }
+
+    // a context line that merely restates the task is noise.
+    const TaskText = this.#SelectReminderTaskText(ArgReminderInfo, NormalizedOriginal, SynthesisOn);
+    if(TaskGrounding.NormalizeForGrounding(Context) === TaskGrounding.NormalizeForGrounding(TaskText)) return '';
+
+    return `\n  _${SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Context)}_`;
   }
 
   /**
@@ -2110,6 +2192,15 @@ class RemindersModule {
     // (or none, falling back to the sender) must stay byte-identical to the pre-GH-22 wording.
     const SharedWorkText = TargetUsers.length > 1 ? ' as shared work' : '';
     let FeedbackMessage = `${ReminderCountText} been scheduled${SharedWorkText} for ${TargetUsersText}.`;
+
+    // GH-43 Phase 3: people the message was addressed to who did not take the work. Before this they
+    // were either assigned the task outright (the reported defect) or dropped without trace. Naming
+    // them here — as recipients, not owners — is what makes "@a @b … i'll deploy tomorrow" render
+    // honestly: assigned to the author, and @a and @b were told.
+    const NotifyUsers = (Array.isArray(FirstReminder?.NotifyIDs) ? FirstReminder.NotifyIDs : [])
+      .filter((/** @type {string} */ ArgID) => ArgID && ArgID !== this.#SlackApp.BotUserID && !TargetUsers.includes(ArgID));
+    if(NotifyUsers.length > 0)
+      FeedbackMessage += ` ${NotifyUsers.map((/** @type {string} */ ArgID) => `<@${ArgID}>`).join(', ')} ${NotifyUsers.length === 1 ? 'was' : 'were'} also mentioned and will be kept in the loop.`;
     const GitHubMonitoringFeedback = RemindersModule.BuildGitHubMonitoringFeedback(ArgScheduledReminders);
     if(GitHubMonitoringFeedback)
       FeedbackMessage += `\n${GitHubMonitoringFeedback}`;

@@ -376,6 +376,10 @@ function MakeReminder(ArgReminderId, ArgEvent) {
     IgnoreSnooze: Boolean(Payload.ignoreSnooze),
     AssigneeID: GetStringOrNull(Payload.assigneeId),
     AssigneeIDs: GetStrings(Payload.assigneeIds),
+    // GH-43 Phase 3. Rehydrated only when the event actually recorded it: emitting `NotifyIDs: []`
+    // for every pre-Phase-3 stream would add a key the authoritative JSON does not have and fail
+    // parity on historical reminders. `WhenRecorded` keeps absent meaning absent.
+    ...WhenRecorded(Payload, 'notifyIds', 'NotifyIDs', GetStrings),
     GitHubUrls: GetStrings(Payload.githubUrls),
     // Rehydrated, not merely validated. The strict check above requires these on a relay-capable
     // stream; projecting them is the other half — a gate that admits a field the fold then drops

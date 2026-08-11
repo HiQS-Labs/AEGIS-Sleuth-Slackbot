@@ -35,7 +35,8 @@
           {
             "actionable_language": "i am going to deploy the changes",
             "scheduling_trigger": "tomorrow morning",
-            "reminder_message": "deploy the changes"
+            "reminder_message": "deploy the changes",
+            "context": "the scan only ever saw a small fixed batch of photos"
           }
         ]
       },
@@ -49,7 +50,11 @@
         "taskTextContains": [
           "deploy"
         ],
-        "maxTaskLength": 80
+        "maxTaskLength": 80,
+        "contextContains": [
+          "fixed batch"
+        ],
+        "contextDistinctFromTask": true
       }
     },
     {
@@ -293,7 +298,8 @@
           {
             "actionable_language": "Deploy the hotfix",
             "scheduling_trigger": "tomorrow morning",
-            "reminder_message": "Deploy the hotfix"
+            "reminder_message": "Deploy the hotfix",
+            "context": ""
           }
         ]
       },
@@ -302,7 +308,8 @@
         "taskTextContains": [
           "hotfix"
         ],
-        "maxTaskLength": 80
+        "maxTaskLength": 80,
+        "contextEmpty": true
       }
     },
     {
@@ -414,7 +421,8 @@
           {
             "actionable_language": "I'll roll it out",
             "scheduling_trigger": "tomorrow morning",
-            "reminder_message": "Roll out the export bucket config fix"
+            "reminder_message": "Roll out the export bucket config fix",
+            "context": "the nightly export was writing to the old bucket after the migration"
           }
         ]
       },
@@ -424,7 +432,14 @@
         "taskTextExcludes": [
           "nightly export was writing"
         ],
-        "maxTaskLength": 80
+        "maxTaskLength": 80,
+        "contextContains": [
+          "old bucket"
+        ],
+        "contextDistinctFromTask": true,
+        "displayNeverIncludes": [
+          "Redshift"
+        ]
       }
     },
     {
@@ -662,6 +677,44 @@
         "assignees": [
           "U_SENDER"
         ]
+      }
+    },
+    {
+      "id": "S-20",
+      "name": "ADVERSARIAL: synthesized title and context invent a system absent from the source",
+      "decision": "reminder-analysis",
+      "targets": [
+        "task-context-split"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "quick note on the report job: it has been timing out since the index change went in last week, and the retry loop just masks it so nobody noticed until the finance team asked. the real fix is bumping the query timeout on our side. i will push that fix tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "adversarial: Snowflake and 4x appear nowhere in the message",
+        "reminders": [
+          {
+            "actionable_language": "i will push that fix",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Bump the Snowflake query timeout by 4x",
+            "context": "the Snowflake report job has been timing out since the index change",
+            "owner": "speaker",
+            "owner_mentions": []
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "displayNeverIncludes": [
+          "Snowflake",
+          "4x"
+        ],
+        "contextEmpty": true
       }
     }
   ]

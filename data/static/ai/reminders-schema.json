@@ -30,6 +30,10 @@
               "type": "string",
               "description": "The task reminder text. IMPORTANT: If the original message contains text enclosed in quotes (single or double), use that quoted text verbatim as the reminder_message, including the quote marks. Do not summarize or shorten quoted text."
             },
+            "context": {
+              "type": "string",
+              "description": "ONE short line of why this task matters, drawn from the surrounding message — the background a person needs to act on the reminder without re-reading the original. Must not repeat the task itself. Empty string when the message is only a task with no surrounding context. Never introduce a system, product, person, or number that is not in the source message."
+            },
             "owner": {
               "type": "string",
               "enum": ["speaker", "mentioned", "unclear"],
@@ -45,6 +49,7 @@
             "actionable_language",
             "scheduling_trigger",
             "reminder_message",
+            "context",
             "owner",
             "owner_mentions"
           ],

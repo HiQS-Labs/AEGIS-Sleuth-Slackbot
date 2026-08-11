@@ -161,6 +161,39 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual([]);
   });
 
+  test('GH-43 Phase 3: task and context are separate, and the grounding constraint is enforced', async () => {
+    const Battery = require(BatteryPath);
+    const Grounding = require('../src/task-grounding');
+    const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
+
+    // S-01, the reported message: a short task with the background on its own line, and the
+    // 480-character original left where it belongs — the blockquote.
+    expect(ById['S-01'].observed.displayedTasks).toEqual(['deploy the changes']);
+    expect(ById['S-01'].observed.displayedContext[0]).toMatch(/fixed batch/);
+    expect(ById['S-01'].observed.displayedContext[0])
+      .not.toBe(ById['S-01'].observed.displayedTasks[0]);
+
+    // a short clean message has no background to give, and renders no context line at all.
+    expect(ById['S-08'].observed.displayedContext).toEqual(['']);
+
+    // S-20 is adversarial: the title names Snowflake and 4x, neither of which the author wrote.
+    // Both are rejected and the bullet falls back to the quoted span.
+    expect(ById['S-20'].status).toBe('PASS');
+    expect(ById['S-20'].observed.displayedTasks).toEqual(['i will push that fix']);
+    expect(ById['S-20'].observed.displayedContext).toEqual(['']);
+
+    // PERTURBATION: let the grounding check pass everything, i.e. trust the prompt.
+    const Original = Grounding.UngroundedTerms;
+    Grounding.UngroundedTerms = () => [];
+    try {
+      const Failed = (await RunAllAsync(Battery.scenarios)).filter(ArgR => ArgR.status === 'FAIL');
+      expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-20']);
+      expect(Failed[0].error).toMatch(/UNGROUNDED TERM "Snowflake"/);
+    } finally {
+      Grounding.UngroundedTerms = Original;
+    }
+  });
+
   test('GH-43 Phase 1B: the never-invent-users guard is real, not just a prompt instruction', async () => {
     const Battery = require(BatteryPath);
     const Ownership = require('../src/reminder-ownership');

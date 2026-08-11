@@ -193,36 +193,68 @@ changes in this phase.**
 Split into a cheap deterministic step and a model-backed step, so the common case is fixed without
 waiting on a prompt/schema change.
 
-### 1A — deterministic pre-filter (no model change)
+### 1A — deterministic pre-filter (no model change) ✅
 
-- [ ] **Leading address block**: when a message opens with one or more consecutive `<@U…>` mentions
+- [x] **Leading address block**: when a message opens with one or more consecutive `<@U…>` mentions
       followed by non-mention prose, treat them as audience, not owners.
-- [ ] **First-person test** on `actionable_language` (not the whole message, so an unrelated
+- [x] **First-person test** on `actionable_language` (not the whole message, so an unrelated
       first-person sentence elsewhere cannot hijack ownership) → assign to sender.
-- [ ] Sender fallback fires when the filtered mention set is empty.
+- [x] Sender fallback fires when the filtered mention set is empty.
 
-### 1B — analyzer ownership field
+Shipped as [reminder-ownership.js](../../src/reminder-ownership.js). Ownership is read from the
+**grammatical subject of the commitment**, which was the signal missing all along — never the mention
+list. `"we"` is deliberately excluded as ambiguous between the speaker and the team.
 
-- [ ] Add to the reminder schema, per candidate: `owner` (`speaker` | `mentioned` | `unclear`) and
-      `owner_mentions` (populated only when `owner === "mentioned"`, scoped to the clause carrying
-      the commitment).
-- [ ] Add the corresponding rules to `reminders-instructions.md`, which currently has none.
-- [ ] At [reminders-module.js:1714](../../src/reminders-module.js#L1714), regex becomes the
-      guardrail rather than the source: `speaker` → `[sender]`; `mentioned` →
-      `owner_mentions ∩ regexResults`; `unclear` → today's behavior. **The intersection is load
-      bearing** — it preserves "never invent users" by letting the model only ever narrow the set.
-- [ ] Reconcile with `ExtractMultiTaskCandidatesAsync`'s existing ownership rule so the two paths
-      stop disagreeing.
+### 1B — analyzer ownership field ✅
+
+- [x] Add to the reminder schema, per candidate: `owner` (`speaker` | `mentioned` | `unclear`) and
+      `owner_mentions`.
+- [x] Add the corresponding rules to `reminders-instructions.md`, which had none.
+- [x] Wire into the write path with the intersection guard.
+- [x] Reconcile with `ExtractMultiTaskCandidatesAsync`'s ownership rule.
+
+> **PRECEDENCE IS INVERTED FROM THE SKETCH ABOVE, deliberately.** The original plan made the analyzer
+> the source of truth and demoted the mention regex to a guardrail. That was written before 1A
+> existed. 1A turned out to resolve both battery ownership scenarios correctly at **zero model cost**,
+> so making a model call authoritative *over* a proven deterministic signal would trade a free correct
+> answer for a paid uncertain one — and would put GH-22 shared assignment at the mercy of a prompt.
+>
+> Shipped order: a **strong grammatical signal wins outright** (explicit first- or second-person); the
+> analyzer is consulted **only where grammar is ambiguous**, which is the case 1A genuinely could not
+> reach (`S-19`: an address block with no grammatical subject at all). 1A behavior is byte-identical.
+>
+> **The intersection guard from the plan is preserved and load bearing**: `owner_mentions` is
+> intersected with the mentions actually present in the source, so the model may only narrow.
+
+**Reconciling the two paths surfaced a real hole.** `ExtractMultiTaskCandidatesAsync`'s prompt has
+always said *"Never invent users"* and **nothing enforced it** — the model's `assigneeID` was taken
+verbatim. A prompt instruction is not a guarantee. Both paths now share
+`ConstrainAssigneeToParticipants`, which allows only thread authors, `<@U…>`-mentioned users, and an
+operator-configured default.
 
 ### QA
 
-- [ ] `S-01` assigns to the sender alone. Fails on baseline, passes after.
-- [ ] `S-06` (explicit "can you both…") still assigns to both — **GH-22 shared assignment must not
-      regress.**
-- [ ] `S-03` (no mentions, first-person) unchanged from baseline.
-- [ ] `S-05` (mention as subject, not assignee) assigns to the sender.
-- [ ] The model cannot add a user that was not `<@…>`-mentioned in the source — assert on a
-      deliberately adversarial recorded response, not just on well-behaved ones.
+- [x] `S-01` assigns to the sender alone. Failed on baseline, passes after.
+- [x] `S-06` (explicit "can you both…") still assigns to both — **GH-22 shared assignment did not
+      regress**, and `tests/reminders-multiple-assignees.test.js` passes unmodified.
+- [x] `S-03` (no mentions, first-person) unchanged from baseline.
+- [x] `S-05` (mention as subject, not assignee) assigns to the sender.
+- [x] **The model cannot add a user that was not `<@…>`-mentioned in the source.** Two adversarial
+      scenarios, one per path: `S-17` (thread path, `assigneeID: "U_GHOST"` → discarded to `null`)
+      and `S-18` (single-message path, `owner_mentions: ["U_GHOST","U_ALPHA"]` → narrowed to
+      `["U_ALPHA"]`). Falsified by perturbation: making the guard fail open turns `S-17` red with
+      `INVENTED USER U_GHOST`.
+
+### A harness bug this phase exposed
+
+Building the adversarial gate turned up a defect in the GH-44 replay harness itself: it handed the
+scenario's `recordedResponse` to the pipeline **by reference**, and the pipeline legitimately writes
+back to it (`ExtractMultiTaskCandidatesAsync` overwrites a rejected `assigneeID` in place). So the
+first run scrubbed `U_GHOST` out of the require-cached fixture, and every later run in that process
+replayed a response the file never contained — a deliberately broken guard then had nothing left to
+leak. The existing determinism test could not see it, because the corruption is **idempotent**: run 2
+and run 3 agree with each other, just not with the fixture. Responses are deep-cloned per call now,
+with a regression test that asserts the fixture is untouched.
 
 <a id="phase-2"></a>
 ## Phase 2 — Synthesis routing gate ✅
@@ -303,36 +335,100 @@ traffic.
 - [x] Whole-corpus diff vs. baseline: every `CHANGED` row individually justified, above.
 
 <a id="phase-3"></a>
-## Phase 3 — Task/context split
+## Phase 3 — Task/context split ✅
 
 Largest blast radius — touches the display contract and the persisted reminder shape. Sequenced last
 deliberately.
 
-- [ ] Model `task` (imperative, short) and `context` (one line of why) as distinct fields rather than
-      one bullet string.
-- [ ] Render `context` subordinately (Slack context block), never inline in the bullet. The verbatim
-      original stays in the blockquote, unchanged.
-- [ ] Narrow the verbatim guarantee: keep `actionable_language` byte-exact as the audit span; allow
-      the **display title** to be rewritten under a grounding constraint — every entity, product
-      name, and number in the title must appear in the source. Enforce that in code, not only in the
-      prompt.
-- [ ] Consider `AssigneeIDs` vs `NotifyIDs` so a self-commitment stops borrowing GH-22's "as shared
-      work" phrasing and FYI recipients have somewhere legitimate to live. **Open question — decide
-      in this phase, do not assume.**
-- [ ] Assess the event-schema impact before writing code; coordinate with `P3-EVENT-SCHEMA-EXPANSION`
-      in `2-WORKING` if the persisted shape changes.
+- [x] Model the task and `context` (one line of why) as distinct fields rather than one bullet string.
+- [x] Render `context` subordinately, never inline in the bullet. The verbatim original stays in the
+      blockquote, unchanged.
+- [x] Narrow the verbatim guarantee under a **grounding constraint**, enforced in code.
+- [x] `AssigneeIDs` vs `NotifyIDs` — **decided: split them, and persist `NotifyIDs`.** Pulled forward
+      from "open question" at the user's direction.
+- [x] Event-schema impact assessed before writing code — see below.
+
+### What "task" and "context" became
+
+`reminder_message` was already the task title, so the field added is **`context`** — one line of *why*,
+with an explicit prompt rule that it must not restate the task. Renaming `reminder_message` → `task`
+was considered and rejected: it is a large mechanical rename across prompts, schema, captures, and
+many tests, for no user-visible benefit, and it would have made every recorded response in the battery
+un-replayable.
+
+Rendering is an indented italic line beneath the bullet, not a Slack context *block* — reminders are
+posted as mrkdwn text, not Block Kit, so a block was never available on this path. The italic
+subordinate line is the mrkdwn equivalent. Three things suppress it, each for its own reason:
+synthesis being off (the bullet is already the whole message), the context failing the grounding
+check, and the context merely restating the task.
+
+### The grounding constraint
+
+[task-grounding.js](../../src/task-grounding.js). `actionable_language` stays byte-exact as the audit
+span. The **display title and context may be rewritten**, but only within the vocabulary of the
+source: quoted strings, standalone numbers, identifier-shaped tokens (`billing-sync`, `deploy.sh`,
+`PayloadV2`), and proper nouns other than the leading imperative verb must all appear in the message.
+Comparison is on bare lowercase alphanumerics, so `billing-sync` matches `billing sync` — re-hyphenating
+a name the author wrote with a space is a formatting choice, not an invention.
+
+Validated against **every one of the 20 battery scenarios' recorded titles: zero false positives**,
+while still extracting the real entities (`billing-sync`, `connection-pool`, `Development`,
+`Production`, and the quoted project name). A title that fails falls back to the quoted span — a
+clumsier reminder beats a confidently wrong one.
+
+### `AssigneeIDs` vs `NotifyIDs` — the decision
+
+**Split them.** `NotifyIDs` is now persisted on `ReminderInfo` and carried on `ReminderCreated`.
+
+| Concern | Resolution |
+|---|---|
+| Semantics | Addressees who did **not** take the work. Disjoint from `AssigneeIDs` by construction. |
+| Authority | **Non-authoritative.** Nothing keys off it — not assignment, not completion, not any lifecycle decision. |
+| Rendering | Named in the confirmation as recipients: *"@a, @b were also mentioned and will be kept in the loop."* |
+| "as shared work" | Already fixed as a side effect — that phrasing only fires at 2+ assignees, and a self-commitment now has one. |
+
+**Event-schema impact.** `REQUIRED_PAYLOAD_KEYS` is a *required*, not exhaustive, list, so an added
+`notifyIds` key needs no schema version bump. Two parity hazards were found and handled before they
+could bite:
+
+1. The projection rehydrates via `WhenRecorded`, so **absent stays absent** — emitting `NotifyIDs: []`
+   for every pre-Phase-3 stream would add a key the authoritative JSON lacks and fail parity on
+   historical reminders.
+2. The emit side is conditional for the same reason. The list-row creation path
+   (`#CreateReminderFromListRow`) never sets `NotifyIDs`, so its JSON record has no such key;
+   unconditionally emitting `notifyIds: []` would make the fold produce a reminder carrying a key the
+   store does not have.
+
+No coordination with `P3-EVENT-SCHEMA-EXPANSION` was needed: the change is additive, non-authoritative,
+and read by no projection consumer.
+
+**Rollback story.** Reverting this phase leaves `NotifyIDs` as an ignored key on already-persisted
+records and in already-appended events. Nothing reads it, so no code path changes behavior; the
+reminders themselves are unaffected because assignment never depended on it. The field is inert data,
+not state — which is exactly why it was made non-authoritative rather than wired into rendering
+decisions. Already-scheduled reminders keep their `AssigneeIDs`, which are unchanged by a revert of
+this phase (they are Phase 1A/1B's output, not Phase 3's).
 
 ### QA
 
-- [ ] `S-12` renders a short task with context in a separate block and the full original in the
-      blockquote.
-- [ ] Grounding check rejects a title containing an entity absent from the source.
-- [ ] `S-13` (multi-step commitment) is not over-compressed to the last verb — the existing
-      `reminders-instructions.md:85` rule still holds.
-- [ ] Existing reminder rendering tests (`validate:reminder-render`,
-      `tests/reminders-display-utils.test.js`) stay green, or every intentional change is enumerated.
-- [ ] Rollback story stated explicitly: what happens to reminders persisted under the new shape if
-      this phase is reverted.
+- [x] `S-12` renders a short task, context on its own subordinate line, and the full original in the
+      blockquote — asserted end to end in
+      [reminders-task-context-split.test.js](../../tests/reminders-task-context-split.test.js).
+- [x] **Grounding check rejects a title containing an entity absent from the source.** `S-20` is
+      adversarial: the title names `Snowflake` and `4x`, neither in the message. Both rejected; the
+      bullet falls back to `"i will push that fix"`. Falsified by perturbation — making the check
+      pass everything turns `S-20` red with `UNGROUNDED TERM "Snowflake"`.
+- [x] `S-13` (multi-step commitment) is not over-compressed — still `PASS`, and its
+      `taskTextContains: ["review","push"]` expectation holds.
+- [x] Existing reminder rendering stays green: `validate:reminder-render` clean,
+      `tests/reminders-display-utils.test.js` unmodified and passing, full suite 1750 pass / 0 fail.
+- [x] Rollback story stated explicitly, above.
+
+### Whole-corpus diff vs. the pre-Phase-3 baseline
+
+The only change to any existing row is the **new `displayedContext` field appearing**, populated only
+where a context was recorded (`S-01`, `S-12`) and empty everywhere else. **No `displayedTasks`, no
+`ownership`, and no `routing` value moved on any scenario.** `S-20` is new.
 
 ## Open items
 

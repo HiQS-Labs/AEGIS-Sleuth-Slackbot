@@ -194,6 +194,9 @@ function GetReminderThreadIdentity(ArgReminderInfo) {
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.
  * @property {string} scheduling_trigger Verbatim quotation of the trigger associated with the actionable language.
  * @property {string} reminder_message Brief reminder of the actionable task that a user should perform.
+ * @property {string} [context] GH-43 Phase 3: one short line of WHY this task matters, drawn from the
+ * surrounding message. Rendered subordinately beneath the task bullet, never fused into it. Optional
+ * because recorded responses and older captures predate the field.
  * @property {'speaker'|'mentioned'|'unclear'} [owner] GH-43 Phase 1B: who the analyzer judged is going
  * to DO this task, from the grammatical subject of the actionable language. Optional because recorded
  * responses and older captures predate the field.
