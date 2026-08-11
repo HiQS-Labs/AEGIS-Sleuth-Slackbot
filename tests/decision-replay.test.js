@@ -156,6 +156,27 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
       Pipeline.CountSentences = OriginalCountSentences;
     }
 
+    // 3. BOTH disabled at once = the pre-Phase-2 code. This is the assertion the whole branch rests
+    //    on: it must reproduce the ORIGINAL reported defects, not merely fail somehow. agy's branch
+    //    relay (r1) caught that this case was claimed but never actually tested — the two
+    //    perturbations above each restored before the next ran, so the combined state never existed.
+    Pipeline.BURIED_TASK_MIN_LENGTH = Number.MAX_SAFE_INTEGER;
+    Pipeline.CountSentences = (/** @type {string} */ ArgText) => {
+      const Text = (ArgText || '').trim();
+      if(!Text) return 0;
+      const Matches = Text.match(/[.!?]+(?=\s|$)/g);
+      return Math.max(Matches ? Matches.length : 0, 1);
+    };
+    try {
+      // S-01 is the reported production message; S-07 and S-12 are the other two verbatim dumps.
+      // S-16 joins them because it was added later specifically to need the newline rule.
+      expect(FailedIDs(await RunAllAsync(Battery.scenarios)).sort())
+        .toEqual(['S-01', 'S-07', 'S-12', 'S-16']);
+    } finally {
+      Pipeline.BURIED_TASK_MIN_LENGTH = OriginalMinLength;
+      Pipeline.CountSentences = OriginalCountSentences;
+    }
+
     // and the battery is green again once both are restored — the perturbation, not the code, was
     // what turned it red.
     expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual([]);
@@ -182,16 +203,44 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     expect(ById['S-20'].observed.displayedTasks).toEqual(['i will push that fix']);
     expect(ById['S-20'].observed.displayedContext).toEqual(['']);
 
-    // PERTURBATION: let the grounding check pass everything, i.e. trust the prompt.
+    // THE HARNESS RUNS THE PRODUCTION RULE, not a copy of it. agy's branch relay (r1) found that
+    // this file used to reimplement the grounding check inside RunScenarioAsync, so perturbing
+    // `Grounding.UngroundedTerms` only broke the harness's own copy — the test would have passed
+    // unchanged with the production check deleted. Assert the shared module is genuinely on the
+    // path both sides take, so the perturbation below means something.
+    const DisplaySelection = require('../src/reminder-display-selection');
+    const ReplaySource = require('fs')
+      .readFileSync(require('path').join(__dirname, '..', 'scripts', 'decision-replay.js'), 'utf8');
+    expect(ReplaySource).toContain('ReminderDisplaySelection.SelectTaskText');
+    expect(ReplaySource).not.toContain('TaskGrounding.UngroundedTerms(Title');
+    // and the production selector routes through the same module
+    expect(require('fs')
+      .readFileSync(require('path').join(__dirname, '..', 'src', 'reminders-module.js'), 'utf8'))
+      .toContain('ReminderDisplaySelection.SelectTaskText');
+
+    // PERTURBATION: let the grounding check pass everything, i.e. trust the prompt. This now reaches
+    // the same code path a real reminder does.
     const Original = Grounding.UngroundedTerms;
     Grounding.UngroundedTerms = () => [];
     try {
       const Failed = (await RunAllAsync(Battery.scenarios)).filter(ArgR => ArgR.status === 'FAIL');
       expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-20']);
       expect(Failed[0].error).toMatch(/UNGROUNDED TERM "Snowflake"/);
+      // the shared selector really did let the invented entity through — proving the check, not the
+      // harness, is what normally stops it.
+      expect(DisplaySelection.SelectTaskText(
+        { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy it' },
+        'i will deploy it tomorrow', true,
+      ).text).toBe('Deploy the Snowflake pipeline');
     } finally {
       Grounding.UngroundedTerms = Original;
     }
+
+    // restored: the same call now rejects the invented entity and falls back to the quoted span.
+    expect(DisplaySelection.SelectTaskText(
+      { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy it' },
+      'i will deploy it tomorrow', true,
+    )).toMatchObject({ text: 'deploy it', source: 'span', ungroundedTerms: ['Snowflake'] });
   });
 
   test('GH-43 Phase 1B: the never-invent-users guard is real, not just a prompt instruction', async () => {

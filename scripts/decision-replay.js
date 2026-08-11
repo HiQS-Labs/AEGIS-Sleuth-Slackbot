@@ -31,6 +31,7 @@ const { ResetAssetCache } = require('../src/ai-decision');
 const DecisionExplain = require('../src/decision-explain');
 const ReminderOwnership = require('../src/reminder-ownership');
 const TaskGrounding = require('../src/task-grounding');
+const ReminderDisplaySelection = require('../src/reminder-display-selection');
 
 const DefaultScenariosPath = path.join(
   __dirname, '..', 'tests', 'fixtures', 'decision-scenarios', 'reminder-extraction-battery.json',
@@ -212,34 +213,22 @@ async function RunScenarioAsync(ArgScenario) {
     });
     const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [SenderID];
 
-    // The displayed bullet, as #SelectReminderTaskText would choose it. This is what makes the
-    // verbatim-dump defect observable to the harness instead of invisible behind the raw candidate.
+    // The displayed bullet and context line, chosen by THE PRODUCTION RULE.
     //
-    // GH-43 Phase 3: the grounding constraint is applied here too. Leaving it out would let the
-    // harness report a hallucinated title as the displayed task when production would have rejected
-    // it — the harness would measure a reminder no user could ever receive.
+    // This used to reimplement the selection logic — including the grounding check — so the battery
+    // could observe what a user would see. agy's branch relay (r1) caught what that cost: the
+    // grounding perturbation test proved only that the *harness's copy* was wired up, and would have
+    // passed just as happily with the production check deleted. Same class of defect as the earlier
+    // fixture-mutation bug in this file: an instrument measuring itself.
+    //
+    // `ReminderDisplaySelection` is now the one rule, called here and by
+    // `RemindersModule#SelectReminderTaskText`. Only Slack mrkdwn normalization and the warn line
+    // stay behind in the module, neither of which changes what text is chosen.
     const NormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(MessageText);
-    /**
-     * @param {any} ArgReminder
-     * @returns {string} the title after grounding, or '' when it was rejected.
-     */
-    const GroundedTitle = (ArgReminder) => {
-      const Title = (ArgReminder.reminder_message || '').trim();
-      if(!Title) return '';
-      const Source = `${NormalizedOriginal} ${(ArgReminder.actionable_language || '').trim()}`;
-      return TaskGrounding.UngroundedTerms(Title, Source).length > 0 ? '' : Title;
-    };
     const DisplayedTasks = Analysis.reminders.map((/** @type {any} */ ArgR) =>
-      Routing.synthesisOn
-        ? (GroundedTitle(ArgR) || ArgR.actionable_language || '')
-        : NormalizedOriginal);
-    // the subordinate context line, suppressed the same three ways production suppresses it.
-    const DisplayedContext = Analysis.reminders.map((/** @type {any} */ ArgR) => {
-      const Context = (ArgR.context || '').trim();
-      if(!Context || !Routing.synthesisOn) return '';
-      const Source = `${NormalizedOriginal} ${(ArgR.actionable_language || '').trim()}`;
-      return TaskGrounding.UngroundedTerms(Context, Source).length > 0 ? '' : Context;
-    });
+      ReminderDisplaySelection.SelectTaskText(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
+    const DisplayedContext = Analysis.reminders.map((/** @type {any} */ ArgR) =>
+      ReminderDisplaySelection.SelectContextLine(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
 
     return {
       id: Id,

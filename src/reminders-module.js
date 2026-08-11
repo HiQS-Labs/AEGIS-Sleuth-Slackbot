@@ -12,6 +12,7 @@ const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
 const DecisionExplain = require('./decision-explain');
 const ReminderOwnership = require('./reminder-ownership');
 const TaskGrounding = require('./task-grounding');
+const ReminderDisplaySelection = require('./reminder-display-selection');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -2087,40 +2088,19 @@ class RemindersModule {
       ? ArgSynthesisOn
       : RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal);
 
-    // verbatim path: synthesis disabled for this message's length segment → show the user's wording
-    // unchanged. This reproduces the prior synthesis-OFF behavior byte-for-byte.
-    if(NormalizedOriginal && !SynthesisOn)
-      return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(NormalizedOriginal);
-
-    // synthesis path: reuse the analyzer's brief, with a deterministic quality fallback to the quoted
-    // actionable span when the brief looks suspiciously over-compressed relative to that span.
-    const RawReminderMessage = ArgReminderInfo.reminder_message?.trim() || '';
-    const ActionableLanguage = ArgReminderInfo.actionable_language?.trim() || '';
-
-    // GH-43 Phase 3 — THE GROUNDING CONSTRAINT. Synthesis is only safe because the title is checked
-    // against the source before it is shown: the model may re-word freely, but every entity,
-    // identifier, and number it names must already appear in the message. A title that invents one is
-    // discarded here and the quoted span is shown instead — a clumsier reminder beats a confidently
-    // wrong one. The evidence span itself is never rewritten; that guarantee is untouched.
-    const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage}`;
-    const UngroundedInTitle = RawReminderMessage
-      ? TaskGrounding.UngroundedTerms(RawReminderMessage, GroundingSource)
-      : [];
-    if(UngroundedInTitle.length > 0) {
+    // The decision itself lives in reminder-display-selection.js so the replay harness can run the
+    // REAL rule instead of a copy of it (agy branch relay r1). This method keeps only what is
+    // genuinely Slack-specific: the warn line and the mrkdwn mention normalization.
+    const Selection = ReminderDisplaySelection.SelectTaskText(
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+    );
+    if(Selection.ungroundedTerms.length > 0) {
       this.#SlackApp.Logger.warn(
-        `discarding an ungrounded reminder title: it names ${UngroundedInTitle.length} term(s) absent ` +
-        `from the source message. Falling back to the quoted actionable span.`
+        `discarding an ungrounded reminder title: it names ${Selection.ungroundedTerms.length} term(s) ` +
+        `absent from the source message. Falling back to the quoted actionable span.`
       );
     }
-    const ReminderMessage = UngroundedInTitle.length > 0 ? '' : RawReminderMessage;
-    const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
-    const IsLikelyOverCompressed = ReminderWordCount <= 3 && ActionableLanguage.length > (ReminderMessage.length + 12);
-
-    const TaskText = IsLikelyOverCompressed
-      ? ActionableLanguage
-      : (ReminderMessage || ActionableLanguage || NormalizedOriginal || 'Task not specified');
-
-    return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(TaskText);
+    return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Selection.text);
   }
 
   /**
@@ -2142,26 +2122,21 @@ class RemindersModule {
    * @returns {string} `'\n  _<context>_'`, or `''`.
    */
   #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
-    const Context = ArgReminderInfo.context?.trim() || '';
-    if(!Context) return '';
-
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
     const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
       ? ArgSynthesisOn
       : RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal);
-    if(NormalizedOriginal && !SynthesisOn) return '';
 
-    const ActionableLanguage = ArgReminderInfo.actionable_language?.trim() || '';
-    if(TaskGrounding.UngroundedTerms(Context, `${NormalizedOriginal} ${ActionableLanguage}`).length > 0) {
+    // as with the task text, the rule lives in reminder-display-selection.js so the harness runs it
+    // rather than a copy of it.
+    const Selection = ReminderDisplaySelection.SelectContextLine(
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+    );
+    if(Selection.suppressedBy === 'ungrounded')
       this.#SlackApp.Logger.warn('discarding an ungrounded reminder context line.');
-      return '';
-    }
+    if(!Selection.text) return '';
 
-    // a context line that merely restates the task is noise.
-    const TaskText = this.#SelectReminderTaskText(ArgReminderInfo, NormalizedOriginal, SynthesisOn);
-    if(TaskGrounding.NormalizeForGrounding(Context) === TaskGrounding.NormalizeForGrounding(TaskText)) return '';
-
-    return `\n  _${SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Context)}_`;
+    return `\n  _${SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Selection.text)}_`;
   }
 
   /**
