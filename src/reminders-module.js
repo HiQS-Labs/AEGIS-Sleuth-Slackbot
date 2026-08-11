@@ -28,6 +28,7 @@ const SlackFormatUtils = require('./slack-format-utils');
 const CompletionStore = require('./completion-store');
 const { createEventStore, CURRENT_SCHEMA_VERSION } = require('./event-store');
 const { createLedgerCoverage } = require('./ledger-coverage');
+const { createDecisionCorpusStore } = require('./decision-corpus-store');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
@@ -1245,6 +1246,30 @@ class RemindersModule {
 
     // instantiate the AI pipeline for reminder analysis, date extraction, and deduplication.
     this.#AIPipeline = new RemindersAIPipeline(this.#WorkspaceAI, this.#SlackApp, () => this.#PendingRemindersQueue);
+
+    // GH-50: arm the decision corpus. GH-44 built the capture path end to end but never wired a
+    // production caller, so `SetDecisionCapture` had no caller outside tests and NO records were
+    // ever written in any deployed environment — the corpus was dead code. Wiring it here is the
+    // whole fix; the store, the record shape, and the failure policy already existed.
+    //
+    // Off unless an operator arms it (see IsDecisionCaptureArmedFor). The store lives under
+    // data/runtime/decisions/, deliberately OUTSIDE data/runtime/events/ — that directory is the
+    // P3 authoritative ledger, and this corpus is disposable, non-authoritative, replayed offline.
+    // Mirrors the GH-397 router-shadow wiring rather than inventing a second capture convention.
+    if(RemindersAIPipeline.IsDecisionCaptureArmedFor(WorkspaceName)) {
+      this.#AIPipeline.SetDecisionCapture({
+        Store: createDecisionCorpusStore({
+          rootDir: path.join(RemindersDirPath, '..', 'decisions'),
+        }),
+        // Workspace is passed explicitly and never resolved from module state: every workspace
+        // shares this process, so a global here would cross-file one tenant's decisions into
+        // another's corpus (AGENTS.md section 0.1).
+        Workspace: WorkspaceName,
+      });
+      this.#SlackApp.Logger.info(
+        `[decision-capture] armed for workspace ${WorkspaceName} — records under data/runtime/decisions/.`
+      );
+    }
 
     // instantiate the reaction handler for managing emoji-driven lifecycle transitions.
     this.#ReactionHandler = new RemindersReactionHandler(this.#SlackApp, {
