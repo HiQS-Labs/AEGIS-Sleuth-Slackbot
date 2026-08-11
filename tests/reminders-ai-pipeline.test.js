@@ -354,6 +354,61 @@ describe('RemindersAIPipeline', () => {
         expect(Routing.segment).toBe('normal');
       });
 
+      // GH-51 — the ratio was ROUNDED before the usability gate read it, so `toFixed(2)` collapsed
+      // any span under 0.5% of the message to exactly 0 and the gate concluded "no span was quoted".
+      // The gate therefore failed hardest on the most deeply buried task, which is the only case it
+      // exists to catch. Red before the fix: routedBy === 'sentence_count', spanRatioUsable === false.
+      it('a span under 0.5% of a huge note STILL routes by the ratio gate, though it reports as 0', () => {
+        // the shape observed in production: a ~7000-char status note carrying one short commitment.
+        const Span = 'deploy the changes tomorrow morning';
+        const Note = 'Status update on the incident. '.repeat(260) + Span;
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+          Note, [{ actionable_language: Span }]
+        );
+        expect(Routing.messageLength).toBeGreaterThan(8000);
+        // the span really is under 0.5% of the note — which is what makes it round away.
+        expect(Span.length / Routing.messageLength).toBeLessThan(0.005);
+        // the REPORTED ratio still rounds to 0 — that is the telemetry format, and is fine...
+        expect(Routing.actionableSpanRatio).toBe(0);
+        // ...but the DECISION must be made on the raw measurement, which is non-zero.
+        expect(Routing.spanRatioUsable).toBe(true);
+        expect(Routing.routedBy).toBe('buried_task_ratio');
+        expect(Routing.segment).toBe('long');
+        expect(Routing.synthesisOn).toBe(true);
+      });
+
+      it('reported-0 from a tiny span and reported-0 from NO span stay distinguishable', () => {
+        // both report actionableSpanRatio === 0; only spanRatioUsable separates them. Without this
+        // the two collapse, which is exactly the bug — and it is what made the production
+        // `ratio=0` population impossible to interpret from telemetry alone.
+        const Span = 'ship it';
+        const Note = 'Long note with plenty of surrounding context. '.repeat(120) + Span;
+
+        const TinySpan = RemindersAIPipeline.DescribeSynthesisRouting(Note, [{ actionable_language: Span }]);
+        const NoSpan = RemindersAIPipeline.DescribeSynthesisRouting(Note, []);
+
+        expect(TinySpan.actionableSpanRatio).toBe(0);
+        expect(NoSpan.actionableSpanRatio).toBe(0);
+        expect(TinySpan.spanRatioUsable).toBe(true);
+        expect(NoSpan.spanRatioUsable).toBe(false);
+        expect(TinySpan.routedBy).toBe('buried_task_ratio');
+        expect(NoSpan.routedBy).toBe('sentence_count');
+      });
+
+      it('the ratio ceiling is compared on the RAW value, not the rounded one', () => {
+        // raw 0.354 exceeds the 0.35 ceiling, but rounds DOWN to exactly 0.35 — which the rounded
+        // comparison would have admitted. The threshold should mean what it says.
+        const Span = 'x'.repeat(354);
+        const Note = Span + 'y'.repeat(646);
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+          Note, [{ actionable_language: Span }]
+        );
+        expect(Routing.messageLength).toBe(1000);
+        expect(Routing.actionableSpanRatio).toBe(0.35);           // rounds TO the ceiling
+        expect(0.354).toBeGreaterThan(RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO); // raw exceeds it
+        expect(Routing.routedBy).toBe('sentence_count');          // so the gate must NOT claim it
+      });
+
       it('the legacy master flag still overrides the ratio gate, and says so', () => {
         process.env.REMINDER_TEXT_SYNTHESIS = 'off';
         const Routing = RemindersAIPipeline.DescribeSynthesisRouting(

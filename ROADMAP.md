@@ -31,6 +31,29 @@ goal: >
 
 ### In progress
 
+- **Span-ratio rounding hides the most deeply buried tasks (GH-51)** — `DescribeSynthesisRouting`
+  rounded the actionable-span ratio with `toFixed(2)` **before** the buried-task gate read it, so any
+  span under 0.5% of the message collapsed to exactly `0` and `SpanRatioUsable` read that as "no span
+  was quoted at all". A 35-character commitment quoted from a 7,000-character note — the most deeply
+  buried task there is, and precisely what the gate exists to catch — was classified as having no
+  evidence of a buried task. The gate failed hardest where it mattered most. Fixed by deciding on the
+  raw ratio (`LongestSpan > 0` for usability, raw comparison against the ceiling) while keeping the
+  2dp **reported** value so telemetry format is unchanged. Mutation-tested; 1852 jest / 116 node.
+  **Measured, not assumed:** against 30 days of production telemetry this explains **at most 1** of
+  the 128 zero-ratio messages — the median is 241 chars, where nothing rounds away — so
+  **issue #51 stays open** for the ~127 empty-`actionable_language` cases, blocked on the GH-50
+  corpus. →
+  [PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md](PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md)
+
+- **Anchor the jest globs so the merge gate stops crying wolf (GH-48)** — `testMatch` was unanchored
+  (`**/tests/**`), so jest collected the partial snapshots the relay harness writes to
+  `.tick/orphan-backups/<utc>-<pid>/` when its containment reverts a file mid-turn. Those copies hold
+  a test file without its sibling `src/`, so they can never resolve and always fail — `npm test` broke
+  on an unpredictable schedule with a suite unrelated to the change, twice during GH-37. Both globs
+  (`testMatch` and `collectCoverageFrom`) are now anchored to `<rootDir>`. Verified with the orphan
+  backup still on disk: 109 suites / 1849 tests green, no suite lost. →
+  [PROJECT/2-WORKING/GH-48-JEST-TESTMATCH-ANCHOR.md](PROJECT/2-WORKING/GH-48-JEST-TESTMATCH-ANCHOR.md)
+
 - **Arm the decision corpus in production (GH-50)** — GH-44 built the capture path end to end and
   never connected it: `SetDecisionCapture` had **zero callers outside tests**, so no decision record
   was ever written in any deployed environment. The corpus was dead code that passed its own tests.
@@ -41,7 +64,6 @@ goal: >
   GH-51, which needs input→output pairs. **Retention policy is a prerequisite before arming
   anywhere real.** →
   [PROJECT/2-WORKING/GH-50-WIRE-DECISION-CAPTURE.md](PROJECT/2-WORKING/GH-50-WIRE-DECISION-CAPTURE.md)
-
 - **Reminder extraction fidelity (GH-43)** — **all 4 phases built in 1.4.273 on
   `gh-43-reminder-extraction-fidelity`; awaiting review/merge.** Fixed the three defects one
   production message exposed at once. Ownership now reads the **grammatical subject of the
