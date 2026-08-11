@@ -94,7 +94,28 @@ The battery went 4 FAIL / 11 PASS on unmodified `development` to 20 PASS.
 - **`NotifyIDs` parity fix** — `BaselineReminderImported` has two producers besides the native
   creation path (`state-snapshot-writer.js`, `scripts/baseline-import.js`) and both dropped the field.
   Parity compares the union of keys, so a reminder carrying `NotifyIDs` would fold to one without it
-  and fail; compaction is irreversible, so it would be lost permanently.
+  and fail; compaction is irreversible, so it would be lost permanently. A third gap —
+  `ApplyCreationEnrichment` never applying a recorded `notifyIds`, so the key-presence contract held
+  only for the *first* creation-shaped event — was found by Codex and fixed the same way.
+- **Second QA pass (Codex), five more concrete bypasses.** An independent review deliberately aimed at
+  what the first reviewer under-covered. It found the grounding substring bypass independently
+  (`"Deploy to PROD"` grounded by the word *reproduce*; `"Deploy Acme"` by *xacmey*) and four more:
+  a **fourth harness-vs-production divergence** (replay reported the bot as an assignee, because it
+  never passed the bot ID production always passes); the `:wrench:` triage feeding the ownership
+  resolver **different inputs than scheduling**, so it could explain a rule the reminder did not
+  follow; a **leading Unicode homoglyph** erasing the evidence entirely, because ASCII-only
+  tokenization deleted the codepoint and `[A-Z]` did not see a Cyrillic capital as a capital; and the
+  first-word exemption applying to **any** first token, so an invented product name rendered simply by
+  being moved to the front.
+- **Ownership is now an actual subject test.** `HasFirstPersonCommitment` matched any first-person
+  token anywhere, which mis-assigned three distinct shapes: a possessive (`"<@alpha> will deploy my
+  report"`), reported speech (`'<@alpha> said "I will deploy the patch"'`), and a delegation
+  (`"I asked <@alpha> to deploy"`). All three assigned the work to the wrong person. Object and
+  possessive forms are gone from the pattern, quoted speech no longer triggers the strong override,
+  and delegation verbs defer to the analyzer. `"I have to deploy it"` deliberately still counts — a
+  missed delegation degrades to the analyzer verdict, a missed commitment reassigns real work.
+- Battery grew again to 23: `S-21` (the bot must never be an assignee), `S-22` (delegation), `S-23`
+  (invented entity at the *start* of a title).
 
 ## 1.4.272 - 2026-08-10
 When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not

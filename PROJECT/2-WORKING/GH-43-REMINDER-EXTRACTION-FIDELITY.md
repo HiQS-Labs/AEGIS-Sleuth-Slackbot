@@ -28,7 +28,40 @@ goal: >
 
 | What was just completed | What's next |
 | --- | --- |
-| All four phases shipped and **agy branch QA closed `Approved` at r3/3**. The battery went **4 FAIL / 11 PASS on unmodified `development` → 20 PASS**, every mechanism proven load bearing by perturbation. Full suite **1766 jest + 115 node**, tsc clean, all validation gates green. | Open the PR (stacked on `gh-44-decision-capture-debug`); neither branch is pushed yet |
+| All four phases shipped, **two independent QA passes** (agy `Approved` r3/3; Codex found five further bypasses across four rounds, all fixed). The battery went **4 FAIL / 11 PASS on unmodified `development` → 20 PASS**, every mechanism proven load bearing by perturbation. Full suite **1822 jest + 116 node**, tsc clean, all validation gates green, battery **23 PASS**. | Open the PR (stacked on `gh-44-decision-capture-debug`) |
+
+## Second QA pass — Codex (independent)
+
+`relay-system/2026-08-10/gh-43-branch-qa-codex.md`. Deliberately aimed at what agy under-covered: its
+brief told Codex to treat agy's two clean whole-file sweeps as **unswept**, and to assume a fourth
+harness-vs-production divergence existed. Both instructions paid.
+
+Codex found the grounding substring bypass **independently** — two reviewers, same defect, different
+witness — plus four more. Every one was reproduced before being fixed.
+
+| Round | Finding | Why it mattered |
+|---|---|---|
+| r1 | Grounding accepted **word fragments** — `"Deploy to PROD"` grounded by *re-**PROD**-uce*, `"Deploy Acme"` by *x**acme**y* | An invented environment name reaching a reminder is the exact failure the module exists to stop. A check that accepts one is **worse than no check**: it grants false confidence. |
+| r1 | **Fourth harness divergence** — replay reported the bot as an assignee | Production always passes `SlackApp.BotUserID`; the harness passed nothing, so it measured an assignee production cannot produce. |
+| r1 | Triage fed the resolver **different inputs than scheduling** | My own comment claimed the two "cannot drift apart". They could: scheduling resolved `analyzer-speaker`, triage reported `mentions`. |
+| r2 | **Leading Unicode homoglyph** erased the evidence | ASCII-only tokenization *deleted* the codepoint and `[A-Z]` did not see a Cyrillic capital, so no term was extracted and nothing was checked. My earlier trailing-homoglyph test had passed for the wrong reason. |
+| r2 | `HasFirstPersonCommitment` was **not a commitment parser** | A possessive (`"will deploy my report"`) and reported speech (`'<@alpha> said "I will deploy…"'`) both assigned work to the wrong person, while the module claimed to read the grammatical subject. |
+| r2 | `NotifyIDs` dropped on **enrichment** | The key-presence contract held only for the first creation-shaped event — and import/enrichment is the shape production streams have. |
+| r3 | The **first-word exemption was unconditional** | `"Acme deployment"` extracted no term at all. An invented name rendered by position alone. |
+| r3 | A bare `I` still meant the sender owns it | `"I asked <@alpha> to deploy"` is first-person about a *delegation*; Alpha is the subject of the obligation. |
+
+### Two things worth keeping from this
+
+**Fixing a bypass kept exposing its mirror image.** Tightening grounding to whole tokens started
+rejecting possessives and plurals; bounding the first-word exemption took a real test red on
+`"Change Ground Advantage $5 shipping to $6"`; the first delegation pattern swallowed
+`"I have to deploy it"`. Each false positive falls back to the **verbatim dump this issue exists to
+remove**, so each needed its own guard. The asymmetry is now written down at every one of those
+constants: gaps cost readability, bypasses cost correctness.
+
+**Codex could not run the test suite.** `node_modules/.bin/jest` is absent in the relay worktree, so
+all four rounds were pure static analysis — which is what makes five concrete, reproducible bypasses
+notable, and also means the suite numbers in this doc come from the main tree, not from the reviewer.
 
 ## Branch QA — what the review actually caught
 
