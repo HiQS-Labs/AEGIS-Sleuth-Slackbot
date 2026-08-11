@@ -1766,6 +1766,31 @@ class RemindersModule {
       // GH-43 Phase 1B: the analyzer's own per-candidate `owner` verdict, collapsed across this
       // trigger group. It only gets consulted when the grammar is ambiguous — see ResolveAssignees.
       const GroupOwner = ReminderOwnership.ReduceGroupOwner(CurrentReminders);
+
+      // KNOWN LIMITATION, made visible rather than silent (Codex, branch relay round 6).
+      //
+      // One trigger group becomes ONE reminder with ONE assignee set, so a message that commits the
+      // author to something AND asks somebody else to do something else *under the same trigger*
+      // cannot be represented: the spans are concatenated and a single resolver call picks one
+      // owner. GH-43's plan named this the hardest ownership case and pre-authorized documenting it
+      // — "a documented limitation is acceptable, a silent wrong answer is not."
+      //
+      // Splitting a group into per-candidate reminders is a structural change to the scheduling
+      // contract, well outside this issue. The THREAD path already models per-candidate ownership
+      // correctly (`assigneeID` per candidate), so the fix for anyone hitting this is to use it.
+      // Logged so it shows up in triage instead of being discovered from a wrong reminder.
+      if(CurrentReminders.length > 1) {
+        const CandidateOwners = new Set(CurrentReminders
+          .map(ArgCandidate => ArgCandidate.owner)
+          .filter(ArgOwner => typeof ArgOwner === 'string' && ArgOwner && ArgOwner !== 'unclear'));
+        if(CandidateOwners.size > 1) {
+          ArgSlackApp.Logger.warn(
+            `reminder ownership: trigger "${CurrentTrigger}" has ${CandidateOwners.size} different ` +
+            `candidate owners collapsed into one assignee set (known GH-43 limitation: one trigger ` +
+            `group = one reminder). Candidates=${CurrentReminders.length}.`
+          );
+        }
+      }
       const Ownership = ReminderOwnership.ResolveAssignees({
         MessageText: DisplaySourceMessageText,
         ActionableLanguage: GroupActionableLanguage,

@@ -571,3 +571,34 @@ describe('GH-43: layered negation is still negation', () => {
     expect(HasFirstPersonCommitment('I have to deploy it')).toBe(true);
   });
 });
+
+// Codex branch relay r6: IsSpanInsideQuotedSpeech required the quotation to contain the ENTIRE
+// actionable span, so when the analyzer's byte-exact span included the reporting prefix — span and
+// message both `<@U_ALPHA> said "I will deploy the patch tomorrow"` — the span CONTAINED the
+// quotation rather than sitting inside it, and containment could never see it.
+//
+// Quoted regions are now removed before the commitment test, which handles both shapes and keeps the
+// quoted-task-name rule working for the right reason: there the commitment is OUTSIDE the quotes.
+describe('GH-43: reported speech, whichever way the span was cut', () => {
+  const Message = '<@U_ALPHA> said "I will deploy the patch tomorrow"';
+
+  test.each([
+    ['the inner quotation only', 'I will deploy the patch'],
+    ['the whole reporting sentence', '<@U_ALPHA> said "I will deploy the patch tomorrow"'],
+  ])('span = %s resolves to Alpha, not the reporter', (ArgName, ArgSpan) => {
+    expect(ResolveAssignees({
+      MessageText: Message,
+      ActionableLanguage: ArgSpan,
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+    }).assigneeIDs).toEqual(['U_ALPHA']);
+  });
+
+  test('a commitment OUTSIDE the quotes is still the author’s', () => {
+    // the quoted-task-name rule (battery S-11)
+    expect(HasFirstPersonCommitment('I need to work on "On-going Project: Yard Photo Backfill"'))
+      .toBe(true);
+    // and a commitment with an unrelated quotation alongside it
+    expect(HasFirstPersonCommitment('I will deploy the fix <@U_ALPHA> called "the big one"')).toBe(true);
+  });
+});

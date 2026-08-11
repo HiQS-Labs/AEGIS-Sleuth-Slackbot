@@ -121,8 +121,21 @@ function HasFirstPersonCommitment(ArgActionableLanguage) {
   // ("can you send me the logs")
   if(SecondPersonPattern.test(Text)) return false;
 
+  // Quoted regions are REMOVED before the commitment test, so a construction that exists only inside
+  // somebody else's reported speech cannot claim the work. `<@U_ALPHA> said "I will deploy the patch"`
+  // reduces to `<@U_ALPHA> said`, which commits to nothing.
+  //
+  // This subsumes the whole-span containment check for the case where the analyzer's byte-exact span
+  // includes the reporting prefix (Codex, branch relay round 6) — that span CONTAINS the quotation
+  // rather than sitting inside it, so containment could never see it.
+  //
+  // It also keeps the quoted-task-name rule working, and for the right reason: in
+  // `I need to work on "On-going Project: X"` the commitment `I need to work on` lives OUTSIDE the
+  // quotes, so stripping them leaves it intact.
+  const Unquoted = Text.replace(/["“][^"”]*["”]/g, ' ');
+
   // apostrophes stripped so I'll / Ill / I'm / Im are one case
-  const Normalized = Text.replace(/['’]/g, '');
+  const Normalized = Unquoted.replace(/['’]/g, '');
 
   // Negation ANYWHERE in the span disqualifies it. The per-modal lookaheads only rejected an
   // immediately following negative, so an intervening adverb walked straight past them:

@@ -77,7 +77,20 @@ describe('ExtractGroundedTerms', () => {
     expect(IsTitleGrounded('Ship it Friday', 'i will ship it tuesday')).toBe(false);
   });
 
+  // Codex r6: round 5 fixed only the capitalized half. Casing is not a safety boundary — a
+  // fabricated date is wrong however the model wrote it. Weekdays/months/relative times are a small
+  // CLOSED set, which is what makes enumerating them honest (unlike "ordinary English word").
+  test.each([
+    ['Deploy on monday', 'deploy the patch tomorrow'],
+    ['Ship in march', 'ship it tomorrow'],
+    ['Finish it tonight', 'i will finish it tomorrow'],
+  ])('%s — a LOWERCASE fabricated deadline is caught too', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
+  });
+
   test('a real date the author DID write still grounds, in any case', () => {
+    expect(IsTitleGrounded('Deploy on monday', 'deploy the patch Monday')).toBe(true);
+    expect(IsTitleGrounded('Ship it tonight', 'i will ship it TONIGHT')).toBe(true);
     expect(IsTitleGrounded('Deploy Monday', 'deploy the patch monday')).toBe(true);
     expect(IsTitleGrounded('Ship it Friday', 'i will ship it on Friday')).toBe(true);
   });

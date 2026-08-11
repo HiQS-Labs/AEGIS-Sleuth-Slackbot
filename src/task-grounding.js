@@ -106,6 +106,28 @@ const CapitalizedNonEntities = new Set([
   'but', 'as', 'is', 'are', 'be', 'do', 'not', 'no', 'this', 'that', 'it', 'i', 'we', 'you', 'they',
 ]);
 
+/**
+ * Temporal words that are **always** grounded-checked, whatever their casing.
+ *
+ * A fabricated date is one of the most damaging things this pipeline can emit, and casing is not a
+ * safety boundary: `"Deploy on monday"` against a source saying `tomorrow` is exactly as wrong as
+ * `"Deploy Monday"`. Round 5 fixed only the capitalized half by removing these from the exemption
+ * list; round 6 caught that lowercase still slipped through the capitalization rule entirely.
+ *
+ * This is explicitly NOT the declined open-ended lexicon problem. Weekdays, months and relative
+ * times are a **small closed set of known factual claims**, so they can be enumerated honestly —
+ * unlike "is this an ordinary English word", which cannot.
+ */
+const TemporalEntities = new Set([
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'mon', 'tue', 'tues', 'wed', 'thu', 'thur', 'thurs', 'fri', 'sat', 'sun',
+  'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september',
+  'october', 'november', 'december',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+  'today', 'tonight', 'tomorrow', 'yesterday', 'eod', 'eow', 'asap', 'midnight', 'noon',
+  'weekend', 'weekday', 'morning', 'afternoon', 'evening',
+]);
+
 // WEEKDAYS, MONTHS, AND RELATIVE TIMES WERE HERE AND HAD TO COME OUT (Codex, branch relay round 5).
 // Exempting them globally meant a FABRICATED DEADLINE rendered as fact: `"Deploy Monday"` against a
 // source saying `deploy the patch tomorrow` extracted no term at all and passed. A wrong date on a
@@ -260,6 +282,11 @@ function ExtractGroundedTerms(ArgTitle) {
     const HasInternalCapital = /^\p{L}+\p{Lu}/u.test(Word);
     const HasLetterDigitMix = /\p{L}/u.test(Word) && /\p{N}/u.test(Word);
     if(HasInternalSeparator || HasInternalCapital || HasLetterDigitMix) { Add(Word); return; }
+
+    // 3b. temporal words, at ANY casing and in ANY position — including the first, since a title may
+    // legitimately open with one. A fabricated deadline is a factual claim regardless of how the
+    // model capitalized it.
+    if(TemporalEntities.has(Word.toLowerCase().replace(/['’]s$/i, ''))) { Add(Word); return; }
 
     // 4. proper nouns — capitalized, not the leading imperative verb, not a routine capital.
     // `\p{Lu}` rather than `[A-Z]`: an ASCII-only test does not recognize a Cyrillic or Greek capital
