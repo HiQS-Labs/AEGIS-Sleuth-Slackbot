@@ -9,6 +9,7 @@ const RemindersChannelSettings = require('./reminders-channel-settings');
 const RemindersAIPipeline = require('./reminders-ai-pipeline');
 const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
+const DecisionExplain = require('./decision-explain');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -1920,6 +1921,28 @@ class RemindersModule {
       `• Reminder candidates: ${TriageResult.analysis.reminders.length}`,
     );
 
+    // GH-44 Phase 5: why the displayed task text looks the way it does. These routing facts decide
+    // verbatim-vs-synthesized and previously existed only in a server log line — the one place a
+    // person debugging a wrong reminder from inside Slack could never see them. Additive: renders
+    // nothing at all when the decision carries no facts.
+    FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+      'Why this task text', TriageResult.debugFacts,
+    ));
+
+    // GH-44 Phase 5: how ownership WOULD resolve for this message. A diagnostic of current behavior,
+    // not a fix — assignees still come from scraping every mention in the source, with the sender
+    // used only when that set is empty. `senderExcludedByMentions: yes` is the GH-43
+    // "mentioned ≠ assigned" defect made visible while someone is staring at a wrong reminder.
+    const TriageSenderID = OriginalMessage.user || '';
+    const TriageMentionedIDs = this.#ExtractAssigneeIDsFromReminderText(OriginalText);
+    const TriageAssigneeIDs = TriageMentionedIDs.length > 0
+      ? TriageMentionedIDs
+      : [TriageSenderID].filter(Boolean);
+    FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+      'How ownership resolved',
+      DecisionExplain.DescribeAssigneeResolution(TriageMentionedIDs, TriageAssigneeIDs, TriageSenderID),
+    ));
+
     if(TriageResult.analysis.reminders.length === 0) {
       FeedbackLines.push('• No reminder candidates were extracted from this message.');
     } else {
@@ -2086,34 +2109,11 @@ class RemindersModule {
       }
     }
 
-    // Extract user mentions from the text
-    const UserMentionPattern = /<@([^>|]+)(?:\|[^>]*)?>/g;
-    /** @type {string[]} */
-    const UserIds = [];
-    let Match;
-    
-    while((Match = UserMentionPattern.exec(TextToSearch)) !== null) {
-      const UserId = Match[1];
-      if(!UserIds.includes(UserId)) {
-        UserIds.push(UserId);
-      }
-    }
-
-    if(UserIds.length === 0) {
-      return [];
-    }
-
-    // Filter out the bot user ID - the bot should never be the assignee
-    const BotUserID = this.#SlackApp.BotUserID;
-    const HumanUserIds = BotUserID
-      ? UserIds.filter(Id => Id !== BotUserID)
-      : UserIds;
-
-    if(HumanUserIds.length === 0) {
-      return [];
-    }
-
-    return HumanUserIds;
+    // GH-44: mention extraction now comes from the ONE shared rule in decision-explain.js, so the
+    // triage view and the replay harness read ownership exactly the way this write path does rather
+    // than from three copies of the same regex that can drift. Behavior is unchanged: same pattern,
+    // same first-appearance de-duplication, same bot exclusion.
+    return DecisionExplain.ExtractMentionIDs(TextToSearch, this.#SlackApp.BotUserID);
   }
 
   /**

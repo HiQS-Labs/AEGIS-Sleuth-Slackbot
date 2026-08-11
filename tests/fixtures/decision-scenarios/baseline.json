@@ -1,0 +1,336 @@
+{
+  "S-01": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "<@U_ALPHA> <@U_BETA> root cause: The weekly photo-request system could only ever see a small, fixed batch of photos, and once it emailed about a plant once it never checked it again. Over time that batch got fully used up, so the system had nothing left to send. We fixed it so the scan now covers all photos, and plants can be re-requested after enough time has passed. Emails will resume for every yard after the next deployment i am going to deploy the changes tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA",
+        "U_BETA"
+      ],
+      "resolvedFrom": "mentions",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.07,
+      "segment": "normal",
+      "sentenceCount": 3,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-02": {
+    "candidates": [
+      {
+        "assigneeID": "U_ALPHA",
+        "confidence": "high",
+        "deadline": "tomorrow morning",
+        "flag": null,
+        "title": "run the smoke tests"
+      }
+    ],
+    "decision": "multi-task-extraction"
+  },
+  "S-03": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "I'll deploy the changes tomorrow morning."
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.56,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-04": {
+    "candidates": [
+      {
+        "assigneeID": "U_SENDER",
+        "confidence": "high",
+        "deadline": "tonight",
+        "flag": null,
+        "title": "write up the migration notes"
+      },
+      {
+        "assigneeID": "U_BETA",
+        "confidence": "high",
+        "deadline": "EOD tomorrow",
+        "flag": null,
+        "title": "review them"
+      }
+    ],
+    "decision": "multi-task-extraction"
+  },
+  "S-05": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "<@U_ALPHA> found the root cause in the cron job. I'll patch it tomorrow morning."
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "resolvedFrom": "mentions",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.16,
+      "segment": "normal",
+      "sentenceCount": 2,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-06": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "<@U_ALPHA> <@U_BETA> can you both test the new release tomorrow morning?"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA",
+        "U_BETA"
+      ],
+      "resolvedFrom": "mentions",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.46,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-07": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "quick update on the billing sync we spent most of the week tracing why invoices were duplicating turns out the retry handler was not idempotent so a timeout would replay the whole batch we have a patch in review now i'll ship it tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.05,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-08": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "Deploy the hotfix tomorrow morning."
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.49,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-09": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "Merge and deploy the connection-pool leak fix"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.13,
+      "segment": "long",
+      "sentenceCount": 5,
+      "synthesisOn": true
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-10": {
+    "candidateCount": 0,
+    "decision": "reminder-analysis",
+    "displayedTasks": [],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "ignore",
+    "routing": {
+      "actionableSpanRatio": 0,
+      "segment": "long",
+      "sentenceCount": 5,
+      "synthesisOn": true
+    },
+    "triggers": []
+  },
+  "S-11": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "I need to work on \"On-going Project: Yard Photo Backfill\" tomorrow morning."
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.76,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-12": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "Found it — the nightly export was writing to the old bucket after the migration, so nothing downstream saw the new files. Fix is a one-line config change. I'll roll it out tomorrow morning."
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.08,
+      "segment": "normal",
+      "sentenceCount": 3,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-13": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedTasks": [
+      "Can you please review the Development branch and if it's safe push to Production this morning?"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.69,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "this morning"
+    ]
+  },
+  "S-14": {
+    "candidateCount": 0,
+    "decision": "reminder-analysis",
+    "displayedTasks": [],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA",
+        "U_BETA"
+      ],
+      "resolvedFrom": "mentions",
+      "senderIsAssignee": false
+    },
+    "recommendation": "ignore",
+    "routing": {
+      "actionableSpanRatio": 0,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": []
+  },
+  "S-15": {
+    "candidateCount": 0,
+    "decision": "reminder-analysis",
+    "displayedTasks": [],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "resolvedFrom": "mentions",
+      "senderIsAssignee": false
+    },
+    "recommendation": "ignore",
+    "routing": {
+      "actionableSpanRatio": 0,
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": []
+  }
+}

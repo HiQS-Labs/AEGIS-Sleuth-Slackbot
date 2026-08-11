@@ -26,6 +26,10 @@ const EXPECTED_PAIRS = {
   'github-relay-relevance-instructions.md': 'github-relay-relevance-schema.json',
   'rmm-instructions.md': 'rmm-schema.json',
   'code-task-synthesis-instructions.md': 'code-task-synthesis-schema.json',
+  // GH-44 Phase 4: promoted out of an inline template literal in reminders-ai-pipeline.js, where it
+  // was structurally invisible to this validator (see #41 — assets absent from this map are skipped
+  // silently and the run still exits 0).
+  'multi-task-extraction-instructions.md': 'multi-task-extraction-schema.json',
   'chat-instructions.md': null, // chat has no structured output schema.
 };
 

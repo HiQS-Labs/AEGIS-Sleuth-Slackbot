@@ -1,6 +1,6 @@
 {
   "name": "aegis",
-  "version": "1.4.270",
+  "version": "1.4.273",
   "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
   "main": "src/app.js",
   "engines": {
@@ -11,6 +11,7 @@
     "test": "jest --forceExit && npm run --silent test:node",
     "test:node": "node --test tests/event-store.test.js tests/events-projection.test.js tests/summarize-week-projection.test.js tests/projection-parity.test.js tests/derived-snapshot-writer.test.js tests/ledger-coverage.test.js tests/projection-coverage-gate.test.js",
     "projection:parity": "node scripts/projection-parity-harness.js",
+    "decision:replay": "node scripts/decision-replay.js",
     "rag:ingest": "node src/rag/ingest.mjs",
     "test:watch": "jest --watch",
     "dev": "nodemon src/app.js",

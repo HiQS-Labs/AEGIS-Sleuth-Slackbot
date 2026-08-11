@@ -59,6 +59,37 @@ it. `development` is intentionally unprotected: CI runs there but does not block
 6. Before reporting success on repo changes, run `utils/pdda/pdda.sh run` or a narrower check
    (`utils/pdda/pdda.sh <check>`). -> expect deterministic findings first, then any LLM review.
 
+## Debugging an AI decision (analysis, extraction, synthesis, triggers)
+
+When a reminder, a routed command, or any other model-backed decision comes out wrong, start here
+rather than reading the pipeline top to bottom. Every AI decision in Sleuth funnels through one
+chokepoint and one debugging surface (GH-44):
+
+| You want to know | Use |
+|---|---|
+| Why did THIS message produce THAT reminder? | React `:wrench:` on the message in Slack. The triage reply shows the recommendation, rationale, per-candidate trigger/task/date-parse, **why the task text looks the way it does** (synthesis routing facts), and **how ownership resolved** (mentions vs sender fallback). |
+| What does the pipeline decide across many messages? | `npm run decision:replay` — replays the scenario battery at `tests/fixtures/decision-scenarios/` and reports `PASS`/`FAIL`/`CHANGED-vs-baseline` per scenario. Deterministic, zero network calls. |
+| Did my change alter behavior? | `npm run decision:replay` diffs against the committed baseline; `--update-baseline` re-records it (never implicit). |
+| What did production actually decide? | Enable capture (`SetDecisionCapture`) and read the JSONL corpus under `data/runtime/shadow/`. Replay it with `--from-corpus`. |
+
+Where the pieces live:
+
+- `src/ai-decision.js` — **the chokepoint.** `DecideAsync` owns asset loading, the model call,
+  required-field validation, the caller's own `Validate` hook, the failure policy, and corpus
+  capture. A decision is declared as an `AiDecisionSpec`; add `DebugFacts` to it and the facts show
+  up in `:wrench:` and the corpus with no rendering code to touch.
+- `src/decision-corpus-store.js` — append-only per-workspace JSONL, never throws into a hot path,
+  non-authoritative and deliberately outside `data/runtime/events/`.
+  `src/router-shadow-store.js` is a back-compat facade over it pinned to the GH-397 stream.
+- `src/decision-explain.js` — decision-agnostic renderer for debug facts, plus the ONE shared
+  mention-extraction rule ownership is read from.
+- `scripts/decision-replay.js` — the replay/diff harness.
+- `data/static/ai/*-instructions.md` + `*-schema.json` — every prompt asset. Keep new pairs
+  registered in `scripts/validate-ai-prompts.js`; an asset missing from that map is silently skipped
+  and `validate:ai` still exits 0 (issue #41), so assert on its `OK:` output, not the exit code.
+
+Full design and phase history: `PROJECT/2-WORKING/GH-44-DECISION-CAPTURE-DEBUG.md`.
+
 ## Canonical rules
 
 - `AGENTS.md` is Sleuth's canonical behavioral contract — do not duplicate or contradict it here.

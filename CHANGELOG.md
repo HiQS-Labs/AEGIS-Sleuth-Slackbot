@@ -33,6 +33,42 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.273 - 2026-08-10
+When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not
+just what I decided, but what drove it — whether I shortened your text or kept it whole and why, and
+how I worked out who the reminder was for. That second one is worth a look: if you addressed a message
+to two colleagues and then committed to something yourself, I'll show you that I assigned it to them
+and not to you. That is a real bug, and now it's visible instead of silent.
+
+**Technical:** GH-44. Consolidates three partial implementations of AI-decision capture into one
+subsystem rather than adding a fourth. `src/decision-corpus-store.js` is `router-shadow-store.js`
+generalized — the only routing-specific thing in it was the filename suffix — and `router-shadow-store.js`
+is now a facade pinned to the `router-shadow` stream, so the GH-397 production corpus filename and
+`ShadowFilePath` signature are unchanged and its 22 tests pass with zero modifications.
+
+`DecideAsync` grows optional `ModelName`, `PromptVersion`, `SchemaVersion`, `DebugFacts` and `Validate`
+on the spec, plus an opt-in `Capture`. Absent `Capture` means the store is never touched, so no
+existing call site changed behavior. `Validate` runs inside the chokepoint so a caller's specific
+error propagates byte-identically while the corpus still classifies the record `invalid` instead of a
+false `ok` — the fix for a defect agy caught during plan review, where populating `RequiredFields`
+would have made the generic error mask three test-asserted messages.
+
+Reminder analysis and the thread multi-task extractor both route through the chokepoint now. The
+latter required promoting its system prompt and response schema out of inline literals into
+`data/static/ai/multi-task-extraction-{instructions.md,schema.json}`, verified byte-identical rather
+than eyeballed; while inline they were structurally invisible to `validate:ai`, which only walks
+`EXPECTED_PAIRS` (issue #41).
+
+`src/decision-explain.js` renders whatever facts a spec declares, so the 🔧 triage gained the GH-337
+routing facts and an ownership trace that previously existed only in a server log line. It also owns
+the single mention-extraction rule the write path, triage view and replay harness all now share.
+
+`scripts/decision-replay.js` (`npm run decision:replay`) replays thread-shaped scenarios against a
+committed baseline. Scenarios carry expectations as well as a baseline, because diffing alone would
+have enshrined current behavior as correct; against `development` the GH-43 battery reports 4 FAIL /
+11 PASS, with S-01 reproducing all three reported defects and the GH-22 shared-assignment guard
+staying green.
+
 ## 1.4.272 - 2026-08-10
 I no longer publish internal workspace, host, or New Relic fallback-key references in the public documentation.
 
