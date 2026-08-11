@@ -158,13 +158,23 @@ function StripPluralSuffix(ArgToken) {
  * @param {string[]} ArgSourceTokens Tokenized source, from {@link GroundingTokens}.
  * @returns {boolean}
  */
-function IsTermGrounded(ArgTerm, ArgSourceTokens) {
-  const TermTokens = GroundingTokens(ArgTerm);
+function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
+  // Possessives are stripped for EVERY kind of term, independently of plural tolerance. `Jamie's`
+  // makes exactly the same claim as `Jamie`, so this is a safe transform — unlike pluralization,
+  // which can turn a generic word into a product name (see below).
+  const Depossessed = (ArgTerm || '').replace(/['’]s\b/gi, '').replace(/s['’](?=\s|$)/gi, 's');
+  const TermTokens = GroundingTokens(Depossessed);
   // a term that tokenizes to nothing (pure punctuation) makes no claim about the world.
   if(TermTokens.length === 0) return true;
 
   const Target = TermTokens.join('');
-  const TargetSingular = StripPluralSuffix(Target);
+  // Plural tolerance is WITHHELD from bare proper nouns, because for a name it is not an inflection
+  // at all — it is a different word. `"Update Teams tomorrow"` against a source saying
+  // `update the team tomorrow` was accepted purely because `Teams` singularizes to the generic
+  // `team`, so the rendered title named a Microsoft product the author never mentioned. (Codex,
+  // branch relay round 4.) Descriptive identifiers like `billing-syncs` keep the tolerance: those
+  // are compounds, not names, and they genuinely inflect.
+  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target) : Target;
 
   for(let StartIndex = 0; StartIndex < ArgSourceTokens.length; StartIndex++) {
     let Run = '';
@@ -177,7 +187,8 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens) {
       // is a false-positive generator — and every false positive here sends a good title back to the
       // verbatim dump this issue exists to remove.
       if(Run.length > Target.length + 1) break;
-      if(Run === Target || StripPluralSuffix(Run) === TargetSingular) return true;
+      if(Run === Target) return true;
+      if(ArgAllowPlural && StripPluralSuffix(Run) === TargetSingular) return true;
     }
   }
   return false;
@@ -200,11 +211,17 @@ function ExtractGroundedTerms(ArgTitle) {
   };
 
   // 1. quoted strings, straight and curly.
-  for(const Match of Title.matchAll(/["“]([^"”]+)["”]|['‘]([^'’]+)['’]/g)) Add(Match[1] || Match[2]);
+  //
+  // A single quote only opens a quotation at a WORD BOUNDARY. Without that guard, two ordinary
+  // apostrophes manufacture a bogus quotation out of the text between them: `Fix Jamie's script;
+  // it's broken` reported the invented term `s script; it` and needlessly fell back to quoting the
+  // whole message. (Codex, branch relay round 4.) Double quotes need no such guard.
+  const QuotedSpanPattern = /["“]([^"”]+)["”]|(?<![\p{L}\p{N}])['‘]([^'’]+)['’](?![\p{L}\p{N}])/gu;
+  for(const Match of Title.matchAll(QuotedSpanPattern)) Add(Match[1] || Match[2]);
 
   // strip quoted spans before everything else so their interior words and figures are not re-tested
   // individually — the quotation as a whole is the claim.
-  const Unquoted = Title.replace(/["“][^"”]+["”]|['‘][^'’]+['’]/g, ' ');
+  const Unquoted = Title.replace(QuotedSpanPattern, ' ');
 
   // 2. standalone numbers. The lookarounds matter: without them `PayloadV2` also reports a bare `2`
   // and `4x` also reports `4`, which is redundant (the enclosing token is already required) and
@@ -250,7 +267,21 @@ function UngroundedTerms(ArgTitle, ArgSourceText) {
   const SourceTokens = GroundingTokens(ArgSourceText);
   if(SourceTokens.length === 0) return ExtractGroundedTerms(ArgTitle);
 
-  return ExtractGroundedTerms(ArgTitle).filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens));
+  return ExtractGroundedTerms(ArgTitle)
+    .filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens, !IsBareProperNoun(ArgTerm)));
+}
+
+/**
+ * A single capitalized word with no internal separator or digit — i.e. a NAME rather than a
+ * descriptive compound. These do not get plural tolerance; see {@link IsTermGrounded}.
+ * @param {string} ArgTerm
+ * @returns {boolean}
+ */
+function IsBareProperNoun(ArgTerm) {
+  const Term = (ArgTerm || '').trim().replace(/['’]s$/i, '');
+  if(!Term || /\s/.test(Term)) return false;
+  if(/[-_./]/.test(Term) || /\p{N}/u.test(Term)) return false;
+  return /^\p{Lu}/u.test(Term);
 }
 
 /**

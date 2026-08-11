@@ -481,3 +481,62 @@ describe('GH-43: reporting a delegation is not committing to it', () => {
     expect(HasFirstPersonCommitment('I will merge and deploy it')).toBe(true);
   });
 });
+
+// Codex branch relay r4 [Blocker]: the any-`I` precedence bug survived r3, because r3 only added
+// another exclusion to a DENYLIST. Each round produced a new phrase to exclude — `my report`, quoted
+// speech, `I asked … to`, then `I need <@alpha> to`, then `I won't` — while the underlying test
+// stayed "does a first-person token appear anywhere", which is not a subject test at all.
+//
+// Replaced with a POSITIVE allowlist of commitment constructions. A denylist of ways to be wrong can
+// never be finished; an allowlist of ways to be right can.
+describe('GH-43: first-person commitment is an allowlist, not a denylist', () => {
+  test.each([
+    ['an object intervenes', 'I need <@U_ALPHA> to deploy tomorrow'],
+    ['reported delegation', 'I asked <@U_ALPHA> to deploy it'],
+    ['negated', 'I won’t deploy; <@U_ALPHA> will deploy tomorrow'],
+    ['negated, spelled out', 'I will not deploy it'],
+    ['possessive only', 'will deploy my report'],
+  ])('%s is NOT a commitment', (ArgName, ArgSpan) => {
+    expect(HasFirstPersonCommitment(ArgSpan)).toBe(false);
+  });
+
+  test.each([
+    'i am going to deploy the changes',
+    "I'll patch it",
+    'I will merge and deploy it',
+    'I need to work on the backfill',
+    'I have to deploy it',
+    'I had to restart it',
+    'im going to deploy the changes',
+    "I'll roll it out",
+  ])('%s IS a commitment', (ArgSpan) => {
+    expect(HasFirstPersonCommitment(ArgSpan)).toBe(true);
+  });
+
+  test('THE WITNESS: "I need <@alpha> to deploy" defers to the analyzer', () => {
+    expect(ResolveAssignees({
+      MessageText: 'I need <@U_ALPHA> to deploy tomorrow',
+      ActionableLanguage: 'I need <@U_ALPHA> to deploy tomorrow',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      AnalyzerOwnerMentions: ['U_ALPHA'],
+    })).toMatchObject({ assigneeIDs: ['U_ALPHA'], resolvedBy: 'analyzer-mentioned' });
+  });
+
+  test('THE WITNESS: a negated first person does not claim the work', () => {
+    expect(ResolveAssignees({
+      MessageText: 'I won’t deploy; <@U_ALPHA> will deploy tomorrow',
+      ActionableLanguage: 'I won’t deploy; <@U_ALPHA> will deploy tomorrow',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      AnalyzerOwnerMentions: ['U_ALPHA'],
+    })).toMatchObject({ assigneeIDs: ['U_ALPHA'] });
+  });
+
+  test('every alternative is word-anchored — "will" must not match via its "ill"', () => {
+    // caught by this module's own table before shipping
+    expect(HasFirstPersonCommitment('<@U_ALPHA> will deploy the patch')).toBe(false);
+  });
+});

@@ -152,11 +152,32 @@ describe('UngroundedTerms — word-fragment bypasses (regression)', () => {
 });
 
 describe('UngroundedTerms — inflections are not inventions', () => {
-  test.each([
-    ["Fix Jamie's script", 'ask jamie about the script tomorrow'],
-    ['Fix the Reports', 'fix the report job tomorrow'],
-  ])('%s stays grounded — a model inflecting the source word invents nothing', (ArgTitle, ArgSource) => {
-    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(true);
+  test('a POSSESSIVE is stripped for every kind of term — it makes the same claim as the name', () => {
+    expect(IsTitleGrounded("Fix Jamie's script", 'ask jamie about the script tomorrow')).toBe(true);
+    expect(IsTitleGrounded('Fix Jamie’s script', 'ask jamie about the script tomorrow')).toBe(true);
+  });
+
+  test('TWO apostrophes must not manufacture a quotation out of the text between them', () => {
+    // Codex r4: a single quote only opens a quotation at a word boundary. Without that guard this
+    // reported the invented term "s script; it" and fell back to quoting the whole message.
+    expect(UngroundedTerms('Fix Jamie’s script; it’s broken', 'jamie says the script is broken'))
+      .toEqual([]);
+    // a real single-quoted span is still recognized
+    expect(ExtractGroundedTerms("Handle 'Review Quarterly Reports'")).toEqual(['Review Quarterly Reports']);
+  });
+
+  test('DESCRIPTIVE IDENTIFIERS keep plural tolerance — they are compounds, not names', () => {
+    expect(IsTitleGrounded('Ship billing-syncs', 'the billing sync is broken')).toBe(true);
+  });
+
+  test('BARE PROPER NOUNS do NOT get plural tolerance — for a name, a plural is a different word', () => {
+    // Codex r4. "Update Teams" was accepted against a source saying "the team" purely because
+    // Teams singularizes to the generic word — so the title named a Microsoft product the author
+    // never mentioned. Withholding the tolerance here costs a readability edge case ("Reports"
+    // against "report" now falls back to verbatim) and closes a real entity bypass. Gaps cost
+    // readability; bypasses cost correctness.
+    expect(IsTitleGrounded('Update Teams tomorrow', 'update the team tomorrow')).toBe(false);
+    expect(IsTitleGrounded('Fix the Reports', 'fix the report job tomorrow')).toBe(false);
   });
 
   test('the formatting tolerance that motivated the original design still holds', () => {
@@ -166,22 +187,10 @@ describe('UngroundedTerms — inflections are not inventions', () => {
     expect(IsTitleGrounded('Restart Nginx', 'restart nginx tonight')).toBe(true);
   });
 
-  test('plural tolerance works in BOTH directions', () => {
-    // title plural / source singular
-    expect(IsTitleGrounded('Fix the Reports', 'fix the report job')).toBe(true);
-    // title singular / source plural — found by self-audit after the first fix: the run-length bound
-    // broke BEFORE the plural comparison, so this direction silently failed. One-directional
-    // tolerance is a false-positive generator, and every false positive here sends a good title back
-    // to the verbatim dump.
-    expect(IsTitleGrounded('Deploy Api', 'the apis are down, will look tomorrow')).toBe(true);
-  });
-
   test('plural tolerance does not become a new bypass', () => {
     expect(IsTitleGrounded('Check the Reporters', 'fix the report job')).toBe(false);
     expect(IsTitleGrounded('Fix the Snowflakes', 'fix the report job')).toBe(false);
-    // the short-token guard stops "AWS" being stripped to "aw"
     expect(IsTitleGrounded('Deploy AWS', 'deploy aw tomorrow')).toBe(false);
-    // and the one-character slack does not admit a longer unrelated word
     expect(IsTitleGrounded('Deploy Prod', 'deploy prodx tomorrow')).toBe(false);
   });
 });

@@ -40,21 +40,42 @@ const { ExtractMentionIDs } = require('./decision-explain');
 const FirstPersonPattern = /\b(i|i'm|im|i'll|ill|i've|ive|i'd)\b/i;
 
 /**
- * Reporting and delegation constructions: the speaker is the subject of the *sentence*, but somebody
- * else is the subject of the *obligation*.
+ * Positive first-person **commitment constructions** — the speaker, immediately followed by their
+ * own action.
  *
- * `I asked <@U_ALPHA> to deploy tomorrow` is first-person and is emphatically not a commitment by the
- * author — Alpha deploys. Matching a bare `I` anywhere in the span made the sender own it, and that
- * verdict then outranked an analyzer that had correctly said `owner: mentioned`. (Codex, branch relay
- * round 3.) When this matches, the strong sender override is skipped and the case falls through to
- * the analyzer verdict and the mention fallbacks, which is where it belongs.
+ * This replaces a growing denylist and that change is the point. Successive reviews kept producing a
+ * new phrase that had to be excluded — `my report`, quoted speech, `I asked … to`, then
+ * `I need <@alpha> to`, then `I won't` — because the underlying test was "does a first-person token
+ * appear anywhere", which is not a subject test at all. Each fix narrowed one hole and left the shape
+ * intact. A denylist of ways to be wrong can never be finished; an allowlist of ways to be right can.
  *
- * Deliberately limited to verbs that are UNAMBIGUOUSLY delegation. `have`, `had`, and `got` were in
- * an earlier draft of this and had to come out: `"I have to deploy it"` and `"I had to restart it"`
- * are ordinary commitments, and matching them turned a correct sender attribution into a fallback. A
- * missed delegation degrades to the analyzer verdict; a missed commitment reassigns real work.
+ * Matching is done on apostrophe-stripped text so `I'll` / `ill` / `Ill` are one case.
+ *
+ * What this deliberately does NOT match, each a witness from review:
+ *  - `I need <@U_ALPHA> to deploy`  — an object intervenes, so the subject of the obligation is Alpha
+ *  - `I asked <@U_ALPHA> to deploy` — reporting a delegation
+ *  - `I won't deploy`               — negated; `wont`/`cant` are simply not modals here
+ *  - `<@U_ALPHA> will deploy my report` — a possessive, no first-person subject at all
+ *
+ * Every alternative is `\b`-anchored, and that is not decoration: without it `ill\s+\w+` matches
+ * inside **w-ill**, so `"<@U_ALPHA> will deploy my report"` read as a first-person commitment. Caught
+ * by this module's own test table before it could ship.
  */
-const DelegationPattern = /\b(i|we)\s+(?:just\s+|already\s+)?(asked|told|pinged|requested|assigned|delegated|handed|passed)\b/i;
+const FirstPersonCommitmentPattern = new RegExp([
+  // I'll deploy · Ill deploy
+  '\\bill\\s+(?!not\\b|never\\b)\\w+',
+  // I will/shall/can/should/must/would deploy
+  '\\bi\\s+(?:will|shall|can|could|should|must|would|gotta)\\s+(?!not\\b|never\\b)\\w+',
+  // Im deploying · I am deploying
+  '\\bi(?:m\\b|\\s+am)\\s+\\w+ing\\b',
+  // Im going to deploy · I am going to deploy
+  '\\bi(?:m\\b|\\s+am)\\s+going\\s+to\\s+(?!not\\b)\\w+',
+  // I need/have/had/plan/intend/expect/hope/want/aim TO deploy — the `to` must be immediate, which is
+  // exactly what separates a commitment from `I need <@alpha> to deploy`.
+  '\\bi(?:ve\\b)?\\s+(?:need|needs|needed|have|has|had|plan|planned|intend|expect|hope|want|aim|got)\\s+to\\s+(?!not\\b)\\w+',
+  // Id like to deploy
+  '\\bid\\s+like\\s+to\\s+\\w+',
+].join('|'), 'i');
 
 /** Second-person ask markers — the signal that someone else is being asked to act. */
 const SecondPersonPattern = /\b(can you|could you|would you|will you|can u|please|pls|kindly|you should|you need to|you both|you all|your turn)\b/i;
@@ -93,9 +114,8 @@ function HasFirstPersonCommitment(ArgActionableLanguage) {
   // a second-person ask wins even when it contains a stray first-person token
   // ("can you send me the logs")
   if(SecondPersonPattern.test(Text)) return false;
-  // "I asked <@alpha> to deploy" is first person about a delegation, not a commitment.
-  if(DelegationPattern.test(Text)) return false;
-  return FirstPersonPattern.test(Text);
+  // apostrophes stripped so I'll / Ill / I'm / Im are one case
+  return FirstPersonCommitmentPattern.test(Text.replace(/['’]/g, ''));
 }
 
 /**
