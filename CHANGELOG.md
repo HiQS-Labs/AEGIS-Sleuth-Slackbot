@@ -33,6 +33,11 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.272 - 2026-08-10
+I no longer publish internal workspace, host, or New Relic fallback-key references in the public documentation.
+
+**Technical:** Replaced the production workspace census, server host/path references, and New Relic fallback-key references in `HONEST.md` and `deploy/reminders-export/README.md` with `[redacted]`.
+
 ## 1.4.271 - 2026-08-10
 When a Slack thread is linked to a GitHub issue, I no longer copy every later reply onto it. I check
 first whether the reply is really about that task, and if it looks like a new or unrelated one I
