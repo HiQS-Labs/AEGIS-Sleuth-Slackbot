@@ -1,8 +1,8 @@
 ---
 title: "GitHub relay posts unrelated follow-up messages onto a linked issue in multi-task threads"
-status: Active (2-WORKING) — built and green on gh-37-relay-relevance-gate; QA + PR outstanding
+status: Complete (3-COMPLETED) — merged via PR #38 (3dfb59b), issue #37 closed, deployed to the Vultr dev server
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-08-11
 owner: noel
 goal: "Relay a Slack thread reply to a linked GitHub issue only when it is a high-confidence continuation of that issue's task, and make the octocat reaction the discoverable stop trigger — sharing one AI-decision helper with the existing dedup path."
 branch: gh-37-relay-relevance-gate
@@ -14,6 +14,12 @@ context_tags: [github-relay, reminders, ai-decision, slack-reactions, dry]
 ---
 
 # GH-37 — GitHub relay relevance gate + octocat stop trigger
+
+## Status
+
+| What was just completed | What's next |
+|---|---|
+| Shipped. Merged via PR #38 (`3dfb59b`) with CI green; issue #37 closed. QA'd in two rounds — agy on the feature, Codex on the merge with development's event schema v2 — and both Codex findings (a ledger/JSON parity blocker and a stop-path emit ordering defect) fixed with mutation-verified regression tests. Deployed to the Vultr development server and verified live: artifacts present, service active, Slack/Notion/web-API up, tenant data intact. | Nothing outstanding. Deployed via the manual SSH fallback because DeployHQ had stopped deploying after #33 — tracked separately, already on the operator's radar. |
 
 ## Why this exists
 

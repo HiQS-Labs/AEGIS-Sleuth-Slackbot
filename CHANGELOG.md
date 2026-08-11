@@ -33,6 +33,26 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.275 - 2026-08-11
+Nothing changes in how I behave — this is a fix to my own test setup. My test run could fail for a
+reason that had nothing to do with the change being tested, which made it hard to trust. It no longer
+does that.
+
+**Technical:** GH-48. `package.json`'s jest `testMatch` was unanchored (`**/tests/**/*.test.js`), so
+it matched any directory named `tests/` anywhere under the repo root — including the partial
+snapshots the relay harness writes to `.tick/orphan-backups/<utc>-<pid>/` when its containment
+reverts a file mid-turn. Those snapshots carry a test file without its sibling `src/`, so they can
+never resolve and always report `Test suite failed to run`; the signature is a run showing a failed
+suite with zero failed tests. This broke `npm test` — the pre-merge gate and DeployHQ's build step —
+on an unpredictable schedule, twice during GH-37.
+
+Both globs are now anchored to `<rootDir>`: `testMatch` → `<rootDir>/tests/**/*.test.js`, and
+`collectCoverageFrom` → `<rootDir>/src/**/*.js`, which carried the same defect for coverage runs. A
+`<rootDir>/.tick/` ignore entry was written and then removed: mutation testing showed the anchor
+alone and the ignore alone each fully prevent the collection, and the anchor is the more general of
+the two, so carrying both was redundant. Verified with an orphan backup still on disk — 109 suites /
+1849 tests green, suite count unchanged, no legitimate suite dropped.
+
 ## 1.4.274 - 2026-08-10
 That bug I could only *show* you last release is fixed. If you address a message to colleagues and
 then say you'll do something yourself, the reminder is yours now — and they're kept in the loop
