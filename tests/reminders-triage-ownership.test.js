@@ -47,9 +47,26 @@ function TwoTriggerAnalysis() {
   };
 }
 
+/**
+ * Remove this suite's runtime JSON. Every other reminder suite does this; without it the workspace
+ * files leak into the shared runtime dir and the next run starts from someone else's state.
+ * @returns {Promise<void>}
+ */
+async function CleanupAsync() {
+  try {
+    const Entries = await fs.readdir(RuntimeDir);
+    await Promise.all(Entries
+      .filter(ArgName => ArgName.startsWith('TriageOwnership'))
+      .map(ArgName => fs.rm(path.join(RuntimeDir, ArgName), { force: true })));
+  } catch(error) {
+    if(error.code !== 'ENOENT') throw error;
+  }
+}
+
 describe('GH-43: :wrench: triage resolves ownership PER TRIGGER, as scheduling does', () => {
   beforeAll(async () => { await fs.mkdir(RuntimeDir, { recursive: true }); });
-  afterEach(() => { MockWorkspaceAI.mockReset(); });
+  afterEach(async () => { MockWorkspaceAI.mockReset(); await CleanupAsync(); });
+  afterAll(async () => { await CleanupAsync(); });
 
   test('two triggers with two owners produce TWO labelled resolutions, not one wrong one', async () => {
     MockWorkspaceAI.mockImplementation(() => ({
