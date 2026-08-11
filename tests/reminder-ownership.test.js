@@ -635,13 +635,42 @@ describe('GH-43: quoted text decides nothing, in either direction', () => {
 });
 
 describe('GH-43: FindOwnerDisagreement is shared by scheduling and triage', () => {
-  test('reports the distinct decided owners, and nothing when they agree', () => {
-    expect(FindOwnerDisagreement([{ owner: 'speaker' }, { owner: 'mentioned' }]))
-      .toEqual(['speaker', 'mentioned']);
+  test('reports the distinct decided owners within a trigger, and nothing when they agree', () => {
+    expect(FindOwnerDisagreement([
+      { owner: 'speaker', scheduling_trigger: 'tomorrow' },
+      { owner: 'mentioned', scheduling_trigger: 'tomorrow' },
+    ])).toEqual(['speaker', 'mentioned']);
     expect(FindOwnerDisagreement([{ owner: 'speaker' }, { owner: 'speaker' }])).toEqual([]);
     // `unclear` is not a decided owner, so it never manufactures a disagreement
     expect(FindOwnerDisagreement([{ owner: 'speaker' }, { owner: 'unclear' }])).toEqual([]);
     expect(FindOwnerDisagreement([{ owner: 'speaker' }])).toEqual([]);
     expect(FindOwnerDisagreement([])).toEqual([]);
+  });
+
+  // Codex r8: grouping used to be the CALLER's job, so triage — which holds the whole ungrouped
+  // candidate list — reported a limitation that does not exist. Production schedules two different
+  // triggers as two separate reminders, each with its own owner. A diagnostic that invents a
+  // limitation is as bad as one that hides a real one, so the grouping rule lives in the helper.
+  test('THE WITNESS: candidates under DIFFERENT triggers do not disagree', () => {
+    expect(FindOwnerDisagreement([
+      { owner: 'speaker', scheduling_trigger: 'tomorrow' },
+      { owner: 'mentioned', scheduling_trigger: 'friday' },
+    ])).toEqual([]);
+  });
+
+  test('a disagreement inside ONE trigger is still found among several triggers', () => {
+    expect(FindOwnerDisagreement([
+      { owner: 'speaker', scheduling_trigger: 'friday' },
+      { owner: 'speaker', scheduling_trigger: 'tomorrow' },
+      { owner: 'mentioned', scheduling_trigger: 'tomorrow' },
+    ])).toEqual(['speaker', 'mentioned']);
+  });
+
+  test('the scheduling caller passes one already-grouped trigger, and grouping is a no-op there', () => {
+    const OneGroup = [
+      { owner: 'speaker', scheduling_trigger: 'tomorrow morning' },
+      { owner: 'mentioned', scheduling_trigger: 'tomorrow morning' },
+    ];
+    expect(FindOwnerDisagreement(OneGroup)).toEqual(['speaker', 'mentioned']);
   });
 });

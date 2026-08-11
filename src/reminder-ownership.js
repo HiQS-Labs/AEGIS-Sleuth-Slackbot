@@ -362,16 +362,37 @@ function ReduceGroupOwner(ArgCandidates) {
  * explanation and never mentioned it — so a user debugging a wrong assignee saw a confident single
  * `resolvedBy` and no hint of the limitation. That is the diagnostic-vs-production divergence class
  * this branch has been closing throughout; one helper, both callers.
- * @param {Array<{owner?: string}>} ArgCandidates
- * @returns {string[]} the distinct decided owners, or `[]` when there is no disagreement to report.
+ *
+ * **GROUPING IS DONE HERE, not by the caller**, which is round 8's correction. Scheduling passes one
+ * already-grouped trigger; triage has the whole ungrouped candidate list. When triage did its own
+ * thing, two candidates with DIFFERENT triggers (`tomorrow`/speaker and `friday`/mentioned) reported
+ * a limitation that does not exist — production represents those as two separate reminders, each with
+ * its own owner. A diagnostic that invents a limitation is as bad as one that hides a real one, so
+ * the grouping rule lives in the helper and neither caller can get it wrong.
+ * @param {Array<{owner?: string, scheduling_trigger?: string}>} ArgCandidates
+ * @returns {string[]} the distinct decided owners within a single trigger group, or `[]` when no
+ * group disagrees. Deduplicated across groups so the caller gets one flat answer.
  */
 function FindOwnerDisagreement(ArgCandidates) {
   const Candidates = Array.isArray(ArgCandidates) ? ArgCandidates : [];
   if(Candidates.length < 2) return [];
-  const Decided = [...new Set(Candidates
-    .map(ArgCandidate => ArgCandidate && ArgCandidate.owner)
-    .filter(ArgOwner => typeof ArgOwner === 'string' && ArgOwner && ArgOwner !== 'unclear'))];
-  return Decided.length > 1 ? Decided : [];
+
+  /** @type {Map<string, Set<string>>} */
+  const OwnersByTrigger = new Map();
+  for(const Candidate of Candidates) {
+    const Owner = Candidate && Candidate.owner;
+    if(typeof Owner !== 'string' || !Owner || Owner === 'unclear') continue;
+    const Trigger = (Candidate && Candidate.scheduling_trigger) || '';
+    if(!OwnersByTrigger.has(Trigger)) OwnersByTrigger.set(Trigger, new Set());
+    /** @type {Set<string>} */ (OwnersByTrigger.get(Trigger)).add(Owner);
+  }
+
+  const Disagreeing = /** @type {string[]} */ ([]);
+  for(const Owners of OwnersByTrigger.values()) {
+    if(Owners.size < 2) continue;
+    for(const Owner of Owners) if(!Disagreeing.includes(Owner)) Disagreeing.push(Owner);
+  }
+  return Disagreeing;
 }
 
 module.exports = {
