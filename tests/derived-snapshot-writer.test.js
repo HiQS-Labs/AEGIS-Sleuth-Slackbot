@@ -219,3 +219,55 @@ test('WriteSnapshotAndCompactAsync REFUSES an authoritative seed', async (t) => 
     'the contradiction must be rejected loudly'
   );
 });
+
+// GH-43 Phase 3 — NotifyIDs must survive compaction, and must not be invented for records that
+// never had it. Compaction is irreversible and the emitted BaselineReminderImported becomes the only
+// surviving record, so a dropped key here loses the field permanently. It also breaks parity in both
+// directions, because the projection compares key PRESENCE, not just value.
+//
+// Red before the fix: BuildCompactedEvents emitted no `notifyIds` at all, so the first assertion
+// below failed and a folded reminder silently lost its notify list.
+test('compaction carries NotifyIDs, and only for reminders that actually have them', async () => {
+  const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-notify-'));
+  const BaseReminder = {
+    ReminderID: 'rem-1', CreatedOn: new Date('2026-08-01T12:00:00.000Z'),
+    ShouldPostOn: new Date('2026-08-02T12:00:00.000Z'),
+    TargetChannelID: 'C_TARGET', OriginalChannelID: 'C_SOURCE', OriginalChannelName: 'engineering',
+    OriginalMessageID: '123.456', OriginalThreadTs: '123.000', OriginalSenderID: 'U_SENDER',
+    ReminderMessageText: 'Ship it', IgnoreSnooze: false,
+    AssigneeID: 'U_SENDER', AssigneeIDs: ['U_SENDER'],
+    State: 'scheduled', GitHubUrls: [], clientId: 'acme', projectId: 'ledger',
+    GitHubRelayStarted: false, GitHubRelayStopped: false,
+  };
+
+  const Compacted = BuildCompactedEvents({
+    workspace: 'snapshot-test',
+    events: [],
+    folded: { reminders: [], completed: [] },
+    authoritative: {
+      // one post-Phase-3 reminder with addressees, one legacy record with no such key at all
+      reminders: [
+        { ...BaseReminder, NotifyIDs: ['U_ALPHA', 'U_BETA'] },
+        { ...BaseReminder, ReminderID: 'rem-2' },
+      ],
+      completed: [],
+    },
+  });
+
+  const ById = Object.fromEntries(Compacted
+    .filter(ArgEvent => ArgEvent.type === 'BaselineReminderImported')
+    .map(ArgEvent => [ArgEvent.reminderId, ArgEvent.payload]));
+
+  assert.deepEqual(ById['rem-1'].notifyIds, ['U_ALPHA', 'U_BETA'],
+    'a reminder with addressees must carry them through the only surviving event');
+  assert.equal(Object.prototype.hasOwnProperty.call(ById['rem-2'], 'notifyIds'), false,
+    'a pre-Phase-3 record must NOT gain the key — absent has to stay absent on both sides of parity');
+
+  // and the fold round-trips both without changing key presence.
+  const Folded = FoldReminderReadModels(Compacted);
+  const FoldedById = Object.fromEntries((Folded.reminders || []).map(ArgR => [ArgR.ReminderID, ArgR]));
+  assert.deepEqual(FoldedById['rem-1'].NotifyIDs, ['U_ALPHA', 'U_BETA']);
+  assert.equal(Object.prototype.hasOwnProperty.call(FoldedById['rem-2'], 'NotifyIDs'), false);
+
+  await fs.rm(Root, { recursive: true, force: true });
+});

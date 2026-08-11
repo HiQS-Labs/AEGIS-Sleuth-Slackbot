@@ -168,6 +168,12 @@ function BuildBaselineEvent(ArgReminder, ArgStoreKind) {
       // mirror, so a record written before shared assignments existed still has to produce a
       // non-lying array — otherwise the import silently undoes GH-22 for every legacy reminder.
       assigneeIds: AssigneeIds.length > 0 ? AssigneeIds : (AssigneeId ? [AssigneeId] : []),
+      // GH-43 Phase 3. Conditional for the same reason as the assignee arrays above are not:
+      // the projection compares key PRESENCE, so an imported reminder whose JSON carries NotifyIDs
+      // must carry it into the event, while one written before this phase must not gain the key.
+      ...(Array.isArray(ArgReminder?.NotifyIDs) || Array.isArray(ArgReminder?.notifyIds)
+        ? { notifyIds: GetStringArray(ArgReminder?.NotifyIDs ?? ArgReminder?.notifyIds) }
+        : {}),
       sourceChannelId: SourceChannelId,
       targetChannelId: TargetChannelId,
       dueAt: DueAt,
