@@ -1676,13 +1676,9 @@ class RemindersModule {
     // — even though only ONE reminder is queued per trigger group. Dedupe on the rendered identity
     // (trigger + displayed task text) so each distinct bullet appears once. This is a no-op when synthesis
     // is ON and candidates carry distinct titles, and correctly collapses genuine duplicate extractions.
-    const SeenReminderRenderKeys = new Set();
-    AnalysisResult.reminders = AnalysisResult.reminders.filter(CurrentReminderInfo => {
-      const RenderKey = `${CurrentReminderInfo.scheduling_trigger} ${this.#SelectReminderTaskText(CurrentReminderInfo, DisplaySourceMessageText, SynthesisOn)}`;
-      if(SeenReminderRenderKeys.has(RenderKey)) return false;
-      SeenReminderRenderKeys.add(RenderKey);
-      return true;
-    });
+    AnalysisResult.reminders = this.#DedupeCandidatesByRenderIdentity(
+      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn,
+    );
 
     // exit early if the recommendation is to ignore the message.
     if(AnalysisResult.recommendation === 'ignore') return false;
@@ -2033,7 +2029,17 @@ class RemindersModule {
     const TriageSenderID = OriginalMessage.user || '';
     const TriageMentionedIDs = this.#ExtractAssigneeIDsFromReminderText(OriginalText);
     const TriageNormalizedText = RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText);
-    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageResult.analysis.reminders);
+    // The SAME render-identity dedupe scheduling applies before grouping. Without it, two same-trigger
+    // candidates that display identically survive here but not in production, so triage resolves a
+    // different candidate set — and blames a collapse that had already happened upstream.
+    // (Codex, branch relay round 10.)
+    const TriageRoutingForOwnership = RemindersAIPipeline.DescribeSynthesisRouting(
+      OriginalText, TriageResult.analysis.reminders,
+    );
+    const TriageCandidates = this.#DedupeCandidatesByRenderIdentity(
+      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn,
+    );
+    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageCandidates);
 
     for(const Group of TriageGroups) {
       // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver
@@ -2158,6 +2164,36 @@ class RemindersModule {
       );
     }
     return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Selection.text);
+  }
+
+  /**
+   * Collapse candidates that render to the same bullet under the same trigger.
+   *
+   * The analyzer can emit several candidates for one scheduling trigger (e.g. one per numbered item).
+   * With synthesis OFF every one of them displays the identical normalized original, so they would
+   * otherwise produce N byte-for-byte identical bullets even though only ONE reminder is queued per
+   * trigger group. A no-op when synthesis is ON and the candidates carry distinct titles.
+   *
+   * **Shared with the `:wrench:` triage** (GH-43, Codex branch relay r10). Scheduling deduped and
+   * triage did not, so for two same-trigger candidates that render identically — speaker
+   * `I will deploy the patch` and mentioned `please review it` — production kept the first and
+   * resolved `U_SENDER`, while triage kept both, resolved `U_ALPHA`, and printed a limitation warning
+   * for a collapse that had already happened upstream. Fourth instance on this branch of the same
+   * shape: one rule, two copies, drifting.
+   * @param {GptReminderInfo[]} ArgCandidates Analyzer candidates.
+   * @param {string} ArgNormalizedOriginalText Normalized original message text.
+   * @param {boolean} ArgSynthesisOn The routing decision for this message.
+   * @returns {GptReminderInfo[]} candidates with render-duplicates removed, first occurrence kept.
+   */
+  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn) {
+    const SeenRenderKeys = new Set();
+    return (ArgCandidates || []).filter(ArgCandidate => {
+      const RenderKey = `${ArgCandidate.scheduling_trigger} `
+        + this.#SelectReminderTaskText(ArgCandidate, ArgNormalizedOriginalText, ArgSynthesisOn);
+      if(SeenRenderKeys.has(RenderKey)) return false;
+      SeenRenderKeys.add(RenderKey);
+      return true;
+    });
   }
 
   /**

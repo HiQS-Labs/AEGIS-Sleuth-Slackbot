@@ -141,4 +141,63 @@ describe('GH-43: :wrench: triage resolves ownership PER TRIGGER, as scheduling d
       await Reminders.StopAsync();
     }
   });
+
+  // Codex branch relay r10: scheduling deduplicates candidates by render identity BEFORE grouping;
+  // triage did not. With synthesis off every candidate displays the identical normalized original,
+  // so two same-trigger candidates collapse to one in production — and triage kept both, resolved a
+  // different owner, and blamed a limitation for a collapse that had already happened upstream.
+  test('same-trigger candidates that RENDER identically resolve the way production resolves them', async () => {
+    MockWorkspaceAI.mockImplementation(() => ({
+      ProcessMessageWithJsonResponseAsync: jest.fn().mockImplementation(async (ArgText) => (
+        ArgText.includes('BASE DATE:')
+          ? { year: 2030, month: 1, day: 1, hour: 9, minute: 0, second: 0, rationale: 'mock' }
+          : {
+            recommendation: 'schedule', rationale: 'two tasks, one trigger',
+            reminders: [
+              {
+                actionable_language: 'I will deploy the patch', scheduling_trigger: 'tomorrow',
+                reminder_message: 'Deploy the patch', context: '', owner: 'speaker', owner_mentions: [],
+              },
+              {
+                actionable_language: 'please review it', scheduling_trigger: 'tomorrow',
+                reminder_message: 'Review it', context: '', owner: 'mentioned',
+                owner_mentions: ['U_ALPHA'],
+              },
+            ],
+          }
+      )),
+      ProcessMessageWithTextResponseAsync: jest.fn().mockResolvedValue('mock'),
+      get ComplexModelName() { return 'gpt-4o'; },
+      get DefaultModelName() { return 'gpt-4o-mini'; },
+      set DefaultModelName(_) {},
+    }));
+
+    const SlackApp = new MockSlackApp({
+      WorkspaceInfo: { ...Workspace, WORKSPACE_NAME: 'TriageOwnershipDedupe' },
+      ThreadMessagesById: {
+        'C_TRIAGE:3.0001': [{
+          ts: '3.0001', user: 'U_SENDER',
+          text: '<@U_ALPHA> I will deploy the patch and please review it tomorrow',
+        }],
+      },
+    });
+    const Reminders = new RemindersModule(SlackApp);
+
+    try {
+      await Reminders.StartAsync();
+      await SlackApp.SimulateReactionAddedAsync({
+        user: 'U_REACTOR', reaction: 'wrench', item: { channel: 'C_TRIAGE', ts: '3.0001' },
+      });
+      const Triage = SlackApp.SentMessages.find(ArgMessage => ArgMessage.text.includes(':wrench:'));
+
+      // production keeps only the FIRST candidate (both render to the same verbatim bullet), so the
+      // owner is the speaker — not the mentioned user the second candidate would have chosen.
+      expect(Triage.text).toContain('first-person-commitment');
+      expect(Triage.text).not.toContain('second-person-ask');
+      // and no limitation warning, because the collapse already happened before ownership was decided
+      expect(Triage.text).not.toContain('known limitation');
+    } finally {
+      await Reminders.StopAsync();
+    }
+  });
 });
