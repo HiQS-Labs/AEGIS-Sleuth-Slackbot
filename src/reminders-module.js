@@ -1779,17 +1779,14 @@ class RemindersModule {
       // contract, well outside this issue. The THREAD path already models per-candidate ownership
       // correctly (`assigneeID` per candidate), so the fix for anyone hitting this is to use it.
       // Logged so it shows up in triage instead of being discovered from a wrong reminder.
-      if(CurrentReminders.length > 1) {
-        const CandidateOwners = new Set(CurrentReminders
-          .map(ArgCandidate => ArgCandidate.owner)
-          .filter(ArgOwner => typeof ArgOwner === 'string' && ArgOwner && ArgOwner !== 'unclear'));
-        if(CandidateOwners.size > 1) {
-          ArgSlackApp.Logger.warn(
-            `reminder ownership: trigger "${CurrentTrigger}" has ${CandidateOwners.size} different ` +
-            `candidate owners collapsed into one assignee set (known GH-43 limitation: one trigger ` +
-            `group = one reminder). Candidates=${CurrentReminders.length}.`
-          );
-        }
+      const OwnerDisagreement = ReminderOwnership.FindOwnerDisagreement(CurrentReminders);
+      if(OwnerDisagreement.length > 0) {
+        ArgSlackApp.Logger.warn(
+          `reminder ownership: trigger "${CurrentTrigger}" has ${OwnerDisagreement.length} different ` +
+          `candidate owners (${OwnerDisagreement.join(', ')}) collapsed into one assignee set ` +
+          `(known GH-43 limitation: one trigger group = one reminder). ` +
+          `Candidates=${CurrentReminders.length}.`
+        );
       }
       const Ownership = ReminderOwnership.ResolveAssignees({
         MessageText: DisplaySourceMessageText,
@@ -2060,6 +2057,22 @@ class RemindersModule {
         { ResolvedBy: TriageOwnership.resolvedBy, NotifyIDs: TriageOwnership.notifyIDs },
       ),
     ));
+
+    // GH-43 known limitation, surfaced where a human is actually looking. The scheduling path logs
+    // this server-side; without the same line here, somebody debugging a wrong assignee sees a
+    // confident single `resolvedBy` and no hint that two candidates disagreed. Same helper both
+    // sides, so the triage cannot describe a rule the reminder did not follow.
+    // (Caught by Codex, branch relay round 7.)
+    const TriageOwnerDisagreement = ReminderOwnership.FindOwnerDisagreement(TriageResult.analysis.reminders);
+    if(TriageOwnerDisagreement.length > 0) {
+      FeedbackLines.push(
+        `• :warning: This message mixes ${TriageOwnerDisagreement.length} different owners ` +
+        `(${SlackFormatUtils.SanitizeForInlineSlack(TriageOwnerDisagreement.join(', '))}) under one ` +
+        'scheduling trigger. One trigger produces one reminder with one assignee set, so they were ' +
+        'collapsed — this is a known limitation, not a misread. Split the asks into separate ' +
+        'messages, or use whole-thread extraction, which assigns each task independently.'
+      );
+    }
 
     if(TriageResult.analysis.reminders.length === 0) {
       FeedbackLines.push('• No reminder candidates were extracted from this message.');

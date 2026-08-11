@@ -3,6 +3,7 @@
 const {
   ResolveAssignees, DetectLeadingAddressBlock, HasFirstPersonCommitment, HasSecondPersonAsk,
   ConstrainAssigneeToParticipants, ReduceGroupOwner, IsSpanInsideQuotedSpeech,
+  StripQuotedRegions, FindOwnerDisagreement,
 } = require('../src/reminder-ownership');
 
 // GH-43 Phase 1A — ownership from the grammatical subject of the commitment, not mention-scraping.
@@ -600,5 +601,47 @@ describe('GH-43: reported speech, whichever way the span was cut', () => {
       .toBe(true);
     // and a commitment with an unrelated quotation alongside it
     expect(HasFirstPersonCommitment('I will deploy the fix <@U_ALPHA> called "the big one"')).toBe(true);
+  });
+});
+
+// Codex branch relay r7: round 6 stripped quoted regions before the FIRST-person test but not the
+// second-person one, so a `please` inside a quoted task NAME still read as a request. Stripping for
+// one test and not the other is worse than not stripping at all — the two now share one helper.
+describe('GH-43: quoted text decides nothing, in either direction', () => {
+  test('THE WITNESS: a "Please …" task NAME does not hand the work to a mentioned user', () => {
+    expect(ResolveAssignees({
+      MessageText: '<@U_ALPHA> FYI: I will deploy the feature called "Please Retry" tomorrow',
+      ActionableLanguage: 'I will deploy the feature called "Please Retry"',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'speaker',
+    })).toMatchObject({ assigneeIDs: ['U_SENDER'], resolvedBy: 'first-person-commitment' });
+  });
+
+  test('a GENUINE please ask is untouched', () => {
+    expect(ResolveAssignees({
+      MessageText: '<@U_ALPHA> please review this tomorrow',
+      ActionableLanguage: 'please review this',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+    })).toMatchObject({ assigneeIDs: ['U_ALPHA'], resolvedBy: 'second-person-ask' });
+  });
+
+  test('both person tests strip the same way — asserted through the shared helper', () => {
+    expect(StripQuotedRegions('I will ship "Please Retry"').includes('Please')).toBe(false);
+    expect(HasSecondPersonAsk('I will ship the "Please Retry" feature')).toBe(false);
+    expect(HasSecondPersonAsk('please ship it')).toBe(true);
+  });
+});
+
+describe('GH-43: FindOwnerDisagreement is shared by scheduling and triage', () => {
+  test('reports the distinct decided owners, and nothing when they agree', () => {
+    expect(FindOwnerDisagreement([{ owner: 'speaker' }, { owner: 'mentioned' }]))
+      .toEqual(['speaker', 'mentioned']);
+    expect(FindOwnerDisagreement([{ owner: 'speaker' }, { owner: 'speaker' }])).toEqual([]);
+    // `unclear` is not a decided owner, so it never manufactures a disagreement
+    expect(FindOwnerDisagreement([{ owner: 'speaker' }, { owner: 'unclear' }])).toEqual([]);
+    expect(FindOwnerDisagreement([{ owner: 'speaker' }])).toEqual([]);
+    expect(FindOwnerDisagreement([])).toEqual([]);
   });
 });

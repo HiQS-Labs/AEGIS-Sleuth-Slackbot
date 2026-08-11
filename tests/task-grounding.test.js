@@ -95,6 +95,22 @@ describe('ExtractGroundedTerms', () => {
     expect(IsTitleGrounded('Ship it Friday', 'i will ship it on Friday')).toBe(true);
   });
 
+  // Codex r7: TemporalEntities is a set of single TOKENS, so multi-token relative dates slipped
+  // straight past it — and "next week" is an ordinary Slack deadline, not exotic phrasing.
+  test.each([
+    ['Deploy next week', 'deploy the patch tomorrow'],
+    ['Deploy next month', 'deploy the patch tomorrow'],
+    ['Deploy later', 'deploy the patch tomorrow'],
+    ['Ship this friday', 'i will ship it tomorrow'],
+  ])('%s — a fabricated RELATIVE date is caught', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
+  });
+
+  test('a relative date the author DID write still grounds', () => {
+    expect(IsTitleGrounded('Deploy next week', 'i will deploy next week')).toBe(true);
+    expect(IsTitleGrounded('Ship this Friday', 'shipping this friday')).toBe(true);
+  });
+
   test('KNOWN LIMIT: a lowercase invented word is NOT caught, deliberately', () => {
     // Raised by Codex r5 and declined with reasoning, recorded here so the limit is visible rather
     // than discovered. Requiring every lowercase content word to appear in the source would forbid

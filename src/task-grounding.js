@@ -126,7 +126,28 @@ const TemporalEntities = new Set([
   'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
   'today', 'tonight', 'tomorrow', 'yesterday', 'eod', 'eow', 'asap', 'midnight', 'noon',
   'weekend', 'weekday', 'morning', 'afternoon', 'evening',
+  // standalone relative terms — these are ordinary Slack deadlines, not exotic phrasing
+  'later', 'soon', 'shortly', 'overnight', 'now',
 ]);
+
+/**
+ * Multi-token relative dates: a modifier followed by a time unit. `next week`, `this month`,
+ * `coming friday`.
+ *
+ * `TemporalEntities` is a set of single tokens, so it could never catch these — and `"Deploy next
+ * week"` against a source saying `tomorrow` is exactly the same fabricated deadline as
+ * `"Deploy monday"`. (Codex, branch relay round 7.) Still a bounded grammar rather than a lexicon:
+ * a small modifier list crossed with a small unit list.
+ */
+const TemporalModifiers = ['next', 'this', 'last', 'coming', 'following', 'upcoming', 'early', 'late'];
+const TemporalUnits = [
+  'week', 'weeks', 'month', 'months', 'year', 'years', 'day', 'days', 'quarter', 'sprint',
+  'morning', 'afternoon', 'evening', 'night', 'weekend',
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+];
+const TemporalPhrasePattern = new RegExp(
+  `\\b(${TemporalModifiers.join('|')})\\s+(${TemporalUnits.join('|')})\\b`, 'gi',
+);
 
 // WEEKDAYS, MONTHS, AND RELATIVE TIMES WERE HERE AND HAD TO COME OUT (Codex, branch relay round 5).
 // Exempting them globally meant a FABRICATED DEADLINE rendered as fact: `"Deploy Monday"` against a
@@ -268,6 +289,9 @@ function ExtractGroundedTerms(ArgTitle) {
   // and `4x` also reports `4`, which is redundant (the enclosing token is already required) and
   // turns one invented identifier into two confusing entries in the warning log.
   for(const Match of Unquoted.matchAll(/(?<![A-Za-z0-9])\d+(?:[.,]\d+)*(?![A-Za-z0-9])/g)) Add(Match[0]);
+
+  // 2b. multi-token relative dates (`next week`, `this friday`), which a single-token set cannot see.
+  for(const Match of Unquoted.matchAll(TemporalPhrasePattern)) Add(Match[0]);
 
   const Words = Unquoted.split(/\s+/).filter(Boolean);
 

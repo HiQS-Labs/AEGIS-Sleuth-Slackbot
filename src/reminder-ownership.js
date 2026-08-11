@@ -109,6 +109,31 @@ function DetectLeadingAddressBlock(ArgText) {
 }
 
 /**
+ * Remove double-quoted regions from a span. **Both** person tests run on the result, and that
+ * symmetry is the whole point.
+ *
+ * Quoted text is somebody else's words or a literal name, so it must not decide who owns the work in
+ * either direction:
+ *  - **First person inside quotes** is reported speech.
+ *    `<@U_ALPHA> said "I will deploy the patch"` commits the author to nothing.
+ *  - **Second person inside quotes** is usually a task NAME, not a request.
+ *    `I will deploy the feature called "Please Retry"` was assigned to Alpha purely because the word
+ *    `Please` appeared inside a product name — an ordinary-traffic case, and a clean demonstration
+ *    that stripping for one test and not the other is worse than not stripping at all.
+ *
+ * (The second half was caught by Codex in branch relay round 7, after round 6 stripped only for the
+ * first-person test.)
+ *
+ * Single quotes are deliberately left alone — indistinguishable from the apostrophes in `I'll` and
+ * `don't`, so treating them as quotation would misread ordinary contractions.
+ * @param {string} ArgText
+ * @returns {string}
+ */
+function StripQuotedRegions(ArgText) {
+  return (ArgText || '').replace(/["“][^"”]*["”]/g, ' ');
+}
+
+/**
  * Whether a span reads as the speaker committing to do something themselves.
  * @param {string} ArgActionableLanguage The quoted actionable span (NOT the whole message — an
  * unrelated first-person sentence elsewhere in a long note must not hijack ownership).
@@ -117,22 +142,14 @@ function DetectLeadingAddressBlock(ArgText) {
 function HasFirstPersonCommitment(ArgActionableLanguage) {
   const Text = (ArgActionableLanguage || '').trim();
   if(!Text) return false;
+
+  // Quoted regions are removed BEFORE either person test — see StripQuotedRegions for why the order
+  // matters and what went wrong when only one of the two stripped.
+  const Unquoted = StripQuotedRegions(Text);
+
   // a second-person ask wins even when it contains a stray first-person token
   // ("can you send me the logs")
-  if(SecondPersonPattern.test(Text)) return false;
-
-  // Quoted regions are REMOVED before the commitment test, so a construction that exists only inside
-  // somebody else's reported speech cannot claim the work. `<@U_ALPHA> said "I will deploy the patch"`
-  // reduces to `<@U_ALPHA> said`, which commits to nothing.
-  //
-  // This subsumes the whole-span containment check for the case where the analyzer's byte-exact span
-  // includes the reporting prefix (Codex, branch relay round 6) — that span CONTAINS the quotation
-  // rather than sitting inside it, so containment could never see it.
-  //
-  // It also keeps the quoted-task-name rule working, and for the right reason: in
-  // `I need to work on "On-going Project: X"` the commitment `I need to work on` lives OUTSIDE the
-  // quotes, so stripping them leaves it intact.
-  const Unquoted = Text.replace(/["“][^"”]*["”]/g, ' ');
+  if(SecondPersonPattern.test(Unquoted)) return false;
 
   // apostrophes stripped so I'll / Ill / I'm / Im are one case
   const Normalized = Unquoted.replace(/['’]/g, '');
@@ -179,11 +196,14 @@ function IsSpanInsideQuotedSpeech(ArgMessageText, ArgActionableLanguage) {
 
 /**
  * Whether a span reads as asking someone else to act.
+ *
+ * Quoted regions are stripped first, for the same reason the first-person test strips them: a
+ * `please` inside a quoted task name is not a request. See {@link StripQuotedRegions}.
  * @param {string} ArgActionableLanguage
  * @returns {boolean}
  */
 function HasSecondPersonAsk(ArgActionableLanguage) {
-  return SecondPersonPattern.test((ArgActionableLanguage || '').trim());
+  return SecondPersonPattern.test(StripQuotedRegions((ArgActionableLanguage || '').trim()));
 }
 
 /**
@@ -328,10 +348,38 @@ function ReduceGroupOwner(ArgCandidates) {
   };
 }
 
+/**
+ * Distinct, decided owner verdicts among a trigger group's candidates.
+ *
+ * One trigger group becomes ONE reminder with ONE assignee set, so a message that commits the author
+ * to X while asking somebody else to do Y *under the same trigger* cannot be represented — the spans
+ * are concatenated and a single resolver call picks one owner. GH-43's plan named this the hardest
+ * ownership case and pre-authorized documenting it: *"a documented limitation is acceptable, a silent
+ * wrong answer is not."*
+ *
+ * This exists so scheduling and the `:wrench:` triage derive the disagreement THE SAME WAY. Round 7
+ * of the Codex relay caught that scheduling logged it server-side while triage rebuilt its own
+ * explanation and never mentioned it — so a user debugging a wrong assignee saw a confident single
+ * `resolvedBy` and no hint of the limitation. That is the diagnostic-vs-production divergence class
+ * this branch has been closing throughout; one helper, both callers.
+ * @param {Array<{owner?: string}>} ArgCandidates
+ * @returns {string[]} the distinct decided owners, or `[]` when there is no disagreement to report.
+ */
+function FindOwnerDisagreement(ArgCandidates) {
+  const Candidates = Array.isArray(ArgCandidates) ? ArgCandidates : [];
+  if(Candidates.length < 2) return [];
+  const Decided = [...new Set(Candidates
+    .map(ArgCandidate => ArgCandidate && ArgCandidate.owner)
+    .filter(ArgOwner => typeof ArgOwner === 'string' && ArgOwner && ArgOwner !== 'unclear'))];
+  return Decided.length > 1 ? Decided : [];
+}
+
 module.exports = {
   ResolveAssignees,
   ConstrainAssigneeToParticipants,
   ReduceGroupOwner,
+  FindOwnerDisagreement,
+  StripQuotedRegions,
   IsSpanInsideQuotedSpeech,
   DetectLeadingAddressBlock,
   HasFirstPersonCommitment,
