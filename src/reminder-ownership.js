@@ -77,6 +77,12 @@ const FirstPersonCommitmentPattern = new RegExp([
   '\\bid\\s+like\\s+to\\s+\\w+',
 ].join('|'), 'i');
 
+/**
+ * Negation markers. Checked on apostrophe-stripped text, so `won't` arrives as `wont`.
+ * A commitment that is negated is not a commitment.
+ */
+const NegationPattern = /\b(not|never|no longer|cannot|cant|wont|shant|unable|dont|doesnt|didnt|isnt|arent|wasnt|werent)\b/i;
+
 /** Second-person ask markers — the signal that someone else is being asked to act. */
 const SecondPersonPattern = /\b(can you|could you|would you|will you|can u|please|pls|kindly|you should|you need to|you both|you all|your turn)\b/i;
 
@@ -114,8 +120,19 @@ function HasFirstPersonCommitment(ArgActionableLanguage) {
   // a second-person ask wins even when it contains a stray first-person token
   // ("can you send me the logs")
   if(SecondPersonPattern.test(Text)) return false;
+
   // apostrophes stripped so I'll / Ill / I'm / Im are one case
-  return FirstPersonCommitmentPattern.test(Text.replace(/['’]/g, ''));
+  const Normalized = Text.replace(/['’]/g, '');
+
+  // Negation ANYWHERE in the span disqualifies it. The per-modal lookaheads only rejected an
+  // immediately following negative, so an intervening adverb walked straight past them:
+  // `I will definitely not deploy` and `I can no longer deploy` both read as commitments and
+  // assigned the work to somebody who had just said they would not do it. (Codex, branch relay
+  // round 5.) An actionable span is short, so a negation in it is about the action; the rare
+  // false negative falls through to the analyzer verdict, which is the safe direction.
+  if(NegationPattern.test(Normalized)) return false;
+
+  return FirstPersonCommitmentPattern.test(Normalized);
 }
 
 /**

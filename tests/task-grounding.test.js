@@ -61,9 +61,36 @@ describe('ExtractGroundedTerms', () => {
       .toEqual(['Review Quarterly Reports']);
   });
 
-  test('routine capitals are not proper nouns', () => {
-    expect(ExtractGroundedTerms('Deploy it Monday')).toEqual([]);
+  test('grammatical function words are not proper nouns', () => {
     expect(ExtractGroundedTerms('Ask if I should merge')).toEqual([]);
+    expect(ExtractGroundedTerms('Deploy It And The Other')).toEqual(['Other']);
+    expect(ExtractGroundedTerms('Fix This That And It')).toEqual([]);
+  });
+
+  // Codex branch relay r5. Weekdays, months and relative times used to be globally exempt, so a
+  // FABRICATED DEADLINE rendered as fact. A wrong date is among the most damaging things this
+  // pipeline can output, and the exemption bought nothing — matching is case-insensitive, so a title
+  // saying "Monday" when the author wrote "monday" grounds anyway.
+  test('THE WITNESS: a temporal word is an entity and must be grounded', () => {
+    expect(ExtractGroundedTerms('Deploy it Monday')).toEqual(['Monday']);
+    expect(IsTitleGrounded('Deploy Monday', 'deploy the patch tomorrow')).toBe(false);
+    expect(IsTitleGrounded('Ship it Friday', 'i will ship it tuesday')).toBe(false);
+  });
+
+  test('a real date the author DID write still grounds, in any case', () => {
+    expect(IsTitleGrounded('Deploy Monday', 'deploy the patch monday')).toBe(true);
+    expect(IsTitleGrounded('Ship it Friday', 'i will ship it on Friday')).toBe(true);
+  });
+
+  test('KNOWN LIMIT: a lowercase invented word is NOT caught, deliberately', () => {
+    // Raised by Codex r5 and declined with reasoning, recorded here so the limit is visible rather
+    // than discovered. Requiring every lowercase content word to appear in the source would forbid
+    // rewording — which is the entire point of synthesis — and send nearly every title back to the
+    // verbatim dump this module exists to eliminate. Closing it properly needs a real lexicon;
+    // tracked as an open item on GH-43.
+    expect(IsTitleGrounded('Deploy acme', 'deploy the patch tomorrow')).toBe(true);
+    // the capitalized form — which is how models actually write invented product names — IS caught
+    expect(IsTitleGrounded('Deploy Acme', 'deploy the patch tomorrow')).toBe(false);
   });
 });
 

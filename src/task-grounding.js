@@ -12,10 +12,26 @@
  * shown as the task bullet: the only text guaranteed to be verbatim was the whole message.
  *
  * Phase 3 narrows the guarantee instead of dropping it. `actionable_language` stays byte-exact. The
- * displayed title may be rewritten, but only *within* the vocabulary of the source: every entity,
- * identifier, and number it names must already appear in the message. So the model may re-word
- * ("i'll roll it out" → "Roll out the export bucket config fix") but cannot introduce a system,
- * product, person, or figure the author never mentioned.
+ * displayed title may be rewritten, but every **entity-shaped** token it names must already appear in
+ * the message. So the model may re-word ("i'll roll it out" → "Roll out the export bucket config
+ * fix") but cannot introduce a system, product, person, date, or figure the author never mentioned.
+ *
+ * ## What this does NOT guarantee — stated plainly, because the earlier wording overclaimed
+ *
+ * "Entity-shaped" means the four categories below: quoted strings, numbers, identifier-shaped
+ * tokens, and capitalized words. **A lowercase invented word is not caught.** `"Deploy acme"` against
+ * a source that never says `acme` passes, because ordinary lowercase prose is never checked.
+ *
+ * That is a deliberate limit, not an oversight (raised by Codex, branch relay round 5). Requiring
+ * every lowercase content word to appear in the source would mean the title may only use the source's
+ * exact vocabulary — which forbids rewording, and rewording is the entire point of synthesis. Nearly
+ * every title would fail and fall back to the verbatim message dump this module exists to eliminate,
+ * reintroducing the original defect wholesale to close a much narrower hole. Closing it properly
+ * needs a real lexicon (is this an English word or a product name?), which is tracked as an open item
+ * on GH-43 rather than approximated here.
+ *
+ * The categories are chosen because they are where invention is both *likely* and *damaging*: models
+ * capitalize the service and product names they invent, and a wrong figure or date is a factual claim.
  *
  * **This is enforced here, in code, not only in the prompt.** A prompt rule is a request; a model
  * under pressure to produce a tidy title will invent a plausible-sounding service name, and nothing
@@ -88,11 +104,14 @@ const ImperativeVerbs = new Set([
 const CapitalizedNonEntities = new Set([
   'a', 'an', 'and', 'the', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'from', 'if', 'or',
   'but', 'as', 'is', 'are', 'be', 'do', 'not', 'no', 'this', 'that', 'it', 'i', 'we', 'you', 'they',
-  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
-  'today', 'tonight', 'tomorrow', 'yesterday', 'eod', 'am', 'pm',
-  'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october',
-  'november', 'december',
 ]);
+
+// WEEKDAYS, MONTHS, AND RELATIVE TIMES WERE HERE AND HAD TO COME OUT (Codex, branch relay round 5).
+// Exempting them globally meant a FABRICATED DEADLINE rendered as fact: `"Deploy Monday"` against a
+// source saying `deploy the patch tomorrow` extracted no term at all and passed. A wrong date on a
+// reminder is among the most damaging things this pipeline can produce, and the exemption bought
+// nothing — grounding is case-insensitive, so a title saying `Monday` when the author wrote `monday`
+// matches anyway. They are entities like any other now.
 
 /**
  * Reduce text to bare lowercase alphanumerics. Used for whole-string equality (e.g. "is this context

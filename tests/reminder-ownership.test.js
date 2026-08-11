@@ -540,3 +540,34 @@ describe('GH-43: first-person commitment is an allowlist, not a denylist', () =>
     expect(HasFirstPersonCommitment('<@U_ALPHA> will deploy the patch')).toBe(false);
   });
 });
+
+// Codex branch relay r5: the per-modal negative lookaheads only rejected an IMMEDIATELY following
+// negative, so an intervening adverb walked straight past them — and the work was assigned to
+// somebody who had just said they would not do it.
+describe('GH-43: layered negation is still negation', () => {
+  test.each([
+    'I will definitely not deploy; <@U_ALPHA> will deploy tomorrow',
+    'I can no longer deploy; <@U_ALPHA> will deploy tomorrow',
+    'I will probably never get to it; <@U_ALPHA> will deploy tomorrow',
+    "I won't deploy it",
+    'I will not deploy it',
+  ])('%s is NOT a commitment', (ArgSpan) => {
+    expect(HasFirstPersonCommitment(ArgSpan)).toBe(false);
+  });
+
+  test('THE WITNESS: a negated first person defers to the analyzer', () => {
+    expect(ResolveAssignees({
+      MessageText: 'I will definitely not deploy; <@U_ALPHA> will deploy tomorrow',
+      ActionableLanguage: 'I will definitely not deploy; <@U_ALPHA> will deploy tomorrow',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      AnalyzerOwnerMentions: ['U_ALPHA'],
+    })).toMatchObject({ assigneeIDs: ['U_ALPHA'], resolvedBy: 'analyzer-mentioned' });
+  });
+
+  test('genuine commitments are unaffected', () => {
+    expect(HasFirstPersonCommitment('i am going to deploy the changes')).toBe(true);
+    expect(HasFirstPersonCommitment('I have to deploy it')).toBe(true);
+  });
+});
