@@ -33,7 +33,7 @@ The honest edges are all in the *newer, additive* work, not the load-bearing cor
 | Service state | `active (running)`, since 2026-06-17 15:02 UTC |
 | Deployed version | **1.4.197** (repo is at 1.4.198 — prod trails by one patch; the undeployed delta is default-OFF and behavior-neutral) |
 | Production branch/commit | `main` @ `878d2e8` (merge PR #326) |
-| Workspaces served | **7** — OCUX, Turn7, abk-alumni-network, josetest, neochrome, planning, client-fuxiii |
+| Workspaces served | **7** — [redacted] |
 | Host uptime / load | 253 days / load avg ~0.00 (stable host, light traffic) |
 
 ### Feature status
@@ -59,7 +59,7 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 | summarize-week recap command | **Solid** | Confirmed | CompletionStore-backed; live in prod (1.4.197); flag-gated projection variant is NOT in prod yet |
 | Append-only event ledger (non-authoritative) | **Solid** | Confirmed | Live in prod since the 15:02 restart; emits all 5 lifecycle events; append never blocks/rejects; per-workspace serialized; corrupt-tail tolerant. **Writes nothing authoritative** |
 | Build-time FSM contract validator | **Works** | Confirmed | `validate:fsm` is real and correct — but **not CI-gated** and not in `pretest`; runs only when invoked manually |
-| New Relic APM instrumentation | **Works** | Confirmed | `require('newrelic')` is the first executable line; distributed tracing on. Caveat: license key is a hardcoded **personal/test** key |
+| New Relic APM instrumentation | **Works** | Confirmed | `require('newrelic')` is the first executable line; distributed tracing on. Caveat: fallback license key `[redacted]` |
 | Notion integration | **Partly built** | Confirmed | Wired into runtime and reachable (`notion search …`), but **search-only, token-gated, and has zero tests** |
 | Plugin system | **Partly built** | Confirmed | Real loader with path-traversal guard and lifecycle — but **exactly one plugin ships** (`echo-command`, a labeled reference sample) |
 | P3 summarize-week projection (pure fold) | **Partly built** | Confirmed | Projection + shadow-diff harness implemented and unit-tested; cutover behind a **default-OFF** flag, never flipped, never shadow-diffed on real data |
@@ -80,13 +80,13 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 - **The FSM validator is not CI-gated.** It exists and is correct, but CI runs `npm test` + an unrelated grep, never `validate:fsm`. The contract holds today by discipline, not by an enforced gate.
 - **Event-sourcing is groundwork, not a system of record.** The ledger writes in prod but is authoritative for nothing; the one read-back path is behind a default-OFF flag that isn't even deployed (prod is 1.4.197). Do not describe AEGIS as "event-sourced" in the present tense.
 - **Notion and plugins are early.** Notion is search-only, token-gated, and untested. The plugin system is a real loader with a single demo plugin — there is no plugin catalog.
-- **New Relic runs on a personal/test license key** hardcoded as a fallback. Fine internally; not a customer-facing observability story.
+- **New Relic fallback license key:** `[redacted]`. Not a customer-facing observability story.
 
 ### What I could not verify (read-only, no execution)
 
 - Whether the test suite and `tsc` build pass on HEAD (not run this session — Deep scan stayed read-only by request).
 - The 2.5-year usage history is owner-attested; corroborated by the 253-day host uptime and 7 live workspaces, but tenure itself was not independently reconstructed from logs.
-- Actual per-workspace activity levels (which of the 7 are active vs. dormant/test — `josetest` is clearly a test workspace).
+- Actual per-workspace activity levels (which of the 7 are active vs. dormant/test — `[redacted]` is clearly a test workspace).
 - Whether the summarize-week shadow-diff has been run against a real calendar week (memory + CHANGELOG say not yet).
 
 ## 3. Defensible positioning ⚠️ NOT technical truth
@@ -110,7 +110,7 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 - "Notion search inside Slack (beta)." ← real but search-only, token-gated, untested — label beta
 - "Backed by 1,100+ automated tests." ← CHANGELOG-cited; 67 test files confirmed, suite not re-run this session
 - "An append-only event ledger captures every reminder lifecycle change — groundwork for event-sourcing." ← true and live, but say *groundwork*, not *event-sourced*
-- "Instrumented with New Relic APM." ← true; do not imply a per-tenant/customer-facing observability product (personal key)
+- "Instrumented with New Relic APM." ← true; do not imply a per-tenant/customer-facing observability product (fallback key `[redacted]`)
 - "Survives a hard kill without corrupting its stores — every authoritative write is atomic and `fsync`'d." ← Confirmed by crash injection (14/100 corrupt on the old path, 0/100 on the new, across all three write shapes). Say it exactly this way: it is a *corruption* guarantee, not a *loss* guarantee, and the harness proves atomicity rather than power-loss durability — never upgrade this to "crash-proof" or "zero data loss"
 
 **Don't say yet** — Unverified or contradicted by the code; would not survive scrutiny:
@@ -118,7 +118,7 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
 - "Zero-data-loss durability." ← atomic writes bound *corruption*, not *loss*; an unacknowledged write and the ledger's unsynced tail record can still be lost. See the scoped version under **Say with care**
 - "Proven at scale / high-volume." ← in-house single deployment, load ~0.00 — proven for *reliability and longevity*, not *scale*
 - "A plugin marketplace / ecosystem." ← one demo plugin
-- "Enterprise-grade observability." ← personal/test New Relic key
+- "Enterprise-grade observability." ← New Relic fallback key `[redacted]`
 - "CI-enforced architectural invariants." ← the FSM validator exists but is not in CI
 
 ## 4. Where it's going  ▶ ROADMAP — forward-looking, NOT shipped
@@ -144,7 +144,7 @@ Confidence grades: **Confirmed** = source read and verified wired into the runti
   - Slack/AI/command/web-API: `src/workspace-ai.js`, `src/ai-providers/*`, `src/slack-app.js`, `src/web-api.js`, `src/command-catalog.js`, `src/command-intent-resolver.js`, `data/static/ai/command-catalog.json`
   - Integrations: `src/notion-module.js`, `src/thread-memory.js`, `src/plugin-loader.js`, `src/plugins/*`, `src/github-sync-module.js`, `src/github-comment-relay.js`, `src/app.js`
   - Docs: `README.md`, `CHANGELOG.md` (1.4.180–1.4.198), `package.json`
-- Production check (read-only): SSH to the Vultr host — `systemctl` service state, deployed version, git HEAD/branch, workspace file census, host uptime. No writes, no service changes.
+- Production check (read-only): SSH to the server host `[redacted]` — `systemctl` service state, deployed version, git HEAD/branch, workspace file census, host uptime. No writes, no service changes.
 - Commands run: source-reads only; one read-only production SSH. **No tests, no build, no migrations executed.**
 - Skipped / out of scope: executing the test suite or `tsc`; per-workspace activity profiling; independent reconstruction of the 2.5-year usage history; CHANGELOG before 1.4.180.
 
