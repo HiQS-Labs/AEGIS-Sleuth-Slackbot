@@ -148,7 +148,19 @@ function MakeReplayWorkspaceAI(ArgRecorded) {
 }
 
 /** Minimal SlackApp stand-in: the pipeline only reaches for a logger on this path. */
-const SilentSlackApp = { Logger: { info() {}, warn() {}, error() {} } };
+/**
+ * The bot's own user ID in replay. Production always passes `this.#SlackApp.BotUserID` into the
+ * mention extractor so Sleuth can never be assigned its own reminder; a harness with no bot ID
+ * silently drops that filter and would report the bot as an assignee for a message that @-mentions
+ * it. Found by Codex in the branch relay — the fourth harness-vs-production divergence on this
+ * branch. Scenarios use this literal to exercise the exclusion (see `S-21`).
+ */
+const REPLAY_BOT_USER_ID = 'U_BOT';
+
+const SilentSlackApp = {
+  Logger: { info() {}, warn() {}, error() {} },
+  BotUserID: REPLAY_BOT_USER_ID,
+};
 
 /**
  * Run one scenario and return its observed outcome. Never throws — a scenario that blows up is a
@@ -203,7 +215,11 @@ async function RunScenarioAsync(ArgScenario) {
     // Ownership read through the SHARED resolver the write path uses, so this measures real
     // behavior rather than a re-implementation that could drift from it.
     const SenderID = ArgScenario.sender || 'U_SENDER';
-    const MentionedIDs = DecisionExplain.ExtractMentionIDs(MessageText);
+    // the bot ID is load bearing: production supplies it (reminders-module.js
+    // #ExtractAssigneeIDsFromReminderText -> DecisionExplain.ExtractMentionIDs) so Sleuth can never
+    // be assigned its own reminder. Omitting it here made the harness report an assignee production
+    // is structurally incapable of producing.
+    const MentionedIDs = DecisionExplain.ExtractMentionIDs(MessageText, SilentSlackApp.BotUserID);
     const GroupActionable = Analysis.reminders
       .map((/** @type {any} */ ArgR) => ArgR.actionable_language || '').join(' ').trim();
     // GH-43 Phase 1B: the analyzer's `owner` verdict, collapsed exactly as the write path does it.

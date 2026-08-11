@@ -50,17 +50,80 @@ const CapitalizedNonEntities = new Set([
 ]);
 
 /**
- * Reduce text to bare lowercase alphanumerics.
- *
- * Punctuation and word boundaries are dropped on purpose, so that `billing-sync` in a title matches
- * `billing sync` in the source. A model re-hyphenating or compounding a name the author wrote with a
- * space is a formatting choice, not an invention, and rejecting it would send perfectly good titles
- * back to the verbatim path.
+ * Reduce text to bare lowercase alphanumerics. Used for whole-string equality (e.g. "is this context
+ * line just a restatement of the task?"), NOT for grounding lookups — see {@link IsTermGrounded} for
+ * why a raw substring test on this form is unsafe.
  * @param {string} ArgText
  * @returns {string}
  */
 function NormalizeForGrounding(ArgText) {
   return (ArgText || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * Split text into lowercase alphanumeric word tokens.
+ * @param {string} ArgText
+ * @returns {string[]}
+ */
+function GroundingTokens(ArgText) {
+  return (ArgText || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/**
+ * Drop a single trailing `s` from a token long enough for that to be a plural rather than the word.
+ * Paired with the apostrophe already being stripped by tokenization, this is what lets a title say
+ * `Reports` or `Jamie's` when the source said `report` and `jamie` — a model inflecting a word the
+ * author used is not inventing an entity, and rejecting it would send a perfectly good title back to
+ * the verbatim path, which is the exact failure this whole module exists to avoid.
+ * @param {string} ArgToken
+ * @returns {string}
+ */
+function StripPluralSuffix(ArgToken) {
+  return ArgToken.length > 3 && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
+}
+
+/**
+ * Whether one term is grounded in a tokenized source.
+ *
+ * **This is deliberately NOT a substring test.** The first implementation collapsed both sides to
+ * bare alphanumerics and asked whether the source contained the term. That is far too permissive,
+ * because collapsing erases word boundaries and lets a fragment of a longer word ground an entity
+ * the author never wrote. Found independently by self-audit and by Codex in the branch relay:
+ *
+ *   `"Deploy to PROD"`  accepted against a source whose only relevant word was **"re-PROD-uce"**
+ *   `"Update Ortho"`    accepted against **"orthogonal"**
+ *   `"Deploy Acme"`     accepted against **"xacmey"**       (Codex's case)
+ *
+ * An invented environment or product name reaching a user's reminder is precisely the failure this
+ * module exists to prevent, so a check that accepts one is **worse than no check** — it grants false
+ * confidence to the entire synthesis path.
+ *
+ * The rule instead is: a term is grounded when its concatenated form equals the concatenated form of
+ * some **run of consecutive whole source tokens**. That still tolerates the formatting differences
+ * that motivated collapsing in the first place — `billing-sync` matches `billing sync`, and
+ * `warehousesync` matches `warehouse sync` — while refusing to match a fragment of a longer word.
+ * @param {string} ArgTerm The term requiring grounding.
+ * @param {string[]} ArgSourceTokens Tokenized source, from {@link GroundingTokens}.
+ * @returns {boolean}
+ */
+function IsTermGrounded(ArgTerm, ArgSourceTokens) {
+  const TermTokens = GroundingTokens(ArgTerm);
+  // a term that tokenizes to nothing (pure punctuation) makes no claim about the world.
+  if(TermTokens.length === 0) return true;
+
+  const Target = TermTokens.join('');
+  const TargetSingular = StripPluralSuffix(Target);
+
+  for(let StartIndex = 0; StartIndex < ArgSourceTokens.length; StartIndex++) {
+    let Run = '';
+    for(let EndIndex = StartIndex; EndIndex < ArgSourceTokens.length; EndIndex++) {
+      Run += ArgSourceTokens[EndIndex];
+      // a run only ever grows, so once it is longer than the term no extension of it can match.
+      if(Run.length > Target.length) break;
+      if(Run === Target || StripPluralSuffix(Run) === TargetSingular) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -121,15 +184,10 @@ function ExtractGroundedTerms(ArgTitle) {
  * @returns {string[]} ungrounded terms; empty means the title is fully grounded.
  */
 function UngroundedTerms(ArgTitle, ArgSourceText) {
-  const NormalizedSource = NormalizeForGrounding(ArgSourceText);
-  if(!NormalizedSource) return ExtractGroundedTerms(ArgTitle);
+  const SourceTokens = GroundingTokens(ArgSourceText);
+  if(SourceTokens.length === 0) return ExtractGroundedTerms(ArgTitle);
 
-  return ExtractGroundedTerms(ArgTitle).filter(ArgTerm => {
-    const NormalizedTerm = NormalizeForGrounding(ArgTerm);
-    // a term that normalizes to nothing (pure punctuation) makes no claim about the world.
-    if(!NormalizedTerm) return false;
-    return !NormalizedSource.includes(NormalizedTerm);
-  });
+  return ExtractGroundedTerms(ArgTitle).filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens));
 }
 
 /**
@@ -147,5 +205,7 @@ module.exports = {
   UngroundedTerms,
   ExtractGroundedTerms,
   NormalizeForGrounding,
+  GroundingTokens,
+  IsTermGrounded,
   CapitalizedNonEntities,
 };

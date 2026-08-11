@@ -322,3 +322,69 @@ describe('ResolveAssignees with the analyzer verdict', () => {
     expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
   });
 });
+
+// Codex branch relay r1 [Should]: the `:wrench:` triage claimed to run "the REAL resolver" so it
+// could not drift from scheduling — but it called ResolveAssignees WITHOUT the analyzer's
+// owner/owner_mentions that the scheduling path passes. For an ambiguous addressed message the two
+// therefore disagreed: scheduling resolved `analyzer-speaker`, triage reported `mentions`. A triage
+// that confidently explains a rule the reminder did not follow is worse than no triage.
+//
+// This pins the CONTRACT rather than the call site: both paths must feed the resolver the same
+// inputs derived the same way, so both must produce the same verdict for the same message.
+describe('GH-43: the triage and scheduling ownership inputs cannot diverge', () => {
+  const AmbiguousCandidates = [{
+    actionable_language: 'the connection-pool patch goes out',
+    scheduling_trigger: 'tomorrow morning',
+    reminder_message: 'Ship the connection-pool patch',
+    owner: 'speaker',
+    owner_mentions: [],
+  }];
+  const MessageText = '<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning';
+
+  /**
+   * Derive resolver inputs exactly as a call site should, from a candidate list.
+   * @param {any[]} ArgCandidates
+   * @returns {any}
+   */
+  function ResolveFromCandidates(ArgCandidates) {
+    const GroupOwner = ReduceGroupOwner(ArgCandidates);
+    return ResolveAssignees({
+      MessageText,
+      ActionableLanguage: ArgCandidates.map(ArgC => ArgC.actionable_language || '').join(' ').trim(),
+      MentionedIDs: ['U_ALPHA', 'U_BETA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: GroupOwner.owner,
+      AnalyzerOwnerMentions: GroupOwner.ownerMentions,
+    });
+  }
+
+  test('the analyzer verdict changes the answer — so omitting it is a real divergence, not a nit', () => {
+    const WithVerdict = ResolveFromCandidates(AmbiguousCandidates);
+    expect(WithVerdict).toMatchObject({
+      assigneeIDs: ['U_SENDER'], resolvedBy: 'analyzer-speaker',
+    });
+
+    // what the triage path used to compute: the same message, resolver called without the verdict
+    const WithoutVerdict = ResolveAssignees({
+      MessageText,
+      ActionableLanguage: 'the connection-pool patch goes out',
+      MentionedIDs: ['U_ALPHA', 'U_BETA'],
+      SenderID: 'U_SENDER',
+    });
+    expect(WithoutVerdict).toMatchObject({
+      assigneeIDs: ['U_ALPHA', 'U_BETA'], resolvedBy: 'mentions',
+    });
+
+    // the two disagree about WHO OWNS THE WORK, which is the whole point of the section
+    expect(WithVerdict.assigneeIDs).not.toEqual(WithoutVerdict.assigneeIDs);
+  });
+
+  test('owner=mentioned narrowing and its notify set are also lost without the verdict', () => {
+    const Narrowed = ResolveFromCandidates([{
+      ...AmbiguousCandidates[0], owner: 'mentioned', owner_mentions: ['U_ALPHA'],
+    }]);
+    expect(Narrowed).toMatchObject({
+      assigneeIDs: ['U_ALPHA'], notifyIDs: ['U_BETA'], resolvedBy: 'analyzer-mentioned',
+    });
+  });
+});

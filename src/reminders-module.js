@@ -2010,11 +2010,20 @@ class RemindersModule {
       .map(ArgCandidate => ArgCandidate.actionable_language || '')
       .join(' ')
       .trim();
+    // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver
+    // different inputs than the scheduling path does is the same drift this section claims to
+    // prevent, just one level down — without these two fields an ambiguous addressed message whose
+    // analyzer said `owner: speaker` schedules as `analyzer-speaker` while :wrench: reports
+    // `mentions`, so the triage would confidently explain a rule the reminder did not follow.
+    // (Caught by Codex in the branch relay.)
+    const TriageGroupOwner = ReminderOwnership.ReduceGroupOwner(TriageResult.analysis.reminders);
     const TriageOwnership = ReminderOwnership.ResolveAssignees({
       MessageText: RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText),
       ActionableLanguage: TriageActionableLanguage,
       MentionedIDs: TriageMentionedIDs,
       SenderID: TriageSenderID,
+      AnalyzerOwner: TriageGroupOwner.owner,
+      AnalyzerOwnerMentions: TriageGroupOwner.ownerMentions,
     });
     const TriageAssigneeIDs = TriageOwnership.assigneeIDs.length > 0
       ? TriageOwnership.assigneeIDs

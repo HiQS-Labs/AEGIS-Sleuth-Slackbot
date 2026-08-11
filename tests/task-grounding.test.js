@@ -91,3 +91,50 @@ describe('UngroundedTerms', () => {
       .toEqual(['9', 'Snowflake', 'Redshift']);
   });
 });
+
+// Found independently by self-audit AND by Codex in the branch relay — two reviewers, same defect.
+// The first implementation collapsed both sides to bare alphanumerics and asked whether the source
+// CONTAINED the term. Collapsing erases word boundaries, so a fragment of a longer word grounded an
+// entity the author never wrote. A check that accepts an invented environment name is worse than no
+// check: it grants false confidence to the whole synthesis path.
+describe('UngroundedTerms — word-fragment bypasses (regression)', () => {
+  test.each([
+    ['PROD', 'Deploy to PROD', 'i could not reproduce the issue, will look again tomorrow'],
+    ['Ortho', 'Update Ortho', 'restart the orthogonal service tomorrow'],
+    ['Stage', 'Ship to Stage', 'the changes are staged already, will ship tomorrow'],
+    ['Acme', 'Deploy Acme', 'we will deploy xacmey tomorrow'],
+  ])('%s must NOT be grounded by a longer word that merely contains it', (ArgTerm, ArgTitle, ArgSource) => {
+    expect(UngroundedTerms(ArgTitle, ArgSource)).toEqual([ArgTerm]);
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
+  });
+
+  test('the bypass applied to identifiers and numbers too, not only proper nouns', () => {
+    expect(IsTitleGrounded('Ship billing-sync', 'the xbillingsyncy job failed')).toBe(false);
+    expect(IsTitleGrounded('Bump it by 42', 'ticket 1425 is the one')).toBe(false);
+  });
+
+  test('a homoglyph that normalizes to a prefix is rejected rather than silently accepted', () => {
+    // the Cyrillic "х" is stripped by tokenization, leaving "ngin" — which must not match "nginx".
+    expect(IsTitleGrounded('Restart Nginх', 'restart nginx tonight')).toBe(false);
+  });
+});
+
+describe('UngroundedTerms — inflections are not inventions', () => {
+  test.each([
+    ["Fix Jamie's script", 'ask jamie about the script tomorrow'],
+    ['Fix the Reports', 'fix the report job tomorrow'],
+  ])('%s stays grounded — a model inflecting the source word invents nothing', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(true);
+  });
+
+  test('the formatting tolerance that motivated the original design still holds', () => {
+    // these are why the check cannot simply demand an exact whole-token match
+    expect(IsTitleGrounded('Ship the billing-sync patch', 'the billing sync is broken')).toBe(true);
+    expect(IsTitleGrounded('Push the warehousesync fix', 'heads up on the warehouse sync')).toBe(true);
+    expect(IsTitleGrounded('Restart Nginx', 'restart nginx tonight')).toBe(true);
+  });
+
+  test('plural tolerance does not become a new bypass', () => {
+    expect(IsTitleGrounded('Check the Reporters', 'fix the report job')).toBe(false);
+  });
+});

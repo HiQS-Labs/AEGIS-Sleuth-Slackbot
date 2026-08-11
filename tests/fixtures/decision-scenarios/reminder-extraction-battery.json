@@ -716,6 +716,47 @@
         ],
         "contextEmpty": true
       }
+    },
+    {
+      "id": "S-21",
+      "name": "ADVERSARIAL: the bot is @-mentioned and must never become an assignee",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_BOT> <@U_ALPHA> can you rotate the staging certs tomorrow morning?"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "second-person ask; the bot is addressed but cannot own work",
+        "reminders": [
+          {
+            "actionable_language": "can you rotate the staging certs",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Rotate the staging certs",
+            "context": "",
+            "owner": "mentioned",
+            "owner_mentions": [
+              "U_BOT",
+              "U_ALPHA"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "assignees": [
+          "U_ALPHA"
+        ],
+        "assigneesNeverInclude": [
+          "U_BOT"
+        ]
+      }
     }
   ]
 }
