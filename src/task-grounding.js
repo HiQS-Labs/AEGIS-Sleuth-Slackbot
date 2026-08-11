@@ -118,8 +118,13 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens) {
     let Run = '';
     for(let EndIndex = StartIndex; EndIndex < ArgSourceTokens.length; EndIndex++) {
       Run += ArgSourceTokens[EndIndex];
-      // a run only ever grows, so once it is longer than the term no extension of it can match.
-      if(Run.length > Target.length) break;
+      // A run only ever grows, so once it cannot possibly match, stop extending it. The `+ 1` slack
+      // is load bearing: the source may carry the PLURAL of a term the title wrote singular
+      // ("Deploy Api" against a source saying "the apis are down"), and that run is one character
+      // longer than the target. Breaking at exact length made the tolerance one-directional, which
+      // is a false-positive generator — and every false positive here sends a good title back to the
+      // verbatim dump this issue exists to remove.
+      if(Run.length > Target.length + 1) break;
       if(Run === Target || StripPluralSuffix(Run) === TargetSingular) return true;
     }
   }

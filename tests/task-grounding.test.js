@@ -134,7 +134,22 @@ describe('UngroundedTerms — inflections are not inventions', () => {
     expect(IsTitleGrounded('Restart Nginx', 'restart nginx tonight')).toBe(true);
   });
 
+  test('plural tolerance works in BOTH directions', () => {
+    // title plural / source singular
+    expect(IsTitleGrounded('Fix the Reports', 'fix the report job')).toBe(true);
+    // title singular / source plural — found by self-audit after the first fix: the run-length bound
+    // broke BEFORE the plural comparison, so this direction silently failed. One-directional
+    // tolerance is a false-positive generator, and every false positive here sends a good title back
+    // to the verbatim dump.
+    expect(IsTitleGrounded('Deploy Api', 'the apis are down, will look tomorrow')).toBe(true);
+  });
+
   test('plural tolerance does not become a new bypass', () => {
     expect(IsTitleGrounded('Check the Reporters', 'fix the report job')).toBe(false);
+    expect(IsTitleGrounded('Fix the Snowflakes', 'fix the report job')).toBe(false);
+    // the short-token guard stops "AWS" being stripped to "aw"
+    expect(IsTitleGrounded('Deploy AWS', 'deploy aw tomorrow')).toBe(false);
+    // and the one-character slack does not admit a longer unrelated word
+    expect(IsTitleGrounded('Deploy Prod', 'deploy prodx tomorrow')).toBe(false);
   });
 });
