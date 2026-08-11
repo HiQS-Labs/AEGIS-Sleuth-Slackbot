@@ -33,6 +33,34 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.276 - 2026-08-11
+Nothing changes in how I behave. Behind the scenes, my team can now switch on a detailed record of
+how I decide what counts as a task, which is what they need to make me more precise about it. That
+recording stays off unless someone deliberately turns it on, because it would save the actual text of
+your messages.
+
+**Technical:** GH-50. GH-44 built the decision-capture path end to end and never connected it —
+`SetDecisionCapture` had zero callers outside tests, so `EmitCaptureAsync` short-circuited on the
+absent config and **no record was ever written in any deployed environment**. Found while diagnosing
+a production mis-render whose only post-hoc evidence was one deliberately lossy journald line
+(`msg_len`/`sentences`/`segment`/`synthesis`/`actionable_span_ratio`, no raw text, no model output).
+
+- **Arming gate** — `RemindersAIPipeline.IsDecisionCaptureEnabled()` reads `DECISION_CAPTURE_ENABLED`,
+  **default off**; `IsDecisionCaptureWorkspaceAllowed()` reads an optional
+  `DECISION_CAPTURE_WORKSPACES` allowlist (exact match); `IsDecisionCaptureArmedFor()` requires both.
+  The gates stay separate so the fleet can be armed with collection scoped to one tenant. Mirrors
+  `ROUTER_SHADOW_WORKSPACES` (GH-397) rather than inventing a second capture convention.
+- **Wiring** — `reminders-module.js` arms the pipeline at construction, writing
+  `data/runtime/decisions/<workspace>_decisions.jsonl`. `Workspace` is passed explicitly, never
+  resolved from module state (AGENTS.md §0.1). The corpus root sits outside `data/runtime/events/`,
+  which is the P3 authoritative ledger.
+- **Tests** — 9 new in `tests/decision-capture-arming.test.js`; mutation-tested with all three
+  mutations caught (default off→on, exact→substring match, dropping the master-flag gate). Wiring
+  smoke-tested against the real store including two-tenant file isolation. 1858 jest / 116 node / 0
+  failures / `tsc` exit 0. `validate:commands` fails identically on `development` (pre-existing).
+- **Not solved:** retention. Records carry raw tenant text with no rotation, cap, or expiry. The flag
+  must not be set on production until a retention policy exists.
+
 ## 1.4.275 - 2026-08-11
 Nothing changes in how I behave — this is a fix to my own test setup. My test run could fail for a
 reason that had nothing to do with the change being tested, which made it hard to trust. It no longer

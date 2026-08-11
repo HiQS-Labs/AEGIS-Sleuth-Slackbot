@@ -499,6 +499,45 @@ class RemindersAIPipeline {
   }
 
   /**
+   * Whether decision-corpus capture is armed at all, from `DECISION_CAPTURE_ENABLED`.
+   *
+   * **Default OFF, and deliberately so.** A corpus record carries the raw message text
+   * (`input`) and the model's full response, so the corpus is tenant data, not telemetry.
+   * Arming it must be an explicit operator decision, never a default that ships quietly.
+   * @returns {boolean}
+   */
+  static IsDecisionCaptureEnabled() {
+    const Flag = RemindersAIPipeline.#ReadFlagTriState('DECISION_CAPTURE_ENABLED');
+    return Flag === null ? false : Flag;
+  }
+
+  /**
+   * Whether THIS workspace may capture. An optional comma-separated `DECISION_CAPTURE_WORKSPACES`
+   * allowlist narrows collection to named workspaces; unset means every workspace may capture once
+   * the master flag is on. Mirrors `ROUTER_SHADOW_WORKSPACES` (GH-397) — same privacy guard, same
+   * shape, because this corpus captures raw text for the same reason and carries the same risk.
+   * @param {string} ArgWorkspaceName Workspace to test.
+   * @returns {boolean}
+   */
+  static IsDecisionCaptureWorkspaceAllowed(ArgWorkspaceName) {
+    const Raw = (process.env.DECISION_CAPTURE_WORKSPACES || '').trim();
+    if(!Raw) return true;
+    return Raw.split(',').map(ArgName => ArgName.trim()).filter(Boolean).includes(ArgWorkspaceName);
+  }
+
+  /**
+   * Both gates together: capture runs only when the master flag is on AND this workspace is
+   * allowed. The two are separate so an operator can arm the fleet and still scope collection to
+   * one tenant.
+   * @param {string} ArgWorkspaceName Workspace to test.
+   * @returns {boolean}
+   */
+  static IsDecisionCaptureArmedFor(ArgWorkspaceName) {
+    return RemindersAIPipeline.IsDecisionCaptureEnabled()
+      && RemindersAIPipeline.IsDecisionCaptureWorkspaceAllowed(ArgWorkspaceName);
+  }
+
+  /**
    * Count sentences in a message using terminal punctuation, with a floor of 1 for any non-empty
    * run-on text (so a long unpunctuated FYI still counts as content, not zero). Used to route a
    * message to the Normal vs Longer synthesis segment.
