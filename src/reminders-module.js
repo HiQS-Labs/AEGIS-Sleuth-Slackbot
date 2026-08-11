@@ -1558,9 +1558,13 @@ class RemindersModule {
       // message's length segment; when it is off the original message text is the displayed task
       // (selected verbatim by #SelectReminderTaskText), so the call would be wasted. Fall back to the
       // original message if synthesis fails.
-      if(RemindersAIPipeline.IsTaskSynthesisEnabledForText(
-        RemindersAIPipeline.NormalizeOriginalReminderText(ArgMessageText)
-      )) {
+      // GH-43 Phase 2: route on the RAW message, not the display-normalized one. Normalization
+      // collapses newlines to spaces, and the sentence counter now treats a newline as a thought
+      // boundary — normalizing first would make that rule inert at the exact call site that decides
+      // whether to spend the LLM call. There are no analyzer candidates here by construction (this
+      // branch only runs when the analyzer returned `ignore` or nothing), so the ratio gate cannot
+      // apply and routing falls to the sentence count.
+      if(RemindersAIPipeline.IsTaskSynthesisEnabledForText(ArgMessageText)) {
         try {
           ForceScheduledReminderMessage = await this.#AIPipeline.ExtractManualReminderTaskAsync(ArgMessageText);
         } catch(error) {
@@ -1600,19 +1604,27 @@ class RemindersModule {
       return true;
     }
 
-    const DisplaySourceMessageText = RemindersAIPipeline.NormalizeOriginalReminderText(
-      ArgUsedEnrichedThreadContext && ArgLiveReplyText
-        ? ArgLiveReplyText
-        : ArgMessageText
-    );
+    // the RAW display source keeps its newlines for routing; the normalized one is what gets shown.
+    // GH-43 Phase 2: these must stay distinct — routing on the normalized string silently disables
+    // the newline-as-sentence-boundary rule, which is what let the reported message count 3.
+    const RawDisplaySourceText = ArgUsedEnrichedThreadContext && ArgLiveReplyText
+      ? ArgLiveReplyText
+      : ArgMessageText;
+    const DisplaySourceMessageText = RemindersAIPipeline.NormalizeOriginalReminderText(RawDisplaySourceText);
     const DisplayQuoteSource = ArgUsedEnrichedThreadContext && ArgLiveReplyText
       ? 'live_reply'
       : 'message_text';
-    // synthesis routing is now length-aware (GH-337 Phase 2): the same normalized original drives
-    // both the displayed task selection and this log line, so digest/triage can never disagree.
+    // synthesis routing is length- and ratio-aware (GH-337 Phase 2, GH-43 Phase 2). This is the ONE
+    // place the decision is made for this message: the boolean below is threaded into every
+    // #SelectReminderTaskText call rather than each of them re-deriving it, so the dedupe pass, the
+    // scheduled digest, and the log line cannot disagree even in principle.
     const SynthesisRouting = RemindersAIPipeline.DescribeSynthesisRouting(
-      DisplaySourceMessageText, AnalysisResult.reminders
+      RawDisplaySourceText, AnalysisResult.reminders,
+      // the force-schedule branch above sets actionable_language to the whole message, pinning the
+      // ratio at 1.0. Reported, never routed on.
+      { SyntheticActionableSpan: UsedSyntheticForceSchedule }
     );
+    const SynthesisOn = SynthesisRouting.synthesisOn;
     const DisplayTaskSource = SynthesisRouting.synthesisOn
       ? 'ai_synthesized_task_title'
       : DisplayQuoteSource === 'live_reply'
@@ -1626,7 +1638,8 @@ class RemindersModule {
       ` quote_source=${DisplayQuoteSource} task_source=${DisplayTaskSource}` +
       ` msg_len=${SynthesisRouting.messageLength} sentences=${SynthesisRouting.sentenceCount}` +
       ` segment=${SynthesisRouting.segment} synthesis=${SynthesisRouting.synthesisOn ? 'on' : 'off'}` +
-      ` actionable_span_ratio=${SynthesisRouting.actionableSpanRatio}`
+      ` actionable_span_ratio=${SynthesisRouting.actionableSpanRatio}` +
+      ` ratio_usable=${SynthesisRouting.spanRatioUsable ? 'yes' : 'no'} routed_by=${SynthesisRouting.routedBy}`
     );
 
     // NOTE: the displayed task text (verbatim vs. synthesized analyzer brief) is now selected lazily by
@@ -1644,7 +1657,7 @@ class RemindersModule {
     // is ON and candidates carry distinct titles, and correctly collapses genuine duplicate extractions.
     const SeenReminderRenderKeys = new Set();
     AnalysisResult.reminders = AnalysisResult.reminders.filter(CurrentReminderInfo => {
-      const RenderKey = `${CurrentReminderInfo.scheduling_trigger} ${this.#SelectReminderTaskText(CurrentReminderInfo, DisplaySourceMessageText)}`;
+      const RenderKey = `${CurrentReminderInfo.scheduling_trigger} ${this.#SelectReminderTaskText(CurrentReminderInfo, DisplaySourceMessageText, SynthesisOn)}`;
       if(SeenReminderRenderKeys.has(RenderKey)) return false;
       SeenReminderRenderKeys.add(RenderKey);
       return true;
@@ -1704,7 +1717,7 @@ class RemindersModule {
       // append bulleted list of key tasks to the reminder message. NOTE: the reminder messages shown here were
       // extracted by the GPT model and are not the same as the message text sent by the user.
       NewReminderMessageText = CurrentReminders.reduce((ArgAccumulatedText, ArgCurrentReminder) => {
-        return ArgAccumulatedText + `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText)}`;
+        return ArgAccumulatedText + `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn)}`;
       }, NewReminderMessageText + "\n\nKey task(s):");
 
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
@@ -1950,30 +1963,51 @@ class RemindersModule {
       'Why this task text', TriageResult.debugFacts,
     ));
 
-    // GH-44 Phase 5: how ownership WOULD resolve for this message. A diagnostic of current behavior,
-    // not a fix — assignees still come from scraping every mention in the source, with the sender
-    // used only when that set is empty. `senderExcludedByMentions: yes` is the GH-43
-    // "mentioned ≠ assigned" defect made visible while someone is staring at a wrong reminder.
+    // GH-44 Phase 5 / GH-43 Phase 1A: how ownership resolves for this message. This now runs the
+    // REAL resolver rather than re-implementing the old mention-scraping rule, so the triage view and
+    // the scheduling path cannot drift apart — a triage that explains a rule the pipeline no longer
+    // follows is worse than no triage at all.
     const TriageSenderID = OriginalMessage.user || '';
     const TriageMentionedIDs = this.#ExtractAssigneeIDsFromReminderText(OriginalText);
-    const TriageAssigneeIDs = TriageMentionedIDs.length > 0
-      ? TriageMentionedIDs
+    const TriageActionableLanguage = TriageResult.analysis.reminders
+      .map(ArgCandidate => ArgCandidate.actionable_language || '')
+      .join(' ')
+      .trim();
+    const TriageOwnership = ReminderOwnership.ResolveAssignees({
+      MessageText: RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText),
+      ActionableLanguage: TriageActionableLanguage,
+      MentionedIDs: TriageMentionedIDs,
+      SenderID: TriageSenderID,
+    });
+    const TriageAssigneeIDs = TriageOwnership.assigneeIDs.length > 0
+      ? TriageOwnership.assigneeIDs
       : [TriageSenderID].filter(Boolean);
     FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
       'How ownership resolved',
-      DecisionExplain.DescribeAssigneeResolution(TriageMentionedIDs, TriageAssigneeIDs, TriageSenderID),
+      DecisionExplain.DescribeAssigneeResolution(
+        TriageMentionedIDs, TriageAssigneeIDs, TriageSenderID,
+        { ResolvedBy: TriageOwnership.resolvedBy, NotifyIDs: TriageOwnership.notifyIDs },
+      ),
     ));
 
     if(TriageResult.analysis.reminders.length === 0) {
       FeedbackLines.push('• No reminder candidates were extracted from this message.');
     } else {
+      // GH-43 Phase 2: one routing decision for the whole message, from the RAW text and the full
+      // candidate set — the same inputs the scheduling path uses. Deriving it per candidate from
+      // normalized text is what let triage and the digest disagree about the same message.
+      const TriageRouting = RemindersAIPipeline.DescribeSynthesisRouting(
+        OriginalText, TriageResult.analysis.reminders
+      );
+      const TriageNormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText);
+
       for(let ReminderIndex = 0; ReminderIndex < TriageResult.analysis.reminders.length; ReminderIndex++) {
         const Reminder = TriageResult.analysis.reminders[ReminderIndex];
         const DateResult = TriageResult.dateExtractions[ReminderIndex];
 
         const SanitizedTrigger = SlackFormatUtils.SanitizeForInlineSlack(Reminder.scheduling_trigger);
         const SanitizedTask = SlackFormatUtils.SanitizeForInlineSlack(
-          this.#SelectReminderTaskText(Reminder, RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText))
+          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn)
         );
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
@@ -2000,16 +2034,26 @@ class RemindersModule {
    * (GH-337 Phase 1). The choice is length-aware (Phase 2): when synthesis is disabled for this
    * message's segment, the normalized original message is shown verbatim; when enabled, the analyzer's
    * brief is used, falling back to the quoted actionable span when that brief is over-compressed.
+   * GH-43 Phase 2 makes the routing decision an **argument** rather than something this function
+   * re-derives. It used to call `IsTaskSynthesisEnabledForText` on the normalized text it was handed,
+   * which meant every call site independently recomputed the gate from a string that had already had
+   * its newlines stripped. Callers now compute {@link RemindersAIPipeline.DescribeSynthesisRouting}
+   * once per message, from the raw text and the full candidate set, and pass the result down.
    * @param {GptReminderInfo} ArgReminderInfo Reminder candidate from the AI analyzer.
    * @param {string} [ArgNormalizedOriginalText] Normalized original message text (verbatim source).
+   * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message. Omit only when no
+   * routing was computed; the legacy sentence-count-on-normalized-text fallback then applies.
    * @returns {string}
    */
-  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '') {
+  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
+    const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
+      ? ArgSynthesisOn
+      : RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal);
 
     // verbatim path: synthesis disabled for this message's length segment → show the user's wording
     // unchanged. This reproduces the prior synthesis-OFF behavior byte-for-byte.
-    if(NormalizedOriginal && !RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal))
+    if(NormalizedOriginal && !SynthesisOn)
       return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(NormalizedOriginal);
 
     // synthesis path: reuse the analyzer's brief, with a deterministic quality fallback to the quoted

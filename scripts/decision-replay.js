@@ -183,9 +183,10 @@ async function RunScenarioAsync(ArgScenario) {
     // harness never silently drops turns (the thread path above is the right home for those).
     const MessageText = ArgScenario.turns.map((/** @type {any} */ ArgTurn) => ArgTurn.text).join('\n');
     const Analysis = await Pipeline.AnalyzeMessageForRemindersAsync(MessageText);
-    const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
-      RemindersAIPipeline.NormalizeOriginalReminderText(MessageText), Analysis.reminders,
-    );
+    // GH-43 Phase 2: routing takes the RAW joined text — newlines intact — exactly as the pipeline
+    // does. Normalizing first collapses the line breaks the sentence counter depends on, which would
+    // make the harness measure a decision production never makes.
+    const Routing = RemindersAIPipeline.DescribeSynthesisRouting(MessageText, Analysis.reminders);
 
     // Ownership read through the SHARED resolver the write path uses, so this measures real
     // behavior rather than a re-implementation that could drift from it.
@@ -225,6 +226,8 @@ async function RunScenarioAsync(ArgScenario) {
           synthesisOn: Routing.synthesisOn,
           sentenceCount: Routing.sentenceCount,
           actionableSpanRatio: Routing.actionableSpanRatio,
+          routedBy: Routing.routedBy,
+          messageLength: Routing.messageLength,
         },
       },
       error: null,

@@ -124,28 +124,38 @@ function ExtractMentionIDs(ArgText, ArgExcludeID) {
 /**
  * Describe how a reminder's assignees were resolved from a message, for the triage view.
  *
- * This is a *diagnostic* of today's behavior, not a fix: ownership currently comes from scraping
- * every `<@U…>` in the quoted original, with the sender used only when that set is empty. Surfacing
- * it is what makes the GH-43 "mentioned ≠ assigned" defect visible to a human at the moment they are
- * looking at a wrong reminder, instead of only in hindsight.
+ * Originally (GH-44 Phase 5) a pure diagnostic of mention-scraping. GH-43 Phase 1A replaced that rule
+ * with a grammatical-subject resolver, so callers now pass the resolver's own verdict through
+ * `ArgOptions` and this renders it. `senderExcludedByMentions` stays as the regression tell: it means
+ * the author committed to something and is still not on the reminder.
  * @param {string[]} ArgMentionedIDs Mention IDs extracted from the source text, in order.
  * @param {string[]} ArgAssigneeIDs Assignees actually persisted.
  * @param {string} ArgSenderID Original sender.
+ * @param {{ResolvedBy?: string, NotifyIDs?: string[]}} [ArgOptions] Facts from
+ * `ReminderOwnership.ResolveAssignees`. Omitted by callers that have no resolver verdict, which then
+ * fall back to describing the mention set.
  * @returns {object} A fact bag suitable for RenderDecisionFactsSection.
  */
-function DescribeAssigneeResolution(ArgMentionedIDs, ArgAssigneeIDs, ArgSenderID) {
+function DescribeAssigneeResolution(ArgMentionedIDs, ArgAssigneeIDs, ArgSenderID, ArgOptions = {}) {
   const Mentioned = Array.isArray(ArgMentionedIDs) ? ArgMentionedIDs : [];
   const Assignees = Array.isArray(ArgAssigneeIDs) ? ArgAssigneeIDs : [];
+  const NotifyIDs = Array.isArray(ArgOptions?.NotifyIDs) ? ArgOptions.NotifyIDs : [];
   const SenderIsAssignee = Assignees.includes(ArgSenderID);
 
-  return {
-    resolvedFrom: Mentioned.length > 0 ? 'message mentions' : 'sender fallback',
+  /** @type {Record<string, any>} */
+  const Facts = {
+    resolvedFrom: ArgOptions?.ResolvedBy
+      || (Mentioned.length > 0 ? 'message mentions' : 'sender fallback'),
     mentionsFound: Mentioned.length,
     assignees: Assignees.length > 0 ? Assignees.map(ArgID => `<@${ArgID}>`).join(', ') : '_none_',
     senderIsAssignee: SenderIsAssignee,
     // The GH-43 tell: the author committed to something but is not on the reminder.
     senderExcludedByMentions: Mentioned.length > 0 && !SenderIsAssignee,
   };
+  // only rendered when there is somebody to notify — an empty "notify: none" line on every single
+  // triage is noise, and this section is read while someone is debugging something else.
+  if(NotifyIDs.length > 0) Facts.notify = NotifyIDs.map(ArgID => `<@${ArgID}>`).join(', ');
+  return Facts;
 }
 
 module.exports = {

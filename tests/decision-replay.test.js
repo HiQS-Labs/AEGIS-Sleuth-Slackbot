@@ -99,24 +99,66 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
   });
 
   test('produces one row per scenario — a malformed row never aborts the batch', () => {
-    expect(Rows).toHaveLength(15);
-    expect(new Set(Rows.map(ArgR => ArgR.id)).size).toBe(15);
+    const Battery = require(BatteryPath);
+    expect(Rows).toHaveLength(Battery.scenarios.length);
+    expect(new Set(Rows.map(ArgR => ArgR.id)).size).toBe(Battery.scenarios.length);
   });
 
-  test('THE INSTRUMENT CAN FAIL: the OPEN GH-43 defect (verbatim task text) is red', () => {
+  test('GH-43 Phase 2 CLOSED the verbatim-task-text defect — the whole battery is green', () => {
     const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
 
-    // S-01 is the reported production message. Its task text is still the whole message, because
-    // the synthesis gate is GH-43 Phase 2 and has not landed yet.
-    expect(ById['S-01'].status).toBe('FAIL');
-    expect(ById['S-01'].error).toMatch(/root cause/);
-    expect(ById['S-01'].observed.displayedTasks[0].length).toBeGreaterThan(400);
+    // S-01 is the reported production message. Before Phase 2 its task bullet was the entire
+    // 480-character message; it now renders the analyzer's brief.
+    expect(ById['S-01'].status).toBe('PASS');
+    expect(ById['S-01'].observed.routing.synthesisOn).toBe(true);
+    expect(ById['S-01'].observed.displayedTasks[0].length).toBeLessThan(80);
+    expect(ById['S-01'].observed.displayedTasks[0]).not.toMatch(/root cause/);
+    // the newline rule is what lifts it over the sentence threshold: it counted 3 before.
+    expect(ById['S-01'].observed.routing.sentenceCount).toBe(5);
 
-    // the gate misses it because unpunctuated lines undercount sentences
-    expect(ById['S-01'].observed.routing.sentenceCount).toBeLessThan(4);
-    expect(ById['S-01'].observed.routing.synthesisOn).toBe(false);
-    expect(ById['S-07'].status).toBe('FAIL');
-    expect(ById['S-12'].status).toBe('FAIL');
+    expect(ById['S-07'].status).toBe('PASS');
+    expect(ById['S-12'].status).toBe('PASS');
+    expect(Rows.filter(ArgR => ArgR.status === 'FAIL')).toEqual([]);
+  });
+
+  test('each Phase 2 mechanism is INDEPENDENTLY load bearing — neither is dead code', async () => {
+    const Battery = require(BatteryPath);
+    const Pipeline = require('../src/reminders-ai-pipeline');
+
+    /**
+     * @param {any[]} ArgRows
+     * @returns {string[]} ids that failed.
+     */
+    const FailedIDs = ArgRows => ArgRows.filter(ArgR => ArgR.status === 'FAIL').map(ArgR => ArgR.id);
+
+    // 1. disable the buried-task ratio gate. S-07 and S-12 are single/low-sentence long notes that
+    //    only the ratio can route, so they must go red.
+    const OriginalMinLength = Pipeline.BURIED_TASK_MIN_LENGTH;
+    Pipeline.BURIED_TASK_MIN_LENGTH = Number.MAX_SAFE_INTEGER;
+    try {
+      expect(FailedIDs(await RunAllAsync(Battery.scenarios)).sort()).toEqual(['S-07', 'S-12']);
+    } finally {
+      Pipeline.BURIED_TASK_MIN_LENGTH = OriginalMinLength;
+    }
+
+    // 2. revert CountSentences to the shipped punctuation-only rule. S-16 has no quoted span at all,
+    //    so its ratio is 0 and unusable — the newline rule is the ONLY thing that can route it.
+    const OriginalCountSentences = Pipeline.CountSentences;
+    Pipeline.CountSentences = (/** @type {string} */ ArgText) => {
+      const Text = (ArgText || '').trim();
+      if(!Text) return 0;
+      const Matches = Text.match(/[.!?]+(?=\s|$)/g);
+      return Math.max(Matches ? Matches.length : 0, 1);
+    };
+    try {
+      expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual(['S-16']);
+    } finally {
+      Pipeline.CountSentences = OriginalCountSentences;
+    }
+
+    // and the battery is green again once both are restored — the perturbation, not the code, was
+    // what turned it red.
+    expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual([]);
   });
 
   test('GH-43 Phase 1A CLOSED the ownership defect — S-01 now belongs to its author', () => {
@@ -129,8 +171,8 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     expect(ById['S-01'].observed.ownership.resolvedFrom).toBe('first-person-commitment');
     // the addressees are retained as interested parties rather than silently dropped
     expect(ById['S-01'].observed.ownership.notify).toEqual(['U_ALPHA', 'U_BETA']);
-    // and S-01 no longer fails for ownership — only for its task text
-    expect(ById['S-01'].error).not.toMatch(/owner/);
+    // and S-01 no longer fails at all: Phase 1A took the ownership half, Phase 2 the task text.
+    expect(ById['S-01'].error).toBeNull();
 
     // the mention-as-subject case is fixed too
     expect(ById['S-05'].observed.ownership.assignees).toEqual(['U_SENDER']);

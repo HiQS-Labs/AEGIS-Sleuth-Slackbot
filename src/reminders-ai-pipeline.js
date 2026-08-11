@@ -105,8 +105,11 @@ const ReminderAnalysisDecisionSpec = Object.freeze({
    * @returns {object}
    */
   DebugFacts: (ArgInput, ArgResponse) => {
+    // GH-43 Phase 2: route on the raw input. Normalizing here would report a sentence count the real
+    // pipeline never computes, so the :wrench: explanation would describe a different decision than
+    // the one the user is staring at.
     const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
-      RemindersAIPipeline.NormalizeOriginalReminderText(typeof ArgInput === 'string' ? ArgInput : ''),
+      typeof ArgInput === 'string' ? ArgInput : '',
       (ArgResponse && ArgResponse.reminders) || [],
     );
     return {
@@ -410,6 +413,34 @@ class RemindersAIPipeline {
   static LONG_MESSAGE_SENTENCE_THRESHOLD = 4;
 
   /**
+   * Minimum message length (characters) before the buried-task ratio gate may fire (GH-43 Phase 2).
+   *
+   * Derived from the committed replay baseline, not guessed. Across the 15-scenario battery the
+   * messages that MUST synthesize start at 189 chars (`S-12`) and the longest that must stay
+   * verbatim is 94 (`S-13`) — a clean gap of [95, 188] with no scenario inside it. 150 sits near the
+   * middle of that gap, ~55 chars clear of the verbatim ceiling and ~39 clear of the synthesis floor.
+   * Length is load bearing on its own: `S-05` has a low 0.16 span ratio but is only 80 chars, and a
+   * short message with a short task is not a buried task — it is just a short message.
+   * @type {number}
+   */
+  static BURIED_TASK_MIN_LENGTH = 150;
+
+  /**
+   * Span-ratio ceiling at or below which a long message counts as "a small task buried in a big note"
+   * (GH-43 Phase 2).
+   *
+   * The battery constrains this only from below: every scenario that must synthesize sits at
+   * 0.13 or less (`S-09` 0.13, `S-12` 0.08, `S-01` 0.07, `S-07` 0.05), and it contains NO long
+   * message that must stay verbatim, so no observation pins the ceiling from above. 0.35 is
+   * therefore a deliberately conservative choice rather than a fitted one — it means "the actionable
+   * span is barely a third of the note, so most of what would be shown verbatim is context." Above
+   * it the message is mostly its own task and verbatim reads fine. Tighten it if prod telemetry ever
+   * produces a long message that should have stayed verbatim; see the open item in the plan doc.
+   * @type {number}
+   */
+  static BURIED_TASK_MAX_SPAN_RATIO = 0.35;
+
+  /**
    * Parse an env flag into an explicit boolean tri-state. Returns true/false when the flag is set
    * to a recognized truthy/falsy token, or null when unset/blank so callers can apply a default.
    * @param {string} ArgEnvName Environment variable name.
@@ -460,14 +491,33 @@ class RemindersAIPipeline {
    * Count sentences in a message using terminal punctuation, with a floor of 1 for any non-empty
    * run-on text (so a long unpunctuated FYI still counts as content, not zero). Used to route a
    * message to the Normal vs Longer synthesis segment.
-   * @param {string} ArgText Message text.
+   *
+   * GH-43 Phase 2: a hard newline also ends a thought. Chat writers routinely drop the terminal
+   * period at the end of a line, and counting only `[.!?]` is exactly what let the reported
+   * production message — five distinct thoughts across four lines — count 3 and route to the Normal
+   * segment where synthesis is off. Each non-empty line contributes its terminal marks plus one more
+   * if it ends in unpunctuated trailing text, with a floor of 1 per line.
+   *
+   * **Pass the RAW message text, not the display-normalized text.**
+   * {@link NormalizeOriginalReminderText} collapses every newline to a space, so a normalized string
+   * can never exercise the newline rule — the whole fix would be silently inert.
+   * @param {string} ArgText Message text, newlines intact.
    * @returns {number}
    */
   static CountSentences(ArgText) {
     const Text = (ArgText || '').trim();
     if(!Text) return 0;
-    const TerminalMatches = Text.match(/[.!?]+(?=\s|$)/g);
-    return Math.max(TerminalMatches ? TerminalMatches.length : 0, 1);
+
+    const Lines = Text.split(/\r?\n/).map(ArgLine => ArgLine.trim()).filter(Boolean);
+    if(Lines.length === 0) return 0;
+
+    return Lines.reduce((ArgSum, ArgLine) => {
+      const TerminalMatches = ArgLine.match(/[.!?]+(?=\s|$)/g);
+      const TerminalCount = TerminalMatches ? TerminalMatches.length : 0;
+      // trailing text after the last terminal mark (or a line with none at all) is one more thought.
+      const EndsPunctuated = /[.!?]["'’”)\]]*$/.test(ArgLine);
+      return ArgSum + Math.max(TerminalCount + (EndsPunctuated ? 0 : 1), 1);
+    }, 0);
   }
 
   /**
@@ -475,30 +525,47 @@ class RemindersAIPipeline {
    * VERBATIM for a given original message, routing by sentence count to the Normal/Longer segment
    * (Phase 2 of GH-337). A set legacy master flag overrides both segments for back-compat.
    * Detection, date extraction, dedup, and triage are unaffected either way — only displayed text.
-   * @param {string} ArgOriginalText Normalized original Slack message text.
+   * Thin predicate over {@link DescribeSynthesisRouting}, which owns the decision.
+   * @param {string} ArgOriginalText Original Slack message text — pass it **raw**, newlines intact.
+   * @param {GptReminderInfo[]} [ArgReminders] Reminder candidates, for the buried-task ratio gate.
+   * @param {{SyntheticActionableSpan?: boolean}} [ArgOptions] See {@link DescribeSynthesisRouting}.
    * @returns {boolean} True to synthesize, false to keep verbatim.
    */
-  static IsTaskSynthesisEnabledForText(ArgOriginalText) {
-    const MasterOverride = RemindersAIPipeline.GetLegacyMasterSynthesisOverride();
-    if(MasterOverride !== null) return MasterOverride;
-
-    const SentenceCount = RemindersAIPipeline.CountSentences(ArgOriginalText);
-    return SentenceCount >= RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD
-      ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
-      : RemindersAIPipeline.IsNormalTextSynthesisEnabled();
+  static IsTaskSynthesisEnabledForText(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
+    return RemindersAIPipeline.DescribeSynthesisRouting(ArgOriginalText, ArgReminders, ArgOptions).synthesisOn;
   }
 
   /**
-   * Structured synthesis-routing facts for a message, for telemetry and display-source logging
-   * (Phase 4 of GH-337). No raw message text is included — only a length and a derived ratio.
-   * @param {string} ArgOriginalText Normalized original Slack message text.
+   * Structured synthesis-routing facts for a message — **the single place the verbatim-vs-synthesized
+   * decision is made** (Phase 4 of GH-337, extended by GH-43 Phase 2). No raw message text is
+   * included, only a length, a sentence count, a derived ratio, and the rule that decided.
+   *
+   * GH-43 Phase 2 inverts the old dependency: `IsTaskSynthesisEnabledForText` used to be the decision
+   * and this function merely reported alongside it, which let the logged facts and the actual routing
+   * be computed from different inputs. Now this is the computation and the predicate delegates here,
+   * so the `reminder display source:` log line can never disagree with the bullet the user sees.
+   *
+   * Two rules can route a message to the Longer segment:
+   *  1. **sentence count** ≥ {@link LONG_MESSAGE_SENTENCE_THRESHOLD} (GH-337's original rule), and
+   *  2. **buried task** — a message at least {@link BURIED_TASK_MIN_LENGTH} chars whose longest
+   *     actionable span is at most {@link BURIED_TASK_MAX_SPAN_RATIO} of it. This is the case
+   *     GH-337 already named in a comment ("a small buried task in a big note") and then ignored:
+   *     the ratio was computed, logged, and never consulted.
+   *
+   * @param {string} ArgOriginalText Original Slack message text. Pass it **raw** — newlines intact —
+   * so {@link CountSentences} can see line breaks; normalizing first makes the newline rule inert.
    * @param {GptReminderInfo[]} [ArgReminders] Reminder candidates, used for the actionable-span ratio.
-   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number }}
+   * @param {{SyntheticActionableSpan?: boolean}} [ArgOptions] `SyntheticActionableSpan` marks a
+   * candidate set whose `actionable_language` was manufactured rather than quoted by the analyzer —
+   * the force-schedule path sets it to the entire message, which pins the ratio at 1.0 and makes it
+   * meaningless. When set, the ratio is reported but never routed on.
+   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, routedBy: 'master_override'|'buried_task_ratio'|'sentence_count' }}
    */
-  static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = []) {
+  static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
     const Original = (ArgOriginalText || '').trim();
     const SentenceCount = RemindersAIPipeline.CountSentences(Original);
-    const Segment = SentenceCount >= RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD ? 'long' : 'normal';
+    const SentenceSegment = SentenceCount >= RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD
+      ? 'long' : 'normal';
 
     // actionable-span ratio: longest quoted actionable span across candidates / message length.
     // Low ratio on a long message = a small buried task in a big note — the case synthesis targets.
@@ -510,12 +577,34 @@ class RemindersAIPipeline {
       ? Math.min(1, Number((LongestSpan / Original.length).toFixed(2)))
       : 0;
 
+    // a ratio of 0 means no span was quoted at all — there is no evidence of a buried task, so the
+    // gate must not claim one. A synthetic span (force-schedule) is likewise not evidence.
+    const SpanRatioUsable = !ArgOptions?.SyntheticActionableSpan && ActionableSpanRatio > 0;
+    const IsBuriedTask = SpanRatioUsable
+      && Original.length >= RemindersAIPipeline.BURIED_TASK_MIN_LENGTH
+      && ActionableSpanRatio <= RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO;
+
+    const Segment = /** @type {'normal'|'long'} */ (IsBuriedTask ? 'long' : SentenceSegment);
+
+    const MasterOverride = RemindersAIPipeline.GetLegacyMasterSynthesisOverride();
+    const SynthesisOn = MasterOverride !== null
+      ? MasterOverride
+      : (Segment === 'long'
+        ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
+        : RemindersAIPipeline.IsNormalTextSynthesisEnabled());
+
+    const RoutedBy = /** @type {'master_override'|'buried_task_ratio'|'sentence_count'} */ (
+      MasterOverride !== null ? 'master_override' : (IsBuriedTask ? 'buried_task_ratio' : 'sentence_count')
+    );
+
     return {
       sentenceCount: SentenceCount,
       segment: Segment,
-      synthesisOn: RemindersAIPipeline.IsTaskSynthesisEnabledForText(Original),
+      synthesisOn: SynthesisOn,
       messageLength: Original.length,
       actionableSpanRatio: ActionableSpanRatio,
+      spanRatioUsable: SpanRatioUsable,
+      routedBy: RoutedBy,
     };
   }
 

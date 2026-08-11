@@ -506,6 +506,40 @@
       "expected": {
         "recommendation": "ignore"
       }
+    },
+    {
+      "id": "S-16",
+      "name": "long unpunctuated multi-line note with NO quoted span — only the newline rule can route it",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-routing"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "heads up on the warehouse sync\nthe connector has been retrying against the old endpoint since friday\ni cleared the backlog by hand this morning so nothing is stuck right now\nthe permanent fix is a config change on our side\ni will push that config change tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "commitment at the end of a status note; the analyzer returned no quoted span",
+        "reminders": [
+          {
+            "actionable_language": "",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Push the warehouse-sync connector config change"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "taskTextExcludes": [
+          "retrying against the old endpoint"
+        ],
+        "maxTaskLength": 80
+      }
     }
   ]
 }

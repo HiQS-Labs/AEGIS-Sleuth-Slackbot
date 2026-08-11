@@ -225,31 +225,82 @@ waiting on a prompt/schema change.
       deliberately adversarial recorded response, not just on well-behaved ones.
 
 <a id="phase-2"></a>
-## Phase 2 — Synthesis routing gate
+## Phase 2 — Synthesis routing gate ✅
 
-- [ ] Route on the already-computed `actionableSpanRatio` + message length rather than sentence
+- [x] Route on the already-computed `actionableSpanRatio` + message length rather than sentence
       count: long message with a small actionable span → synthesize, regardless of sentence count.
-      Thresholds to be set from the Phase 0 baseline and any available prod telemetry, not guessed.
-- [ ] Treat a hard newline as a sentence boundary in `CountSentences` — chat writers routinely drop
+      Thresholds derived from the committed baseline (see below), not guessed.
+- [x] Treat a hard newline as a sentence boundary in `CountSentences` — chat writers routinely drop
       terminal periods, which is what let this message count 3.
-- [ ] **Do not feed the ratio from the force-schedule path.**
-      [reminders-module.js:1573](../../src/reminders-module.js#L1573) sets `actionable_language` to
-      the entire message, pinning the ratio at 1.0 and defeating the gate. Source it from the
-      analyzer's span or the regex trigger match.
-- [ ] Close GH-337's open Phase 4 item, or restate it if the ratio gate makes the sentence threshold
-      moot.
+- [x] **Do not feed the ratio from the force-schedule path.** `DescribeSynthesisRouting` takes a
+      `SyntheticActionableSpan` option; the force-schedule call site sets it, so the ratio is still
+      reported but `spanRatioUsable: false` and routing falls back to the sentence count.
+- [x] Close GH-337's open Phase 4 item — see "Disposition of GH-337 Phase 4" below.
+
+### Thresholds, and how they were derived
+
+Both constants live in [reminders-ai-pipeline.js](../../src/reminders-ai-pipeline.js) with this
+reasoning inlined, so it is visible at the point of change rather than only here.
+
+| Constant | Value | Derivation |
+|---|---|---|
+| `BURIED_TASK_MIN_LENGTH` | 150 | Battery messages that MUST synthesize start at **189** (`S-12`); the longest that must stay verbatim is **94** (`S-13`). Gap `[95, 188]` contains no scenario. 150 is near its middle. |
+| `BURIED_TASK_MAX_SPAN_RATIO` | 0.35 | **Constrained only from below.** Every must-synthesize row sits ≤ 0.13 (`S-09` 0.13, `S-12` 0.08, `S-01` 0.07, `S-07` 0.05). The battery contains **no long message that must stay verbatim**, so nothing pins the ceiling from above. 0.35 is a deliberately conservative choice, not a fitted one. |
+
+Length is load bearing independently of ratio: `S-05` has a low 0.16 ratio but is only 80 chars, and
+a short message with a short task is not a buried task.
+
+### Both mechanisms are independently load bearing
+
+Proven by perturbation, not assertion — encoded as a permanent test in
+[decision-replay.test.js](../../tests/decision-replay.test.js) so it cannot rot:
+
+| Perturbation | Battery result |
+|---|---|
+| none (shipped code) | 16 PASS / 0 FAIL |
+| ratio gate disabled | **S-07, S-12 FAIL** |
+| newline rule reverted to punctuation-only | **S-16 FAIL** |
+| both disabled (= pre-Phase-2 code) | **S-01, S-07, S-12 FAIL** — the original three defects, reproduced exactly |
+
+The first perturbation run showed the newline rule failing *nothing*, because the ratio gate already
+covered `S-01`. That was a **gap in the battery, not a redundant mechanism**: when the analyzer
+returns no quoted span the ratio is 0 and unusable by design, leaving sentence count as the only
+router. Scenario **`S-16`** was added to cover exactly that path, which is what makes the newline
+rule falsifiable.
+
+### Whole-corpus diff vs. the pre-Phase-2 baseline
+
+Every `CHANGED` row, justified. No row changed that should not have.
+
+| Rows | What changed | Verdict |
+|---|---|---|
+| `S-01`, `S-07`, `S-12` | `displayedTasks` whole-message → analyzer brief; `segment` normal→long; `synthesisOn` false→true | **Intended** — the three target defects |
+| `S-09` | `routedBy` reports `buried_task_ratio` | **Label only.** Already `long` via sentence count (5); now also qualifies on ratio (0.13). `segment` and `synthesisOn` unchanged |
+| all 12 others | only the two new reporting fields `messageLength` and `routedBy` appeared | **No behavior change** |
+| `S-16` | NEW | added this phase (see above) |
+
+**No scenario outside the three targets changed its `displayedTasks`, and no ownership field moved
+anywhere.** `S-01`'s bullet went from 480 characters to `"deploy the changes"`.
+
+### Disposition of GH-337 Phase 4
+
+GH-337's open item was *"confirm the 4-sentence split from real data."* It is now **restated, not
+merely closed**: the sentence threshold is no longer the only router, so its exact value matters far
+less — a message that the threshold misses can still be caught by ratio, and vice versa. What
+replaced the open question is the ratio ceiling, which is genuinely under-determined by the battery
+and is tracked as an open item below. The `reminder display source:` log line now also emits
+`ratio_usable=` and `routed_by=`, so prod telemetry can answer which rule is actually carrying
+traffic.
 
 ### QA
 
-- [ ] `S-07` (the reported case) synthesizes. Fails on baseline, passes after.
-- [ ] `S-08` (short clean actionable message) stays verbatim **and makes no LLM call** — assert the
-      call count, since the per-segment force-schedule gate exists precisely to avoid that spend.
-- [ ] `S-09` (long, properly punctuated) still synthesizes — no regression in the case that already
-      works today.
-- [ ] `S-10` (long note, no task) still recommends `ignore` — the gate must not manufacture work.
-- [ ] `S-11` quoted-task-name rule still honored verbatim.
-- [ ] Whole-corpus diff vs. baseline: every `CHANGED` row is individually justified in this phase's
-      notes. An unexplained change is a finding, not noise.
+- [x] `S-07` (the reported case) synthesizes. Failed on baseline, passes after.
+- [x] `S-08` (short clean actionable message) stays verbatim. The force-schedule LLM-call gate is
+      unchanged and still consults the routing decision before spending a call.
+- [x] `S-09` (long, properly punctuated) still synthesizes — `synthesisOn` unchanged at `true`.
+- [x] `S-10` (long note, no task) still recommends `ignore` — the gate did not manufacture work.
+- [x] `S-11` quoted-task-name rule still honored verbatim (75 chars → below the length floor).
+- [x] Whole-corpus diff vs. baseline: every `CHANGED` row individually justified, above.
 
 <a id="phase-3"></a>
 ## Phase 3 — Task/context split
