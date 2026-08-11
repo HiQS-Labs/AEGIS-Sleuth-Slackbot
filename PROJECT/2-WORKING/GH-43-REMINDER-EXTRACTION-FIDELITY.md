@@ -28,7 +28,36 @@ goal: >
 
 | What was just completed | What's next |
 | --- | --- |
-| All four phases shipped. The battery went **4 FAIL / 11 PASS on unmodified `development` → 20 PASS**, with every mechanism proven load bearing by perturbation. Full suite 1750 jest + 114 node, tsc clean, all validation gates green. | agy QA relay on the branch, then open the PR |
+| All four phases shipped and **agy branch QA closed `Approved` at r3/3**. The battery went **4 FAIL / 11 PASS on unmodified `development` → 20 PASS**, every mechanism proven load bearing by perturbation. Full suite **1766 jest + 115 node**, tsc clean, all validation gates green. | Open the PR (stacked on `gh-44-decision-capture-debug`); neither branch is pushed yet |
+
+## Branch QA — what the review actually caught
+
+`relay-system/2026-08-10/gh-43-branch-qa.md`, agy reviewing. Two `[Blocker]`s at r1, both valid, both
+the **same underlying failure: a harness measuring itself instead of the code.**
+
+| Finding | Verdict | Fix |
+|---|---|---|
+| "both mechanisms disabled" was claimed in the DoD but **never tested** — each perturbation restored before the next ran, so the combined state never existed | Valid, and **understated**. The true failure set is `S-01, S-07, S-12` **and `S-16`**; my own claim was stale because `S-16` was added after I last measured the combined case | Asserted explicitly |
+| The grounding perturbation was **structurally incapable of failing for the right reason** — `decision-replay.js` reimplemented the display rule, so mocking the check only broke the harness's copy. Delete the production check and the test still passes | Valid, and the sharpest finding in the review | Fixed **structurally**: the rule moved to `src/reminder-display-selection.js` and both production and the harness now call it. The test also asserts the harness holds no private copy |
+
+**That refactor immediately exposed a third divergence of the same class** — the best argument for
+doing it. Production applies an over-compression fallback the harness never did, and *on the reported
+message it fired*: `"deploy the changes"` (3 words) lost to `"i am going to deploy the changes"`,
+which is longer only by its first-person preamble. So the battery had been reporting a bullet
+production would not render, and this doc's own headline claim about `S-01` was measuring the harness.
+The GH-337 heuristic was tightened from `<= 3` to `<= 2` words — a real behavior change to
+pre-existing logic, and it had shipped with zero test coverage.
+
+**Two notes on the review itself**, recorded because a QA pass is evidence only to the extent it is
+checkable:
+- agy's `[Pass]` for DoD #1 cited `tests/reminders-module-gh-43.test.js`, **which does not exist**.
+  Under the thread's own GH-173 B3 rule that is `[Unverified — no citation]`; verified independently
+  against `tests/reminders-task-context-split.test.js`.
+- agy's `[Pass]` for DoD #5 was true of `ReminderCreated` but I had asked the wrong question. **I found
+  a real defect there myself while the review ran**: `BaselineReminderImported` has two *other*
+  producers (`state-snapshot-writer.js`, `baseline-import.js`) that both dropped `NotifyIDs`. Since
+  parity compares the **union of keys**, a reminder carrying `NotifyIDs` would fold to one without it
+  and fail parity — and compaction is irreversible, so the field would be lost permanently.
 
 ## Result
 

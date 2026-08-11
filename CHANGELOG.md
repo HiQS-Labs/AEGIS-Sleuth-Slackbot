@@ -81,6 +81,20 @@ The battery went 4 FAIL / 11 PASS on unmodified `development` to 20 PASS.
 - Battery grew 15 → 20 scenarios: `S-16` (ratio unusable, newline rule is the only router), `S-17`
   and `S-18` (adversarial fabricated users, one per ownership path), `S-19` (ambiguous grammar the
   deterministic rules cannot reach), `S-20` (adversarial ungrounded title).
+- **Branch QA (agy, `Approved` r3/3)** caught two blockers, both the same failure — a harness
+  measuring itself. The "both mechanisms disabled" perturbation was claimed but never tested (and the
+  claim was stale: the real failure set includes `S-16`), and the grounding perturbation was
+  structurally incapable of failing, because `decision-replay.js` reimplemented the display rule
+  rather than calling it. Fixed structurally: the rule now lives in
+  `src/reminder-display-selection.js` and production and the harness share it. That refactor exposed
+  a **third** divergence — production applies an over-compression fallback the harness never did, and
+  it fired on the reported message, so the battery had been reporting a bullet production would not
+  render. Its GH-337 threshold was tightened from `<= 3` to `<= 2` words and now has the test coverage
+  it shipped without.
+- **`NotifyIDs` parity fix** — `BaselineReminderImported` has two producers besides the native
+  creation path (`state-snapshot-writer.js`, `scripts/baseline-import.js`) and both dropped the field.
+  Parity compares the union of keys, so a reminder carrying `NotifyIDs` would fold to one without it
+  and fail; compaction is irreversible, so it would be lost permanently.
 
 ## 1.4.272 - 2026-08-10
 When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not
