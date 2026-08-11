@@ -31,15 +31,21 @@ goal: >
 
 ### In progress
 
-- **Reminder extraction fidelity (GH-43)** — fixing the three defects one production message exposed
-  at once: the synthesis gate never fires (sentence counting misses unpunctuated lines) so the task
-  bullet is the whole message verbatim; task and context share one field; and every `<@…>` mention
-  becomes an assignee, so a first-person commitment is assigned to the two people it was merely
-  addressed to and **not** to its author. Phase 0 is closed by GH-44 — the replay harness and a
-  committed baseline exist, and the battery reports S-01/S-05/S-07/S-12 RED, so each fix is measured
-  rather than asserted. Branch `gh-43-reminder-extraction-fidelity`, **stacked on
-  `gh-44-decision-capture-debug`** (needs its harness). Ownership work must not regress GH-22 shared
-  assignment (guard: S-06). See `PROJECT/2-WORKING/GH-43-REMINDER-EXTRACTION-FIDELITY.md`.
+- **Reminder extraction fidelity (GH-43)** — **all 4 phases built in 1.4.273 on
+  `gh-43-reminder-extraction-fidelity`; awaiting review/merge.** Fixed the three defects one
+  production message exposed at once. Ownership now reads the **grammatical subject of the
+  commitment** rather than scraping mentions, so a first-person commitment belongs to its author and
+  the people it was addressed to become `NotifyIDs` instead of assignees. Synthesis routing gained a
+  newline-aware sentence count and a **buried-task ratio gate**, so a long note with a small buried
+  task no longer dumps the whole message into the bullet. `context` is a distinct field rendered
+  subordinately, and a **grounding constraint** enforced in code lets the display title be rewritten
+  only within the source's vocabulary while `actionable_language` stays byte-exact. Reconciling the
+  two ownership paths exposed that the thread extractor's "Never invent users" prompt rule was never
+  enforced; both paths now share one code-level guard. Measured, not asserted: the GH-44 battery went
+  **4 FAIL / 11 PASS on unmodified `development` → 20 PASS**, and every mechanism is proven load
+  bearing by a perturbation test that turns the battery red when it is disabled. GH-22 shared
+  assignment intact (guard: S-06). Stacked on `gh-44-decision-capture-debug` (needs its harness).
+  See `PROJECT/2-WORKING/GH-43-REMINDER-EXTRACTION-FIDELITY.md`.
 
 - **Unified AI decision capture, replay + debugging (GH-44)** — **all 6 phases built in 1.4.272 on
   `gh-44-decision-capture-debug`; awaiting review/merge.** Consolidated the three partial
@@ -116,16 +122,6 @@ goal: >
 - **"Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362)** — a 6-lane marathon that ends the "compute → render → discard" pattern: stamp client/project identity at creation + operator-defaults config (**#361 A**), `ask-reminders` over live authoritative data (**#361 B**), whole-thread multi-task inference (**#360**), durable deterministic-first project map (**#361 C**), deterministic proactive digest signals (**#362 P1**), then **p6 — an end-to-end net-improvement acceptance test** (`tests/marathon-360-361-362-e2e.test.js`) proving p1-p5 actually connect (data one phase persists is data a later phase reads), not just that each ships in isolation. Cross-model consult (Codex + agy) adjudicated + folded in. Ordered dependency chain, not a concurrency wave. **SHIPPED + merged to main 2026-07-13 (`marathon.complete`, v1.4.212 line); docs closed out to `3-COMPLETED` 2026-07-14.** All 6 lanes green incl. p6 e2e. **Caveat:** only GH-362 **Phase 1** shipped; GH-362 Phases 2 & 3 deferred → **GH-366** (in progress, `feat/gh-366-proactive-phases-2-3`). → [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md)
 
 ### Queue / parked intake
-
-- **Reminder extraction fidelity (GH-43)** — one production message exposed three defects at once: the
-  synthesis gate never fired (sentence count missed unpunctuated lines) so the task bullet was the whole
-  message verbatim; task and context had no separate fields; and every `<@…>` mention became an assignee,
-  so a first-person commitment was assigned to the two people it was merely addressed to and **not** to
-  the person who made it. GH-337 follow-up (its open Phase 4 threshold item is the direct parent).
-  Phase 0 is a spike that builds a 15-scenario battery + before/after harness and captures a baseline
-  *before* any fix lands. Ownership fix must not regress GH-22 shared assignment. Ratings provisional.
-  See `PROJECT/1-INBOX/GH-43-REMINDER-EXTRACTION-FIDELITY.md` and its corpus companion
-  `PROJECT/1-INBOX/REMINDER-EXTRACTION-BATTERY-CORPUS.md`.
 
 - **CI deadlock + lost verified-secret scanning (GH-15)** — merging GH-14 (DeployHQ adoption) deleted
   `.github/workflows/ci.yml`, the sole producer of the `test` status context that `main`'s branch

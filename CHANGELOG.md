@@ -33,6 +33,55 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.273 - 2026-08-10
+That bug I could only *show* you last release is fixed. If you address a message to colleagues and
+then say you'll do something yourself, the reminder is yours now — and they're kept in the loop
+rather than being handed your work. Long notes get a short task instead of your whole message pasted
+into a bullet, with the background on its own line underneath and the original still quoted in full.
+I'm allowed to reword the task now, but only using words you actually wrote: if I reach for a system
+or a number you never mentioned, I throw my version away and quote you instead.
+
+**Technical:** GH-43, all four phases, measured against the GH-44 replay battery rather than asserted.
+The battery went 4 FAIL / 11 PASS on unmodified `development` to 20 PASS.
+
+- **Ownership (Phase 1A)** — `src/reminder-ownership.js`. Ownership now reads the **grammatical
+  subject of the commitment**, not the mention list. First-person → the sender; second-person ask →
+  the mentioned people (GH-22 shared assignment intact); no signal → prior behavior byte-for-byte.
+  Derived from the trigger group's actionable spans, so first-person prose elsewhere in a long note
+  cannot hijack a task that is really an ask of somebody else. `"we"` is excluded as ambiguous.
+- **Analyzer verdict (Phase 1B)** — `owner` / `owner_mentions` added to the reminder schema and
+  prompt, which previously had no ownership rules at all. Consulted **only where grammar is
+  ambiguous**, inverting the plan's original precedence: Phase 1A resolves the common case correctly
+  at zero model cost, so a paid uncertain answer must not override a free correct one.
+  `owner_mentions` is intersected with the mentions actually in the source — the model may narrow the
+  set, never extend it. Reconciling this with `ExtractMultiTaskCandidatesAsync` exposed that its
+  "Never invent users" prompt rule was **never enforced**; both paths now share
+  `ConstrainAssigneeToParticipants`.
+- **Synthesis routing (Phase 2)** — two independent fixes, each proven load bearing by perturbation.
+  `CountSentences` treats a hard newline as a thought boundary (the reported message counted 3 of its
+  5 thoughts, routing it to the verbatim segment). A **buried-task ratio gate** routes a message
+  ≥150 chars whose longest actionable span is ≤0.35 of it to synthesis regardless of sentence count —
+  GH-337 already computed that ratio, named the case in a comment, and then ignored it. Routing now
+  takes the **raw** message text; normalizing first collapses the newlines the counter depends on.
+  `DescribeSynthesisRouting` is the single computation and the predicate delegates to it, so the
+  telemetry line can no longer disagree with the bullet a user sees.
+- **Task/context split + grounding (Phase 3)** — `context` added to the schema, rendered as an
+  indented subordinate line, never fused into the bullet. `src/task-grounding.js` narrows the
+  verbatim guarantee rather than dropping it: `actionable_language` stays byte-exact as the audit
+  span, while the display title may be rewritten only within the source's vocabulary. Zero false
+  positives across all 20 recorded titles. A failing title falls back to the quoted span.
+- **`NotifyIDs` persisted** — addressees who did not take the work, disjoint from `AssigneeIDs` and
+  deliberately non-authoritative. Additive on `ReminderCreated`; the fold rehydrates via
+  `WhenRecorded` and the emit is conditional, so absent stays absent and projection parity holds for
+  both historical reminders and the list-row creation path.
+- **Harness fix** — `scripts/decision-replay.js` handed recorded responses to the pipeline by
+  reference while the pipeline writes back to them, so the first run corrupted the require-cached
+  fixture and later runs replayed a response the file never contained. The existing determinism test
+  could not catch it because the corruption is idempotent. Responses are deep-cloned per call now.
+- Battery grew 15 → 20 scenarios: `S-16` (ratio unusable, newline rule is the only router), `S-17`
+  and `S-18` (adversarial fabricated users, one per ownership path), `S-19` (ambiguous grammar the
+  deterministic rules cannot reach), `S-20` (adversarial ungrounded title).
+
 ## 1.4.272 - 2026-08-10
 When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not
 just what I decided, but what drove it — whether I shortened your text or kept it whole and why, and

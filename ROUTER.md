@@ -67,7 +67,10 @@ chokepoint and one debugging surface (GH-44):
 
 | You want to know | Use |
 |---|---|
-| Why did THIS message produce THAT reminder? | React `:wrench:` on the message in Slack. The triage reply shows the recommendation, rationale, per-candidate trigger/task/date-parse, **why the task text looks the way it does** (synthesis routing facts), and **how ownership resolved** (mentions vs sender fallback). |
+| Why did THIS message produce THAT reminder? | React `:wrench:` on the message in Slack. The triage reply shows the recommendation, rationale, per-candidate trigger/task/date-parse, **why the task text looks the way it does** (synthesis routing facts), and **how ownership resolved** — running the real resolver, so triage cannot describe a rule the pipeline no longer follows. |
+| Why is this reminder assigned to the WRONG person? | The `resolvedFrom` value in that triage section names the rule that fired: `first-person-commitment`, `second-person-ask`, `analyzer-speaker`, `analyzer-mentioned`, `mentions`, or `sender-fallback`. Ownership comes from the **grammatical subject of the commitment**, never from scraping mentions — see `src/reminder-ownership.js` (GH-43). |
+| Why was my whole message pasted into the task bullet? | The `routed_by` and `synthesis` values in the `reminder display source:` log line, also surfaced in `:wrench:`. A message routes to synthesis by sentence count OR by the buried-task ratio; `ratio_usable=no` means no quoted span was available to judge it by. Thresholds and their derivation are inlined at `BURIED_TASK_MIN_LENGTH` / `BURIED_TASK_MAX_SPAN_RATIO`. |
+| Why did the reminder quote me instead of using a tidy title? | The grounding constraint rejected the model's title because it named an entity, identifier, or number absent from your message. Look for `discarding an ungrounded reminder title` in the logs; the rule lives in `src/task-grounding.js`. |
 | What does the pipeline decide across many messages? | `npm run decision:replay` — replays the scenario battery at `tests/fixtures/decision-scenarios/` and reports `PASS`/`FAIL`/`CHANGED-vs-baseline` per scenario. Deterministic, zero network calls. |
 | Did my change alter behavior? | `npm run decision:replay` diffs against the committed baseline; `--update-baseline` re-records it (never implicit). |
 | What did production actually decide? | Enable capture (`SetDecisionCapture`) and read the JSONL corpus under `data/runtime/shadow/`. Replay it with `--from-corpus`. |
@@ -83,12 +86,25 @@ Where the pieces live:
   `src/router-shadow-store.js` is a back-compat facade over it pinned to the GH-397 stream.
 - `src/decision-explain.js` — decision-agnostic renderer for debug facts, plus the ONE shared
   mention-extraction rule ownership is read from.
-- `scripts/decision-replay.js` — the replay/diff harness.
+- `src/reminder-ownership.js` — **who owns a reminder** (GH-43). Reads the grammatical subject of the
+  commitment; the analyzer's `owner` verdict only breaks ties where grammar is ambiguous.
+  `ConstrainAssigneeToParticipants` is the shared "never invent users" guard both ownership paths run
+  through — it is enforced here in code, not only in the prompts.
+- `src/task-grounding.js` — **the grounding constraint** (GH-43). Decides whether a synthesized title
+  or context line may be shown: every quoted string, standalone number, identifier, and proper noun
+  it names must appear in the source. This is what makes rewriting the display text safe while
+  `actionable_language` stays byte-exact as the audit span.
+- `scripts/decision-replay.js` — the replay/diff harness. Its scenario battery is the falsifiability
+  gate for all of the above: several tests deliberately perturb a mechanism and assert the battery
+  goes red, so a guard that silently stops working cannot pass as green.
 - `data/static/ai/*-instructions.md` + `*-schema.json` — every prompt asset. Keep new pairs
   registered in `scripts/validate-ai-prompts.js`; an asset missing from that map is silently skipped
   and `validate:ai` still exits 0 (issue #41), so assert on its `OK:` output, not the exit code.
 
-Full design and phase history: `PROJECT/2-WORKING/GH-44-DECISION-CAPTURE-DEBUG.md`.
+Full design and phase history: `PROJECT/2-WORKING/GH-44-DECISION-CAPTURE-DEBUG.md` (the capture and
+debugging subsystem) and `PROJECT/2-WORKING/GH-43-REMINDER-EXTRACTION-FIDELITY.md` (extraction
+fidelity — ownership, synthesis routing, and the task/context split, with the measured before/after
+for each).
 
 ## Canonical rules
 

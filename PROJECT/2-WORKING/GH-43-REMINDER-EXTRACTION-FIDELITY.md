@@ -2,7 +2,7 @@
 gh_issue: 43
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/43
 title: "Reminder extraction fidelity — verbatim task text, wrong assignee, no context/task split (GH-337 follow-up)"
-status: IN PROGRESS
+status: COMPLETE
 created: 2026-08-10
 updated: 2026-08-10
 owner: noel
@@ -12,7 +12,7 @@ effort: 4
 complexity: 4
 risk: 3
 phases: 4
-ratings_provisional: true
+ratings_provisional: false
 related: "GH-337 (shipped Phases 1-4; its Phase 4 threshold-tuning item is the direct parent of Defect 1). GH-22 (multiple assignees — Defect 3 must not regress shared assignment)."
 companion: "REMINDER-EXTRACTION-BATTERY-CORPUS.md (the scenario battery this plan is measured against)"
 goal: >
@@ -28,7 +28,18 @@ goal: >
 
 | What was just completed | What's next |
 | --- | --- |
-| Phase 0 closed by GH-44: the replay harness exists, the baseline is committed, and the battery reports the defects RED (S-01, S-05, S-07, S-12). | Phase 1A — deterministic ownership pre-filter (leading address block + first-person actionable language) |
+| All four phases shipped. The battery went **4 FAIL / 11 PASS on unmodified `development` → 20 PASS**, with every mechanism proven load bearing by perturbation. Full suite 1750 jest + 114 node, tsc clean, all validation gates green. | agy QA relay on the branch, then open the PR |
+
+## Result
+
+| Defect from the report | Status | Proof |
+|---|---|---|
+| 1 — task bullet was the whole 480-char message | **Fixed** (Phase 2) | `S-01` bullet is now `"deploy the changes"`; `S-07`, `S-12` likewise |
+| 2 — no separation between task and context | **Fixed** (Phase 3) | `S-01` renders a short task with the background on its own subordinate line |
+| 3 — assigned to the two mentioned colleagues, not its author | **Fixed** (Phase 1A) | `S-01` assignees `["U_SENDER"]`, notify `["U_ALPHA","U_BETA"]` |
+
+Everything below is the phase-by-phase record, including the two places the shipped design
+deliberately departs from this plan and why.
 
 ## Problem
 
@@ -432,9 +443,20 @@ where a context was recorded (`S-01`, `S-12`) and empty everywhere else. **No `d
 
 ## Open items
 
+Every row carries a recommendation, a next step, and an owner.
+
 | Item | Recommendation | Next step | Owner |
 |---|---|---|---|
-| Triage ratings are provisional (`ratings_provisional: true`) | Confirm or adjust `effort 4 / complexity 4 / risk 3` before this doc is auto-selectable by the marathon layer | Review at promotion to `2-WORKING` | noel |
-| Ratio + length thresholds for Phase 2 | Do not guess — derive from the Phase 0 baseline plus prod `reminder display source:` telemetry from 1.4.205+ | Pull the log sample during Phase 0 | Phase 0 spike |
-| `AssigneeIDs` vs `NotifyIDs` split | Worth doing, but it changes persisted shape — decide inside Phase 3 rather than assuming it now | Design note in Phase 3 before code | Phase 3 |
-| Live-mode corpus runs cost real tokens | Keep live mode opt-in and out of CI; deterministic mode gates | Settled by Phase 0 Q2 | Phase 0 spike |
+| **`BURIED_TASK_MAX_SPAN_RATIO` (0.35) is under-determined.** The battery constrains it only from below — it contains no long message that must stay verbatim, so nothing pins the ceiling from above. | **Leave at 0.35 and confirm from prod, do not re-guess.** The value is conservative; the risk it carries is synthesizing a long message that should have stayed verbatim, which is visible and recoverable, not silent. | Sample `reminder display source:` for two weeks post-deploy and look for `routed_by=buried_task_ratio` on messages users then edited or trashed. Add any such message to the battery as the missing counter-example, then tighten. | noel |
+| **Phases 1B and 3 changed prompts and the schema; the battery replays *recorded* responses and cannot evaluate a prompt change.** Deterministic mode proves the code honors `owner` / `owner_mentions` / `context`; it cannot prove the model *produces* good ones. | **Run one live-mode pass before enabling in a busy workspace.** This is the known limit of deterministic replay (Phase 0 Q2), not a gap introduced here. | Run the battery against the live model with `S-01`, `S-04`, `S-12`, `S-19` and hand-check `owner` and `context`. Keep live mode opt-in and out of CI. | noel |
+| **`validate:commands` fails on `ask-self` missing from `command-catalog.json`.** Pre-existing — reproduced on unmodified `development`, unrelated to GH-43. | **Fix separately; do not fold into this PR.** Bundling an unrelated catalog fix here would obscure this branch's blast radius. | File its own issue and add the `ask-self` route to `data/static/ai/command-catalog.json`. | noel |
+| **`NotifyIDs` is persisted but drives no behavior** — it is named in the confirmation and nothing else. Nobody is actually notified when the reminder fires. | **Correct as shipped; decide separately whether firing should CC them.** Persisting the fact first is what makes that decision possible later without another migration. | If wanted, a follow-up issue on the reminder posting path. The field is non-authoritative, so this is additive. | noel |
+| Triage ratings are provisional (`ratings_provisional: true`) | `effort 4 / complexity 4 / risk 3` held up — four phases, two prompt/schema changes, one persisted-shape change. **Clear the provisional flag.** | Done in this close-out. | noel |
+
+### Closed during execution
+
+| Item | Resolution |
+|---|---|
+| Ratio + length thresholds for Phase 2 | Derived from the committed baseline, with the derivation inlined at the constants. See Phase 2. |
+| `AssigneeIDs` vs `NotifyIDs` split | **Decided: split, and persist.** Pulled forward from Phase 3's open question at the user's direction. See Phase 3. |
+| Live-mode corpus runs cost real tokens | Settled: deterministic mode gates, live mode stays opt-in and out of CI. Carried forward above as the one live check worth doing before rollout. |
