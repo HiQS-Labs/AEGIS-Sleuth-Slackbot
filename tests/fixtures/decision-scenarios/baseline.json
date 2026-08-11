@@ -573,5 +573,65 @@
     "triggers": [
       "tomorrow morning"
     ]
+  },
+  "S-22": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "I asked <@U_ALPHA> to rotate the staging certs tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "notify": [],
+      "resolvedFrom": "analyzer-mentioned",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.73,
+      "messageLength": 63,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-23": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "i will push the config fix"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.14,
+      "messageLength": 181,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
+      "sentenceCount": 2,
+      "synthesisOn": true
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
   }
 }

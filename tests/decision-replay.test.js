@@ -224,8 +224,11 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     Grounding.UngroundedTerms = () => [];
     try {
       const Failed = (await RunAllAsync(Battery.scenarios)).filter(ArgR => ArgR.status === 'FAIL');
-      expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-20']);
+      // S-20 invents an entity mid-title; S-23 invents one at the START, which was its own bypass
+      // (the first-word exemption used to be unconditional). Both must go red without the check.
+      expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-20', 'S-23']);
       expect(Failed[0].error).toMatch(/UNGROUNDED TERM "Snowflake"/);
+      expect(Failed[1].error).toMatch(/UNGROUNDED TERM "Acme"/);
       // the shared selector really did let the invented entity through — proving the check, not the
       // harness, is what normally stops it.
       expect(DisplaySelection.SelectTaskText(

@@ -757,6 +757,80 @@
           "U_BOT"
         ]
       }
+    },
+    {
+      "id": "S-22",
+      "name": "ADVERSARIAL: reporting a delegation must not assign the work to the reporter",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "I asked <@U_ALPHA> to rotate the staging certs tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "delegation reported in the first person",
+        "reminders": [
+          {
+            "actionable_language": "I asked <@U_ALPHA> to rotate the staging certs",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Rotate the staging certs",
+            "context": "",
+            "owner": "mentioned",
+            "owner_mentions": [
+              "U_ALPHA"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "assignees": [
+          "U_ALPHA"
+        ],
+        "owner": "mentions"
+      }
+    },
+    {
+      "id": "S-23",
+      "name": "ADVERSARIAL: an invented product name at the START of the title must not bypass grounding",
+      "decision": "reminder-analysis",
+      "targets": [
+        "task-context-split"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "the nightly deployment keeps stalling on the same step and the retry loop hides it from the dashboard, so nobody noticed until this week. i will push the config fix tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "adversarial: Acme appears nowhere in the message",
+        "reminders": [
+          {
+            "actionable_language": "i will push the config fix",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Acme deployment config fix",
+            "context": "",
+            "owner": "speaker",
+            "owner_mentions": []
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "displayNeverIncludes": [
+          "Acme"
+        ]
+      }
     }
   ]
 }

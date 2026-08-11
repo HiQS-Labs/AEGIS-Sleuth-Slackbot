@@ -40,6 +40,51 @@
  * title beginning a clause with `I` or naming a weekday the source wrote differently would be
  * rejected for no good reason.
  */
+/**
+ * Imperative verbs a synthesized task title is allowed to OPEN with without grounding.
+ *
+ * The first word used to be exempt unconditionally, on the reasoning that an imperative title
+ * legitimately begins with a capitalized verb the source wrote in lowercase. That reasoning is right;
+ * the implementation was not. Skipping *every* first token meant an invented product name rendered
+ * simply by being moved to the front — `"Acme deployment"` extracted no term at all and passed.
+ * (Codex, branch relay round 3.)
+ *
+ * So the exemption is now **bounded and fails closed**: a first word on this list is treated as the
+ * imperative verb it is, and anything else must be grounded like any other capitalized word.
+ *
+ * **The asymmetry is deliberate.** A verb missing from this list is not a correctness bug — the title
+ * is simply required to be grounded, which it usually is, since the model is summarizing the source.
+ * When it is not, the reminder falls back to quoting the user: worse, but visible and harmless. The
+ * opposite mistake — an invented product name rendering as fact — is silent and is the thing this
+ * module exists to stop. Gaps here cost readability; a bypass costs correctness.
+ *
+ * (A gap did bite once: `Change` was missing, and a real test title
+ * `"Change Ground Advantage $5 shipping to $6"` fell back to the raw question. Hence the breadth.)
+ */
+const ImperativeVerbs = new Set([
+  'add', 'address', 'adjust', 'align', 'allow', 'answer', 'apply', 'archive', 'ask', 'assign',
+  'audit', 'automate', 'back', 'backfill', 'block', 'book', 'bring', 'build', 'bump', 'call',
+  'cancel', 'change', 'chase', 'check', 'clarify', 'clean', 'clear', 'close', 'collect', 'compare',
+  'complete', 'configure', 'confirm', 'connect', 'consolidate', 'convert', 'copy', 'correct',
+  'create', 'cut', 'decide', 'decrease', 'delete', 'deliver', 'deploy', 'disable', 'discuss', 'do',
+  'document', 'double', 'draft', 'drop', 'email', 'enable', 'ensure', 'escalate', 'expand',
+  'export', 'extend', 'extract', 'file', 'fill', 'finalize', 'find', 'finish', 'fix', 'flag',
+  'follow', 'forward', 'gather', 'generate', 'get', 'give', 'group', 'handle', 'hold', 'hook',
+  'implement', 'import', 'improve', 'increase', 'install', 'investigate', 'keep', 'kick', 'land',
+  'launch', 'let', 'limit', 'link', 'list', 'load', 'lock', 'look', 'lower', 'make', 'map', 'merge',
+  'message', 'migrate', 'monitor', 'move', 'notify', 'open', 'order', 'organize', 'patch', 'pause',
+  'pick', 'ping', 'plan', 'post', 'prepare', 'prioritize', 'process', 'promote', 'prototype',
+  'publish', 'pull', 'purge', 'push', 'raise', 'reach', 'read', 'rebase', 'rebuild', 'recheck',
+  'reconcile', 'record', 'reduce', 'refactor', 'refresh', 'regenerate', 'reindex', 'release',
+  'remind', 'remove', 'rename', 'reorder', 'repair', 'replace', 'reply', 'report', 'request',
+  'require', 'reschedule', 'research', 'reset', 'resolve', 'respond', 'restart', 'restore',
+  'retry', 'review', 'revert', 'revisit', 'rewrite', 'roll', 'rotate', 'run', 'scale', 'schedule',
+  'scope', 'send', 'set', 'settle', 'share', 'ship', 'sign', 'simplify', 'sort', 'split', 'stage',
+  'start', 'stop', 'streamline', 'submit', 'summarize', 'swap', 'switch', 'sync', 'take', 'talk',
+  'test', 'tidy', 'track', 'trim', 'triage', 'trigger', 'try', 'tune', 'turn', 'unblock', 'update',
+  'upgrade', 'upload', 'use', 'validate', 'verify', 'wire', 'work', 'wrap', 'write',
+]);
+
 const CapitalizedNonEntities = new Set([
   'a', 'an', 'and', 'the', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'from', 'if', 'or',
   'but', 'as', 'is', 'are', 'be', 'do', 'not', 'no', 'this', 'that', 'it', 'i', 'we', 'you', 'they',
@@ -183,7 +228,10 @@ function ExtractGroundedTerms(ArgTitle) {
     // 4. proper nouns — capitalized, not the leading imperative verb, not a routine capital.
     // `\p{Lu}` rather than `[A-Z]`: an ASCII-only test does not recognize a Cyrillic or Greek capital
     // as a capital at all, so a lookalike proper noun was never extracted and never checked.
-    if(ArgIndex === 0) return;
+    //
+    // The first word is exempt ONLY when it is a recognized imperative verb. Exempting it
+    // unconditionally let an invented name through by position alone (`"Acme deployment"`).
+    if(ArgIndex === 0 && ImperativeVerbs.has(Word.toLowerCase())) return;
     if(!/^\p{Lu}/u.test(Word)) return;
     if(CapitalizedNonEntities.has(Word.toLowerCase())) return;
     Add(Word);

@@ -39,6 +39,23 @@ const { ExtractMentionIDs } = require('./decision-explain');
  */
 const FirstPersonPattern = /\b(i|i'm|im|i'll|ill|i've|ive|i'd)\b/i;
 
+/**
+ * Reporting and delegation constructions: the speaker is the subject of the *sentence*, but somebody
+ * else is the subject of the *obligation*.
+ *
+ * `I asked <@U_ALPHA> to deploy tomorrow` is first-person and is emphatically not a commitment by the
+ * author — Alpha deploys. Matching a bare `I` anywhere in the span made the sender own it, and that
+ * verdict then outranked an analyzer that had correctly said `owner: mentioned`. (Codex, branch relay
+ * round 3.) When this matches, the strong sender override is skipped and the case falls through to
+ * the analyzer verdict and the mention fallbacks, which is where it belongs.
+ *
+ * Deliberately limited to verbs that are UNAMBIGUOUSLY delegation. `have`, `had`, and `got` were in
+ * an earlier draft of this and had to come out: `"I have to deploy it"` and `"I had to restart it"`
+ * are ordinary commitments, and matching them turned a correct sender attribution into a fallback. A
+ * missed delegation degrades to the analyzer verdict; a missed commitment reassigns real work.
+ */
+const DelegationPattern = /\b(i|we)\s+(?:just\s+|already\s+)?(asked|told|pinged|requested|assigned|delegated|handed|passed)\b/i;
+
 /** Second-person ask markers — the signal that someone else is being asked to act. */
 const SecondPersonPattern = /\b(can you|could you|would you|will you|can u|please|pls|kindly|you should|you need to|you both|you all|your turn)\b/i;
 
@@ -76,6 +93,8 @@ function HasFirstPersonCommitment(ArgActionableLanguage) {
   // a second-person ask wins even when it contains a stray first-person token
   // ("can you send me the logs")
   if(SecondPersonPattern.test(Text)) return false;
+  // "I asked <@alpha> to deploy" is first person about a delegation, not a commitment.
+  if(DelegationPattern.test(Text)) return false;
   return FirstPersonPattern.test(Text);
 }
 

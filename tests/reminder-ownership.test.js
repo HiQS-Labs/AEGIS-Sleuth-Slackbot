@@ -446,3 +446,38 @@ describe('GH-43: first person must mean the speaker is ACTING', () => {
     expect(IsSpanInsideQuotedSpeech("I'll patch it and don't worry", "I'll patch it")).toBe(false);
   });
 });
+
+// Codex branch relay r3 [Blocker]: a bare "I" anywhere in the span was still taken as proof the
+// sender owns the task, and that verdict outranked a correct analyzer. "I asked <@alpha> to deploy"
+// is first-person about a DELEGATION — Alpha is the subject of the obligation.
+describe('GH-43: reporting a delegation is not committing to it', () => {
+  test('THE WITNESS: "I asked <@alpha> to deploy" belongs to Alpha, not the sender', () => {
+    const Result = ResolveAssignees({
+      MessageText: 'I asked <@U_ALPHA> to deploy tomorrow',
+      ActionableLanguage: 'I asked <@U_ALPHA> to deploy tomorrow',
+      MentionedIDs: ['U_ALPHA'],
+      SenderID: 'U_SENDER',
+      AnalyzerOwner: 'mentioned',
+      AnalyzerOwnerMentions: ['U_ALPHA'],
+    });
+    expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
+    expect(Result.resolvedBy).toBe('analyzer-mentioned');
+  });
+
+  test.each(['asked', 'told', 'pinged', 'requested', 'assigned', 'delegated'])(
+    '"I %s <@alpha> to ..." is not a commitment', (ArgVerb) => {
+      expect(HasFirstPersonCommitment(`I ${ArgVerb} <@U_ALPHA> to deploy it`)).toBe(false);
+    });
+
+  test('"have"/"had" are NOT delegation — they are the most common way to state a commitment', () => {
+    // an over-broad delegation pattern would reassign real work, which is worse than missing a
+    // delegation (that only degrades to the analyzer verdict).
+    expect(HasFirstPersonCommitment('I have to deploy it')).toBe(true);
+    expect(HasFirstPersonCommitment('I had to restart it')).toBe(true);
+  });
+
+  test('the production message is unaffected', () => {
+    expect(HasFirstPersonCommitment('i am going to deploy the changes')).toBe(true);
+    expect(HasFirstPersonCommitment('I will merge and deploy it')).toBe(true);
+  });
+});

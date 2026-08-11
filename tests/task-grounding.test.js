@@ -29,6 +29,21 @@ describe('ExtractGroundedTerms', () => {
     expect(ExtractGroundedTerms('Ship the fix')).toEqual([]);
   });
 
+  // Codex branch relay r3. The exemption used to apply to ANY first token, so an invented product
+  // name rendered simply by being moved to the front. It is now bounded to recognized imperative
+  // verbs and fails closed on everything else.
+  test('THE WITNESS: a non-verb first word is NOT exempt', () => {
+    expect(ExtractGroundedTerms('Acme deployment')).toEqual(['Acme']);
+    expect(IsTitleGrounded('Acme deployment', 'deployment is tomorrow')).toBe(false);
+    expect(IsTitleGrounded('Snowflake the data', 'fix the data job tomorrow')).toBe(false);
+  });
+
+  test('real imperative openings still pass, including ones the source conjugated differently', () => {
+    expect(IsTitleGrounded('Deploy the fix', 'i will deploy the fix tomorrow')).toBe(true);
+    // "Bump" against a source that wrote "bumping" — the allowlist is what saves this
+    expect(IsTitleGrounded('Bump the timeout', 'the real fix is bumping the timeout')).toBe(true);
+  });
+
   test('identifiers, numbers, proper nouns, and quoted strings all require grounding', () => {
     expect(ExtractGroundedTerms('Ship the billing-sync retry patch')).toEqual(['billing-sync']);
     expect(ExtractGroundedTerms('Bump the timeout by 4')).toEqual(['4']);
