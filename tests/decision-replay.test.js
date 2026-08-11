@@ -65,7 +65,11 @@ describe('RunScenarioAsync', () => {
   test('observes ownership and routing for a single-message decision', async () => {
     const Row = await RunScenarioAsync(MakeScenario());
     expect(Row.status).toBe('PASS');
-    expect(Row.observed.ownership).toMatchObject({ resolvedFrom: 'sender-fallback', senderIsAssignee: true });
+    // "I will deploy tomorrow morning." is a first-person commitment, so Phase 1A attributes it to
+    // the speaker by that rule rather than by the no-mentions fallback it used to land in.
+    expect(Row.observed.ownership).toMatchObject({
+      resolvedFrom: 'first-person-commitment', senderIsAssignee: true,
+    });
     expect(Row.observed.routing).toMatchObject({ segment: expect.any(String) });
   });
 
@@ -95,24 +99,198 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
   });
 
   test('produces one row per scenario — a malformed row never aborts the batch', () => {
-    expect(Rows).toHaveLength(15);
-    expect(new Set(Rows.map(ArgR => ArgR.id)).size).toBe(15);
+    const Battery = require(BatteryPath);
+    expect(Rows).toHaveLength(Battery.scenarios.length);
+    expect(new Set(Rows.map(ArgR => ArgR.id)).size).toBe(Battery.scenarios.length);
   });
 
-  test('THE INSTRUMENT CAN FAIL: the known GH-43 defects are red on current code', () => {
+  test('GH-43 Phase 2 CLOSED the verbatim-task-text defect — the whole battery is green', () => {
     const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
 
-    // S-01 is the reported production message. All three defects in one row.
-    expect(ById['S-01'].status).toBe('FAIL');
-    expect(ById['S-01'].error).toMatch(/root cause/);          // whole message dumped as the task
-    expect(ById['S-01'].error).toMatch(/owner should be the sender/); // mentioned != assigned
-    expect(ById['S-01'].observed.displayedTasks[0].length).toBeGreaterThan(400);
-    expect(ById['S-01'].observed.ownership.senderIsAssignee).toBe(false);
+    // S-01 is the reported production message. Before Phase 2 its task bullet was the entire
+    // 480-character message; it now renders the analyzer's brief.
+    expect(ById['S-01'].status).toBe('PASS');
+    expect(ById['S-01'].observed.routing.synthesisOn).toBe(true);
+    expect(ById['S-01'].observed.displayedTasks[0].length).toBeLessThan(80);
+    expect(ById['S-01'].observed.displayedTasks[0]).not.toMatch(/root cause/);
+    // the newline rule is what lifts it over the sentence threshold: it counted 3 before.
+    expect(ById['S-01'].observed.routing.sentenceCount).toBe(5);
 
-    // the synthesis gate misses unpunctuated long notes
-    expect(ById['S-07'].status).toBe('FAIL');
-    expect(ById['S-01'].observed.routing.sentenceCount).toBeLessThan(4);
-    expect(ById['S-01'].observed.routing.synthesisOn).toBe(false);
+    expect(ById['S-07'].status).toBe('PASS');
+    expect(ById['S-12'].status).toBe('PASS');
+    expect(Rows.filter(ArgR => ArgR.status === 'FAIL')).toEqual([]);
+  });
+
+  test('each Phase 2 mechanism is INDEPENDENTLY load bearing — neither is dead code', async () => {
+    const Battery = require(BatteryPath);
+    const Pipeline = require('../src/reminders-ai-pipeline');
+
+    /**
+     * @param {any[]} ArgRows
+     * @returns {string[]} ids that failed.
+     */
+    const FailedIDs = ArgRows => ArgRows.filter(ArgR => ArgR.status === 'FAIL').map(ArgR => ArgR.id);
+
+    // 1. disable the buried-task ratio gate. S-07 and S-12 are single/low-sentence long notes that
+    //    only the ratio can route, so they must go red.
+    const OriginalMinLength = Pipeline.BURIED_TASK_MIN_LENGTH;
+    Pipeline.BURIED_TASK_MIN_LENGTH = Number.MAX_SAFE_INTEGER;
+    try {
+      expect(FailedIDs(await RunAllAsync(Battery.scenarios)).sort()).toEqual(['S-07', 'S-12']);
+    } finally {
+      Pipeline.BURIED_TASK_MIN_LENGTH = OriginalMinLength;
+    }
+
+    // 2. revert CountSentences to the shipped punctuation-only rule. S-16 has no quoted span at all,
+    //    so its ratio is 0 and unusable — the newline rule is the ONLY thing that can route it.
+    const OriginalCountSentences = Pipeline.CountSentences;
+    Pipeline.CountSentences = (/** @type {string} */ ArgText) => {
+      const Text = (ArgText || '').trim();
+      if(!Text) return 0;
+      const Matches = Text.match(/[.!?]+(?=\s|$)/g);
+      return Math.max(Matches ? Matches.length : 0, 1);
+    };
+    try {
+      expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual(['S-16']);
+    } finally {
+      Pipeline.CountSentences = OriginalCountSentences;
+    }
+
+    // 3. BOTH disabled at once = the pre-Phase-2 code. This is the assertion the whole branch rests
+    //    on: it must reproduce the ORIGINAL reported defects, not merely fail somehow. agy's branch
+    //    relay (r1) caught that this case was claimed but never actually tested — the two
+    //    perturbations above each restored before the next ran, so the combined state never existed.
+    Pipeline.BURIED_TASK_MIN_LENGTH = Number.MAX_SAFE_INTEGER;
+    Pipeline.CountSentences = (/** @type {string} */ ArgText) => {
+      const Text = (ArgText || '').trim();
+      if(!Text) return 0;
+      const Matches = Text.match(/[.!?]+(?=\s|$)/g);
+      return Math.max(Matches ? Matches.length : 0, 1);
+    };
+    try {
+      // S-01 is the reported production message; S-07 and S-12 are the other two verbatim dumps.
+      // S-16 joins them because it was added later specifically to need the newline rule.
+      expect(FailedIDs(await RunAllAsync(Battery.scenarios)).sort())
+        .toEqual(['S-01', 'S-07', 'S-12', 'S-16']);
+    } finally {
+      Pipeline.BURIED_TASK_MIN_LENGTH = OriginalMinLength;
+      Pipeline.CountSentences = OriginalCountSentences;
+    }
+
+    // and the battery is green again once both are restored — the perturbation, not the code, was
+    // what turned it red.
+    expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual([]);
+  });
+
+  test('GH-43 Phase 3: task and context are separate, and the grounding constraint is enforced', async () => {
+    const Battery = require(BatteryPath);
+    const Grounding = require('../src/task-grounding');
+    const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
+
+    // S-01, the reported message: a short task with the background on its own line, and the
+    // 480-character original left where it belongs — the blockquote.
+    expect(ById['S-01'].observed.displayedTasks).toEqual(['deploy the changes']);
+    expect(ById['S-01'].observed.displayedContext[0]).toMatch(/fixed batch/);
+    expect(ById['S-01'].observed.displayedContext[0])
+      .not.toBe(ById['S-01'].observed.displayedTasks[0]);
+
+    // a short clean message has no background to give, and renders no context line at all.
+    expect(ById['S-08'].observed.displayedContext).toEqual(['']);
+
+    // S-20 is adversarial: the title names Snowflake and 4x, neither of which the author wrote.
+    // Both are rejected and the bullet falls back to the quoted span.
+    expect(ById['S-20'].status).toBe('PASS');
+    expect(ById['S-20'].observed.displayedTasks).toEqual(['i will push that fix']);
+    expect(ById['S-20'].observed.displayedContext).toEqual(['']);
+
+    // THE HARNESS RUNS THE PRODUCTION RULE, not a copy of it. agy's branch relay (r1) found that
+    // this file used to reimplement the grounding check inside RunScenarioAsync, so perturbing
+    // `Grounding.UngroundedTerms` only broke the harness's own copy — the test would have passed
+    // unchanged with the production check deleted. Assert the shared module is genuinely on the
+    // path both sides take, so the perturbation below means something.
+    const DisplaySelection = require('../src/reminder-display-selection');
+    const ReplaySource = require('fs')
+      .readFileSync(require('path').join(__dirname, '..', 'scripts', 'decision-replay.js'), 'utf8');
+    expect(ReplaySource).toContain('ReminderDisplaySelection.SelectTaskText');
+    expect(ReplaySource).not.toContain('TaskGrounding.UngroundedTerms(Title');
+    // and the production selector routes through the same module
+    expect(require('fs')
+      .readFileSync(require('path').join(__dirname, '..', 'src', 'reminders-module.js'), 'utf8'))
+      .toContain('ReminderDisplaySelection.SelectTaskText');
+
+    // PERTURBATION: let the grounding check pass everything, i.e. trust the prompt. This now reaches
+    // the same code path a real reminder does.
+    const Original = Grounding.UngroundedTerms;
+    Grounding.UngroundedTerms = () => [];
+    try {
+      const Failed = (await RunAllAsync(Battery.scenarios)).filter(ArgR => ArgR.status === 'FAIL');
+      // S-20 invents an entity mid-title; S-23 invents one at the START, which was its own bypass
+      // (the first-word exemption used to be unconditional). Both must go red without the check.
+      expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-20', 'S-23']);
+      expect(Failed[0].error).toMatch(/UNGROUNDED TERM "Snowflake"/);
+      expect(Failed[1].error).toMatch(/UNGROUNDED TERM "Acme"/);
+      // the shared selector really did let the invented entity through — proving the check, not the
+      // harness, is what normally stops it.
+      expect(DisplaySelection.SelectTaskText(
+        { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy it' },
+        'i will deploy it tomorrow', true,
+      ).text).toBe('Deploy the Snowflake pipeline');
+    } finally {
+      Grounding.UngroundedTerms = Original;
+    }
+
+    // restored: the same call now rejects the invented entity and falls back to the quoted span.
+    expect(DisplaySelection.SelectTaskText(
+      { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy it' },
+      'i will deploy it tomorrow', true,
+    )).toMatchObject({ text: 'deploy it', source: 'span', ungroundedTerms: ['Snowflake'] });
+  });
+
+  test('GH-43 Phase 1B: the never-invent-users guard is real, not just a prompt instruction', async () => {
+    const Battery = require(BatteryPath);
+    const Ownership = require('../src/reminder-ownership');
+    const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
+
+    // shipped behavior: a fabricated id reaches neither path.
+    expect(ById['S-17'].status).toBe('PASS');
+    expect(ById['S-17'].observed.candidates[0].assigneeID).toBeNull();
+    expect(ById['S-18'].status).toBe('PASS');
+    expect(ById['S-18'].observed.ownership.assignees).toEqual(['U_ALPHA']);
+    expect(ById['S-18'].observed.ownership.resolvedFrom).toBe('analyzer-mentioned');
+
+    // and the ambiguous case the deterministic rules could not reach is now resolved.
+    expect(ById['S-19'].observed.ownership.assignees).toEqual(['U_SENDER']);
+    expect(ById['S-19'].observed.ownership.resolvedFrom).toBe('analyzer-speaker');
+
+    // PERTURBATION: make the guard fail open, exactly as an un-enforced prompt rule would behave.
+    const Original = Ownership.ConstrainAssigneeToParticipants;
+    Ownership.ConstrainAssigneeToParticipants = (/** @type {any} */ ArgProposed) =>
+      ({ assigneeID: ArgProposed || null, wasRejected: false });
+    try {
+      const Failed = (await RunAllAsync(Battery.scenarios))
+        .filter(ArgR => ArgR.status === 'FAIL');
+      expect(Failed.map(ArgR => ArgR.id)).toEqual(['S-17']);
+      expect(Failed[0].error).toMatch(/INVENTED USER U_GHOST/);
+    } finally {
+      Ownership.ConstrainAssigneeToParticipants = Original;
+    }
+  });
+
+  test('GH-43 Phase 1A CLOSED the ownership defect — S-01 now belongs to its author', () => {
+    const ById = Object.fromEntries(Rows.map(ArgR => [ArgR.id, ArgR]));
+
+    // this assertion is the inverse of the one that shipped with GH-44: before Phase 1A the same
+    // row resolved to ["U_ALPHA","U_BETA"] with senderIsAssignee false.
+    expect(ById['S-01'].observed.ownership.assignees).toEqual(['U_SENDER']);
+    expect(ById['S-01'].observed.ownership.senderIsAssignee).toBe(true);
+    expect(ById['S-01'].observed.ownership.resolvedFrom).toBe('first-person-commitment');
+    // the addressees are retained as interested parties rather than silently dropped
+    expect(ById['S-01'].observed.ownership.notify).toEqual(['U_ALPHA', 'U_BETA']);
+    // and S-01 no longer fails at all: Phase 1A took the ownership half, Phase 2 the task text.
+    expect(ById['S-01'].error).toBeNull();
+
+    // the mention-as-subject case is fixed too
+    expect(ById['S-05'].observed.ownership.assignees).toEqual(['U_SENDER']);
   });
 
   test('the GH-22 shared-assignment guard stays GREEN — the harness is not just failing everything', () => {
@@ -130,6 +308,23 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     const Battery = require(BatteryPath);
     const Again = await RunAllAsync(Battery.scenarios);
     expect(SerializeCanonical(Again)).toBe(SerializeCanonical(Rows));
+  });
+
+  test('a replay never mutates the fixture it replays', async () => {
+    // Found while building the Phase 1B adversarial gate. The pipeline legitimately writes back to
+    // the object a model returns (ExtractMultiTaskCandidatesAsync overwrites a rejected assigneeID
+    // in place), and the harness was handing out the fixture BY REFERENCE — so the first run scrubbed
+    // U_GHOST out of the require-cached scenario and every later run in that process replayed a
+    // response the file never contained. The determinism test above could not see it, because the
+    // corruption is idempotent: run 2 and run 3 agree with each other, just not with the fixture.
+    const Battery = require(BatteryPath);
+    const Adversarial = Battery.scenarios.find((/** @type {any} */ ArgS) => ArgS.id === 'S-17');
+    const Before = JSON.stringify(Adversarial.recordedResponse);
+
+    await RunAllAsync(Battery.scenarios);
+
+    expect(JSON.stringify(Adversarial.recordedResponse)).toBe(Before);
+    expect(Adversarial.recordedResponse.candidates[0].assigneeID).toBe('U_GHOST');
   });
 });
 

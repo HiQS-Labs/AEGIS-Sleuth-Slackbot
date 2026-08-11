@@ -1,7 +1,13 @@
 ---
 title: "Reminder extraction battery corpus — before/after scenarios for GH-43"
-status: Proposed (1-INBOX — not yet active)
+status: COMPLETE
 created: 2026-08-10
+updated: 2026-08-10
+owner: noel
+goal: >
+  The scenario set GH-43 is measured against; the executable copy lives at
+  tests/fixtures/decision-scenarios/reminder-extraction-battery.json.
+roadmap_exempt: true
 doc_type: reference
 gh_issue: 43
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/43
@@ -15,22 +21,47 @@ is a Slack message (or short thread) with a stated expected outcome on three axe
 (schedule/ignore), **owner** (who the reminder is assigned to), and **task text** (what the bullet
 should say).
 
+## Status
+
+| What was just completed | What's next |
+| --- | --- |
+| Grown 15 → 20 scenarios during GH-43 execution; every baseline captured, no row still `TBD`. The battery reports **20 PASS** against the shipped fixes and goes red under perturbation of any single mechanism. | Add the counter-example the ratio ceiling still lacks (a long message that should stay verbatim) if prod telemetry produces one — see GH-43's open items. |
+
 ## Status of this file
 
-**This is a specification, not yet an executable fixture.** Nothing parses it today. Phase 0 Q5 of
-the plan decides whether the harness reads this file directly or generates a fixture from it — and
-if a fixture, this doc becomes a pointer to it rather than a second copy of the data.
+**Resolved 2026-08-10 (GH-44 Phase 6).** Phase 0 Q5 is answered: the harness reads a machine copy at
+`tests/fixtures/decision-scenarios/reminder-extraction-battery.json`, and **that file is now the
+source of truth** for scenario text, recorded responses, and expectations. This doc is the readable
+companion — the rationale for why each scenario exists — and must not be edited as if it were the
+data. Run the battery with `npm run decision:replay`.
+
+**Grown 15 → 20 during GH-43 execution (1.4.273).** The five additions are described here but their
+data lives only in the JSON. Each exists because a mechanism was otherwise **unfalsifiable** — the
+battery could not tell whether it worked:
+
+| Scenario | Why it was added |
+|---|---|
+| `S-16` | A long unpunctuated note with **no quoted span**, so the buried-task ratio is unusable by design and the newline sentence rule is the only thing that can route it. Without this, disabling the newline rule failed nothing and it looked like dead code. |
+| `S-17` | **Adversarial**, thread path: the recorded response assigns to a user who is not an author and is not mentioned anywhere. |
+| `S-18` | **Adversarial**, single-message path: `owner_mentions` names a user absent from the message, which the intersection must narrow away. |
+| `S-19` | Grammatically **ambiguous** — an address block with no first- or second-person marker. The deterministic rules cannot reach it; only the analyzer's `owner` verdict can. |
+| `S-20` | **Adversarial** grounding: the synthesized title and context name a system and a figure the author never wrote. |
+
+The baseline is no longer `TBD` anywhere — every row is captured in
+`tests/fixtures/decision-scenarios/baseline.json`.
 
 ## How to read the baseline column
 
-`Baseline` is what the **current** pipeline does, captured from unmodified `development` HEAD by the
-Phase 0 harness. It is deliberately **`TBD — Phase 0`** everywhere except `S-01`, which was observed
-in production (the screenshot that opened GH-43).
+`Baseline` was what the pipeline did **before GH-43's fixes**, captured from unmodified `development`
+HEAD rather than reasoned out. Baselines are **captured, never hand-authored**: filling one in by
+reading the source would make the whole before/after comparison circular — the harness would be
+validated against the same reasoning it is supposed to check.
 
-Baselines are **captured, never hand-authored.** Filling one in by reading the source would make the
-whole before/after comparison circular — the harness would be validated against the same reasoning
-it is supposed to check. If a captured baseline surprises you, that is a finding worth recording,
-not an error to correct.
+> **The `TBD — Phase 0` markers in the per-scenario tables below are historical.** They were never
+> filled in by hand, on purpose. The captured values live in
+> `tests/fixtures/decision-scenarios/baseline.json`, which is regenerated with
+> `npm run decision:replay --update-baseline` and is the only place to read a real before/after.
+> Treat the `Expected after` column here as the intent and the JSON as the measurement.
 
 ## Placeholders
 
@@ -49,9 +80,12 @@ not an error to correct.
 | Synthesis gate | S-07 … S-11 | Defect 1; S-08/S-09/S-11 are regression guards |
 | Task/context split | S-12, S-13 | Defect 2; S-13 is a regression guard |
 | Negative controls | S-14, S-15 | the fixes must not manufacture work |
+| Falsifiability (added during GH-43) | S-16 … S-20 | a mechanism that cannot be shown to fail — see the five-row table above |
 
-Six of the fifteen are **regression guards** — cases that already behave correctly today. A change
-that fixes S-01 while breaking S-06 is not a fix.
+Six of the original fifteen are **regression guards** — cases that already behaved correctly. A change
+that fixes S-01 while breaking S-06 is not a fix. The five added later are the mirror image: cases
+that must go RED when a shipped guard is disabled, so a guard that silently stops working cannot pass
+as green.
 
 ---
 

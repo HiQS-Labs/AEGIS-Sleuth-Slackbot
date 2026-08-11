@@ -2,23 +2,31 @@
   "S-01": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      "the scan only ever saw a small fixed batch of photos"
+    ],
     "displayedTasks": [
-      "<@U_ALPHA> <@U_BETA> root cause: The weekly photo-request system could only ever see a small, fixed batch of photos, and once it emailed about a plant once it never checked it again. Over time that batch got fully used up, so the system had nothing left to send. We fixed it so the scan now covers all photos, and plants can be re-requested after enough time has passed. Emails will resume for every yard after the next deployment i am going to deploy the changes tomorrow morning"
+      "deploy the changes"
     ],
     "ownership": {
       "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [
         "U_ALPHA",
         "U_BETA"
       ],
-      "resolvedFrom": "mentions",
-      "senderIsAssignee": false
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.07,
-      "segment": "normal",
-      "sentenceCount": 3,
-      "synthesisOn": false
+      "messageLength": 480,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
+      "sentenceCount": 5,
+      "synthesisOn": true
     },
     "triggers": [
       "tomorrow morning"
@@ -39,6 +47,9 @@
   "S-03": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "I'll deploy the changes tomorrow morning."
     ],
@@ -46,12 +57,15 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.56,
+      "messageLength": 41,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
@@ -82,19 +96,27 @@
   "S-05": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "<@U_ALPHA> found the root cause in the cron job. I'll patch it tomorrow morning."
     ],
     "ownership": {
       "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [
         "U_ALPHA"
       ],
-      "resolvedFrom": "mentions",
-      "senderIsAssignee": false
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.16,
+      "messageLength": 80,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 2,
       "synthesisOn": false
@@ -106,6 +128,9 @@
   "S-06": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "<@U_ALPHA> <@U_BETA> can you both test the new release tomorrow morning?"
     ],
@@ -114,12 +139,15 @@
         "U_ALPHA",
         "U_BETA"
       ],
-      "resolvedFrom": "mentions",
+      "notify": [],
+      "resolvedFrom": "second-person-ask",
       "senderIsAssignee": false
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.46,
+      "messageLength": 72,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
@@ -131,22 +159,28 @@
   "S-07": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
-      "quick update on the billing sync we spent most of the week tracing why invoices were duplicating turns out the retry handler was not idempotent so a timeout would replay the whole batch we have a patch in review now i'll ship it tomorrow morning"
+      "Ship the billing-sync retry patch"
     ],
     "ownership": {
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.05,
-      "segment": "normal",
-      "sentenceCount": 1,
-      "synthesisOn": false
+      "messageLength": 245,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
+      "sentenceCount": 2,
+      "synthesisOn": true
     },
     "triggers": [
       "tomorrow morning"
@@ -155,6 +189,9 @@
   "S-08": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Deploy the hotfix tomorrow morning."
     ],
@@ -162,12 +199,15 @@
       "assignees": [
         "U_SENDER"
       ],
+      "notify": [],
       "resolvedFrom": "sender-fallback",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.49,
+      "messageLength": 35,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
@@ -179,6 +219,9 @@
   "S-09": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Merge and deploy the connection-pool leak fix"
     ],
@@ -186,12 +229,15 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.13,
+      "messageLength": 202,
+      "routedBy": "buried_task_ratio",
       "segment": "long",
       "sentenceCount": 5,
       "synthesisOn": true
@@ -203,17 +249,21 @@
   "S-10": {
     "candidateCount": 0,
     "decision": "reminder-analysis",
+    "displayedContext": [],
     "displayedTasks": [],
     "ownership": {
       "assignees": [
         "U_SENDER"
       ],
+      "notify": [],
       "resolvedFrom": "sender-fallback",
       "senderIsAssignee": true
     },
     "recommendation": "ignore",
     "routing": {
       "actionableSpanRatio": 0,
+      "messageLength": 206,
+      "routedBy": "sentence_count",
       "segment": "long",
       "sentenceCount": 5,
       "synthesisOn": true
@@ -223,6 +273,9 @@
   "S-11": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "I need to work on \"On-going Project: Yard Photo Backfill\" tomorrow morning."
     ],
@@ -230,12 +283,15 @@
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.76,
+      "messageLength": 75,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
@@ -247,22 +303,28 @@
   "S-12": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      "the nightly export was writing to the old bucket after the migration"
+    ],
     "displayedTasks": [
-      "Found it — the nightly export was writing to the old bucket after the migration, so nothing downstream saw the new files. Fix is a one-line config change. I'll roll it out tomorrow morning."
+      "Roll out the export bucket config fix"
     ],
     "ownership": {
       "assignees": [
         "U_SENDER"
       ],
-      "resolvedFrom": "sender-fallback",
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.08,
-      "segment": "normal",
+      "messageLength": 189,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
       "sentenceCount": 3,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "triggers": [
       "tomorrow morning"
@@ -271,6 +333,9 @@
   "S-13": {
     "candidateCount": 1,
     "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
     "displayedTasks": [
       "Can you please review the Development branch and if it's safe push to Production this morning?"
     ],
@@ -278,12 +343,15 @@
       "assignees": [
         "U_SENDER"
       ],
+      "notify": [],
       "resolvedFrom": "sender-fallback",
       "senderIsAssignee": true
     },
     "recommendation": "schedule",
     "routing": {
       "actionableSpanRatio": 0.69,
+      "messageLength": 94,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
@@ -295,18 +363,22 @@
   "S-14": {
     "candidateCount": 0,
     "decision": "reminder-analysis",
+    "displayedContext": [],
     "displayedTasks": [],
     "ownership": {
       "assignees": [
         "U_ALPHA",
         "U_BETA"
       ],
+      "notify": [],
       "resolvedFrom": "mentions",
       "senderIsAssignee": false
     },
     "recommendation": "ignore",
     "routing": {
       "actionableSpanRatio": 0,
+      "messageLength": 68,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
@@ -316,21 +388,250 @@
   "S-15": {
     "candidateCount": 0,
     "decision": "reminder-analysis",
+    "displayedContext": [],
     "displayedTasks": [],
     "ownership": {
       "assignees": [
         "U_ALPHA"
       ],
+      "notify": [],
       "resolvedFrom": "mentions",
       "senderIsAssignee": false
     },
     "recommendation": "ignore",
     "routing": {
       "actionableSpanRatio": 0,
+      "messageLength": 60,
+      "routedBy": "sentence_count",
       "segment": "normal",
       "sentenceCount": 1,
       "synthesisOn": false
     },
     "triggers": []
+  },
+  "S-16": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "Push the warehouse-sync connector config change"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [],
+      "resolvedFrom": "sender-fallback",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0,
+      "messageLength": 270,
+      "routedBy": "sentence_count",
+      "segment": "long",
+      "sentenceCount": 5,
+      "synthesisOn": true
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-17": {
+    "candidates": [
+      {
+        "assigneeID": null,
+        "confidence": "high",
+        "deadline": "tomorrow morning",
+        "flag": null,
+        "title": "rotate the staging certs"
+      }
+    ],
+    "decision": "multi-task-extraction"
+  },
+  "S-18": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "<@U_ALPHA> the staging cert rotation is tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "notify": [],
+      "resolvedFrom": "analyzer-mentioned",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.45,
+      "messageLength": 56,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-19": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [
+        "U_ALPHA",
+        "U_BETA"
+      ],
+      "resolvedFrom": "analyzer-speaker",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.47,
+      "messageLength": 72,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-20": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "i will push that fix"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.07,
+      "messageLength": 268,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
+      "sentenceCount": 3,
+      "synthesisOn": true
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-21": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "<@U_BOT> <@U_ALPHA> can you rotate the staging certs tomorrow morning?"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "notify": [],
+      "resolvedFrom": "second-person-ask",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.46,
+      "messageLength": 70,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-22": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "I asked <@U_ALPHA> to rotate the staging certs tomorrow morning"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_ALPHA"
+      ],
+      "notify": [],
+      "resolvedFrom": "analyzer-mentioned",
+      "senderIsAssignee": false
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.73,
+      "messageLength": 63,
+      "routedBy": "sentence_count",
+      "segment": "normal",
+      "sentenceCount": 1,
+      "synthesisOn": false
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
+  },
+  "S-23": {
+    "candidateCount": 1,
+    "decision": "reminder-analysis",
+    "displayedContext": [
+      ""
+    ],
+    "displayedTasks": [
+      "i will push the config fix"
+    ],
+    "ownership": {
+      "assignees": [
+        "U_SENDER"
+      ],
+      "notify": [],
+      "resolvedFrom": "first-person-commitment",
+      "senderIsAssignee": true
+    },
+    "recommendation": "schedule",
+    "routing": {
+      "actionableSpanRatio": 0.14,
+      "messageLength": 181,
+      "routedBy": "buried_task_ratio",
+      "segment": "long",
+      "sentenceCount": 2,
+      "synthesisOn": true
+    },
+    "triggers": [
+      "tomorrow morning"
+    ]
   }
 }

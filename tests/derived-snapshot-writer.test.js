@@ -219,3 +219,90 @@ test('WriteSnapshotAndCompactAsync REFUSES an authoritative seed', async (t) => 
     'the contradiction must be rejected loudly'
   );
 });
+
+// GH-43 Phase 3 — NotifyIDs must survive compaction, and must not be invented for records that
+// never had it. Compaction is irreversible and the emitted BaselineReminderImported becomes the only
+// surviving record, so a dropped key here loses the field permanently. It also breaks parity in both
+// directions, because the projection compares key PRESENCE, not just value.
+//
+// Red before the fix: BuildCompactedEvents emitted no `notifyIds` at all, so the first assertion
+// below failed and a folded reminder silently lost its notify list.
+test('compaction carries NotifyIDs, and only for reminders that actually have them', async () => {
+  const Root = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-notify-'));
+  const BaseReminder = {
+    ReminderID: 'rem-1', CreatedOn: new Date('2026-08-01T12:00:00.000Z'),
+    ShouldPostOn: new Date('2026-08-02T12:00:00.000Z'),
+    TargetChannelID: 'C_TARGET', OriginalChannelID: 'C_SOURCE', OriginalChannelName: 'engineering',
+    OriginalMessageID: '123.456', OriginalThreadTs: '123.000', OriginalSenderID: 'U_SENDER',
+    ReminderMessageText: 'Ship it', IgnoreSnooze: false,
+    AssigneeID: 'U_SENDER', AssigneeIDs: ['U_SENDER'],
+    State: 'scheduled', GitHubUrls: [], clientId: 'acme', projectId: 'ledger',
+    GitHubRelayStarted: false, GitHubRelayStopped: false,
+  };
+
+  const Compacted = BuildCompactedEvents({
+    workspace: 'snapshot-test',
+    events: [],
+    folded: { reminders: [], completed: [] },
+    authoritative: {
+      // one post-Phase-3 reminder with addressees, one legacy record with no such key at all
+      reminders: [
+        { ...BaseReminder, NotifyIDs: ['U_ALPHA', 'U_BETA'] },
+        { ...BaseReminder, ReminderID: 'rem-2' },
+      ],
+      completed: [],
+    },
+  });
+
+  const ById = Object.fromEntries(Compacted
+    .filter(ArgEvent => ArgEvent.type === 'BaselineReminderImported')
+    .map(ArgEvent => [ArgEvent.reminderId, ArgEvent.payload]));
+
+  assert.deepEqual(ById['rem-1'].notifyIds, ['U_ALPHA', 'U_BETA'],
+    'a reminder with addressees must carry them through the only surviving event');
+  assert.equal(Object.prototype.hasOwnProperty.call(ById['rem-2'], 'notifyIds'), false,
+    'a pre-Phase-3 record must NOT gain the key — absent has to stay absent on both sides of parity');
+
+  // and the fold round-trips both without changing key presence.
+  const Folded = FoldReminderReadModels(Compacted);
+  const FoldedById = Object.fromEntries((Folded.reminders || []).map(ArgR => [ArgR.ReminderID, ArgR]));
+  assert.deepEqual(FoldedById['rem-1'].NotifyIDs, ['U_ALPHA', 'U_BETA']);
+  assert.equal(Object.prototype.hasOwnProperty.call(FoldedById['rem-2'], 'NotifyIDs'), false);
+
+  await fs.rm(Root, { recursive: true, force: true });
+});
+
+// Codex branch relay r2 [Should]: the WhenRecorded key-presence contract held only for the FIRST
+// creation-shaped event. ApplyCreationEnrichment fills strings, assignee arrays, GitHub URLs and
+// booleans, and never applied a recorded notifyIds — so a ReminderCreated followed by a same-id
+// BaselineReminderImported carrying the field silently dropped it. Import/enrichment is exactly the
+// shape production streams have.
+test('a later enrichment event fills NotifyIDs, and absence still stays absence', () => {
+  const Payload = {
+    text: 't', assigneeId: 'U_S', assigneeIds: ['U_S'], sourceChannelId: 'C', targetChannelId: 'C',
+    dueAt: '2030-01-01T00:00:00.000Z', state: 'scheduled', githubUrls: [], clientId: null,
+    createdOn: '2026-08-10T00:00:00.000Z', originalSenderId: 'U_S', originalMessageId: '1.0',
+    originalThreadTs: null, originalChannelName: null, ignoreSnooze: false,
+    gitHubRelayStarted: false, gitHubRelayStopped: false,
+  };
+  /**
+   * @param {string} ArgId
+   * @param {object} [ArgExtra]
+   * @returns {any[]}
+   */
+  const Stream = (ArgId, ArgExtra) => ([
+    { v: 2, type: 'ReminderCreated', reminderId: ArgId, ts: '2026-08-10T00:00:00.000Z', payload: { ...Payload } },
+    {
+      v: 2, type: 'BaselineReminderImported', reminderId: ArgId, ts: '2026-08-10T01:00:00.000Z',
+      payload: { ...Payload, ...(ArgExtra || {}) },
+    },
+  ]);
+
+  const Enriched = FoldReminderReadModels(Stream('rem-enriched', { notifyIds: ['U_ALPHA'] })).reminders[0];
+  assert.deepEqual(Enriched.NotifyIDs, ['U_ALPHA'],
+    'an enrichment event that records the key must fill it in');
+
+  const Untouched = FoldReminderReadModels(Stream('rem-plain')).reminders[0];
+  assert.equal(Object.prototype.hasOwnProperty.call(Untouched, 'NotifyIDs'), false,
+    'a stream that never records the key must not gain it — parity compares key presence');
+});

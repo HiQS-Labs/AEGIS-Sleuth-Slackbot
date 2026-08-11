@@ -23,6 +23,7 @@ const DEFAULT_COMPACTION_EVENT_COUNT = 100;
  * @property {string} ReminderMessageText
  * @property {string|null} AssigneeID
  * @property {string[]} [AssigneeIDs]
+ * @property {string[]} [NotifyIDs]
  * @property {string|null} OriginalChannelID
  * @property {string|null} TargetChannelID
  * @property {string} State
@@ -175,6 +176,13 @@ function BuildCompactedEvents(ArgOptions) {
         text: typeof Reminder.ReminderMessageText === 'string' ? Reminder.ReminderMessageText : '',
         assigneeId: Reminder.AssigneeID || null,
         assigneeIds: Array.isArray(Reminder.AssigneeIDs) ? Reminder.AssigneeIDs : [],
+        // GH-43 Phase 3. Carried CONDITIONALLY, and both halves of that matter. Compaction makes
+        // this event the only surviving record, so dropping the key would lose NotifyIDs permanently
+        // for every reminder that has one — and because parity compares key PRESENCE, the folded
+        // reminder would then differ from the authoritative JSON. Emitting `[]` unconditionally is
+        // equally wrong in the other direction: it would add the key to every pre-Phase-3 reminder
+        // whose JSON record does not have it. Absent stays absent.
+        ...(Array.isArray(Reminder.NotifyIDs) ? { notifyIds: Reminder.NotifyIDs } : {}),
         sourceChannelId: Reminder.OriginalChannelID || Reminder.TargetChannelID || null,
         targetChannelId: Reminder.TargetChannelID || null,
         dueAt: ShouldPostOn,

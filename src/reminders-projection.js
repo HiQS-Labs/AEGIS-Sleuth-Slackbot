@@ -19,6 +19,7 @@
  * @property {boolean} [IgnoreSnooze]
  * @property {string|null} [AssigneeID]
  * @property {string[]} [AssigneeIDs]
+ * @property {string[]} [NotifyIDs]
  * @property {string|null} [OriginalSenderID]
  * @property {string|null} [TargetChannelID]
  * @property {string|null} [OriginalChannelID]
@@ -325,6 +326,15 @@ function ApplyCreationEnrichment(ArgReminder, ArgPayload) {
   if((!ArgReminder.GitHubUrls || ArgReminder.GitHubUrls.length === 0) && Has('githubUrls')) {
     ArgReminder.GitHubUrls = GetStrings(Payload.githubUrls);
   }
+  // GH-43 Phase 3. Presence-preserving on BOTH halves, which is the whole contract: a later
+  // enrichment event that records the key fills it in, and one that does not record it leaves the
+  // reminder without the key rather than inventing an empty array. Omitting this made the
+  // WhenRecorded guarantee hold only for the FIRST creation-shaped event — a `ReminderCreated`
+  // followed by a same-id `BaselineReminderImported` carrying notifyIds silently dropped it, and
+  // import/enrichment is exactly the shape production streams have. (Codex, branch relay round 2.)
+  if(!Object.prototype.hasOwnProperty.call(ArgReminder, 'NotifyIDs') && Has('notifyIds')) {
+    ArgReminder.NotifyIDs = GetStrings(Payload.notifyIds);
+  }
   if(Has('ignoreSnooze')) ArgReminder.IgnoreSnooze = Boolean(Payload.ignoreSnooze);
   if(Has('gitHubRelayStarted')) ArgReminder.GitHubRelayStarted = Boolean(Payload.gitHubRelayStarted);
   if(Has('gitHubRelayStopped')) ArgReminder.GitHubRelayStopped = Boolean(Payload.gitHubRelayStopped);
@@ -376,6 +386,10 @@ function MakeReminder(ArgReminderId, ArgEvent) {
     IgnoreSnooze: Boolean(Payload.ignoreSnooze),
     AssigneeID: GetStringOrNull(Payload.assigneeId),
     AssigneeIDs: GetStrings(Payload.assigneeIds),
+    // GH-43 Phase 3. Rehydrated only when the event actually recorded it: emitting `NotifyIDs: []`
+    // for every pre-Phase-3 stream would add a key the authoritative JSON does not have and fail
+    // parity on historical reminders. `WhenRecorded` keeps absent meaning absent.
+    ...WhenRecorded(Payload, 'notifyIds', 'NotifyIDs', GetStrings),
     GitHubUrls: GetStrings(Payload.githubUrls),
     // Rehydrated, not merely validated. The strict check above requires these on a relay-capable
     // stream; projecting them is the other half — a gate that admits a field the fold then drops

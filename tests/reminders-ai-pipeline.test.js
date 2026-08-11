@@ -207,6 +207,43 @@ describe('RemindersAIPipeline', () => {
         expect(RemindersAIPipeline.CountSentences('')).toBe(0);
         expect(RemindersAIPipeline.CountSentences('   ')).toBe(0);
       });
+
+      // GH-43 Phase 2. Red before this phase: every case below returned 1.
+      it('treats a hard newline as a thought boundary even with no terminal punctuation', () => {
+        expect(RemindersAIPipeline.CountSentences('first line\nsecond line')).toBe(2);
+        expect(RemindersAIPipeline.CountSentences('a\nb\nc\nd')).toBe(4);
+        // blank lines are separators, not thoughts
+        expect(RemindersAIPipeline.CountSentences('first\n\n\nsecond')).toBe(2);
+        expect(RemindersAIPipeline.CountSentences('only one line\n')).toBe(1);
+      });
+
+      it('counts trailing unpunctuated text on a line as one more thought', () => {
+        // "…passed." is one; the unpunctuated clause after it is a second.
+        expect(RemindersAIPipeline.CountSentences('Enough time has passed. Emails resume after deploy')).toBe(2);
+        // a line that ends punctuated is not double counted
+        expect(RemindersAIPipeline.CountSentences('Enough time has passed. Emails resume.')).toBe(2);
+        // closing quotes/brackets after the terminal mark still count as punctuated
+        expect(RemindersAIPipeline.CountSentences('She said "ship it."')).toBe(1);
+      });
+
+      it('THE REPORTED MESSAGE counts 5, not the 3 that routed it to Normal and left it verbatim', () => {
+        const Reported = [
+          '<@U_A> <@U_B> root cause: the scan only ever saw a small fixed batch of photos.',
+          'Over time that batch got used up, so the system had nothing left to send.',
+          'We fixed it so the scan now covers all photos. Emails will resume after the next deployment',
+          'i am going to deploy the changes tomorrow morning',
+        ].join('\n');
+
+        // the shipped rule counted only [.!?] followed by whitespace/end — three marks, so 3.
+        const PunctuationOnlyCount = (Reported.match(/[.!?]+(?=\s|$)/g) || []).length;
+        expect(PunctuationOnlyCount).toBe(3);
+        expect(PunctuationOnlyCount).toBeLessThan(RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD);
+
+        expect(RemindersAIPipeline.CountSentences(Reported)).toBe(5);
+        expect(RemindersAIPipeline.CountSentences(Reported)).toBeGreaterThanOrEqual(
+          RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD
+        );
+      });
     });
 
     describe('IsTaskSynthesisEnabledForText', () => {
@@ -230,6 +267,19 @@ describe('RemindersAIPipeline', () => {
     });
 
     describe('DescribeSynthesisRouting', () => {
+      /**
+       * A message of a given length whose only actionable span is short — the "buried task" shape.
+       * Deliberately ONE sentence, so the sentence-count rule cannot route it and the ratio gate is
+       * the only thing under test.
+       * @param {number} ArgLength Target character length.
+       * @returns {string}
+       */
+      function MakeBuriedTaskNote(ArgLength) {
+        const Filler = 'context about the incident and what we already ruled out, ';
+        return `${Filler.repeat(Math.ceil(ArgLength / Filler.length))}`.slice(0, ArgLength - 20)
+          + ' and i will ship it';
+      }
+
       it('reports segment, decision, length, and actionable-span ratio without raw text', () => {
         const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
           'Heads up team. Lots of context here. More background. Please fix the login bug.',
@@ -241,6 +291,91 @@ describe('RemindersAIPipeline', () => {
         expect(Routing.messageLength).toBeGreaterThan(0);
         expect(Routing.actionableSpanRatio).toBeGreaterThan(0);
         expect(Routing.actionableSpanRatio).toBeLessThanOrEqual(1);
+        expect(Routing.routedBy).toBe('sentence_count');
+      });
+
+      // GH-43 Phase 2 — the buried-task ratio gate. Red before this phase: `routedBy` did not exist
+      // and every one of these single-sentence notes routed to Normal (verbatim).
+      it('routes a LONG message with a SMALL actionable span to Long, on the ratio alone', () => {
+        const Note = MakeBuriedTaskNote(300);
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+          Note, [{ actionable_language: 'i will ship it' }]
+        );
+        expect(Routing.sentenceCount).toBe(1); // the sentence rule cannot be what routed this
+        expect(Routing.actionableSpanRatio).toBeLessThanOrEqual(
+          RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO
+        );
+        expect(Routing.routedBy).toBe('buried_task_ratio');
+        expect(Routing.segment).toBe('long');
+        expect(Routing.synthesisOn).toBe(true);
+      });
+
+      it('a SHORT message with the same low ratio stays Normal — length is load bearing', () => {
+        // this is scenario S-05: ratio 0.16, but only 80 chars. A short message with a short task is
+        // not a buried task, it is just a short message.
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+          '<@U_A> found the root cause of the queue stall, nice work. I will patch it', [{ actionable_language: "I'll patch it" }]
+        );
+        expect(Routing.messageLength).toBeLessThan(RemindersAIPipeline.BURIED_TASK_MIN_LENGTH);
+        expect(Routing.routedBy).toBe('sentence_count');
+        expect(Routing.segment).toBe('normal');
+        expect(Routing.synthesisOn).toBe(false);
+      });
+
+      it('a long message that IS mostly its own task stays verbatim — the ratio ceiling holds', () => {
+        const MostlyTask = `i need to ${'walk through the migration checklist with the team and '.repeat(4)}before friday`;
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+          MostlyTask, [{ actionable_language: MostlyTask }]
+        );
+        expect(Routing.messageLength).toBeGreaterThanOrEqual(RemindersAIPipeline.BURIED_TASK_MIN_LENGTH);
+        expect(Routing.actionableSpanRatio).toBeGreaterThan(
+          RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO
+        );
+        expect(Routing.routedBy).toBe('sentence_count');
+        expect(Routing.synthesisOn).toBe(false);
+      });
+
+      it('a SYNTHETIC span (force-schedule) is reported but never routed on', () => {
+        const Note = MakeBuriedTaskNote(300);
+        // force-schedule sets actionable_language to the WHOLE message, pinning the ratio at 1.0.
+        const Forced = RemindersAIPipeline.DescribeSynthesisRouting(
+          Note, [{ actionable_language: Note }], { SyntheticActionableSpan: true }
+        );
+        expect(Forced.actionableSpanRatio).toBe(1);
+        expect(Forced.spanRatioUsable).toBe(false);
+        expect(Forced.routedBy).toBe('sentence_count');
+      });
+
+      it('no quoted span at all means no buried-task claim — a 0 ratio is absence of evidence', () => {
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(MakeBuriedTaskNote(300), []);
+        expect(Routing.actionableSpanRatio).toBe(0);
+        expect(Routing.spanRatioUsable).toBe(false);
+        expect(Routing.routedBy).toBe('sentence_count');
+        expect(Routing.segment).toBe('normal');
+      });
+
+      it('the legacy master flag still overrides the ratio gate, and says so', () => {
+        process.env.REMINDER_TEXT_SYNTHESIS = 'off';
+        const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+          MakeBuriedTaskNote(300), [{ actionable_language: 'i will ship it' }]
+        );
+        expect(Routing.routedBy).toBe('master_override');
+        expect(Routing.synthesisOn).toBe(false);
+      });
+
+      it('IsTaskSynthesisEnabledForText and DescribeSynthesisRouting cannot disagree', () => {
+        // Phase 2 inverted the dependency so there is exactly one computation. Before, the predicate
+        // was the decision and the facts were computed separately from a different input.
+        const Cases = [
+          ['Ship it today.', []],
+          ['One. Two. Three. Four.', []],
+          [MakeBuriedTaskNote(300), [{ actionable_language: 'i will ship it' }]],
+          ['a\nb\nc\nd', [{ actionable_language: 'a' }]],
+        ];
+        for(const [Text, Reminders] of Cases) {
+          expect(RemindersAIPipeline.IsTaskSynthesisEnabledForText(Text, /** @type {any} */ (Reminders)))
+            .toBe(RemindersAIPipeline.DescribeSynthesisRouting(Text, /** @type {any} */ (Reminders)).synthesisOn);
+        }
       });
     });
 

@@ -29,6 +29,11 @@ const path = require('path');
 const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
 const { ResetAssetCache } = require('../src/ai-decision');
 const DecisionExplain = require('../src/decision-explain');
+const ReminderOwnership = require('../src/reminder-ownership');
+// NOTE: this file deliberately does NOT import task-grounding directly. Calling it here is what let
+// the harness hold its own copy of the display rule and report a bullet production would not render.
+// Everything display-related goes through reminder-display-selection, which production also calls.
+const ReminderDisplaySelection = require('../src/reminder-display-selection');
 
 const DefaultScenariosPath = path.join(
   __dirname, '..', 'tests', 'fixtures', 'decision-scenarios', 'reminder-extraction-battery.json',
@@ -115,6 +120,14 @@ function PrintUsage() {
 /**
  * A WorkspaceAI double that replays one recorded response. Fails loudly if the pipeline tries to
  * make a call the scenario did not record, so a silent live-model fallback can never happen.
+ *
+ * **The response is deep-cloned on every call, and that is load bearing.** The pipeline legitimately
+ * mutates what a model hands back — `ExtractMultiTaskCandidatesAsync` overwrites `assigneeID` in
+ * place when the intersection guard rejects it. Handing out the fixture object by reference meant the
+ * FIRST replay rewrote the scenario's own `recordedResponse` inside the require cache, so a second
+ * run in the same process replayed a response the fixture file never contained. That silently
+ * defeated the adversarial scenarios: run once, `U_GHOST` was scrubbed from the fixture, and a
+ * deliberately broken guard then had nothing left to leak.
  * @param {any} ArgRecorded
  * @returns {any}
  */
@@ -129,13 +142,25 @@ function MakeReplayWorkspaceAI(ArgRecorded) {
         // date extraction et al. are not part of this comparison; only the first decision is.
         throw new Error('decision-replay: unexpected second model call in a replayed scenario');
       }
-      return ArgRecorded;
+      return ArgRecorded === undefined ? ArgRecorded : JSON.parse(JSON.stringify(ArgRecorded));
     },
   };
 }
 
 /** Minimal SlackApp stand-in: the pipeline only reaches for a logger on this path. */
-const SilentSlackApp = { Logger: { info() {}, warn() {}, error() {} } };
+/**
+ * The bot's own user ID in replay. Production always passes `this.#SlackApp.BotUserID` into the
+ * mention extractor so Sleuth can never be assigned its own reminder; a harness with no bot ID
+ * silently drops that filter and would report the bot as an assignee for a message that @-mentions
+ * it. Found by Codex in the branch relay — the fourth harness-vs-production divergence on this
+ * branch. Scenarios use this literal to exercise the exclusion (see `S-21`).
+ */
+const REPLAY_BOT_USER_ID = 'U_BOT';
+
+const SilentSlackApp = {
+  Logger: { info() {}, warn() {}, error() {} },
+  BotUserID: REPLAY_BOT_USER_ID,
+};
 
 /**
  * Run one scenario and return its observed outcome. Never throws — a scenario that blows up is a
@@ -182,22 +207,46 @@ async function RunScenarioAsync(ArgScenario) {
     // harness never silently drops turns (the thread path above is the right home for those).
     const MessageText = ArgScenario.turns.map((/** @type {any} */ ArgTurn) => ArgTurn.text).join('\n');
     const Analysis = await Pipeline.AnalyzeMessageForRemindersAsync(MessageText);
-    const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
-      RemindersAIPipeline.NormalizeOriginalReminderText(MessageText), Analysis.reminders,
-    );
+    // GH-43 Phase 2: routing takes the RAW joined text — newlines intact — exactly as the pipeline
+    // does. Normalizing first collapses the line breaks the sentence counter depends on, which would
+    // make the harness measure a decision production never makes.
+    const Routing = RemindersAIPipeline.DescribeSynthesisRouting(MessageText, Analysis.reminders);
 
-    // ownership as the write path resolves it today: mentions win, sender only as fallback.
-    // Read through the SHARED rule so this measures real behavior, not a re-implementation.
+    // Ownership read through the SHARED resolver the write path uses, so this measures real
+    // behavior rather than a re-implementation that could drift from it.
     const SenderID = ArgScenario.sender || 'U_SENDER';
-    const MentionedIDs = DecisionExplain.ExtractMentionIDs(MessageText);
-    const AssigneeIDs = MentionedIDs.length > 0 ? MentionedIDs : [SenderID];
+    // the bot ID is load bearing: production supplies it (reminders-module.js
+    // #ExtractAssigneeIDsFromReminderText -> DecisionExplain.ExtractMentionIDs) so Sleuth can never
+    // be assigned its own reminder. Omitting it here made the harness report an assignee production
+    // is structurally incapable of producing.
+    const MentionedIDs = DecisionExplain.ExtractMentionIDs(MessageText, SilentSlackApp.BotUserID);
+    const GroupActionable = Analysis.reminders
+      .map((/** @type {any} */ ArgR) => ArgR.actionable_language || '').join(' ').trim();
+    // GH-43 Phase 1B: the analyzer's `owner` verdict, collapsed exactly as the write path does it.
+    // Omitting it here would make the harness measure a resolution production no longer performs.
+    const GroupOwner = ReminderOwnership.ReduceGroupOwner(Analysis.reminders);
+    const Ownership = ReminderOwnership.ResolveAssignees({
+      MessageText, ActionableLanguage: GroupActionable, MentionedIDs, SenderID,
+      AnalyzerOwner: GroupOwner.owner, AnalyzerOwnerMentions: GroupOwner.ownerMentions,
+    });
+    const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [SenderID];
 
-    // The displayed bullet, as #SelectReminderTaskText would choose it. This is what makes the
-    // verbatim-dump defect observable to the harness instead of invisible behind the raw candidate.
+    // The displayed bullet and context line, chosen by THE PRODUCTION RULE.
+    //
+    // This used to reimplement the selection logic — including the grounding check — so the battery
+    // could observe what a user would see. agy's branch relay (r1) caught what that cost: the
+    // grounding perturbation test proved only that the *harness's copy* was wired up, and would have
+    // passed just as happily with the production check deleted. Same class of defect as the earlier
+    // fixture-mutation bug in this file: an instrument measuring itself.
+    //
+    // `ReminderDisplaySelection` is now the one rule, called here and by
+    // `RemindersModule#SelectReminderTaskText`. Only Slack mrkdwn normalization and the warn line
+    // stay behind in the module, neither of which changes what text is chosen.
+    const NormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(MessageText);
     const DisplayedTasks = Analysis.reminders.map((/** @type {any} */ ArgR) =>
-      Routing.synthesisOn
-        ? (ArgR.reminder_message || ArgR.actionable_language || '')
-        : RemindersAIPipeline.NormalizeOriginalReminderText(MessageText));
+      ReminderDisplaySelection.SelectTaskText(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
+    const DisplayedContext = Analysis.reminders.map((/** @type {any} */ ArgR) =>
+      ReminderDisplaySelection.SelectContextLine(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
 
     return {
       id: Id,
@@ -207,17 +256,21 @@ async function RunScenarioAsync(ArgScenario) {
         recommendation: Analysis.recommendation,
         candidateCount: Analysis.reminders.length,
         displayedTasks: DisplayedTasks,
+        displayedContext: DisplayedContext,
         triggers: Analysis.reminders.map((/** @type {any} */ ArgR) => ArgR.scheduling_trigger),
         ownership: {
           assignees: AssigneeIDs,
           senderIsAssignee: AssigneeIDs.includes(SenderID),
-          resolvedFrom: MentionedIDs.length > 0 ? 'mentions' : 'sender-fallback',
+          resolvedFrom: Ownership.resolvedBy,
+          notify: Ownership.notifyIDs,
         },
         routing: {
           segment: Routing.segment,
           synthesisOn: Routing.synthesisOn,
           sentenceCount: Routing.sentenceCount,
           actionableSpanRatio: Routing.actionableSpanRatio,
+          routedBy: Routing.routedBy,
+          messageLength: Routing.messageLength,
         },
       },
       error: null,
@@ -262,11 +315,14 @@ function CheckExpectations(ArgScenario, ArgObserved) {
     if(TooLong.length > 0)
       Reasons.push(`task text ${TooLong[0].length} chars > max ${Expected.maxTaskLength}`);
   }
+  // `owner` states WHO ends up owning the reminder, not which internal rule fired. Asserting the
+  // rule label instead would make every refinement of the resolver look like a regression — it did
+  // exactly that when Phase 1A split the old catch-all `mentions` path into `second-person-ask`.
   if(Expected.owner === 'sender' && ArgObserved.ownership && !ArgObserved.ownership.senderIsAssignee)
     Reasons.push(`owner should be the sender, got [${ArgObserved.ownership.assignees.join(', ')}]`);
   if(Expected.owner === 'mentions' && ArgObserved.ownership
-     && ArgObserved.ownership.resolvedFrom !== 'mentions')
-    Reasons.push('owner should come from mentions');
+     && ArgObserved.ownership.senderIsAssignee)
+    Reasons.push(`owner should be the mentioned users, but the sender is assigned [${ArgObserved.ownership.assignees.join(', ')}]`);
   if(Array.isArray(Expected.assignees) && ArgObserved.ownership) {
     const Got = [...ArgObserved.ownership.assignees].sort().join(',');
     const Want = [...Expected.assignees].sort().join(',');
@@ -275,6 +331,44 @@ function CheckExpectations(ArgScenario, ArgObserved) {
   if(typeof Expected.synthesisOn === 'boolean' && ArgObserved.routing
      && ArgObserved.routing.synthesisOn !== Expected.synthesisOn) {
     Reasons.push(`synthesisOn ${ArgObserved.routing.synthesisOn} != ${Expected.synthesisOn}`);
+  }
+
+  // GH-43 Phase 3 — the task/context split and the grounding constraint.
+  const Contexts = ArgObserved.displayedContext || [];
+  for(const Needle of (Expected.contextContains || [])) {
+    if(!Contexts.join(' | ').toLowerCase().includes(String(Needle).toLowerCase()))
+      Reasons.push(`context missing ${JSON.stringify(Needle)}`);
+  }
+  if(Expected.contextEmpty === true && Contexts.some((/** @type {string} */ ArgC) => ArgC))
+    Reasons.push(`expected no context line, got ${JSON.stringify(Contexts.filter(Boolean))}`);
+  // the context must never restate the task — that is the defect this phase exists to fix.
+  if(Expected.contextDistinctFromTask === true) {
+    Contexts.forEach((/** @type {string} */ ArgC, /** @type {number} */ ArgI) => {
+      if(ArgC && ArgC.trim() === (Tasks[ArgI] || '').trim())
+        Reasons.push('context is a verbatim copy of the task');
+    });
+  }
+  for(const Ghost of (Expected.displayNeverIncludes || [])) {
+    if(`${Joined} ${Contexts.join(' | ')}`.toLowerCase().includes(String(Ghost).toLowerCase()))
+      Reasons.push(`UNGROUNDED TERM ${JSON.stringify(Ghost)} reached the display — the grounding constraint did not hold`);
+  }
+
+  // GH-43 Phase 1B — the "never invent users" guarantee, checkable on the thread path.
+  if(Array.isArray(Expected.candidateAssignees) && Array.isArray(ArgObserved.candidates)) {
+    const Got = ArgObserved.candidates.map((/** @type {any} */ ArgC) => ArgC.assigneeID);
+    const Want = Expected.candidateAssignees;
+    if(JSON.stringify(Got) !== JSON.stringify(Want))
+      Reasons.push(`candidate assignees ${JSON.stringify(Got)} != ${JSON.stringify(Want)}`);
+  }
+  // stated separately from the above so an adversarial scenario says WHY it failed: a fabricated id
+  // reaching a persisted reminder is a different bug than an assignee simply being wrong.
+  for(const Ghost of (Expected.assigneesNeverInclude || [])) {
+    const Everywhere = []
+      .concat(ArgObserved.ownership ? ArgObserved.ownership.assignees : [])
+      .concat(ArgObserved.ownership ? ArgObserved.ownership.notify : [])
+      .concat((ArgObserved.candidates || []).map((/** @type {any} */ ArgC) => ArgC.assigneeID));
+    if(Everywhere.includes(Ghost))
+      Reasons.push(`INVENTED USER ${Ghost} reached the reminder — the intersection guard did not hold`);
   }
 
   return Reasons;

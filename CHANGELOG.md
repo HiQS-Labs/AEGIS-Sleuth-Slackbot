@@ -33,6 +33,90 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.274 - 2026-08-10
+That bug I could only *show* you last release is fixed. If you address a message to colleagues and
+then say you'll do something yourself, the reminder is yours now — and they're kept in the loop
+rather than being handed your work. Long notes get a short task instead of your whole message pasted
+into a bullet, with the background on its own line underneath and the original still quoted in full.
+I'm allowed to reword the task now, but only using words you actually wrote: if I reach for a system
+or a number you never mentioned, I throw my version away and quote you instead.
+
+**Technical:** GH-43, all four phases, measured against the GH-44 replay battery rather than asserted.
+The battery went 4 FAIL / 11 PASS on unmodified `development` to 20 PASS.
+
+- **Ownership (Phase 1A)** — `src/reminder-ownership.js`. Ownership now reads the **grammatical
+  subject of the commitment**, not the mention list. First-person → the sender; second-person ask →
+  the mentioned people (GH-22 shared assignment intact); no signal → prior behavior byte-for-byte.
+  Derived from the trigger group's actionable spans, so first-person prose elsewhere in a long note
+  cannot hijack a task that is really an ask of somebody else. `"we"` is excluded as ambiguous.
+- **Analyzer verdict (Phase 1B)** — `owner` / `owner_mentions` added to the reminder schema and
+  prompt, which previously had no ownership rules at all. Consulted **only where grammar is
+  ambiguous**, inverting the plan's original precedence: Phase 1A resolves the common case correctly
+  at zero model cost, so a paid uncertain answer must not override a free correct one.
+  `owner_mentions` is intersected with the mentions actually in the source — the model may narrow the
+  set, never extend it. Reconciling this with `ExtractMultiTaskCandidatesAsync` exposed that its
+  "Never invent users" prompt rule was **never enforced**; both paths now share
+  `ConstrainAssigneeToParticipants`.
+- **Synthesis routing (Phase 2)** — two independent fixes, each proven load bearing by perturbation.
+  `CountSentences` treats a hard newline as a thought boundary (the reported message counted 3 of its
+  5 thoughts, routing it to the verbatim segment). A **buried-task ratio gate** routes a message
+  ≥150 chars whose longest actionable span is ≤0.35 of it to synthesis regardless of sentence count —
+  GH-337 already computed that ratio, named the case in a comment, and then ignored it. Routing now
+  takes the **raw** message text; normalizing first collapses the newlines the counter depends on.
+  `DescribeSynthesisRouting` is the single computation and the predicate delegates to it, so the
+  telemetry line can no longer disagree with the bullet a user sees.
+- **Task/context split + grounding (Phase 3)** — `context` added to the schema, rendered as an
+  indented subordinate line, never fused into the bullet. `src/task-grounding.js` narrows the
+  verbatim guarantee rather than dropping it: `actionable_language` stays byte-exact as the audit
+  span, while the display title may be rewritten only within the source's vocabulary. Zero false
+  positives across all 20 recorded titles. A failing title falls back to the quoted span.
+- **`NotifyIDs` persisted** — addressees who did not take the work, disjoint from `AssigneeIDs` and
+  deliberately non-authoritative. Additive on `ReminderCreated`; the fold rehydrates via
+  `WhenRecorded` and the emit is conditional, so absent stays absent and projection parity holds for
+  both historical reminders and the list-row creation path.
+- **Harness fix** — `scripts/decision-replay.js` handed recorded responses to the pipeline by
+  reference while the pipeline writes back to them, so the first run corrupted the require-cached
+  fixture and later runs replayed a response the file never contained. The existing determinism test
+  could not catch it because the corruption is idempotent. Responses are deep-cloned per call now.
+- Battery grew 15 → 20 scenarios: `S-16` (ratio unusable, newline rule is the only router), `S-17`
+  and `S-18` (adversarial fabricated users, one per ownership path), `S-19` (ambiguous grammar the
+  deterministic rules cannot reach), `S-20` (adversarial ungrounded title).
+- **Branch QA (agy, `Approved` r3/3)** caught two blockers, both the same failure — a harness
+  measuring itself. The "both mechanisms disabled" perturbation was claimed but never tested (and the
+  claim was stale: the real failure set includes `S-16`), and the grounding perturbation was
+  structurally incapable of failing, because `decision-replay.js` reimplemented the display rule
+  rather than calling it. Fixed structurally: the rule now lives in
+  `src/reminder-display-selection.js` and production and the harness share it. That refactor exposed
+  a **third** divergence — production applies an over-compression fallback the harness never did, and
+  it fired on the reported message, so the battery had been reporting a bullet production would not
+  render. Its GH-337 threshold was tightened from `<= 3` to `<= 2` words and now has the test coverage
+  it shipped without.
+- **`NotifyIDs` parity fix** — `BaselineReminderImported` has two producers besides the native
+  creation path (`state-snapshot-writer.js`, `scripts/baseline-import.js`) and both dropped the field.
+  Parity compares the union of keys, so a reminder carrying `NotifyIDs` would fold to one without it
+  and fail; compaction is irreversible, so it would be lost permanently. A third gap —
+  `ApplyCreationEnrichment` never applying a recorded `notifyIds`, so the key-presence contract held
+  only for the *first* creation-shaped event — was found by Codex and fixed the same way.
+- **Second QA pass (Codex), five more concrete bypasses.** An independent review deliberately aimed at
+  what the first reviewer under-covered. It found the grounding substring bypass independently
+  (`"Deploy to PROD"` grounded by the word *reproduce*; `"Deploy Acme"` by *xacmey*) and four more:
+  a **fourth harness-vs-production divergence** (replay reported the bot as an assignee, because it
+  never passed the bot ID production always passes); the `:wrench:` triage feeding the ownership
+  resolver **different inputs than scheduling**, so it could explain a rule the reminder did not
+  follow; a **leading Unicode homoglyph** erasing the evidence entirely, because ASCII-only
+  tokenization deleted the codepoint and `[A-Z]` did not see a Cyrillic capital as a capital; and the
+  first-word exemption applying to **any** first token, so an invented product name rendered simply by
+  being moved to the front.
+- **Ownership is now an actual subject test.** `HasFirstPersonCommitment` matched any first-person
+  token anywhere, which mis-assigned three distinct shapes: a possessive (`"<@alpha> will deploy my
+  report"`), reported speech (`'<@alpha> said "I will deploy the patch"'`), and a delegation
+  (`"I asked <@alpha> to deploy"`). All three assigned the work to the wrong person. Object and
+  possessive forms are gone from the pattern, quoted speech no longer triggers the strong override,
+  and delegation verbs defer to the analyzer. `"I have to deploy it"` deliberately still counts — a
+  missed delegation degrades to the analyzer verdict, a missed commitment reassigns real work.
+- Battery grew again to 23: `S-21` (the bot must never be an assignee), `S-22` (delegation), `S-23`
+  (invented entity at the *start* of a title).
+
 ## 1.4.273 - 2026-08-10
 When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not
 just what I decided, but what drove it — whether I shortened your text or kept it whole and why, and
