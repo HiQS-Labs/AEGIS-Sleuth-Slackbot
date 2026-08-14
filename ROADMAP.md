@@ -32,7 +32,7 @@ goal: >
 ### In progress
 
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
-  goalpost 1.4.280 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
+  goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
   live 2026-08-14 following "@Vishal please make the fast-search GH issue and work on it", and
   assigned to the sender instead of Vishal. Telemetry shows the analyzer behaved correctly on the
@@ -48,7 +48,8 @@ goal: >
   window and does not open until Phase 1's gate is green. →
   [PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md)
 
-- **Span-ratio rounding hides the most deeply buried tasks (GH-51)** — `DescribeSynthesisRouting`
+- **Span-ratio rounding hides the most deeply buried tasks (GH-51)** — **release goalpost 1.4.280
+  ("Grounding")** for the open remainder. `DescribeSynthesisRouting`
   rounded the actionable-span ratio with `toFixed(2)` **before** the buried-task gate read it, so any
   span under 0.5% of the message collapsed to exactly `0` and `SpanRatioUsable` read that as "no span
   was quoted at all". A 35-character commitment quoted from a 7,000-character note — the most deeply

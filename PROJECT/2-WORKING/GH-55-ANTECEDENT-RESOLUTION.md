@@ -9,8 +9,8 @@ branch: gh-55-antecedent-resolution
 doc_type: project
 gh_issue: 55
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/55
-release: 1.4.280 ("Antecedent")
-related: "Not GH-43/GH-51 — those shorten long messages; this adds context to short ones. Consumes the GH-44 replay battery as the measuring stick. Generalizes the mechanism GH-424 introduced."
+release: 1.4.290 ("Antecedent")
+related: "Not GH-43/GH-51 — those shorten long messages; this adds context to short ones. Uses the GH-44 replay battery as a REGRESSION GUARD only — it has no thread context, so it never reaches the enrichment path and cannot show the improvement. Generalizes the mechanism GH-424 introduced."
 context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory, blast-radius]
 ---
 
@@ -20,7 +20,7 @@ context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory
 
 | What was just completed | What's next |
 |---|---|
-| Root cause diagnosed from production telemetry; both blockers verified empirically. Issue #55 filed, release goalpost 1.4.280 ("Antecedent") reserved. **agy relay QA complete** — 3 Blockers + 1 Should, every citation verified and the false-positive claim reproduced before acting; all findings actioned. The naive "pronoun + trigger" rule was proven too broad and replaced with a subject/object candidate; ownership was proven *not* free; the battery was demoted to regression guard. **No code written yet.** | Phase 1: implement verb-agnostic detection against the noise corpus. Phase 2 does not open until Phase 1's gate is fully green — and may yet conclude channel lookback is unsafe outside threads and stop there. |
+| Root cause diagnosed from production telemetry; both blockers verified empirically. Issue #55 filed, release goalpost 1.4.290 ("Antecedent") reserved. **agy relay QA complete** — 3 Blockers + 1 Should, every citation verified and the false-positive claim reproduced before acting; all findings actioned. The naive "pronoun + trigger" rule was proven too broad and replaced with a subject/object candidate; ownership was proven *not* free; the battery was demoted to regression guard. **No code written yet.** | Phase 1: implement verb-agnostic detection against the noise corpus. Phase 2 does not open until Phase 1's gate is fully green — and may yet conclude channel lookback is unsafe outside threads and stop there. |
 
 ## The observed failure
 

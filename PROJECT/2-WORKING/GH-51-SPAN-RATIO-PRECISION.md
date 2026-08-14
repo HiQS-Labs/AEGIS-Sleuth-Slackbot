@@ -8,6 +8,7 @@ goal: "Make the buried-task gate decide on the measurement rather than on its ro
 branch: gh-51-span-ratio-precision
 doc_type: bugfix
 gh_issue: 51
+release: 1.4.280 ("Grounding")
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/51
 related: "Blocked on GH-50 for the remaining ~127 cases — diagnosing an empty actionable_language needs input→output pairs. Fixes a defect in the GH-43 buried-task gate."
 context_tags: [synthesis-routing, extraction-fidelity, telemetry, precision]

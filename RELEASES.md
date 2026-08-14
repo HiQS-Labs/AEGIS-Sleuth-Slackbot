@@ -131,6 +131,41 @@ Description: Clear the open-issue board. Three issues, deliberately ordered
 Release: 1.4.280
 Iterations: 1.4.280-1.4.289
 Status: Draft
+Codename: "Grounding"
+Milestone: Every scheduled message yields a real quoted task span, not an empty one
+Target Date:
+GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/51
+Front-door reviewed: No
+Shakedown reviewed: No
+License file: No
+Description: High-value correctness goal, and the unfinished half of the complex-message
+  parsing work this session opened with. Measured against 30 days of production telemetry:
+  128 of 216 scheduled messages (60%) log actionable_span_ratio=0 — the analyzer quoted NO
+  actionable span for the message it had just decided to schedule. 48 of those are 400+
+  characters; the largest is 6998. On every one of them the GH-43 buried-task gate is inert
+  by design, because a zero ratio is absence of evidence rather than evidence of a buried
+  task, so a very long note routes on sentence count alone.
+  What already shipped, and why it is NOT this: GH-43 (1.4.273-274) fixed synthesis routing
+  and ownership; GH-51 (1.4.277) fixed a rounding defect where toFixed(2) collapsed any span
+  under 0.5% of the message to exactly 0, hiding the most deeply buried task of all. That
+  rounding fix is real but explains AT MOST 1 of the 128 — the median zero-ratio message is
+  241 characters, where nothing rounds away. The remaining ~127 are the analyzer returning an
+  empty actionable_language. The schema already requires the field (strict: true), so the
+  model is satisfying presence with "", and OpenAI strict mode has no minLength to forbid it.
+  Deliberately NOT started by editing reminders-instructions.md on a hypothesis. The decision
+  corpus wired in GH-50 (1.4.276) exists precisely so this can be diagnosed from real
+  input/output pairs rather than guessed at — but it is default-OFF and carries raw tenant
+  text with no rotation, cap, or expiry, so a retention policy is a hard prerequisite before
+  it is armed anywhere real. That policy is currently unowned and unfiled.
+  Done when: the ratio=0 share is explained with evidence rather than inference (schema,
+  prompt, structural path, or a measurement bug); any extraction defect found is fixed with a
+  regression test built from real production shapes; and the share is re-measured on
+  production traffic with the before/after recorded.
+  Plan: PROJECT/2-WORKING/ (to be written when the corpus is armed)
+
+Release: 1.4.290
+Iterations: 1.4.290-1.4.299
+Status: Draft
 Codename: "Antecedent"
 Milestone: A follow-up that points at earlier work resolves what it points at, before anything is scheduled
 Target Date:
