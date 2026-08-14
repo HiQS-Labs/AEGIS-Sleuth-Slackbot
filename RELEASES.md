@@ -113,8 +113,9 @@ GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/26
 Issues: #25, #26, #39, #41
 Issues frozen: 2026-08-14. Reconciled against the live board rather than the original
   description: #22 CLOSED (shipped 1.4.264, PR #29) and removed. #40 CLOSED on this date —
-  the changelog parser now reads the top heading correctly, verified. #42 pending closure —
-  the vendored harness was synced to 824d9388417c on this date. #39 and #41 were open and
+  the changelog parser now reads the top heading correctly, verified. #42 CLOSED on this date —
+  vendored harness synced to 824d9388417c and validate.sh verified green (145 suites, 2327 pass,
+  0 fail, 198/198), after a first run's exit 0 turned out to carry no verdict line at all. #39 and #41 were open and
   assigned to NO release; both are "tooling that hides bugs", which is this release
   milestone verbatim, so they are frozen in here rather than left orphaned.
 Front-door reviewed: No
