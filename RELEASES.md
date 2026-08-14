@@ -30,7 +30,11 @@ Status: Draft
 Codename: "Ledger"
 Milestone: The log is authoritative for reminders, mutable writes retired, every switch still flips back
 Target Date:
-GH_URL:
+GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/56
+Issues: #56 (blocker — P3 Phase 4 event-schema expansion proposal)
+Issues frozen: 2026-08-14. Verified against the open board: no other issue in this repo
+  tracks P3. #35 (P3 Phase 5 close-out) is CLOSED. #56 was filed on this date precisely
+  because the release had no GitHub issue at all and its blocker lived only in a planning doc.
 Front-door reviewed: No
 Shakedown reviewed: No
 License file: No
@@ -105,29 +109,53 @@ Status: Draft
 Codename: "Roundup"
 Milestone: Every open bug closed — correctness first, then the tooling that hides bugs
 Target Date:
-GH_URL:
+GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/26
+Issues: #25, #26, #39, #41
+Issues frozen: 2026-08-14. Reconciled against the live board rather than the original
+  description: #22 CLOSED (shipped 1.4.264, PR #29) and removed. #40 CLOSED on this date —
+  the changelog parser now reads the top heading correctly, verified. #42 pending closure —
+  the vendored harness was synced to 824d9388417c on this date. #39 and #41 were open and
+  assigned to NO release; both are "tooling that hides bugs", which is this release
+  milestone verbatim, so they are frozen in here rather than left orphaned.
 Front-door reviewed: No
 Shakedown reviewed: No
 License file: No
-Description: Clear the open-issue board. Three issues, deliberately ordered
-  user-facing-correctness first, then the tooling that makes bugs hard to see.
-  GH-22 (multiple reminder assignees) is the only user-visible defect: a reminder naming
-  two people is persisted and indexed for the first mention only, while its confirmation
-  claims both were scheduled, so the second person's `show-me` silently omits it. Plan
-  exists (additive AssigneeIDs, legacy AssigneeID compatibility, membership-aware
-  views/exports, per-user Slack List fan-out); implementation has not started.
-  GH-25 (sanitize-scan.sh cannot run from a linked worktree) and GH-26 (RELEASES.md
-  <!--test--> fixture errors every releases check, plus Codename absorbed by the preceding
-  block) are both tooling defects that make other problems harder to see rather than
-  breaking the product. GH-26 is what currently keeps `pdda.sh releases` from ever
-  reaching errors=0, which in turn skips `pdda-doc-ready` entirely.
+Description: Clear the open-issue board of the tooling that hides bugs. RECONCILED
+  2026-08-14 — this release originally read as "three issues, correctness first"; that is
+  no longer what it is. GH-22 (multiple reminder assignees), the only user-visible defect
+  it carried, SHIPPED in 1.4.264 via PR #29 and is closed. What remains is entirely tooling
+  — four checks and one script that are broken in a way which makes OTHER problems harder
+  to see. That is now the whole point of the release, so the milestone reads honestly.
+  The unifying defect: a check that is always red, always warning, or silently skipping
+  teaches people to ignore it, and then it can never signal the condition it exists for.
+  GH-39 (`validate:commands` permanently red on development — ask-reminders is registered
+  dynamically and invisible to the static scan) and GH-41 (`validate:ai` silently skips any
+  prompt asset missing from its hardcoded EXPECTED_PAIRS map, so a new prompt pair is
+  unvalidated until someone remembers to add it) are the two worst, because both fail
+  SILENTLY in the direction of false confidence. Both were open and assigned to NO release
+  before this reconciliation.
+  GH-26 (RELEASES.md <!--test--> fixture errors every releases check, plus Codename
+  absorbed by the preceding block) is the highest-leverage of the four and is this
+  release's anchor: it is what keeps `pdda.sh releases` from ever reaching errors=0, which
+  in turn skips `pdda-doc-ready` ENTIRELY. Note that `utils/pdda/*` is synced from a
+  canonical PDDA repo, so the fix must be pushed upstream or the next `pdda-sync.sh push`
+  overwrites it. GH-25 (sanitize-scan.sh cannot run from a linked git worktree —
+  `[ -d .git ]` is false when .git is a file) blocks running the secret/PII gate locally
+  before pushing; CI is unaffected, so the cost is a slower feedback loop, not an exposure.
+  Closed during this reconciliation, with evidence, rather than carried as open scope:
+  GH-40 (changelog parser misread) — the parser now reports the top heading's date exactly,
+  and the warning that remains is the check correctly signalling a missing entry. GH-42
+  (vendored .xyz harness stale) — synced to 824d9388417c; every /relay-xyz QA in this repo
+  had been running on stale harness code until then.
   Deliberately NOT included: the snapshot->Slack relay missing_scope failure (see
   PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md). It is real and live since 2026-06-18, but
   the fix is a Slack app admin re-granting a file-upload scope — an ops action with no code
   change, so it cannot be a marathon phase.
-  Done when: GH-22, GH-25 and GH-26 are closed, `pdda.sh releases` reports errors=0, and
-  the full suite is green.
-  Plan: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md
+  Done when: GH-25, GH-26, GH-39 and GH-41 are closed; `pdda.sh releases` reports errors=0
+  and `pdda-doc-ready` actually runs; `validate:commands` and `validate:ai` are green and
+  provably able to FAIL (a check that cannot fail proves nothing); and the full suite is
+  green.
+  Plan: PROJECT/2-WORKING/GH-26-RELEASES-PARSING.md
 Release: 1.4.280
 Iterations: 1.4.280-1.4.289
 Status: Draft
@@ -135,6 +163,8 @@ Codename: "Grounding"
 Milestone: Every scheduled message yields a real quoted task span, not an empty one
 Target Date:
 GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/51
+Issues: #51
+Issues frozen: 2026-08-14.
 Front-door reviewed: No
 Shakedown reviewed: No
 License file: No
@@ -170,6 +200,8 @@ Codename: "Antecedent"
 Milestone: A follow-up that points at earlier work resolves what it points at, before anything is scheduled
 Target Date:
 GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/55
+Issues: #55
+Issues frozen: 2026-08-14.
 Front-door reviewed: No
 Shakedown reviewed: No
 License file: No
