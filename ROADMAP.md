@@ -31,6 +31,23 @@ goal: >
 
 ### In progress
 
+- **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
+  goalpost 1.4.280 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
+  scheduled verbatim, with the task it points at never read and the owner lost with it — observed
+  live 2026-08-14 following "@Vishal please make the fast-search GH issue and work on it", and
+  assigned to the sender instead of Vishal. Telemetry shows the analyzer behaved correctly on the
+  text it was handed (`ratio_usable=yes`, `analyzer_owner=unclear`, `resolved_by=sender-fallback`);
+  it was handed the wrong text. **The inverse of GH-43/GH-51** — those shorten a long message, this
+  adds context to a 50-character one — and the wrong assignee is the same root cause, not a second
+  defect, since "can we get it done" has no grammatical subject to own. Two verified blockers:
+  enrichment is gated on `thread_ts` (these were top-level channel posts; `enrichment=none` is a
+  hardcoded literal on the auto-schedule path) and "get it done" matches none of the three
+  vague-reference patterns. Deliberately **not** fixed by adding a verb — that list is documented
+  in-code as a losing whack-a-mole. Phase 1 generalizes reference detection in-thread and ships
+  independently; Phase 2 adds channel-level lookback behind a default-OFF flag with a recency
+  window and does not open until Phase 1's gate is green. →
+  [PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md)
+
 - **Span-ratio rounding hides the most deeply buried tasks (GH-51)** — `DescribeSynthesisRouting`
   rounded the actionable-span ratio with `toFixed(2)` **before** the buried-task gate read it, so any
   span under 0.5% of the message collapsed to exactly `0` and `SpanRatioUsable` read that as "no span

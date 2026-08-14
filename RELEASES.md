@@ -128,3 +128,41 @@ Description: Clear the open-issue board. Three issues, deliberately ordered
   Done when: GH-22, GH-25 and GH-26 are closed, `pdda.sh releases` reports errors=0, and
   the full suite is green.
   Plan: PROJECT/2-WORKING/GH-22-MULTIPLE-REMINDER-ASSIGNEES.md
+Release: 1.4.280
+Iterations: 1.4.280-1.4.289
+Status: Draft
+Codename: "Antecedent"
+Milestone: A follow-up that points at earlier work resolves what it points at, before anything is scheduled
+Target Date:
+GH_URL: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/55
+Front-door reviewed: No
+Shakedown reviewed: No
+License file: No
+Description: High-value correctness goal. When someone writes "can we get it done by
+  Monday?", the reminder currently records that literal sentence — the task it points at is
+  never read, and the owner is lost with it. Observed live 2026-08-14: a follow-up to
+  "@Vishal please make the fast-search GH issue and work on it" scheduled the string "Can we
+  try to get it done by end of day on Monday?" and assigned it to the sender rather than
+  Vishal. Telemetry confirms the analyzer behaved correctly on the text it was handed
+  (ratio_usable=yes, analyzer_owner=unclear, resolved_by=sender-fallback) — it was handed the
+  wrong text.
+  This is the inverse of GH-43/GH-51, which decide whether to SHORTEN a long message; here a
+  50-character message needs context ADDED. The wrong assignee is the same root cause rather
+  than a second defect: "can we get it done" has no grammatical subject to own, so ownership
+  correctly fell back to the sender, and the real owner is only recoverable from the
+  antecedent. Fixing the antecedent fixes ownership for free.
+  Two blockers, both verified: enrichment is gated on thread_ts and these were top-level
+  channel posts (enrichment=none is a hardcoded literal on the auto-schedule path), and
+  "get it done" matches none of the three vague-reference patterns. Deliberately NOT fixed by
+  adding a verb to the enumerated list — that list is documented in-code as a losing
+  whack-a-mole (GH-424 needed two rounds and "see above" still slipped through). The general
+  rule is grammatical: an unresolved pronoun plus a scheduling trigger means the task is
+  elsewhere, whatever verb surrounds it.
+  Phase 1 generalizes reference detection in-thread and is independently shippable. Phase 2
+  adds channel-level lookback behind a default-OFF flag with a recency window, and is the half
+  that fixes the reported case; it does not open until Phase 1's gate is green. Neither phase
+  touches the analyzer prompt or schema, which is what keeps the GH-44 replay battery a valid
+  measuring stick across both.
+  Done when: GH-55 is closed, a pronoun follow-up in a monitored channel schedules the real
+  task with the real owner, and the GH-44 battery shows no regression.
+  Plan: PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md
