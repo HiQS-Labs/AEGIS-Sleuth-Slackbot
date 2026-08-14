@@ -70,8 +70,13 @@ change:
   even when every creation event is present.
 - `ReminderCompleted` lacks `sourceChannelID`, `dueDate` and `clientId`, so a log-only
   `CompletionStore` rebuild cannot match the JSON path either.
-- `event-store.readAll()` returns an empty/partial stream on read failure with **no error signal**,
-  so it structurally cannot trigger contract item (c)'s warn-and-fall-back-to-JSON behaviour.
+- ~~`event-store.readAll()` returns an empty/partial stream on read failure with **no error signal**~~
+  **CORRECTED 2026-08-14 — the error signal now EXISTS.** `src/event-store.js:365-378` returns `[]`
+  only for `ENOENT` (the genuine first-run case) and throws `LedgerReadError` for everything else
+  (EACCES/EIO/EISDIR), with the old behaviour described in its own comment in the past tense.
+  Covered by `tests/event-store.test.js:405-411`. What is still absent is the *handler*: nothing
+  outside `event-store.js` catches `LedgerReadError`, so contract item (c)'s warn-and-fall-back is
+  half-built — see the table row below for why that is correct rather than a gap.
 
 **Phase 4 therefore needs an explicit schema-expansion proposal first** — widen the event payloads,
 extend emission coverage to the omitted transitions, add a strict boot-read error signal, backfill
@@ -89,7 +94,7 @@ moved:
 | 1 | `ReminderCreated` omits `Original*` / `IgnoreSnooze` | **CLOSED.** v2 requires `createdOn`, `originalSenderId`, `originalMessageId`, `originalThreadTs`, `originalChannelName`, `ignoreSnooze`, `assigneeIds`, `clientId`. |
 | 2 | omitted `due`/`overdue`/`posting`/`posted`/`rescheduled`/`failed`/`dead-letter` transitions | **CLOSED.** `ReminderStateChanged` covers all seven; `ReminderRemoved` covers queue exit, which this list never identified and real data proved was the worst of them. |
 | 3 | `ReminderCompleted` lacks `sourceChannelID`, `dueDate`, `clientId` | **CLOSED.** v2 requires those three plus `completedMs`, sampled once and threaded to both writes. |
-| 4 | `readAll()` degrades to an empty stream with **no error signal** | **STILL OPEN.** `src/event-store.js` still returns `[]` for *any* read error, so I/O failure is indistinguishable from a genuinely empty ledger and contract item (c) remains structurally untriggerable. |
+| 4 | `readAll()` degrades to an empty stream with **no error signal** | **HALF CLOSED — corrected 2026-08-14; the "still returns `[]`" claim was already false when written.** The SIGNAL exists: `src/event-store.js:365-378` returns `[]` only for `ENOENT` and throws `LedgerReadError` otherwise, covered by `tests/event-store.test.js:405-411`. The HANDLER does not: nothing outside `event-store.js` catches it. That is deliberate, not a gap — `ReadWithProjectionFallbackAsync` (`src/reminders-projection.js:694-700`) returns the authoritative store *early* whenever a flag is blocked, and all four are blocked in code, so no serving path reaches `readAll()`. Writing the catch now would be machinery for a path that is compile-time blocked and declined by product decision. **Revival requirement:** whoever re-opens the authority path must add the warn-and-fall-back handler; the throw alone does not satisfy contract item (c). |
 
 The separate GitHub-relay finding recorded under the Phase 5 table below is also **CLOSED**: v2
 carries `gitHubRelayStarted`/`gitHubRelayStopped` on creation and import, and `ThreadRelayStateChanged`
