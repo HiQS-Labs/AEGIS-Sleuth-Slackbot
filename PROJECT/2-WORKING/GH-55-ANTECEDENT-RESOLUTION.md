@@ -1,6 +1,6 @@
 ---
 title: "Pronoun follow-ups schedule the literal sentence: the antecedent is never resolved, losing both the task and its owner"
-status: Active (2-WORKING) — plan drafted, awaiting agy relay QA; no implementation started
+status: Active (2-WORKING) — plan drafted and hardened by agy relay QA (3 Blockers, 1 Should, all actioned); no implementation started
 created: 2026-08-14
 updated: 2026-08-14
 owner: noel
@@ -20,7 +20,7 @@ context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory
 
 | What was just completed | What's next |
 |---|---|
-| Root cause diagnosed from production telemetry; both blockers verified empirically. Issue #55 filed with two gated phases. Release goalpost 1.4.280 ("Antecedent") reserved. **No code written yet.** | agy relay QA to sharpen the plan, then Phase 1. Phase 2 does not open until Phase 1's gate is fully green. |
+| Root cause diagnosed from production telemetry; both blockers verified empirically. Issue #55 filed, release goalpost 1.4.280 ("Antecedent") reserved. **agy relay QA complete** — 3 Blockers + 1 Should, every citation verified and the false-positive claim reproduced before acting; all findings actioned. The naive "pronoun + trigger" rule was proven too broad and replaced with a subject/object candidate; ownership was proven *not* free; the battery was demoted to regression guard. **No code written yet.** | Phase 1: implement verb-agnostic detection against the noise corpus. Phase 2 does not open until Phase 1's gate is fully green — and may yet conclude channel lookback is unsafe outside threads and stop there. |
 
 ## The observed failure
 
@@ -89,20 +89,71 @@ new path; no change to *where* context comes from — only to *when* enrichment 
 
 **Scope:** the pattern layer in `src/reminders-app-mention-handler.js`. The `thread_ts` gate stays.
 
+### The naive rule is too broad — corrected after agy QA
+
+"Pronoun + scheduling trigger" as originally written fires on ordinary conversation. Reproduced:
+
+```
+FIRES  <-- false positive  "it will rain on friday"
+FIRES  <-- false positive  "that is a problem for next week"
+FIRES  <-- false positive  "it will be sunny tomorrow"
+FIRES   "Can we try to get it done by end of day on Monday?"   <- the real case
+```
+
+The existing temporal guard does **not** save this: it guards `this/that + <period>` only, so it hits
+neither `"...for next week"` nor `"...on friday"` in these shapes (verified).
+
+**Candidate strategy — pronoun in OBJECT position, not SUBJECT position.** In every false positive the
+pronoun is the grammatical *subject* ("**it** will rain", "**that** is a problem"); in every true
+positive it is the *object* ("get **it** done", "follow up on **it**"). That keeps the rule
+grammatical rather than lexical — the property this plan is built on — and separates all four noise
+cases from both real cases without enumerating a single verb. This is a **candidate**, not a mandate:
+the gate below is the requirement, and any implementation that clears it is acceptable.
+
 **Gate — all must hold before Phase 2 opens:**
 
 - [ ] All four `get it done` variants fire enrichment; the three controls still fire.
+- [ ] **Conversational noise does NOT fire an AI call** — `"it will rain on friday"`, `"that is a
+      problem for next week"`, `"it will be sunny tomorrow"` must be quiet. This corpus is a test
+      fixture, not a comment; extend it whenever a new false positive is found in production.
 - [ ] Temporal false positives still suppressed — `"let's discuss this week"`, `"ship that morning"`,
       `"send it monday"` behave exactly as today.
 - [ ] A pronoun with **no** scheduling trigger does NOT fire an AI call (preserves the 1.4.142
       hallucination guard).
 - [ ] `ShouldSuppressHypotheticalSubordinateReply` still suppresses
       `"I'll keep that in mind when I get to it"`.
+- [ ] **Multiple mentions in the prepended context do not hijack assignment.** See *Ownership is not
+      free* below — with two or more `<@U…>` in the enriched block the mentions fallback assigns to
+      **all** of them.
 - [ ] GH-44 decision-replay battery: no regression against the committed baseline.
 - [ ] Mutation-tested — reverting the generalization turns the new tests red.
 - [ ] Full suite green, `tsc` exit 0.
 
-Phase 1 is independently shippable and improves in-thread behavior on its own.
+Phase 1 is independently shippable: even though Phase 2 is what fixes the reported top-level-channel
+case, Phase 1 alone fixes `"get it done by Monday"` **in threads**, which
+`VAGUE_COMPLETION_IN_THREAD_PATTERN` misses today.
+
+## Ownership is not free — it rides on the mentions fallback
+
+The original plan claimed "fix the antecedent and ownership follows for free." That is true in the
+reported case but **only by luck of it having exactly one mention**, and the plan must not rest on it
+unexamined.
+
+`src/reminder-ownership.js` falls back, when the analyzer returns no usable owner, to:
+
+```js
+if(MentionedIDs.length > 0) {
+  return { assigneeIDs: MentionedIDs, notifyIDs: [], resolvedBy: 'mentions' };
+}
+```
+
+It assigns to **every** mention it finds. Enriching prepends the earlier message, which is what puts
+`@Vishal` in scope — so ownership resolves correctly here because that block contains exactly one
+mention. Prepend a block containing two or three unrelated `<@U…>` and the same fallback assigns the
+task to all of them.
+
+So enrichment does not merely add context; it **changes the input to the ownership resolver**. That
+is a second-order effect of a change framed as "text only", and it needs the gate item above.
 
 ## Phase 2 — channel-level antecedent lookback (flagged, default OFF)
 
@@ -112,24 +163,56 @@ with a pronoun plus a time reference becomes a candidate for a history read and 
 
 **Scope:** the `thread_ts` gate and the auto-schedule path's hardcoded `enrichment=none`.
 
+**Recency alone is not enough — corrected after agy QA.** A busy channel interleaves conversations, so
+time + message count will happily stitch `"get it done by Friday"` onto an unrelated mention three
+messages earlier. **Participant continuity is required**, not optional: the antecedent must be from
+the same author as the follow-up, or must mention its author. This is the single largest risk in the
+plan, and it may yet prove that channel-level lookback is **fundamentally unsafe outside threads** — a
+thread is an explicit human assertion that messages belong together, and a channel offers no such
+signal. Phase 2 must be prepared to conclude that and stop, with Phase 1 still shipped.
+
 **Gate:**
 
 - [ ] Behind an env flag, **default OFF**. Unset ⇒ behavior and AI-call volume byte-identical to today.
-- [ ] A **recency window** (time and message count) so two unrelated conversations can never be
-      stitched together. A named constant with documented rationale, not a magic number.
+- [ ] A **recency window** (time and message count) — a named constant with documented rationale, not
+      a magic number.
+- [ ] **Participant continuity enforced**: the candidate antecedent is from the follow-up's author, or
+      mentions them. A false-stitching corpus built from real production channel history is a test
+      fixture, not a thought experiment.
 - [ ] Same-channel only; never reads across channels or DMs.
-- [ ] Cost measured, not assumed: added AI-call volume reported against real production message rates
-      before recommending it be armed.
+- [ ] **Cost measured with this specific method** (vague "measure cost" was unfalsifiable): count
+      top-level channel messages matching the Phase 1 pattern over 7 days of production telemetry,
+      then multiply by one `conversations.history` call plus one OpenAI call. Report the absolute
+      added call volume and the Slack rate-limit headroom before recommending it be armed.
 - [ ] Multi-tenant safe — no workspace state resolved via globals (AGENTS.md §0.1).
 - [ ] The reported production case yields a reminder naming the actual task **and** resolving Vishal
       as owner.
 - [ ] Full suite green, `tsc` exit 0.
 
+Phase 2 does **not** duplicate `#CollectPrecedingHumanThreadMessagesAsync`
+(`src/reminders-app-mention-handler.js:747`): that method opens `if(!ArgEventInfo.thread_ts) return [];`
+and walks a thread, whereas Phase 2 needs `conversations.history` on a channel with no thread. Distinct
+mechanism, not redundant machinery — checked against the same standard that removed the redundant
+ignore-pattern in GH-48.
+
+## The GH-44 battery is a regression guard, not an improvement measure
+
+The original plan called the battery "a valid measuring stick" for this work. Sharpened after QA: the
+battery exercises **single-message routing with no thread context**, while both phases fire only when
+thread or channel context exists. So the battery can prove we did not **break** existing non-enriched
+behavior — which is exactly what the gates use it for — but it can never **show the improvement**,
+because it never reaches the enrichment path at all.
+
+Do not read a green battery as evidence the fix works. The improvement needs its own instrument:
+the noise corpus and `get it done` variants in Phase 1's gate, and the reported production case in
+Phase 2's. Treating a regression guard as proof of improvement is the same error as trusting a check
+that cannot fail.
+
 ## Out of scope
 
 Changing the analyzer prompt or schema. Both phases change *what text reaches* the analyzer, never
-how it reasons — which is precisely what keeps the GH-44 battery a valid measuring stick across both
-phases. Any prompt edit would invalidate the instrument being used to judge the change.
+how it reasons — which is what keeps the battery valid as a regression guard across both phases. Any
+prompt edit would invalidate even that.
 
 Also out of scope: cross-channel or DM antecedents, and any attempt to resolve an antecedent older
 than the Phase 2 recency window.
