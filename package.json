@@ -1,6 +1,6 @@
 {
   "name": "aegis",
-  "version": "1.4.277",
+  "version": "1.4.290",
   "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
   "main": "src/app.js",
   "engines": {

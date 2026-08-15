@@ -99,6 +99,7 @@ const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./r
  * @property {string|null} [AssigneeID]    Deprecated compatibility mirror of the first AssigneeIDs entry. Retained for older readers.
  * @property {string[]} [AssigneeIDs]      Authoritative ordered, de-duplicated human Slack user IDs assigned to this shared reminder.
  * @property {string[]} [NotifyIDs]        GH-43 Phase 3: people the message was ADDRESSED to who did not take the work — interested parties, never owners. Disjoint from AssigneeIDs by construction. Absent on records written before this phase, which is indistinguishable from "nobody to notify" and safe: nothing keys off it. Never used for assignment, completion, or any lifecycle decision (backwards compatible).
+ * @property {{sourceTs: string|null, path: string, originalText: string|null}} [EnrichedFrom] GH-55: antecedent provenance for a reminder whose task text was resolved from an EARLIER message — the source message ts, the structural path that resolved it, and the author's own words before enrichment. Present only on enriched creations; absent is indistinguishable from "not enriched" and nothing keys off it (backwards compatible). Exists so a wrong stitch can be read back after the fact rather than being invisible.
  * @property {string[]|null} [GitHubUrls]  GitHub issue or PR URLs extracted from the original message (backwards compatible).
  * @property {boolean} [GitHubRelayStopped] When true, no further Slack thread messages will be relayed to linked GitHub issues (backwards compatible).
  * @property {boolean} [GitHubRelayStarted] When true, at least one message has already been relayed; the first relay includes the Slack thread permalink (backwards compatible).
@@ -439,7 +440,8 @@ class RemindersModule {
         /** @type {any} */ ArgForceSchedule,
         /** @type {any} */ ArgThreadTS,
         /** @type {any} */ ArgLiveReplyText,
-        /** @type {any} */ ArgUsedEnrichedThreadContext
+        /** @type {any} */ ArgUsedEnrichedThreadContext,
+        /** @type {any} */ ArgEnrichment
       ) =>
         this.#TryScheduleRemindersAsync(
           ArgSlackApp,
@@ -450,7 +452,8 @@ class RemindersModule {
           ArgForceSchedule,
           ArgThreadTS,
           ArgLiveReplyText,
-          ArgUsedEnrichedThreadContext
+          ArgUsedEnrichedThreadContext,
+          ArgEnrichment
         ),
       CheckRemindersAsync: (/** @type {any} */ ArgIgnoreSnooze) => this.#CheckRemindersAsync(ArgIgnoreSnooze),
     });
@@ -757,6 +760,12 @@ class RemindersModule {
       // make the fold rehydrate `NotifyIDs: []` and the projected reminder would carry a key the
       // authoritative store does not. Absent has to stay absent on both sides.
       ...(Array.isArray(Reminder.NotifyIDs) ? { notifyIds: Reminder.NotifyIDs } : {}),
+      // GH-55. Same conditional discipline and the same reason as notifyIds above: emitted only when
+      // the reminder actually carries it, so an unenriched creation stays byte-comparable across the
+      // store and the fold. REQUIRED_PAYLOAD_KEYS validates a required MINIMUM, not an exact set, so
+      // this is additive — no schema bump, and an older reader that ignores the key sees exactly the
+      // reminder it would have seen before.
+      ...(Reminder.EnrichedFrom ? { enrichedFrom: Reminder.EnrichedFrom } : {}),
       sourceChannelId: Reminder.OriginalChannelID || Reminder.TargetChannelID || null,
       targetChannelId: Reminder.TargetChannelID || null,
       source: 'fsm',
@@ -1436,13 +1445,20 @@ class RemindersModule {
     if(ArgEventInfo.thread_ts) {
       const WasHandled = await this.#AppMentionHandler.TryHandleTaskAboveShorthandAsync(ArgSlackApp, ArgEventInfo);
       if(WasHandled) return true;
-
-      // When the message is a vague commitment ("will do it at 10pm") rather than an explicit
-      // "do above" command, enrich the scheduler context with the preceding message so the AI
-      // derives a meaningful task title instead of extracting the placeholder pronoun.
-      const WasEnriched = await this.#AppMentionHandler.TryEnrichVagueCompletionFromAboveAsync(ArgSlackApp, ArgEventInfo);
-      if(WasEnriched) return true;
     }
+
+    // When the message is a vague commitment ("will do it at 10pm") or an object-position pronoun
+    // reference ("get it done by Monday") rather than an explicit "do above" command, enrich the
+    // scheduler context with the preceding message so the AI derives a meaningful task title instead
+    // of extracting the placeholder pronoun.
+    //
+    // GH-55: no longer inside the thread_ts branch. The reported failure was two TOP-LEVEL channel
+    // posts 47 minutes apart, which this gate made structurally unreachable — the pronoun path could
+    // never fire for them at all. Outside a thread the method is still inert unless
+    // CHANNEL_ANTECEDENT_LOOKBACK_ENABLED is armed, so an unset flag preserves today's call volume
+    // exactly. `TryHandleTaskAboveShorthandAsync` above stays thread-only: it walks thread replies.
+    const WasEnriched = await this.#AppMentionHandler.TryEnrichVagueCompletionFromAboveAsync(ArgSlackApp, ArgEventInfo);
+    if(WasEnriched) return true;
 
     // Skip messages with no temporal language — if there is no time reference the LLM must invent
     // both the scheduling trigger and the task title, which causes hallucination (see 1.4.142).
@@ -1564,6 +1580,10 @@ class RemindersModule {
    * @param {string|null} [ArgThreadTs] Thread timestamp when the source message is a reply.
    * @param {string|null} [ArgLiveReplyText] Raw live reply text before any thread-context enrichment.
    * @param {boolean} [ArgUsedEnrichedThreadContext] True when ArgMessageText includes prepended thread context.
+   * @param {{SourceTs: string|null, Path: string}|null} [ArgEnrichment] GH-55 antecedent provenance —
+   * which earlier message supplied the context and which structural path resolved it. Recorded on the
+   * reminder and in the ledger so a WRONG stitch is auditable after the fact instead of silent. Null
+   * on every non-enriched path, and absent-stays-absent all the way to the event payload.
    * @returns {Promise<boolean>}
    */
   async #TryScheduleRemindersAsync(
@@ -1575,7 +1595,8 @@ class RemindersModule {
     ArgForceSchedule,
     /** @type {string|null} */ ArgThreadTs = null,
     /** @type {string|null} */ ArgLiveReplyText = null,
-    ArgUsedEnrichedThreadContext = false
+    ArgUsedEnrichedThreadContext = false,
+    /** @type {{SourceTs: string|null, Path: string}|null} */ ArgEnrichment = null
   ) {
     if(!this.#AIPipeline) {
       this.#SlackApp.Logger.warn('skipping reminder scheduling before reminders startup finished initializing.');
@@ -1842,6 +1863,18 @@ class RemindersModule {
         // told. Persisted as a record of intent only — see the ReminderInfo typedef.
         NotifyIDs: Ownership.notifyIDs.filter(ArgID => !AssigneeIDs.includes(ArgID)),
         GitHubUrls: GitHubUrls.length > 0 ? GitHubUrls : null,
+        // GH-55 antecedent provenance. Spread conditionally so a non-enriched reminder carries no
+        // such key at all — the same absent-stays-absent discipline the NotifyIDs emission documents,
+        // and what keeps the ledger fold and the JSON store byte-comparable on unenriched paths.
+        // `ArgLiveReplyText` is the user's own words before enrichment: with this pair, a wrong
+        // stitch can be read back afterwards instead of being invisible.
+        ...(ArgEnrichment ? {
+          EnrichedFrom: {
+            sourceTs: ArgEnrichment.SourceTs || null,
+            path: ArgEnrichment.Path,
+            originalText: ArgLiveReplyText || null,
+          },
+        } : {}),
       });
 
       // check for duplicate reminders before queueing, unless force scheduling is enabled (this serves as an escape

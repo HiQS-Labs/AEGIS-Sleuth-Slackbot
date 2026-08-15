@@ -33,6 +33,44 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.290 - 2026-08-14
+When you follow up on something with "can we get it done by Monday?", I now go back and read what
+"it" actually refers to, instead of scheduling your question word-for-word. Before this I would set
+a reminder that said only "Can we try to get it done by end of day on Monday?" — which told you
+nothing about the task and quietly assigned it to you rather than the person who agreed to do it.
+In threads this works right away; in a regular channel it stays switched off until an admin turns it
+on, because reading back through channel history costs real money on every message.
+
+**Technical:** GH-55. Two independent blockers, each fatal alone. `TryEnrichVagueCompletionFromAboveAsync`
+opened with `if(!ArgEventInfo.thread_ts) return false;` and its caller only reached it inside an
+`if(ArgEventInfo.thread_ts)` block, so two top-level channel posts 47 minutes apart could never be
+connected. And `get <pronoun> done` matched none of the three existing reference patterns — the
+pronoun sits *between* verb and participle, a shape the enumerated verb list has no entry for.
+
+- **Verb-agnostic detection** — a fourth verb list would have bought this phrasing and lost the
+  next, which this file's own comment on `ABOVE_REFERENCE_PATTERN` already warned about ("a losing
+  whack-a-mole"). `IsObjectPositionPronounReference` asks the grammatical question instead: is the
+  pronoun the sentence's **object** ("get **it** done by Monday") or its **subject** ("**it** will
+  rain on friday")? That is decided by two *closed* word classes — clause boundaries and
+  auxiliaries — neither of which grows when someone invents a new way to say "finish this".
+- **Channel lookback** — the `thread_ts` gate is lifted, reusing the existing
+  `GetRecentChannelMessagesAsync` wrapper rather than adding Slack plumbing. **Participant
+  continuity is required, not recency alone**: a busy channel interleaves conversations, so the
+  candidate must be from the follow-up's author or mention them. Same-channel only, 2-hour window
+  (the reported failure had a 47-minute gap — a shorter window would not have fixed it).
+- **Provenance** — enriched reminders now carry `EnrichedFrom` (source ts, structural path, and the
+  author's own pre-enrichment words), emitted to the ledger as `enrichedFrom`. `REQUIRED_PAYLOAD_KEYS`
+  validates a required *minimum*, so this is additive with no schema bump. A wrong stitch is now
+  auditable after the fact instead of silently wrong.
+- **Kill switch** — `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED`, default OFF. Unset means AI-call volume
+  identical to before this change. In-thread resolution needs no flag.
+- **Tests** — 47 new, including a 9-case conversational-noise corpus kept as a fixture rather than a
+  comment. Mutation-tested, all five caught. **One mutation initially survived**: disabling the
+  clause-boundary check broke nothing, because every noise case in the first corpus happened to use
+  an auxiliary and so was caught twice over. Six subject-plus-simple-main-verb cases ("It rains on
+  friday", "That broke yesterday") were added to pin the half of the rule the corpus could not fail
+  on. Full suite 111 suites / 1908 jest / 116 node, `tsc` exit 0.
+
 ## 1.4.277 - 2026-08-11
 When a very long note contains one short thing you promised to do, I now shorten it to that task
 instead of pasting the whole note into the reminder. I was already meant to do this, but I was

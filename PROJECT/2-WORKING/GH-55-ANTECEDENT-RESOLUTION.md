@@ -1,16 +1,16 @@
 ---
 title: "Pronoun follow-ups schedule the literal sentence: the antecedent is never resolved, losing both the task and its owner"
-status: Active (2-WORKING) — plan drafted and hardened by agy relay QA (3 Blockers, 1 Should, all actioned); no implementation started
+status: Active (2-WORKING) — implemented and merged at 1.4.290 with the channel half default-OFF. Stays open: the milestone needs the flag armed and observed in production.
 created: 2026-08-14
 updated: 2026-08-14
 owner: noel
-goal: "When a follow-up refers to earlier work by pronoun, resolve the antecedent before scheduling, so the reminder records the real task and the real owner instead of the literal sentence."
+goal: "When a follow-up refers to earlier work by pronoun, resolve the antecedent before scheduling, so the reminder records the real task and the real owner instead of the literal sentence — and record the resolution in the ledger so a wrong stitch is auditable rather than silent."
 branch: gh-55-antecedent-resolution
 doc_type: project
 gh_issue: 55
 source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/55
 release: 1.4.290 ("Antecedent")
-related: "Not GH-43/GH-51 — those shorten long messages; this adds context to short ones. Uses the GH-44 replay battery as a REGRESSION GUARD only — it has no thread context, so it never reaches the enrichment path and cannot show the improvement. Generalizes the mechanism GH-424 introduced."
+related: "Not GH-43/GH-51 — those shorten long messages; this adds context to short ones. Uses the GH-44 replay battery as a REGRESSION GUARD only — it has no thread context, so it never reaches the enrichment path and cannot show the improvement. Generalizes the mechanism GH-424 introduced. Reuses the GH-43 grounding constraint in src/reminder-display-selection.js as the non-destructive guarantee."
 context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory, blast-radius]
 ---
 
@@ -20,7 +20,19 @@ context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory
 
 | What was just completed | What's next |
 |---|---|
-| Root cause diagnosed from production telemetry; both blockers verified empirically. Issue #55 filed, release goalpost 1.4.290 ("Antecedent") reserved. **agy relay QA complete** — 3 Blockers + 1 Should, every citation verified and the false-positive claim reproduced before acting; all findings actioned. The naive "pronoun + trigger" rule was proven too broad and replaced with a subject/object candidate; ownership was proven *not* free; the battery was demoted to regression guard. **No code written yet.** | Phase 1: implement verb-agnostic detection against the noise corpus. Phase 2 does not open until Phase 1's gate is fully green — and may yet conclude channel lookback is unsafe outside threads and stop there. |
+| **Implemented and merged at 1.4.290.** Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **Arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe.** The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
+
+## What the merge did NOT do
+
+Stated plainly so a green suite is not read as a closed issue: **the reported production failure is
+still reproducible in production today**, because the channel-lookback half ships default-OFF. The
+merge makes the fix *available*; an operator arming the flag is what makes it *true*. The in-thread
+half needs no flag and is live immediately.
+
+The mutation testing surfaced a real gap worth carrying forward: the first noise corpus could not
+fail on half the rule it existed to pin, because all nine cases happened to use an auxiliary verb.
+The corpus now covers both closed classes independently. **Do not delete either block without
+re-running the mutations** — a corpus that cannot fail is the same error as a check that cannot fail.
 
 ## The observed failure
 
@@ -45,24 +57,24 @@ reminder ownership: resolved_by=sender-fallback assignees=1 mentions=0 notify=0 
   chars / 1 sentence this correctly stays verbatim, and `ratio_usable=yes` proves the analyzer worked
   on the text it was given. It was given the wrong text. Context needs **adding**, not removing.
 - **The wrong owner is the same bug, not a second one.** `analyzer_owner=unclear` is the *correct*
-  reading of "Can we try to get it done" — there is no grammatical subject to own it, so GH-43's rule
-  rightly fell back to the sender. Vishal is only recoverable from the antecedent. Fix the antecedent
-  and ownership follows; fix ownership separately and you have built the wrong thing.
+  reading of "Can we try to get it done" — there is no grammatical subject to own it. Vishal is only
+  recoverable from the antecedent.
 - **Enumerating verbs is a losing game, and this repo already learned that.**
   `reminders-app-mention-handler.js:56-59` says so in its own words: the verb list is *"a losing
   whack-a-mole — GH-424 alone needed two rounds ('follow up on' then 'follow on') and 'see above'
   still slipped through."* Adding `get it done` buys this case and loses the next.
-- **The general signal is grammatical, not lexical.** An unresolved pronoun (`it`/`this`/`that`) plus
-  a scheduling trigger means "the task is elsewhere" regardless of the verb around it — the same
-  reasoning that already made `ABOVE_REFERENCE_PATTERN` verb-agnostic.
+- **This is not a precision/recall tradeoff — the codebase already made it non-destructive.** See
+  *Why this is not zero-sum* below. The cost of a false positive is one AI call and a possibly noisy
+  context line, not a wrong reminder. That is what collapses the plan from two gated phases to one.
 
 ## Two blockers, both verified
 
 **1. Enrichment requires a thread.** `TryEnrichVagueCompletionFromAboveAsync`
-(`src/reminders-app-mention-handler.js:246`) opens `if(!ArgEventInfo.thread_ts) return false;`. The
-two messages were top-level channel posts 47 minutes apart. `enrichment=none` is a **hardcoded
-literal** on the auto-schedule path (`src/reminders-module.js:1453`), not a computed result —
-ambient channel messages have no read-back capability at all.
+(`src/reminders-app-mention-handler.js:246`) opens `if(!ArgEventInfo.thread_ts) return false;`, and
+its caller (`src/reminders-module.js:1436`) only reaches it inside an `if(ArgEventInfo.thread_ts)`
+block. The two messages were top-level channel posts 47 minutes apart. `enrichment=none` is a
+**hardcoded literal** on the auto-schedule path (`src/reminders-module.js:1453`), not a computed
+result — ambient channel messages have no read-back capability at all.
 
 **2. "get it done" matches none of the three patterns.** Verified by direct test; the known-good
 controls match, which proves the check itself is sound rather than trivially failing:
@@ -80,64 +92,105 @@ MATCH     "see above tomorrow"             <- control
 `VAGUE_COMPLETION_IN_THREAD_PATTERN` lists `get\s+to` ("get to it") but not the `get <pronoun> done`
 shape, where the pronoun sits *between* verb and participle.
 
-Either blocker alone is fatal, which is why the fix is two phases rather than one.
+## Why this is not zero-sum — the machinery already exists
 
-## Phase 1 — verb-agnostic reference detection (in-thread)
+The earlier draft of this plan set a "zero false positives, no exceptions" precision bar and split
+the work into two gated phases to contain blast radius. Operator review rejected both, and the code
+agrees:
 
-Replace the enumerated verb lists with the general rule, on the path that **already** enriches. No
-new path; no change to *where* context comes from — only to *when* enrichment fires.
+| Already in the codebase | What it guarantees |
+|---|---|
+| `src/reminder-display-selection.js:41` | `SelectTaskText` already returns `{text, source}` with `source ∈ verbatim\|title\|span\|fallback`. Original and synthesized are **both already first-class** — the display is not an either/or that this work has to invent. |
+| `src/reminder-display-selection.js:57-66` | **The GH-43 grounding constraint.** A synthesized title naming any entity, identifier, or number absent from the source is **discarded** and the quoted span shown instead — *"a clumsier reminder beats a confidently wrong one."* |
+| `src/reminders-module.js:643` | `#AppendLedgerEvent` — the event ledger's **write side is live**. Only the *read* path is parked by decision (P3), so logging a decision costs nothing new. |
+| `src/event-store.js` `REQUIRED_PAYLOAD_KEYS` | Validation is **required-minimum, not strict**: extra payload keys pass. Adding a field to `ReminderCreated` is additive — no schema bump, no migration. |
 
-**Scope:** the pattern layer in `src/reminders-app-mention-handler.js`. The `thread_ts` gate stays.
+So a false positive cannot produce an invented reminder; grounding already discards it. It costs one
+AI call and possibly a noisy context line. That is a real cost, but it is spend and noise — not a
+correctness cliff — and it does not justify a phase gate for a single-maintainer project.
 
-### The naive rule is too broad — corrected after agy QA
+**The one risk that survives.** Enrichment **widens the grounding source**: prepend an unrelated
+message and its terms become groundable, so grounding stops protecting against *mis-stitching*
+specifically. That is the entire justification for participant continuity below — not ceremony, but
+the thing that keeps the existing guarantee meaningful.
 
-"Pronoun + scheduling trigger" as originally written fires on ordinary conversation. Reproduced:
+## The change set
+
+One set, shipped whole.
+
+**1. Verb-agnostic object-position reference detection.** An unresolved pronoun means "the task is
+elsewhere" — but only when the pronoun is the **object**, not the **subject**. "get **it** done by
+Monday" points at earlier work; "**it** will rain on friday" is small talk that happens to contain a
+pronoun and a weekday.
+
+Object position is decided by **two closed word classes**, neither of which grows when someone
+invents a new way to say "finish this":
+
+- **Clause boundaries** — a pronoun that opens a clause is that clause's subject.
+- **Auxiliaries and modals** — a pronoun immediately followed by one is the subject of that verb.
+
+A pronoun that is neither clause-initial nor followed by an auxiliary is an object. This is the
+grammatical rule the plan has claimed since the start, finally expressed without enumerating a single
+content verb.
+
+Proven before writing production code:
 
 ```
-FIRES  <-- false positive  "it will rain on friday"
-FIRES  <-- false positive  "that is a problem for next week"
-FIRES  <-- false positive  "it will be sunny tomorrow"
-FIRES   "Can we try to get it done by end of day on Monday?"   <- the real case
+FIRES  "Can we try to get it done by end of day on Monday?"   quiet  "it will rain on friday"
+FIRES  "can you get it done by friday"                        quiet  "that is a problem for next week"
+FIRES  "lets get this done tomorrow"                          quiet  "it will be sunny tomorrow"
+FIRES  "please get that done today"                           quiet  "I think it will rain on friday"
+                                                              quiet  "let's discuss this week"
+                                                              quiet  "ship that morning"
+                                                              quiet  "The deploy is done. It looks fine for monday."
+                                                              quiet  "that was broken yesterday"
+                                                              quiet  "this is due tomorrow and it is fine"
 ```
 
-The existing temporal guard does **not** save this: it guards `this/that + <period>` only, so it hits
-neither `"...for next week"` nor `"...on friday"` in these shapes (verified).
+**2. Channel-level lookback.** Lift the `thread_ts` gate so a top-level channel message can resolve
+its antecedent. No new Slack plumbing: `SlackApp#GetRecentChannelMessagesAsync`
+(`src/slack-app.js:853`) already wraps `conversations.history`, and the scope is already in use in
+production. **Participant continuity is required**: the candidate antecedent must be from the
+follow-up's author, or must mention them. A busy channel interleaves conversations, and a thread is
+an explicit human assertion that messages belong together where a channel offers no such signal.
 
-**Candidate strategy — pronoun in OBJECT position, not SUBJECT position.** In every false positive the
-pronoun is the grammatical *subject* ("**it** will rain", "**that** is a problem"); in every true
-positive it is the *object* ("get **it** done", "follow up on **it**"). That keeps the rule
-grammatical rather than lexical — the property this plan is built on — and separates all four noise
-cases from both real cases without enumerating a single verb. This is a **candidate**, not a mandate:
-the gate below is the requirement, and any implementation that clears it is acceptable.
+**3. Record the resolution.** Add `enrichedFrom` to the `ReminderCreated` ledger payload — the source
+message ts and the structural path that fired. Free per the validation note above. This is what turns
+a mis-stitch from a silent wrong reminder into an auditable record, and it is why the false-stitching
+corpus is not a prerequisite deliverable: production will show us real ones.
 
-**Gate — all must hold before Phase 2 opens:**
+**4. One env flag as a kill switch** on the channel read, default OFF. Not a phase gate — a switch to
+flip back. It exists because this changes AI-call volume on a live production bot, and the blast
+radius of "cannot turn it off" is worse than the cost of one boolean.
 
-- [ ] All four `get it done` variants fire enrichment; the three controls still fire.
-- [ ] **Conversational noise does NOT fire an AI call** — `"it will rain on friday"`, `"that is a
-      problem for next week"`, `"it will be sunny tomorrow"` must be quiet. This corpus is a test
-      fixture, not a comment; extend it whenever a new false positive is found in production.
-- [ ] Temporal false positives still suppressed — `"let's discuss this week"`, `"ship that morning"`,
+## Gate
+
+- [x] All four `get it done` variants fire enrichment; the three existing controls still fire.
+- [x] **Conversational noise does NOT fire an AI call** — the nine-case corpus above stays quiet.
+      This corpus is a test fixture, not a comment; extend it whenever production shows a new one.
+- [x] Temporal false positives still suppressed — `"let's discuss this week"`, `"ship that morning"`,
       `"send it monday"` behave exactly as today.
-- [ ] A pronoun with **no** scheduling trigger does NOT fire an AI call (preserves the 1.4.142
+- [x] A pronoun with **no** scheduling trigger does NOT fire an AI call (preserves the 1.4.142
       hallucination guard).
-- [ ] `ShouldSuppressHypotheticalSubordinateReply` still suppresses
+- [x] `ShouldSuppressHypotheticalSubordinateReply` still suppresses
       `"I'll keep that in mind when I get to it"`.
-- [ ] **Multiple mentions in the prepended context do not hijack assignment.** See *Ownership is not
-      free* below — with two or more `<@U…>` in the enriched block the mentions fallback assigns to
-      **all** of them.
-- [ ] GH-44 decision-replay battery: no regression against the committed baseline.
-- [ ] Mutation-tested — reverting the generalization turns the new tests red.
-- [ ] Full suite green, `tsc` exit 0.
-
-Phase 1 is independently shippable: even though Phase 2 is what fixes the reported top-level-channel
-case, Phase 1 alone fixes `"get it done by Monday"` **in threads**, which
-`VAGUE_COMPLETION_IN_THREAD_PATTERN` misses today.
+- [x] **Multiple mentions in the prepended context do not hijack assignment** — *bounded, not
+      eliminated, and pinned as a characterization test rather than papered over.* With two or more
+      `<@U…>` in one antecedent the mentions fallback still assigns to **all** of them; that is
+      pre-existing `reminder-ownership.js` behavior this issue does not change. What this work
+      bounds is EXPOSURE: the channel collector returns **at most one** message (vs the thread
+      path's three), so a second unrelated mention cannot be dragged in from a second message.
+      Tests cover all three: two-mention → both assigned, single-mention → the real owner,
+      no-enrichment → `sender-fallback` (the reported bug).
+- [x] Channel lookback enforces participant continuity, is same-channel only, and is inert when the
+      flag is unset — AI-call volume byte-identical to today.
+- [x] `enrichedFrom` present on every enriched `ReminderCreated` event.
+- [ ] The reported production case yields a reminder naming the actual task **and** resolving Vishal.
+- [x] GH-44 decision-replay battery: no regression against the committed baseline.
+- [x] Mutation-tested — reverting the generalization turns the new tests red.
+- [x] Full suite green, `tsc` exit 0.
 
 ## Ownership is not free — it rides on the mentions fallback
-
-The original plan claimed "fix the antecedent and ownership follows for free." That is true in the
-reported case but **only by luck of it having exactly one mention**, and the plan must not rest on it
-unexamined.
 
 `src/reminder-ownership.js` falls back, when the analyzer returns no usable owner, to:
 
@@ -155,64 +208,22 @@ task to all of them.
 So enrichment does not merely add context; it **changes the input to the ownership resolver**. That
 is a second-order effect of a change framed as "text only", and it needs the gate item above.
 
-## Phase 2 — channel-level antecedent lookback (flagged, default OFF)
-
-Let a top-level channel message resolve its antecedent from recent channel history. **This is the
-half that fixes the reported case**, and the half carrying real blast radius: every channel message
-with a pronoun plus a time reference becomes a candidate for a history read and an AI call.
-
-**Scope:** the `thread_ts` gate and the auto-schedule path's hardcoded `enrichment=none`.
-
-**Recency alone is not enough — corrected after agy QA.** A busy channel interleaves conversations, so
-time + message count will happily stitch `"get it done by Friday"` onto an unrelated mention three
-messages earlier. **Participant continuity is required**, not optional: the antecedent must be from
-the same author as the follow-up, or must mention its author. This is the single largest risk in the
-plan, and it may yet prove that channel-level lookback is **fundamentally unsafe outside threads** — a
-thread is an explicit human assertion that messages belong together, and a channel offers no such
-signal. Phase 2 must be prepared to conclude that and stop, with Phase 1 still shipped.
-
-**Gate:**
-
-- [ ] Behind an env flag, **default OFF**. Unset ⇒ behavior and AI-call volume byte-identical to today.
-- [ ] A **recency window** (time and message count) — a named constant with documented rationale, not
-      a magic number.
-- [ ] **Participant continuity enforced**: the candidate antecedent is from the follow-up's author, or
-      mentions them. A false-stitching corpus built from real production channel history is a test
-      fixture, not a thought experiment.
-- [ ] Same-channel only; never reads across channels or DMs.
-- [ ] **Cost measured with this specific method** (vague "measure cost" was unfalsifiable): count
-      top-level channel messages matching the Phase 1 pattern over 7 days of production telemetry,
-      then multiply by one `conversations.history` call plus one OpenAI call. Report the absolute
-      added call volume and the Slack rate-limit headroom before recommending it be armed.
-- [ ] Multi-tenant safe — no workspace state resolved via globals (AGENTS.md §0.1).
-- [ ] The reported production case yields a reminder naming the actual task **and** resolving Vishal
-      as owner.
-- [ ] Full suite green, `tsc` exit 0.
-
-Phase 2 does **not** duplicate `#CollectPrecedingHumanThreadMessagesAsync`
-(`src/reminders-app-mention-handler.js:747`): that method opens `if(!ArgEventInfo.thread_ts) return [];`
-and walks a thread, whereas Phase 2 needs `conversations.history` on a channel with no thread. Distinct
-mechanism, not redundant machinery — checked against the same standard that removed the redundant
-ignore-pattern in GH-48.
-
 ## The GH-44 battery is a regression guard, not an improvement measure
 
-The original plan called the battery "a valid measuring stick" for this work. Sharpened after QA: the
-battery exercises **single-message routing with no thread context**, while both phases fire only when
-thread or channel context exists. So the battery can prove we did not **break** existing non-enriched
-behavior — which is exactly what the gates use it for — but it can never **show the improvement**,
+The battery exercises **single-message routing with no thread context**, while this work fires only
+when thread or channel context exists. So it can prove we did not **break** existing non-enriched
+behavior — which is exactly what the gate uses it for — but it can never **show the improvement**,
 because it never reaches the enrichment path at all.
 
-Do not read a green battery as evidence the fix works. The improvement needs its own instrument:
-the noise corpus and `get it done` variants in Phase 1's gate, and the reported production case in
-Phase 2's. Treating a regression guard as proof of improvement is the same error as trusting a check
-that cannot fail.
+Do not read a green battery as evidence the fix works. The improvement needs its own instrument: the
+noise corpus and `get it done` variants above, and the reported production case. Treating a
+regression guard as proof of improvement is the same error as trusting a check that cannot fail.
 
 ## Out of scope
 
-Changing the analyzer prompt or schema. Both phases change *what text reaches* the analyzer, never
-how it reasons — which is what keeps the battery valid as a regression guard across both phases. Any
-prompt edit would invalidate even that.
+Changing the analyzer prompt or schema. This work changes *what text reaches* the analyzer, never how
+it reasons — which is what keeps the battery valid as a regression guard. Any prompt edit would
+invalidate even that.
 
 Also out of scope: cross-channel or DM antecedents, and any attempt to resolve an antecedent older
-than the Phase 2 recency window.
+than the recency window.

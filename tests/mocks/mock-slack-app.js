@@ -102,6 +102,7 @@ class MockSlackApp {
    * @param {string[]} [ArgOptions.AdminUsers] User IDs treated as admins/owners.
    * @param {Record<string, string>} [ArgOptions.ChannelCreatorsById] Channel creator lookup.
    * @param {Record<string, import('../../src/slack-app').MessageInfo[]>} [ArgOptions.ThreadMessagesById] Thread messages by `channel:ts`.
+   * @param {Record<string, import('../../src/slack-app').MessageInfo[]>} [ArgOptions.RecentChannelMessagesById] Channel timeline by channel ID, NEWEST-FIRST (GH-55).
    * @param {Record<string, string>} [ArgOptions.ThreadTsById] Thread root ts override by `channel:ts`, for GetMessageThreadTsAsync.
    * @param {Record<string, import('../../src/slack-app').MessageMetadata|null>} [ArgOptions.MessageMetadataById] Message metadata by `channel:ts`.
    * @param {Record<string, string>} [ArgOptions.ChannelIdsByName] Channel ID lookup by name.
@@ -135,6 +136,7 @@ class MockSlackApp {
     this.#AdminUsers = new Set(ArgOptions.AdminUsers || []);
     this.#ChannelCreatorsById = new Map(Object.entries(ArgOptions.ChannelCreatorsById || {}));
     this.#ThreadMessagesById = new Map(Object.entries(ArgOptions.ThreadMessagesById || {}));
+    this.#RecentChannelMessagesById = new Map(Object.entries(ArgOptions.RecentChannelMessagesById || {}));
     this.#ThreadTsById = new Map(Object.entries(ArgOptions.ThreadTsById || {}));
     this.#MessageMetadataById = new Map(Object.entries(ArgOptions.MessageMetadataById || {}));
     this.#ChannelIdsByName = new Map(Object.entries(ArgOptions.ChannelIdsByName || {}));
@@ -231,6 +233,8 @@ class MockSlackApp {
    * @type {Map<string, import('../../src/slack-app').MessageInfo[]>}
    */
   #ThreadMessagesById;
+  /** @type {Map<string, any[]>} */
+  #RecentChannelMessagesById;
 
   /**
    * Thread root ts override lookup by `channel:ts`, for GetMessageThreadTsAsync.
@@ -422,6 +426,19 @@ class MockSlackApp {
    */
   async GetConversationMessagesAsync(ArgChannelID, ArgThreadTS) {
     return this.#ThreadMessagesById.get(`${ArgChannelID}:${ArgThreadTS}`) || [];
+  }
+
+  /**
+   * Look up a channel timeline. Mirrors the real `SlackApp#GetRecentChannelMessagesAsync`, which
+   * wraps `conversations.history` and therefore returns messages NEWEST-FIRST — fixtures must be
+   * ordered that way or a test will pass against an ordering production never produces.
+   * @param {string} ArgChannelID Channel ID.
+   * @param {number} [ArgLimit] Maximum messages to return.
+   * @returns {Promise<import('../../src/slack-app').MessageInfo[]>}
+   */
+  async GetRecentChannelMessagesAsync(ArgChannelID, ArgLimit = 10) {
+    const Messages = this.#RecentChannelMessagesById.get(ArgChannelID) || [];
+    return Messages.slice(0, ArgLimit);
   }
 
   /**

@@ -177,7 +177,16 @@ Description: High-value correctness goal, and the unfinished half of the complex
 
 Release: 1.4.290
 Iterations: 1.4.290-1.4.299
-Status: Draft
+Status: In Progress — code merged at 1.4.290 with the channel half default-OFF; the release closes
+  when the flag is armed and the milestone is observed in production, not on merge.
+Sequencing deviation: 2026-08-14. Roundup's note below says Roundup ships FIRST. It did not — GH-55
+  was implemented and merged before any Roundup issue shipped. Recorded rather than quietly
+  renumbered, because this is the NINTH consecutive version slot to go to work outside the release
+  that reserved it. Antecedent took 1.4.290 from its OWN band precisely so it did not become the
+  ninth theft of Roundup's: 1.4.278-1.4.279 remain unspent and Roundup's band is intact.
+  The sequencing rationale ("fix the instruments before running the experiments") does not apply
+  here — GH-39/GH-41 are RELEASES/changelog parsing checks, and nothing in this work was verified
+  by them. It was verified by its own instrument: a 9-case noise corpus and five mutations.
 Codename: "Antecedent"
 Milestone: A follow-up that points at earlier work resolves what it points at, before anything is scheduled
 Target Date:
@@ -199,7 +208,11 @@ Description: High-value correctness goal. When someone writes "can we get it don
   50-character message needs context ADDED. The wrong assignee is the same root cause rather
   than a second defect: "can we get it done" has no grammatical subject to own, so ownership
   correctly fell back to the sender, and the real owner is only recoverable from the
-  antecedent. Fixing the antecedent fixes ownership for free.
+  antecedent. Fixing the antecedent fixes ownership — but NOT "for free", as an earlier draft of
+  this block claimed: ownership rides on reminder-ownership.js's mentions fallback, which assigns to
+  EVERY mention it finds. It resolves correctly in the reported case only because the enriched block
+  happens to carry exactly one. Enrichment therefore changes the input to the ownership resolver,
+  which is a second-order effect of a change framed as "text only".
   Two blockers, both verified: enrichment is gated on thread_ts and these were top-level
   channel posts (enrichment=none is a hardcoded literal on the auto-schedule path), and
   "get it done" matches none of the three vague-reference patterns. Deliberately NOT fixed by
@@ -207,11 +220,19 @@ Description: High-value correctness goal. When someone writes "can we get it don
   whack-a-mole (GH-424 needed two rounds and "see above" still slipped through). The general
   rule is grammatical: an unresolved pronoun plus a scheduling trigger means the task is
   elsewhere, whatever verb surrounds it.
-  Phase 1 generalizes reference detection in-thread and is independently shippable. Phase 2
-  adds channel-level lookback behind a default-OFF flag with a recency window, and is the half
-  that fixes the reported case; it does not open until Phase 1's gate is green. Neither phase
-  touches the analyzer prompt or schema, which is what keeps the GH-44 replay battery a valid
-  measuring stick across both.
-  Done when: GH-55 is closed, a pronoun follow-up in a monitored channel schedules the real
-  task with the real owner, and the GH-44 battery shows no regression.
+  Shipped as ONE change set, not two gated phases. The two-phase split was removed on operator
+  review as ceremony for a single-maintainer project, and its stated justification — containing the
+  blast radius of a false positive — did not survive checking against the code: GH-43's grounding
+  constraint (reminder-display-selection.js) already DISCARDS a synthesized title naming anything
+  absent from the source, so a false positive costs one AI call and a possibly noisy context line,
+  not a wrong reminder. The one risk that does survive is mis-stitching, because enrichment WIDENS
+  the grounding source — which is what participant continuity exists to contain.
+  Nothing here touches the analyzer prompt or schema. That keeps the GH-44 battery valid as a
+  REGRESSION GUARD — but not as a measuring stick: it exercises single-message routing with no
+  thread context, so it never reaches the enrichment path and cannot show the improvement. A green
+  battery is not evidence this works.
+  Done when: the flag is armed in production, a pronoun follow-up in a monitored channel schedules
+  the real task with the real owner, `enrichedFrom` is present on those events, the GH-44 battery
+  shows no regression, and GH-55 is closed. NOT met by the 1.4.290 merge: the channel half — the
+  half that fixes the reported case — is default-OFF until an operator arms it.
   Plan: PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md
