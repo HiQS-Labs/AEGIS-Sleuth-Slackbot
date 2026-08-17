@@ -7,6 +7,7 @@ const path = require('path');
 const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 // GH-43 Phase 3 — the task/context split, the grounding constraint, and persisted NotifyIDs, all
@@ -15,7 +16,7 @@ const { MockSlackApp } = require('./mocks/mock-slack-app');
 // Red before this phase: `context` was not in the schema and would have been dropped; an ungrounded
 // title was rendered verbatim; and NotifyIDs did not exist as a field.
 
-const RuntimeDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+const RuntimeDir = workspaces.GetSubdirPath('reminders');
 const WorkspaceBase = {
   ADMIN_EMAIL: 'admin@example.com',
   LIVE_TOKEN: 'xoxb-test',

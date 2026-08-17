@@ -2,6 +2,7 @@
 
 const fs = require('fs').promises;
 const path = require('path');
+const Workspaces = require('../src/workspaces');
 const JinhuiFixture = require('./fixtures/stratalist/jinhui2026.public-share.json');
 
 const mockWorkspaceAIInstances = [];
@@ -134,7 +135,7 @@ const EmptyWorkspaceStats = {
  * @returns {Promise<void>}
  */
 async function WriteWorkspaceFixtureAsync(ArgWorkspaceInfo) {
-  const WorkspaceDirPath = path.join(__dirname, '..', 'data', 'runtime', 'workspaces');
+  const WorkspaceDirPath = Workspaces.GetDirPath();
   await fs.mkdir(WorkspaceDirPath, { recursive: true });
   await fs.writeFile(
     path.join(WorkspaceDirPath, `${ArgWorkspaceInfo.WORKSPACE_NAME}_workspace.json`),
@@ -148,7 +149,7 @@ async function WriteWorkspaceFixtureAsync(ArgWorkspaceInfo) {
  * @returns {Promise<void>}
  */
 async function RemoveWorkspaceFixtureAsync(ArgWorkspaceName) {
-  const WorkspaceDirPath = path.join(__dirname, '..', 'data', 'runtime', 'workspaces');
+  const WorkspaceDirPath = Workspaces.GetDirPath();
   await fs.unlink(path.join(WorkspaceDirPath, `${ArgWorkspaceName}_workspace.json`)).catch(() => {});
   await fs.unlink(path.join(WorkspaceDirPath, `${ArgWorkspaceName}_channel_models.json`)).catch(() => {});
 }
@@ -1660,7 +1661,7 @@ describe('ChatModule integration via MockSlackApp', () => {
   // the admin toggle flips per-workspace mode, and in `active` mode Flash Lite's resolved command is
   // executed via the same CommandRouter (full takeover) above the confidence floor, else falls back.
   describe('router-mode (GH-397)', () => {
-    const ShadowFile = path.join(__dirname, '..', 'data', 'runtime', 'shadow', 'IntegrationWorkspace_router-shadow.jsonl');
+    const ShadowFile = Workspaces.GetSubdirPath('shadow', 'IntegrationWorkspace_router-shadow.jsonl');
     afterEach(async () => { await fs.unlink(ShadowFile).catch(() => {}); });
 
     /** Flip the workspace into a given router mode via the admin command; returns the ChatModule env. */
@@ -1735,7 +1736,7 @@ describe('ChatModule integration via MockSlackApp', () => {
   // RemindersModule.GetAllReminders() at answer time — never the cached snapshot — and channel-privacy
   // scoped. Doubly gated: router mode must be `active` AND ROUTER_SNAPSHOT_ENABLED must be truthy.
   describe('GH-405 active-mode deterministic open-count', () => {
-    const ShadowFile = path.join(__dirname, '..', 'data', 'runtime', 'shadow', 'IntegrationWorkspace_router-shadow.jsonl');
+    const ShadowFile = Workspaces.GetSubdirPath('shadow', 'IntegrationWorkspace_router-shadow.jsonl');
     let SavedSnapshotEnv;
     beforeEach(() => { SavedSnapshotEnv = process.env.ROUTER_SNAPSHOT_ENABLED; });
     afterEach(async () => {

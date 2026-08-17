@@ -319,15 +319,16 @@ class ChatModule {
     // initialize the per-channel model override store. Disk load is deferred to StartAsync so
     // construction stays synchronous and matches the pattern used by other modules.
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
-    const ChannelModelsFilePath = path.resolve(
-      path.join(__dirname, '..', 'data', 'runtime', 'workspaces', `${WorkspaceName}_channel_models.json`)
+    const ChannelModelsFilePath = Workspaces.GetSubdirPath(
+      'workspaces',
+      `${WorkspaceName}_channel_models.json`
     );
     this.#ChannelModelSettings = new ChannelModelSettings(this.#SlackApp, ChannelModelsFilePath);
 
     // GH-397 router mode (off/shadow/active). Non-authoritative corpus lives OUTSIDE
     // data/runtime/events/ (that dir is the P3 authoritative ledger). Default mode is `off`.
     const RouterShadowStore = createRouterShadowStore({
-      rootDir: path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'shadow')),
+      rootDir: Workspaces.GetSubdirPath('shadow'),
     });
     this.#RouterShadow = new RouterShadowModule({
       WorkspaceName,
@@ -2374,9 +2375,7 @@ class ChatModule {
    */
   #GetBugReportsFilePath() {
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
-    return path.resolve(
-      path.join(__dirname, '..', 'data', 'runtime', 'bugs', `${WorkspaceName}_bugs.json`)
-    );
+    return Workspaces.GetSubdirPath('bugs', `${WorkspaceName}_bugs.json`);
   }
 
   /**
@@ -2595,9 +2594,7 @@ class ChatModule {
    */
   #GetThreadMemoryFilePath() {
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
-    return path.resolve(
-      path.join(__dirname, '..', 'data', 'runtime', 'context-memory', `${WorkspaceName}_thread_memory.json`)
-    );
+    return Workspaces.GetSubdirPath('context-memory', `${WorkspaceName}_thread_memory.json`);
   }
 
   /**

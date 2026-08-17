@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 1.4.291 - 2026-08-16
+## 1.4.292 - 2026-08-17
 When you upload a screenshot or photo of an itemized list or table in Slack and ask me to create a
 list, I now use Gemini Flash's vision OCR to extract every item, title, and penalty/fine amount,
 and automatically build an interactive Slack List for you with a link back to the thread.
@@ -44,6 +44,11 @@ and automatically build an interactive Slack List for you with a link back to th
 - **GeminiProvider & WorkspaceAI:** `src/ai-providers/gemini-provider.js` supports `ProcessMultimodalMessageWithJsonResponseAsync` sending `inlineData` parts alongside system instructions and schema sanitization. `src/workspace-ai.js` dispatches multimodal requests to the active provider.
 - **Slack List Materialization:** `src/lists-module.js` provides `CreateListFromExtractedItemsAsync` to create lists with 5 columns (`Item #`, `Item / Task`, `Amount / Fine`, `Notes`, `Status`) and populate item rows. `src/chat-module.js` routes OCR list requests and posts interactive confirmation with permalink.
 - **Tests:** 27 new tests in `tests/gemini-ocr-slack-list.test.js`.
+
+## 1.4.291 - 2026-08-17
+I've made test suite runs cleanly isolated across parallel worker processes, so background test runs never interfere with each other or pollute the workspace runtime files on disk.
+
+**Technical:** GH-60 (port of issue #435). Parallel Jest workers previously read and wrote shared paths inside `data/runtime/**`, leading to cross-process race conditions and persistent runtime file artifacts. Added `Workspaces.GetRuntimeDirPath()` and `Workspaces.GetSubdirPath(ArgSubdir, ArgFilename)` respecting `SLEUTH_DATA_DIR` / `AEGIS_DATA_DIR`. Configured Jest `setupFiles` with `tests/runtime-setup.js` to isolate runtime data to temporary worker directories. Updated all runtime file consumers across `src/` and `tests/` to use dynamic subdir resolution. Added `tests/test-runtime-isolation.test.js`.
 
 ## 1.4.290 - 2026-08-14
 When you follow up on something with "can we get it done by Monday?", I now go back and read what

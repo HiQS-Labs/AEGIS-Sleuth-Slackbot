@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const SlackApp = require('./slack-app');
 const WorkspaceAI = require('./workspace-ai');
+const workspaces = require('./workspaces');
 const DateUtils = require('./date-utils');
 const RemindersChannelSettings = require('./reminders-channel-settings');
 const RemindersAIPipeline = require('./reminders-ai-pipeline');
@@ -1216,7 +1217,7 @@ class RemindersModule {
     );
 
     // compute the reminders directory path and ensure it exists.
-    const RemindersDirPath = path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'reminders'));
+    const RemindersDirPath = workspaces.GetSubdirPath('reminders');
     await fs.mkdir(RemindersDirPath, { recursive: true });
     try {
       const TestPath = path.join(RemindersDirPath, `.tmp_${Date.now()}`);
@@ -1246,7 +1247,7 @@ class RemindersModule {
     // Best-effort — nothing reads it back yet (projections consume it out-of-band), so there is
     // no LoadAsync and no boot dependency on it.
     this.#EventStore = createEventStore({
-      rootDir: path.join(RemindersDirPath, '..', 'events'),
+      rootDir: workspaces.GetSubdirPath('events'),
     });
     this.#EventWorkspace = WorkspaceName;
 
@@ -1254,7 +1255,7 @@ class RemindersModule {
     // here, because the shortfall is in the file, not merely in this process's memory — a restart
     // must not forget it.
     this.#LedgerCoverage = createLedgerCoverage({
-      rootDir: path.join(RemindersDirPath, '..', 'events'),
+      rootDir: workspaces.GetSubdirPath('events'),
       Logger: this.#SlackApp.Logger,
     });
 
@@ -1276,7 +1277,7 @@ class RemindersModule {
     if(RemindersAIPipeline.IsDecisionCaptureArmedFor(WorkspaceName)) {
       this.#AIPipeline.SetDecisionCapture({
         Store: createDecisionCorpusStore({
-          rootDir: path.join(RemindersDirPath, '..', 'decisions'),
+          rootDir: workspaces.GetSubdirPath('decisions'),
         }),
         // Workspace is passed explicitly and never resolved from module state: every workspace
         // shares this process, so a global here would cross-file one tenant's decisions into

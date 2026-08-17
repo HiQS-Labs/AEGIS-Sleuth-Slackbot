@@ -20,12 +20,12 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const BaseWorkspaceInfo = {
-  WORKSPACE_NAME: 'FsmInvariantWorkspace',
   ADMIN_EMAIL: 'admin@example.com',
   LIVE_TOKEN: 'xoxb-test',
   LIVE_SIGNING_SECRET: 'secret',
@@ -47,11 +47,11 @@ function MakeWorkspaceInfo(ArgSuffix) {
 }
 
 function GetReminderFilePath(ArgWorkspaceName) {
-  return path.join(__dirname, '..', 'data', 'runtime', 'reminders', `${ArgWorkspaceName}_reminders.json`);
+  return workspaces.GetSubdirPath('reminders', `${ArgWorkspaceName}_reminders.json`);
 }
 
 async function CleanupAsync(ArgWorkspaceName) {
-  const Dir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+  const Dir = workspaces.GetSubdirPath('reminders');
   await fs.mkdir(Dir, { recursive: true });
   await Promise.all([
     `${ArgWorkspaceName}_reminders.json`,

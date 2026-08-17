@@ -1,8 +1,8 @@
-
 // import required modules.
 const fs = require('fs').promises;
 const { WriteFileDurableAsync } = require('./durable-write');
 const path = require('path');
+const workspaces = require('./workspaces');
 
 /**
  * Provides simple key/value settings persisted to disk.
@@ -18,10 +18,12 @@ class SettingsModule {
    * Settings object.
    * @type {{ LastManualFilePath: string|null }}
    */
-  Settings = { LastManualFilePath: null };
+  #Settings = {
+    LastManualFilePath: null
+  };
 
   /**
-   * Indicates if data loaded successfully.
+   * Was data loaded successfully?
    * @type {boolean}
    */
   #DataLoaded = false;
@@ -36,8 +38,7 @@ class SettingsModule {
    * Initialize a new instance.
    */
   constructor() {
-    const DirPath = path.resolve(path.join(__dirname, '..', 'data', 'runtime'));
-    this.#SettingsFilePath = path.join(DirPath, 'settings.json');
+    this.#SettingsFilePath = workspaces.GetSubdirPath('', 'settings.json');
   }
 
   /**

@@ -3,6 +3,7 @@
 const fs = require('fs').promises;
 const { WriteFileDurableAsync } = require('./durable-write');
 const path = require('path');
+const workspaces = require('./workspaces');
 
 /**
  * Statistics tracked for a workspace.
@@ -124,7 +125,7 @@ class StatsModule {
    */
   async StartAsync() {
     // compute the stats directory path and ensure it exists.
-    const StatsDirPath = path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'stats'));
+    const StatsDirPath = workspaces.GetSubdirPath('stats');
     await fs.mkdir(StatsDirPath, { recursive: true });
 
     // sanity check directory permissions by writing/deleting a temp file.
