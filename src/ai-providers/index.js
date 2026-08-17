@@ -20,6 +20,8 @@ const GeminiProvider = require('./gemini-provider');
  *   Send a message to the model and return a structured JSON response matching the schema.
  * @property {(ArgMessageText: string, ArgSystemInstructions: string, ArgModelName: string) => Promise<string>} ProcessMessageWithTextResponseAsync
  *   Send a message to the model and return the response as text.
+ * @property {((ArgMessageText: string, ArgSystemInstructions: string, ArgJsonSchemaObject: object, ArgImage: { Base64: string, Mimetype: string }, ArgModelName: string) => Promise<object>)} [ProcessMultimodalMessageWithJsonResponseAsync]
+ *   Send a message with an inline image attachment to the model and return a structured JSON response matching the schema.
  * @property {() => Promise<string[]>} GetAvailableModelsAsync
  *   Return the list of model IDs available to this workspace via this provider.
  * @property {(ArgModelName: string) => Promise<boolean>} IsValidModelAsync

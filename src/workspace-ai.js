@@ -498,6 +498,28 @@ class WorkspaceAI {
   }
 
   /**
+   * Send a message with an inline image attachment to the configured AI provider and return a
+   * structured JSON response matching the given schema. Routes to whichever provider owns the
+   * requested model name (e.g. gemini-* → GeminiProvider) which implements the actual
+   * generateContent call with inlineData parts.
+   * @param {string} ArgMessageText Message text to send.
+   * @param {string} ArgSystemInstructions System instructions to use when processing the message.
+   * @param {ResponseSchema} ArgJsonSchemaObject JSON schema defining the expected structure of the response object.
+   * @param {{ Base64: string, Mimetype: string }} ArgImage Image payload from SlackApp.DownloadFileBase64Async.
+   * @param {string} [ArgModelName] Model name to use; if not specified, the default model will be used.
+   * @returns {Promise<object>}
+   */
+  async ProcessMultimodalMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName) {
+    const Provider = this.#GetProviderForModel(ArgModelName || this.#DefaultModelName);
+    if(typeof Provider.ProcessMultimodalMessageWithJsonResponseAsync !== 'function') {
+      throw new Error(`Provider '${Provider.Id}' does not implement ProcessMultimodalMessageWithJsonResponseAsync.`);
+    }
+    return Provider.ProcessMultimodalMessageWithJsonResponseAsync(
+      ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName || this.#DefaultModelName
+    );
+  }
+
+  /**
    * Send a message to the configured AI provider and return the response as text.
    * @param {string} ArgMessageText Message text to send.
    * @param {string} ArgSystemInstructions System instructions to use when processing the message.
