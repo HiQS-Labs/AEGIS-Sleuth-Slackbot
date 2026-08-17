@@ -11,7 +11,6 @@ jest.mock('../src/workspace-ai');
 const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
-jest.mock('../src/workspaces');
 const Workspaces = require('../src/workspaces');
 
 const { MockSlackApp } = require('./mocks/mock-slack-app');
@@ -149,8 +148,9 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
   // collide — see GH-424 Codex review. Constant within this process's test run.
   const HarnessWorkspaceName = `${FakeWorkspaceInfo.WORKSPACE_NAME}-test-harness-${process.pid}`;
 
+  let LoadWorkspaceSpy;
   beforeEach(() => {
-    Workspaces.LoadWorkspaceInfoByNameAsync.mockResolvedValue(FakeWorkspaceInfo);
+    LoadWorkspaceSpy = jest.spyOn(Workspaces, 'LoadWorkspaceInfoByNameAsync').mockResolvedValue(FakeWorkspaceInfo);
     // RemindersModule.StartAsync unconditionally schedules a daily-digest + weekly-report
     // setTimeout, neither cleared by StopAsync (the weekly one isn't cleared at all — a
     // pre-existing gap). Their delay is computed from real wall-clock math and can floor to
@@ -161,6 +161,7 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
   });
 
   afterEach(async () => {
+    if(LoadWorkspaceSpy) LoadWorkspaceSpy.mockRestore();
     jest.useRealTimers();
     // safety net in case a test throws before the harness's own cleanup runs.
     await CleanupRuntimeFilesAsync(HarnessWorkspaceName);

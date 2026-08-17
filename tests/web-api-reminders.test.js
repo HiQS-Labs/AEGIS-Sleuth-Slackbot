@@ -39,8 +39,8 @@ describe('GET /workspace/:name/reminders', () => {
   /** @type {WebAPI} */
   let API;
   let ActualPort;
-  const RemindersDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
-  const EventsDir = path.join(__dirname, '..', 'data', 'runtime', 'events');
+  const RemindersDir = workspaces.GetSubdirPath('reminders');
+  const EventsDir = workspaces.GetSubdirPath('events');
   const TestWorkspaceName = 'WebAPIRemindersTest';
   const RemindersFilePath = path.join(RemindersDir, `${TestWorkspaceName}_reminders.json`);
   const EventsFilePath = path.join(EventsDir, `${TestWorkspaceName}_events.jsonl`);

@@ -6,6 +6,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const MockWorkspaceAI = require('../src/workspace-ai');
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 // GH-43, Codex branch relay r9. The `:wrench:` triage resolved ownership by concatenating EVERY
@@ -16,7 +17,7 @@ const { MockSlackApp } = require('./mocks/mock-slack-app');
 // Earlier rounds tested the helper in isolation, which by construction could not observe the global
 // resolver call. This asserts on the RENDERED triage output.
 
-const RuntimeDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+const RuntimeDir = workspaces.GetSubdirPath('reminders');
 const Workspace = {
   ADMIN_EMAIL: 'admin@example.com', LIVE_TOKEN: 'xoxb-test', LIVE_SIGNING_SECRET: 'secret',
   LIVE_APP_TOKEN: 'xapp-test', OPENAI_API_KEY: 'sk-test', REMINDER_CHANNEL_NAME: 'test-reminders',

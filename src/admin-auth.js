@@ -4,6 +4,7 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const crypto = require('crypto');
 const path = require('path');
+const workspaces = require('./workspaces');
 
 // define token expiry durations.
 const SESSION_EXPIRY_MS = 8 * 60 * 60 * 1000;
@@ -67,7 +68,7 @@ class AdminAuth {
    * @returns {string}
    */
   static GetConfigFilePath() {
-    return path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'admin-auth.json'));
+    return workspaces.GetSubdirPath('', 'admin-auth.json');
   }
 
   /**

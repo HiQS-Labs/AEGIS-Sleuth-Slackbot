@@ -7,11 +7,12 @@ const path = require('path');
 const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { BuildCompactTextForReminder } = require('../src/reminders-display-utils');
 const { GetActiveRemindersForUser } = require('../src/chat-commands/show-me-context');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
-const RuntimeDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+const RuntimeDir = workspaces.GetSubdirPath('reminders');
 const WorkspaceBase = {
   ADMIN_EMAIL: 'admin@example.com',
   LIVE_TOKEN: 'xoxb-test',

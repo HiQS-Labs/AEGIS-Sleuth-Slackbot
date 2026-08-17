@@ -159,8 +159,8 @@ async function LoadScenarioAsync(ArgScenarioPath) {
  * @returns {string[]}
  */
 function GetReminderRuntimeFilePaths(ArgWorkspaceName) {
-  const RemindersDirPath = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
-  const EventsDirPath = path.join(__dirname, '..', 'data', 'runtime', 'events');
+  const RemindersDirPath = Workspaces.GetSubdirPath('reminders');
+  const EventsDirPath = Workspaces.GetSubdirPath('events');
   return [
     path.join(RemindersDirPath, `${ArgWorkspaceName}_reminders.json`),
     path.join(RemindersDirPath, `${ArgWorkspaceName}_reminder_counter.json`),

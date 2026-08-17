@@ -14,6 +14,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { WriteFileDurableAsync } = require('./durable-write');
+const workspaces = require('./workspaces');
 
 const Synthesis = require('./code-task-synthesis');
 
@@ -176,7 +177,7 @@ function ResolveCodeTaskConfig(ArgSlackApp, ArgOverrides = {}) {
     tasksDir: ArgOverrides.tasksDir ?? DefaultTasksDir,
     acksDir: ArgOverrides.acksDir ?? DefaultAcksDir,
     issueLabel: ArgOverrides.issueLabel ?? (process.env.CODE_TASK_ISSUE_LABEL || 'claude-code-task'),
-    seenPath: ArgOverrides.seenPath ?? path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'code-task-relay-seen.json')),
+    seenPath: ArgOverrides.seenPath ?? workspaces.GetSubdirPath('', 'code-task-relay-seen.json'),
     pollIntervalMs: ArgOverrides.pollIntervalMs ?? 60000,
     githubClient: ArgOverrides.githubClient ?? (Pat ? BuildDefaultGithubClient(Pat) : null),
   };

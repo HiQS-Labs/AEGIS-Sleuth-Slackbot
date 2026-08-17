@@ -16,6 +16,7 @@ const fsSync = require('fs');
 const path = require('path');
 
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 const { BuildTempPath } = require('../src/durable-write');
 
@@ -37,7 +38,7 @@ const EmptyWorkspaceStats = {
   IncomingGptMessageCount: 0, IncomingGptMessageLength: 0,
 };
 
-const RuntimeDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+const RuntimeDir = workspaces.GetSubdirPath('reminders');
 
 /**
  * Per-test workspace so cases cannot collide on the shared runtime directory.

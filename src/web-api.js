@@ -356,7 +356,7 @@ class WebAPI {
    * @returns {Promise<{ Reminders: any[], RemindersFilePath: string }>}
    */
   async #ReadWorkspaceRemindersAsync(ArgWorkspaceName, ArgFlagName = 'REMINDERS_READ_SOURCE') {
-    const RemindersFilePath = path.join(__dirname, '..', 'data', 'runtime', 'reminders', `${ArgWorkspaceName}_reminders.json`);
+    const RemindersFilePath = workspaces.GetSubdirPath('reminders', `${ArgWorkspaceName}_reminders.json`);
     const ReadAuthoritativeAsync = async () => {
       try {
         const RawJSON = await fs.readFile(RemindersFilePath, 'utf8');
@@ -399,7 +399,7 @@ class WebAPI {
   async #IsLedgerCoverageCleanAsync(ArgWorkspaceName) {
     try {
       const Coverage = createLedgerCoverage({
-        rootDir: path.join(__dirname, '..', 'data', 'runtime', 'events'),
+        rootDir: workspaces.GetSubdirPath('events'),
         Logger: console,
       });
       return await Coverage.IsCleanAsync(ArgWorkspaceName);
@@ -417,7 +417,7 @@ class WebAPI {
    * @returns {Promise<{ reminders: any[], completed: any[] }>}
    */
   async #ReadWorkspaceProjectionAsync(ArgWorkspaceName) {
-    const EventsRootPath = path.join(__dirname, '..', 'data', 'runtime', 'events');
+    const EventsRootPath = workspaces.GetSubdirPath('events');
     const SafeWorkspaceName = String(ArgWorkspaceName).replace(/[^A-Za-z0-9._-]/g, '_');
     const EventsFilePath = path.join(EventsRootPath, `${SafeWorkspaceName}_events.jsonl`);
     await fs.access(EventsFilePath);
@@ -435,7 +435,7 @@ class WebAPI {
    * @returns {Promise<any[]>}
    */
   async #ReadWorkspaceCompletedAsync(ArgWorkspaceName) {
-    const CompletedFilePath = path.join(__dirname, '..', 'data', 'runtime', 'reminders', `${ArgWorkspaceName}_completed.json`);
+    const CompletedFilePath = workspaces.GetSubdirPath('reminders', `${ArgWorkspaceName}_completed.json`);
 
     const Result = await ReadWithProjectionFallbackAsync({
       flagName: 'COMPLETED_READ_SOURCE',

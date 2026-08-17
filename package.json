@@ -44,6 +44,9 @@
   "license": "AGPL-3.0-only",
   "jest": {
     "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/tests/runtime-setup.js"
+    ],
     "_comment_glob_anchoring": "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/.",
     "testMatch": [
       "<rootDir>/tests/**/*.test.js"

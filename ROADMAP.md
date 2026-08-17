@@ -31,6 +31,12 @@ goal: >
 
 ### In progress
 
+- **Test suite data/runtime isolation across Jest workers (GH-60)** — **complete, in PR review.**
+  Test suites share a non-isolated `data/runtime/` tree across parallel Jest worker processes,
+  causing cross-process state races and flaky test failures. Fix routes all runtime state under
+  `SLEUTH_DATA_DIR` (with per-worker temp directory isolation in Jest setup) and adds a regression
+  guard. → [PROJECT/2-WORKING/GH-60-ISOLATE-TEST-RUNTIME-DATA.md](PROJECT/2-WORKING/GH-60-ISOLATE-TEST-RUNTIME-DATA.md)
+
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
