@@ -1787,13 +1787,13 @@ class RemindersModule {
       // append bulleted list of key tasks to the reminder message. NOTE: the reminder messages shown here were
       // extracted by the GPT model and are not the same as the message text sent by the user.
       NewReminderMessageText = CurrentReminders.reduce((ArgAccumulatedText, ArgCurrentReminder) => {
-        const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn)}`;
+        const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn, ArgMessageText)}`;
         // GH-43 Phase 3: context renders SUBORDINATELY on its own indented italic line, never inline
         // in the bullet. Fusing the two is the second defect from the report — the root-cause
         // paragraph and the commitment sharing one string. The full original stays in the blockquote
         // above, so the bullet is free to be short and the context is free to be optional.
         return ArgAccumulatedText + TaskLine
-          + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn);
+          + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn, ArgMessageText);
       }, NewReminderMessageText + "\n\nKey task(s):");
 
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
@@ -2212,7 +2212,7 @@ class RemindersModule {
    * routing was computed; the legacy sentence-count-on-normalized-text fallback then applies.
    * @returns {string}
    */
-  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
     const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
       ? ArgSynthesisOn
@@ -2222,7 +2222,7 @@ class RemindersModule {
     // REAL rule instead of a copy of it (agy branch relay r1). This method keeps only what is
     // genuinely Slack-specific: the warn line and the mrkdwn mention normalization.
     const Selection = ReminderDisplaySelection.SelectTaskText(
-      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn, ArgAnalyzedSourceText,
     );
     if(Selection.ungroundedTerms.length > 0) {
       this.#SlackApp.Logger.warn(
@@ -2281,7 +2281,7 @@ class RemindersModule {
    * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message.
    * @returns {string} `'\n  _<context>_'`, or `''`.
    */
-  #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+  #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
     const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
       ? ArgSynthesisOn
@@ -2290,7 +2290,7 @@ class RemindersModule {
     // as with the task text, the rule lives in reminder-display-selection.js so the harness runs it
     // rather than a copy of it.
     const Selection = ReminderDisplaySelection.SelectContextLine(
-      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn, ArgAnalyzedSourceText,
     );
     if(Selection.suppressedBy === 'ungrounded')
       this.#SlackApp.Logger.warn('discarding an ungrounded reminder context line.');
