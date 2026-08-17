@@ -4,6 +4,7 @@ const {
   GetProviderDescriptorForModel,
   GetDefaultProviderDescriptor,
   GetAllProviderDescriptors,
+  GeminiModelPattern,
 } = require('./ai-providers');
 const OpenAIProvider = require('./ai-providers/openai-provider');
 
@@ -510,14 +511,54 @@ class WorkspaceAI {
    * @returns {Promise<object>}
    */
   async ProcessMultimodalMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName) {
-    const Provider = this.#GetProviderForModel(ArgModelName || this.#DefaultModelName);
+    const ModelName = ArgModelName || this.ResolveVisionModelName();
+    const Provider = this.#GetProviderForModel(ModelName);
     if(typeof Provider.ProcessMultimodalMessageWithJsonResponseAsync !== 'function') {
       throw new Error(`Provider '${Provider.Id}' does not implement ProcessMultimodalMessageWithJsonResponseAsync.`);
     }
     return Provider.ProcessMultimodalMessageWithJsonResponseAsync(
-      ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName || this.#DefaultModelName
+      ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ModelName
     );
   }
+
+  /**
+   * Resolve a model capable of vision/multimodal work, independent of the workspace's default
+   * chat model (GH-63).
+   *
+   * Vision is pinned the same way web search is pinned to OpenAI (see
+   * `ProcessGeminiWebSearchAsync` / the Responses API accessor below): capability lives with a
+   * specific provider, so following the workspace default silently breaks the feature whenever an
+   * operator switches the default to Claude or GPT. Before this, that mismatch surfaced to users
+   * as "Image analysis failed — please try again later", which invites a retry that can never
+   * succeed.
+   *
+   * @returns {string} A Gemini model name suitable for multimodal requests.
+   * @throws {Error & { code: string }} `vision_provider_not_configured` when the workspace has no
+   *   Gemini credentials, so callers can render an honest message instead of a transient one.
+   */
+  ResolveVisionModelName() {
+    // An already-Gemini default is honored as-is — an operator who pinned a specific Gemini
+    // model (including a future one this list does not know about) should keep getting it.
+    if(GeminiModelPattern.test(this.#DefaultModelName || ''))
+      return this.#DefaultModelName;
+
+    if(!this.#WorkspaceInfo.GEMINI_API_KEY) {
+      const error = /** @type {Error & { code?: string }} */ (
+        new Error('Image OCR requires a Gemini model, which is not configured for this workspace.')
+      );
+      error.code = 'vision_provider_not_configured';
+      throw error;
+    }
+
+    return WorkspaceAI.VisionModelPreference[0];
+  }
+
+  /**
+   * Preferred vision-capable models, best first. Extend here — and only here — if another
+   * provider gains multimodal support.
+   * @type {string[]}
+   */
+  static VisionModelPreference = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
   /**
    * Send a message to the configured AI provider and return the response as text.
