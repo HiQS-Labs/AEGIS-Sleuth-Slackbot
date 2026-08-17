@@ -19,7 +19,7 @@ context_tags: [ocr, provider-selection, error-honesty, ai-providers]
 
 | What was just completed | What's next |
 |---|---|
-| **Mismatch identified and traced.** OCR passes `DefaultModelName`; only `GeminiProvider` implements `ProcessMultimodalMessageWithJsonResponseAsync`, so a Claude/GPT-default workspace throws and the user is told "try again later". Established the in-repo precedent (`workspace-ai.js:538` pins web search). Plan doc and ROADMAP pointer landed. | **Resolve an OCR model by preference order** (`gemini-2.5-flash` → `2.0` → `1.5`) restricted to configured models, and split the honest configuration message from the transient one. Owner: noel. |
+| **Implemented at 1.4.293.** `WorkspaceAI.ResolveVisionModelName()` pins vision to `VisionModelPreference` (`gemini-2.5-flash` → `2.0` → `1.5`), honors an already-Gemini default even when unknown to the list, and throws typed `vision_provider_not_configured` when no Gemini credential exists; the caller now renders a message naming the real cause instead of "try again later". Mutation-verified: restoring the unpinned behavior fails 3 tests. E2E confirms a Claude-default workspace still reaches `generativelanguage.googleapis.com`. | **Confirm which model production workspaces actually default to.** If already Gemini this was latent; if not, it was live. Owner: noel. |
 
 ## Problem Statement
 

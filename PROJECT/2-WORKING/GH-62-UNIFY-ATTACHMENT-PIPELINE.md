@@ -19,7 +19,7 @@ context_tags: [attachments, ocr, dispatch-unification, blast-radius, security-du
 
 | What was just completed | What's next |
 |---|---|
-| **Defect confirmed by execution, not by reading.** `SelectContextMemoryFile()` returns `unsupported` for a PNG while `SelectImageAttachment()` selects it, so `#OnAppMentionAsync` returns before the OCR branch — GH-58's feature has never been reachable from Slack. Three duplicated layers identified (dispatch, download, selection). Plan doc and ROADMAP pointer landed. | **Implement the three seams:** `ResolveAttachmentIntent()` in the classifier, one `#HandleAttachmentAsync` shared by app_mention + message events, one `DownloadFileAsync(url, encoding)`. Then the entry-point test whose absence let this ship. Owner: noel. |
+| **Implemented at 1.4.293.** All three seams landed: `ResolveAttachmentIntent()` in the classifier, one `#HandleAttachmentAsync` shared by `#OnAppMentionAsync` + `#OnMessageAsync`, one `DownloadFileAsync(url, encoding)` holding the redirect/auth guard once. 22 new tests across 2 suites driving real Slack payloads through the event handlers, plus `npm run attachments:e2e` (21 checks). **Mutation-verified:** reintroducing the defect fails 4 new tests and 6 e2e checks while the original GH-58 suite still passes 27/27 — the demonstration that the old coverage could never have caught this. 115 suites / 1964 jest, tsc 0, PDDA at the 19-error baseline. | **Merge, then confirm on a real workspace.** The e2e harness stubs the Slack and Gemini network boundaries; `slack:harness:file-upload --execute` against a live workspace is still unrun because this machine has no workspace credentials. Owner: noel. |
 
 ## Problem Statement
 

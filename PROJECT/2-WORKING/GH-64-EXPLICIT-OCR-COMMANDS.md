@@ -19,7 +19,7 @@ context_tags: [commands, command-catalog, rmm, discoverability, ocr]
 
 | What was just completed | What's next |
 |---|---|
-| **Discovery gap measured, not assumed.** `command-catalog.json` holds 58 entries and 0 mention OCR/image/screenshot, so `rmm`, `help`, and the commands list cannot reach the feature; intent is a hand-rolled 4-branch regex. Confirmed the catalog's `Aliases` + `IntentPhrases` are the right mechanism for phrasing variation. Plan doc and ROADMAP pointer landed. | **Land GH-62 first**, then register two catalog entries and add `scan-image-command.js` + `convert-to-list-command.js` dispatching through the unified resolver, and retire `#IsImageListCreationRequest`. Owner: noel. |
+| **Implemented at 1.4.293.** Catalog now carries `scan-image-for-text` and `convert-text-into-slack-list` (60 entries, 2 OCR-aware) with `Aliases` + `IntentPhrases`, so `rmm`, `help`, and the commands list reach them. Added `scan-image-command.js` and `convert-to-list-command.js`; split the fused handler into `#ExtractListItemsFromImageAsync` + `#MaterializeListFromItemsAsync` so `image → text → items → list` composes, with `CreateListFromExtractedItemsAsync` still the single materialization seam. `#IsImageListCreationRequest` retired into `HasListCreationIntent`. `validate:commands` confirms both routes are catalogued. | **Exercise `rmm scan image for text` against a live workspace** — catalog wiring is asserted in tests, but the LLM intent resolution itself has only been verified structurally. Owner: noel. |
 
 ## Problem Statement
 
