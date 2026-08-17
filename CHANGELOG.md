@@ -33,6 +33,18 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.292 - 2026-08-17
+When you upload a screenshot or photo of an itemized list or table in Slack and ask me to create a
+list, I now use Gemini Flash's vision OCR to extract every item, title, and penalty/fine amount,
+and automatically build an interactive Slack List for you with a link back to the thread.
+
+**Technical:** GH-58. Added multimodal Vision OCR extraction pipeline using Google Gemini Flash models (`gemini-2.5-flash` / `gemini-1.5-flash` / `gemini-2.0-flash`) and integrated it into the Slack Lists harness.
+- **Multimodal File Classification & Ingestion:** `src/context-file-classifier.js` now provides `IsImageMediaFile` and `SelectImageAttachment` for images (`png`, `jpeg`, `webp`, `gif`). `src/slack-app.js` adds `DownloadFileBase64Async` with Bearer auth and redirect safety.
+- **AI Prompt & Schema:** `data/static/ai/ocr-list-extraction-instructions.md` and `ocr-list-extraction-schema.json` enforce strict structured JSON outputs (`title`, `items` with `item_number`, `text`, `amount`, `notes`). Registered in `scripts/validate-ai-prompts.js`.
+- **GeminiProvider & WorkspaceAI:** `src/ai-providers/gemini-provider.js` supports `ProcessMultimodalMessageWithJsonResponseAsync` sending `inlineData` parts alongside system instructions and schema sanitization. `src/workspace-ai.js` dispatches multimodal requests to the active provider.
+- **Slack List Materialization:** `src/lists-module.js` provides `CreateListFromExtractedItemsAsync` to create lists with 5 columns (`Item #`, `Item / Task`, `Amount / Fine`, `Notes`, `Status`) and populate item rows. `src/chat-module.js` routes OCR list requests and posts interactive confirmation with permalink.
+- **Tests:** 27 new tests in `tests/gemini-ocr-slack-list.test.js`.
+
 ## 1.4.291 - 2026-08-17
 I've made test suite runs cleanly isolated across parallel worker processes, so background test runs never interfere with each other or pollute the workspace runtime files on disk.
 

@@ -1187,6 +1187,14 @@ class RemindersModule {
   }
 
   /**
+   * Get the ListsModule instance.
+   * @returns {import('./lists-module')|null}
+   */
+  get ListsModule() {
+    return this.#ListsModule;
+  }
+
+  /**
    * Set the GitHub sync module instance for debug/testing integration.
    * @param {import('./github-sync-module')} ArgGitHubSyncModule GitHub sync module instance.
    */

@@ -593,7 +593,7 @@ class ListsModule {
 
     // get the Slack client from the Bolt app (we need to access it after the app has started).
     // The BoltApp property will be exposed by SlackApp in the next step.
-    this.#SlackClient = this.#SlackApp.BoltApp?.client;
+    this.#SlackClient = this.#SlackApp.BoltApp?.client || null;
 
     if(!this.#SlackClient) {
       this.#SlackApp.Logger.warn('Slack client not available, Lists module will run in fallback mode');
@@ -2903,7 +2903,240 @@ class ListsModule {
       this.#IsPopulating = false;
     }
   }
+
+  /**
+   * Create a custom Slack List populated with OCR-extracted items from an image.
+   * Builds a list schema (Item Number, Item / Task, Amount / Fine, Notes, Status), creates the list
+   * in Slack with channel read access, adds one row per extracted item, and returns the result.
+   * Intended to be called from ChatModule after Gemini Vision OCR extracts structured items from an image.
+   * @param {{ ListTitle: string, Items: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }>, ChannelID: string, UserID: string }} ArgOptions
+   * @returns {Promise<{ ok: boolean, ListId?: string, Permalink?: string|null, ItemCount?: number, error?: string }>}
+   */
+  async CreateListFromExtractedItemsAsync(ArgOptions) {
+    if(!this.#ListsAvailable || !this.#SlackClient) {
+      return { ok: false, error: 'Slack Lists is not available in this workspace.' };
+    }
+
+    const { ListTitle, Items, ChannelID, UserID } = ArgOptions || {};
+    if(!ListTitle || typeof ListTitle !== 'string' || ListTitle.trim().length === 0) {
+      return { ok: false, error: 'ListTitle is required.' };
+    }
+    if(!Array.isArray(Items)) {
+      return { ok: false, error: 'Items must be an array.' };
+    }
+    if(typeof ChannelID !== 'string' || ChannelID.length === 0) {
+      return { ok: false, error: 'ChannelID is required.' };
+    }
+    if(typeof UserID !== 'string' || UserID.length === 0) {
+      return { ok: false, error: 'UserID is required.' };
+    }
+
+    try {
+      // Step 1: create the list with the OCR-specific schema.
+      const CreatedList = await this.#CreateListWithOcrSchemaAsync(ListTitle, {
+        UserWriteAccessID: UserID,
+        ChannelReadAccessID: ChannelID,
+        PostAnnouncementChannelID: ChannelID,
+      });
+
+      if(!CreatedList.ListId) {
+        return { ok: false, error: 'Failed to create list — no list ID returned.', Permalink: null, ItemCount: 0 };
+      }
+
+      // Wait for Slack Lists propagation so we don't hit internal_error on first row insert.
+      this.#SlackApp.Logger.info(`Waiting ${ListsModule.LIST_PROPAGATION_DELAY_MS}ms for OCR list ${CreatedList.ListId} to propagate...`);
+      await new Promise(resolve => setTimeout(resolve, ListsModule.LIST_PROPAGATION_DELAY_MS));
+
+      // Step 2: populate rows.
+      let AddedCount = 0;
+      let FailedCount = 0;
+      const Schema = CreatedList.ListSchema;
+
+      for(const Item of Items) {
+        const Success = await this.#CreateOcrListItemAsync(CreatedList.ListId, Schema, Item);
+        if(Success) AddedCount++;
+        else FailedCount++;
+      }
+
+      this.#SlackApp.Logger.info(
+        `OCR list "${ListTitle}" created: ${AddedCount}/${Items.length} items added, ${FailedCount} failed.`
+      );
+
+      return {
+        ok: true,
+        ListId: CreatedList.ListId,
+        Permalink: CreatedList.Permalink,
+        ItemCount: AddedCount,
+      };
+    } catch(error) {
+      this.#SlackApp.Logger.error('Error creating OCR list:', error);
+      return { ok: false, error: error.message || String(error), Permalink: null, ItemCount: 0 };
+    }
+  }
+
+  /**
+   * Create a Slack List with the OCR-specific schema (Item Number, Item/Task, Amount/Fine, Notes, Status).
+   * @param {string} ArgListName List title.
+   * @param {{UserWriteAccessID?: string|null, ChannelReadAccessID?: string|null, PostAnnouncementChannelID?: string|null}} [ArgAccessOptions]
+   * @returns {Promise<{ ListId: string, ListSchema: Object<string, string>, Permalink: string|null }>}
+   */
+  async #CreateListWithOcrSchemaAsync(ArgListName, ArgAccessOptions = {}) {
+    try {
+      const ChannelReadAccessID = ArgAccessOptions.ChannelReadAccessID ?? null;
+      const UserWriteAccessID = ArgAccessOptions.UserWriteAccessID ?? null;
+      const PostAnnouncementChannelID = ArgAccessOptions.PostAnnouncementChannelID ?? null;
+
+      this.#SlackApp.Logger.info(`Calling lists.create API with OCR schema name: ${ArgListName}`);
+
+      const CreateResponse = /** @type {any} */(await this.#SlackClient.apiCall('slackLists.create', {
+        name: ArgListName,
+        schema: this.#BuildOcrListSchemaDefinition(),
+      }));
+
+      const ListId = CreateResponse.list_id || CreateResponse.list?.id;
+      if(!ListId) {
+        this.#SlackApp.Logger.error('No list ID in OCR create response:', CreateResponse);
+        throw new Error('No list ID in OCR create response.');
+      }
+
+      const ListSchema = this.#ExtractListSchemaFromMetadata(CreateResponse.list_metadata);
+      const ListPermalink = await this.#BuildListPermalinkAsync(ListId, CreateResponse);
+      const UserAccessGranted = UserWriteAccessID
+        ? await this.#GrantListUserWriteAccessAsync(ListId, UserWriteAccessID)
+        : true;
+      const ChannelAccessGranted = ChannelReadAccessID
+        ? await this.#GrantListChannelReadAccessAsync(ListId, ChannelReadAccessID)
+        : true;
+
+      if(PostAnnouncementChannelID && ChannelAccessGranted) {
+        try {
+          if(ListPermalink) {
+            await this.#SlackApp.PostMessageTextAsync(
+              PostAnnouncementChannelID,
+              null,
+              `📋 New OCR list created: <${ListPermalink}|${ArgListName}>\nItems extracted from uploaded image.`
+            );
+          } else {
+            this.#SlackApp.Logger.warn(`Could not determine permalink for new OCR list ${ListId}`);
+          }
+        } catch(error) {
+          this.#SlackApp.Logger.warn(`Could not post OCR list link to channel: ${error.message}`);
+        }
+      }
+
+      if(!UserAccessGranted) {
+        this.#SlackApp.Logger.warn(`Aborting OCR list setup — user write access denied.`);
+        throw new Error('Slack rejected write access for the target user.');
+      }
+      if(!ChannelAccessGranted) {
+        this.#SlackApp.Logger.warn(`Created OCR list ${ListId}, but channel ${ChannelReadAccessID || '-'} could not be granted read access.`);
+      }
+
+      return { ListId, ListSchema, Permalink: ListPermalink };
+    } catch(error) {
+      this.#SlackApp.Logger.error('Error creating OCR list:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Build the OCR-list schema definition with five columns: Item Number, Item/Task, Amount/Fine, Notes, Status.
+   * @returns {Array<any>}
+   */
+  #BuildOcrListSchemaDefinition() {
+    return [
+      { key: 'item_number', name: 'Item #', type: 'text', is_primary_column: false },
+      { key: 'task', name: 'Item / Task', type: 'text', is_primary_column: true },
+      { key: 'amount_fine', name: 'Amount / Fine', type: 'text', is_primary_column: false },
+      { key: 'notes', name: 'Notes', type: 'text', is_primary_column: false },
+      { key: 'status', name: 'Status', type: 'select', options: { choices: ListsModule.STATUS_CHOICES } },
+    ];
+  }
+
+  /**
+   * Add one OCR-extracted item row to a custom list using its column schema.
+   * @param {string} ArgListId The Slack list ID.
+   * @param {Object<string, string>} ArgListSchema Key → column_id map from Slack list metadata.
+   * @param {{ item_number?: any, text: string, amount?: string|null, notes?: string|null }} ArgItem Extracted item data.
+   * @returns {Promise<boolean>} True when the row was created successfully.
+   */
+  async #CreateOcrListItemAsync(ArgListId, ArgListSchema, ArgItem) {
+    const InitialFields = [];
+
+    if(ArgListSchema.item_number != null && ArgItem.item_number != null) {
+      const Num = typeof ArgItem.item_number === 'number'
+        ? String(ArgItem.item_number)
+        : String(ArgItem.item_number).trim();
+      InitialFields.push({
+        column_id: ArgListSchema.item_number,
+        rich_text: [SlackFormatUtils.MrkdwnToRichText(Num)],
+      });
+    }
+
+    if(ArgListSchema.task != null) {
+      const Text = typeof ArgItem.text === 'string' ? ArgItem.text.trim() : '';
+      if(Text) {
+        InitialFields.push({
+          column_id: ArgListSchema.task,
+          rich_text: [SlackFormatUtils.MrkdwnToRichText(Text)],
+        });
+      }
+    }
+
+    if(ArgListSchema.amount_fine != null && ArgItem.amount) {
+      const Amt = typeof ArgItem.amount === 'string' ? ArgItem.amount.trim() : '';
+      if(Amt) {
+        InitialFields.push({
+          column_id: ArgListSchema.amount_fine,
+          rich_text: [SlackFormatUtils.MrkdwnToRichText(Amt)],
+        });
+      }
+    }
+
+    if(ArgListSchema.notes != null && ArgItem.notes) {
+      const Nt = typeof ArgItem.notes === 'string' ? ArgItem.notes.trim() : '';
+      if(Nt) {
+        InitialFields.push({
+          column_id: ArgListSchema.notes,
+          rich_text: [SlackFormatUtils.MrkdwnToRichText(Nt)],
+        });
+      }
+    }
+
+    // Default to pending status.
+    if(ArgListSchema.status != null) {
+      InitialFields.push({
+        column_id: ArgListSchema.status,
+        select: ['pending'],
+      });
+    }
+
+    if(InitialFields.length === 0) {
+      this.#SlackApp.Logger.debug('Skipping empty OCR item with no fields to set.');
+      return false;
+    }
+
+    try {
+      const CreateResponse = /** @type {any} */(await this.#SlackClient.apiCall('slackLists.items.create', {
+        list_id: ArgListId,
+        initial_fields: InitialFields,
+      }));
+
+      this.#SlackApp.Logger.debug(
+        `OCR item row created in list ${ArgListId}: ${JSON.stringify(CreateResponse).slice(0, 300)}`
+      );
+      return !!CreateResponse.item?.id || !!CreateResponse.record_id;
+    } catch(error) {
+      this.#SlackApp.Logger.error('Error adding OCR item row:', error.message || String(error));
+      return false;
+    }
+  }
 }
 
 // export the class.
 module.exports = ListsModule;
+
+/**
+ * Schema definition for OCR-extracted Slack Lists — used by #BuildOcrListSchemaDefinition.
+ * @typedef {Array<{key: string, name: string, type: string, isPrimaryColumn?: boolean, options?: {choices: Array<{value: string, label: string, color: string}>}}>} OcrListSchemaDefinition
+ */

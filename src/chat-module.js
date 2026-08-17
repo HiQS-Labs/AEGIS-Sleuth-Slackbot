@@ -22,6 +22,7 @@ const {
   SelectContextMemoryFile,
   IsBinaryMediaFile,
   LooksLikeHtmlErrorPage,
+  SelectImageAttachment,
 } = require('./context-file-classifier');
 const HandleRestartCommandAsync = require('./chat-commands/restart-command');
 const HandleVersionCommandAsync = require('./chat-commands/version-command');
@@ -1094,6 +1095,14 @@ class ChatModule {
       const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(CommandTextWithoutMention);
       const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
 
+      // GH-58: detect image attachments carrying a list-creation request, run Gemini Vision OCR,
+      // and materialize extracted items directly into a Slack List. Short-circuits here so the
+      // message never falls through to command routing or generic chat.
+      if(ArgEventInfo.files?.length > 0 && ChatModule.#IsImageListCreationRequest(NormalizedCommandText)) {
+        if(await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, CommandTextWithoutMention))
+          return true;
+      }
+
       // GH-397 router mode: when armed, Gemini Flash Lite either shadows the resolver (logs a corpus
       // record, ZERO authority) or, in `active`, takes over resolution above a confidence floor.
       // `off`/`shadow` never change production behavior; `active` takeover falls back to the normal
@@ -1397,6 +1406,30 @@ class ChatModule {
     const HasReminderNoun = /\breminder(?:s)?\b/.test(NormalizedText);
     const HasCreationVerb = /\b(?:make|create|set|add|schedule)\b/.test(NormalizedText);
     return HasReminderNoun && HasCreationVerb;
+  }
+
+  /**
+   * Detect list-creation requests from images (GH-58). Matches commands like "create a list",
+   * "extract items", "turn this into a list" etc. alongside an attached image. Returns true
+   * so #TryProcessImageForListCreationAsync short-circuits before generic chat fallthrough.
+   * @param {string} ArgCommandText App mention text after removing the bot mention.
+   * @returns {boolean}
+   */
+  static #IsImageListCreationRequest(ArgCommandText) {
+    if(typeof ArgCommandText !== 'string') return false;
+    const NormalizedText = ArgCommandText
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if(NormalizedText.length === 0) return false;
+
+    // Keywords that signal a list-creation intent rather than plain chat.
+    return /\b(create|extract|convert|make|build|generate)\s+(a\s+)?list\b/i.test(NormalizedText)
+      || /ocr\s+(a\s+)?list/i.test(NormalizedText)
+      || /extract.*items?\s*(from|of)/i.test(NormalizedText)
+      || /list\s*(out|up|format)/i.test(NormalizedText);
   }
 
   /**
@@ -2802,6 +2835,230 @@ class ChatModule {
 
     // return the formatted text.
     return FormattedText;
+  }
+
+  /**
+   * Process an image attachment as a list-extraction request (GH-58). Detects images in
+   * ArgEventInfo.files, downloads them via SlackApp.DownloadFileBase64Async, runs Gemini
+   * Vision OCR through WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync using the
+   * ocr-list-extraction-instructions/schema pair, then materializes results into a Slack
+   * List via ListsModule.CreateListFromExtractedItemsAsync. Posts a confirmation reply on
+   * success, or a clear error message on failure.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
+   * @param {string} ArgCommandTextRaw Raw (mention-stripped) command text for logging/context.
+   * @returns {Promise<boolean>} true when the event was handled (list creation attempted).
+   */
+  async #TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw) {
+    const ReplyTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
+    const ImageSelection = SelectImageAttachment(ArgEventInfo.files);
+    if(!ImageSelection) {
+      ArgSlackApp.Logger.warn('[ocr-list] no image attachment found in files array.');
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyTS,
+        'I did not find an image attachment to process.'
+      );
+      return true;
+    }
+
+    try {
+      // Step 1: download the image as base64.
+      const DownloadURL = ImageSelection.url_private_download || ImageSelection.url_private;
+      if(!DownloadURL) {
+        ArgSlackApp.Logger.error('[ocr-list] image missing url_private_download/url_private.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Could not access the image file for processing.'
+        );
+        return true;
+      }
+
+      let DownloadResult;
+      try {
+        DownloadResult = await ArgSlackApp.DownloadFileBase64Async(DownloadURL);
+      } catch(downloadError) {
+        ArgSlackApp.Logger.error(`[ocr-list] failed to download image '${ImageSelection.name}':`, downloadError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Failed to download the image. Please try uploading it again.'
+        );
+        return true;
+      }
+
+      if(!DownloadResult || !DownloadResult.Base64) {
+        ArgSlackApp.Logger.warn('[ocr-list] DownloadFileBase64Async returned empty result.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'The image file appeared to be empty.'
+        );
+        return true;
+      }
+
+      ArgSlackApp.Logger.info(
+        `[ocr-list] downloaded image ${ImageSelection.name} (${ImageSelection.mimetype}, ${(DownloadResult.Base64 || '').length} base64 chars)`
+      );
+
+      // Step 2: load OCR instructions + schema from disk.
+      let InstructionsText;
+      let SchemaObject;
+      try {
+        InstructionsText = await fs.readFile(
+          path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-instructions.md'),
+          'utf8'
+        );
+      } catch(readError) {
+        ArgSlackApp.Logger.error('[ocr-list] could not read OCR instruction file:', readError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'OCR instruction file is missing on the server.'
+        );
+        return true;
+      }
+      try {
+        const SchemaPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-schema.json');
+        SchemaObject = JSON.parse(await fs.readFile(SchemaPath, 'utf8'));
+      } catch(schemaError) {
+        ArgSlackApp.Logger.error('[ocr-list] could not read OCR schema file:', schemaError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'OCR schema file is missing on the server.'
+        );
+        return true;
+      }
+
+      // Step 3: run Gemini Vision OCR via WorkspaceAI.
+      /** @type {{ title?: string, items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }} */
+      let OcrResult;
+      try {
+        OcrResult = await this.#WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync(
+          ArgCommandTextRaw || 'Extract all list items from this image.',
+          InstructionsText.trim(),
+          SchemaObject,
+          { Base64: DownloadResult.Base64, Mimetype: DownloadResult.Mimetype },
+          this.#WorkspaceAI.DefaultModelName
+        );
+      } catch(ocrError) {
+        ArgSlackApp.Logger.error('[ocr-list] Gemini Vision OCR failed:', ocrError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Image analysis failed — please try again later.'
+        );
+        return true;
+      }
+
+      const ExtractedItems = (OcrResult && Array.isArray(OcrResult.items)) ? OcrResult.items : [];
+      if(ExtractedItems.length === 0) {
+        ArgSlackApp.Logger.info('[ocr-list] model returned zero extracted items.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          "I didn't detect any list items in that image. Try another screenshot with clearer text."
+        );
+        return true;
+      }
+
+      // Step 4: create the Slack List via ListsModule.
+      /** @type {import('./lists-module')|null} */
+      const ListsModuleInstance = this.#RemindersModule?.ListsModule || null;
+      if(!ListsModuleInstance || typeof ListsModuleInstance.CreateListFromExtractedItemsAsync !== 'function') {
+        ArgSlackApp.Logger.warn('[ocr-list] ListsModule not available on RemindersModule.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Slack Lists is not configured for this workspace yet. The items have been extracted but the list could not be created.'
+        );
+        // Still post the extracted items summary so the user sees what was parsed.
+        const Title = (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List';
+        await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, Title, ExtractedItems);
+        return true;
+      }
+
+      let ListResult;
+      try {
+        ListResult = await ListsModuleInstance.CreateListFromExtractedItemsAsync({
+          ListTitle: (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List',
+          Items: ExtractedItems,
+          ChannelID: ArgEventInfo.channel,
+          UserID: ArgEventInfo.user,
+        });
+      } catch(listError) {
+        ArgSlackApp.Logger.error('[ocr-list] failed to create Slack List:', listError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Failed to create the Slack List. Check the logs for details.'
+        );
+        return true;
+      }
+
+      if(!ListResult || !ListResult.ok) {
+        ArgSlackApp.Logger.warn(`[ocr-list] create-list returned ok:false — ${ListResult?.error || 'unknown error'}`);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'List creation failed: ' + (ListResult?.error || 'unknown error.')
+        );
+        return true;
+      }
+
+      // Step 5: success — post confirmation with permalink.
+      const ItemCount = ListResult.ItemCount ?? ExtractedItems.length;
+      if(ListResult.Permalink) {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          `✅ Created list "${ListResult.ListId}" with ${ItemCount} item(s).\n<a|${ListResult.Permalink}>`
+        );
+      } else {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          `✅ Created list with ${ItemCount} item(s) (permalink unavailable).`
+        );
+      }
+
+      ArgSlackApp.Logger.info(
+        `[ocr-list] list created successfully: id=${ListResult.ListId} items=${ItemCount}`
+      );
+      return true;
+    } catch(error) {
+      ArgSlackApp.Logger.error('[ocr-list] unexpected error:', error);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyTS,
+        'An unexpected error occurred during image processing.'
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Fallback: post extracted items as a plain-text summary in Slack when ListsModule is unavailable.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Target channel ID.
+   * @param {string} ArgReplyTS Thread root timestamp.
+   * @param {string} ArgTitle List title.
+   * @param {Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }>} ArgItems Extracted item objects.
+   * @returns {Promise<void>}
+   */
+  async #PostExtractedItemsSummaryAsync(ArgSlackApp, ArgChannelID, ArgReplyTS, ArgTitle, ArgItems) {
+    const Lines = [`*${ArgTitle}* — ${ArgItems.length} item(s):`];
+    for(const Item of ArgItems.slice(0, 20)) {
+      const Num = Item.item_number != null ? `[${Item.item_number}] ` : '';
+      const Text = Item.text || '';
+      const Amt = Item.amount ? ` (${Item.amount})` : '';
+      const Notes = Item.notes ? ` — ${Item.notes}` : '';
+      Lines.push(`${Num}*${Text}*${Amt}${Notes}`);
+    }
+    if(ArgItems.length > 20) Lines.push(`\n_…and ${ArgItems.length - 20} more._`);
+    await ArgSlackApp.PostMessageTextAsync(ArgChannelID, ArgReplyTS, Lines.join('\n'));
   }
 }
 

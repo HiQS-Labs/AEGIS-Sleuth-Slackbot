@@ -31,6 +31,12 @@ goal: >
 
 ### In progress
 
+- **Gemini Vision OCR and Slack List Creation Pipeline (GH-58)** — **in progress on branch `gh-58-gemini-ocr-slack-list`.**
+  Extract structured itemized lists from image attachments uploaded in Slack threads via lightweight
+  Gemini Flash models and materialize them directly as interactive Slack Lists via `ListsModule`.
+  → [PROJECT/2-WORKING/GH-58-GEMINI-OCR-SLACK-LIST.md](PROJECT/2-WORKING/GH-58-GEMINI-OCR-SLACK-LIST.md)
+
+
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed

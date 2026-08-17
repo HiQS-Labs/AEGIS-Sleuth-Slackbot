@@ -30,6 +30,8 @@ const EXPECTED_PAIRS = {
   // was structurally invisible to this validator (see #41 — assets absent from this map are skipped
   // silently and the run still exits 0).
   'multi-task-extraction-instructions.md': 'multi-task-extraction-schema.json',
+  // GH-58: Gemini Vision OCR pipeline for extracting structured lists from images.
+  'ocr-list-extraction-instructions.md': 'ocr-list-extraction-schema.json',
   'chat-instructions.md': null, // chat has no structured output schema.
 };
 

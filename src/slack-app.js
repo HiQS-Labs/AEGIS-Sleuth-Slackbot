@@ -1450,6 +1450,54 @@ class SlackApp {
   }
 
   /**
+   * Download one private Slack file as base64-encoded bytes together with its MIME type.
+   * Requires the `files:read` OAuth scope to be granted to the app. Returns the raw
+   * base64 string so callers can embed it as inline image data (e.g. Gemini Vision).
+   * @param {string} ArgFileURL Download URL of the file (url_private_download from the file object).
+   * @returns {Promise<{ Base64: string, Mimetype: string }>}
+   */
+  async DownloadFileBase64Async(ArgFileURL) {
+    const AuthHeaders = { 'Authorization': `Bearer ${this.#WorkspaceInfo.LIVE_TOKEN}` };
+    const RequestURL = new URL(ArgFileURL);
+
+    // First request with redirect: 'manual' so same-origin redirects keep auth while
+    // cross-origin signed URLs are followed without leaking the workspace bearer token.
+    const First = await fetch(RequestURL, { headers: AuthHeaders, redirect: 'manual' });
+
+    let Response;
+    if(First.status >= 300 && First.status < 400) {
+      const Location = First.headers.get('location');
+      if(!Location)
+        throw new Error('Slack file redirect missing location header.');
+
+      const RedirectURL = new URL(Location, RequestURL);
+      if(RedirectURL.protocol !== 'https:')
+        throw new Error(`Refusing to follow Slack file redirect to non-HTTPS host '${RedirectURL.host || 'unknown-host'}'.`);
+
+      const ShouldForwardAuth = RedirectURL.origin === RequestURL.origin;
+      this.#SlackLogger.info(
+        `[DownloadFileBase64Async] following redirect to host: ${SlackApp.GetSafeUrlHostForLog(RedirectURL.toString())} | forwarded auth: ${ShouldForwardAuth}`
+      );
+      Response = await fetch(
+        RedirectURL,
+        ShouldForwardAuth ? { headers: AuthHeaders } : {}
+      );
+    } else {
+      Response = First;
+    }
+
+    const ContentType = Response.headers.get('content-type') ?? 'application/octet-stream';
+    this.#SlackLogger.info(`[DownloadFileBase64Async] HTTP ${Response.status} | ${ContentType}`);
+    if(!Response.ok)
+      throw new Error(`Failed to fetch Slack file (HTTP ${Response.status}).`);
+
+    // Read body as ArrayBuffer then encode to standard base64.
+    const BufferData = Buffer.from(await Response.arrayBuffer());
+    const Base64 = BufferData.toString('base64');
+    return { Base64: Base64, Mimetype: ContentType };
+  }
+
+  /**
    * Handle Slack reaction_added event which is triggered when a user adds an emoji reaction to a message.
    * - must subscribe to the `reaction_added` event here: https://api.slack.com/apps/A07JBP3KX45/event-subscriptions
    * - must add reactions:read scope here: https://api.slack.com/apps/A07JBP3KX45/oauth

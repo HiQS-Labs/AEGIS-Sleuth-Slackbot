@@ -71,6 +71,68 @@ class GeminiProvider {
   }
 
   /**
+   * POST a generateContent request to the Google Generative Language REST API for multimodal input.
+   * Sends an inline image (base64 + MIME type) alongside text as parts of the same content entry
+   * so Gemini's vision model can reason over both. The JSON schema envelope is unwrapped and
+   * sanitized exactly like ProcessMessageWithJsonResponseAsync so Gemini's responseSchema stays valid.
+   * @param {string} ArgMessageText User-facing text prompt.
+   * @param {string} ArgSystemInstructions System instructions string.
+   * @param {object} ArgJsonSchemaObject Either the OpenAI `{name, strict, schema}` envelope or a bare JSON Schema.
+   * @param {{ Base64: string, Mimetype: string }} ArgImage Image payload from SlackFileDownloadAsync.
+   * @param {string} ArgModelName Model ID (e.g. 'gemini-2.5-flash').
+   * @returns {Promise<object>} Parsed JSON response object.
+   */
+  async ProcessMultimodalMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName) {
+    if(!ArgImage || !ArgImage.Base64 || !ArgImage.Mimetype)
+      throw new Error('ProcessMultimodalMessageWithJsonResponseAsync requires an ArgImage with Base64 and Mimetype.');
+
+    const InnerSchema = GeminiProvider.#SanitizeSchemaForGemini(
+      GeminiProvider.#ExtractInnerSchema(ArgJsonSchemaObject)
+    );
+
+    // Build contents[0].parts with one image part followed by the text part — Gemini expects the
+    // image first when pairing inlineData with text in a single user turn.
+    const Payload = {
+      systemInstruction: { parts: [{ text: ArgSystemInstructions }] },
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: ArgImage.Mimetype, data: ArgImage.Base64 } },
+          { text: ArgMessageText },
+        ]
+      }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: InnerSchema
+      }
+    };
+
+    const Data = await this.#GenerateContentAsync(ArgModelName, Payload);
+
+    this.#WorkspaceStats.OutgoingGptMessageCount++;
+    const TotalPromptLength = ArgMessageText.length + ArgSystemInstructions.length + (ArgImage?.Base64 || '').length;
+    this.#WorkspaceStats.OutgoingGptMessageLength += TotalPromptLength;
+
+    const Candidate = Data.candidates?.[0];
+    if(Candidate && Candidate.finishReason !== 'STOP') {
+      throw new Error(`Model did not stop naturally: ${Candidate.finishReason}.`);
+    }
+
+    const Text = GeminiProvider.#ExtractText(Data);
+    if(!Text)
+      throw new Error('Gemini multimodal response contained no text content.');
+
+    this.#WorkspaceStats.IncomingGptMessageCount++;
+    this.#WorkspaceStats.IncomingGptMessageLength += Text.length;
+
+    try {
+      return JSON.parse(Text);
+    } catch(ParseError) {
+      throw new Error(`Gemini multimodal returned invalid JSON (${ParseError.message}): ${Text.slice(0, 200)}`);
+    }
+  }
+
+  /**
    * POST a generateContent request to the Google Generative Language REST API. The API key
    * goes in the `x-goog-api-key` header rather than the query string so it is not captured
    * in HTTP server logs.
