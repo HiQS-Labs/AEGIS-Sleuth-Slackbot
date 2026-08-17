@@ -33,6 +33,45 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.295 - 2026-08-17
+Nothing changes for you — this one fixes the offline test harness engineers use to check my reminder
+wording before it reaches you. It was quietly testing a different setup than the one you actually
+use, which is how the reminder bug in 1.4.294 got through three rounds of "verified" before you
+caught it in Slack.
+
+**Technical:** `scripts/reminder-thread-battery.js` fidelity pass, prompted by GH-68 shipping a fix
+that the harness had already been printing evidence against. Three divergences from production, each
+now closed or documented:
+
+- **Isolation renamed the workspace.** The harness ran as `<workspace>-test-harness-<pid>` so its
+  reminder files wouldn't collide with the real ones. But production resolves client mappings,
+  overlays, and display identity *from* `WORKSPACE_NAME` — so the rename disabled `ApplyClientPrefix`
+  and the harness never rendered the `"Sleuth - "` prefix that real output leads with. Now isolated
+  by **data directory** (`SLEUTH_DATA_DIR`, the lever GH-60 added on this same branch) with the real
+  name kept, and the workspace's client overlay copied into the throwaway tree so prefixes resolve
+  exactly as production. Strictly safer than before as a side effect: the old scheme wrote its
+  throwaway files *into* the real `data/runtime` and depended on deleting each of five paths
+  afterward; nothing is written outside the temp tree now. Respects a pre-set `SLEUTH_DATA_DIR` (same
+  convention as `tests/runtime-setup.js`) so a Jest worker's isolation is never clobbered mid-run.
+- **`channelType` defaulted to `"im"`.** A DM bypasses the per-channel enabled-reminders gate
+  (GH-412), so the default run took a code path essentially no real report takes — and a scenario
+  written to match a real channel thread returned **zero reminders** and read as "no bug here",
+  because the gate rejected it before any AI ran. The harness now seeds the enabled-channels file, so
+  the default is `"channel"` and the DM bypass is opt-in. Pinned by a regression test, mutation-
+  verified: disabling the seed fails that test and only that test.
+- **Two render paths, one ambiguous label.** The turn-by-turn `SLEUTH:` output is the posted
+  confirmation (`#ComposeFeedbackMessageText`); the trailing dump is the *stored* text a reminder
+  posts later. They are composed separately, and GH-68 is exactly the case where they disagreed —
+  which `reminders-module.js:1695` says must be impossible. Reading only the trailing dump certified
+  a build whose confirmation message was still wrong. Both surfaces are now labeled for what they
+  are, with the trailing block stating outright that a disagreement between them *is* the finding.
+
+Remaining known non-1:1 behavior is documented in the file header rather than silently tolerated:
+Slack renders `<!date^…>` client-side (no offline harness can), related-reminder counts reflect the
+isolated store, and the real LLM makes titles vary run to run — compare shape, not bytes.
+
+Not a code-path change: `src/` is untouched. 1989 tests green, `tsc` clean.
+
 ## 1.4.294 - 2026-08-17
 Reminders built from a thread now describe the actual task instead of echoing your follow-up
 sentence. If you say "can you do this by tomorrow morning?", I read back through the thread to find
