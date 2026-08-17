@@ -1413,6 +1413,30 @@ class SlackApp {
    * @returns {Promise<string>} Raw text content of the file.
    */
   async GetFileContentAsync(ArgFileURL) {
+    const Result = await this.DownloadFileAsync(ArgFileURL, 'text', 'GetFileContentAsync');
+    return Result.Text;
+  }
+
+  /**
+   * Download one private Slack file and return it in the requested encoding (GH-62).
+   *
+   * This is the single implementation of Slack's private-file fetch. It previously existed twice —
+   * once here and once in `DownloadFileBase64Async` — as ~30 near-verbatim duplicate lines that
+   * included the redirect handling, the HTTPS-only guard, and the origin-scoped decision about
+   * whether to forward the workspace bearer token. That duplicated block IS the SSRF /
+   * token-leak guard, so hardening one copy silently left the other on the old behavior. Keeping
+   * one implementation is the point; `GetFileContentAsync` and `DownloadFileBase64Async` remain as
+   * thin wrappers so existing callers are undisturbed.
+   *
+   * Requires the `files:read` OAuth scope.
+   * @param {string} ArgFileURL Download URL (url_private_download from the file object).
+   * @param {'text'|'base64'} ArgEncoding How to decode the response body.
+   * @param {string} [ArgLogTag] Caller name used in log lines, so the two entry points stay
+   *   distinguishable in production logs exactly as they were before the merge.
+   * @returns {Promise<{ Text: string, Base64: string, Mimetype: string }>} Only the field matching
+   *   `ArgEncoding` is populated; the other is an empty string.
+   */
+  async DownloadFileAsync(ArgFileURL, ArgEncoding, ArgLogTag = 'DownloadFileAsync') {
     const AuthHeaders = { 'Authorization': `Bearer ${this.#WorkspaceInfo.LIVE_TOKEN}` };
     const RequestURL = new URL(ArgFileURL);
 
@@ -1432,7 +1456,7 @@ class SlackApp {
 
       const ShouldForwardAuth = RedirectURL.origin === RequestURL.origin;
       this.#SlackLogger.info(
-        `[GetFileContentAsync] following redirect to host: ${SlackApp.GetSafeUrlHostForLog(RedirectURL.toString())} | forwarded auth: ${ShouldForwardAuth}`
+        `[${ArgLogTag}] following redirect to host: ${SlackApp.GetSafeUrlHostForLog(RedirectURL.toString())} | forwarded auth: ${ShouldForwardAuth}`
       );
       Response = await fetch(
         RedirectURL,
@@ -1442,11 +1466,19 @@ class SlackApp {
       Response = First;
     }
 
-    const ContentType = Response.headers.get('content-type') ?? 'unknown';
-    this.#SlackLogger.info(`[GetFileContentAsync] HTTP ${Response.status} | ${ContentType}`);
+    // Preserve each caller's historical default content-type: text callers logged 'unknown',
+    // binary callers logged 'application/octet-stream'.
+    const FallbackContentType = ArgEncoding === 'base64' ? 'application/octet-stream' : 'unknown';
+    const ContentType = Response.headers.get('content-type') ?? FallbackContentType;
+    this.#SlackLogger.info(`[${ArgLogTag}] HTTP ${Response.status} | ${ContentType}`);
     if(!Response.ok)
       throw new Error(`Failed to fetch Slack file (HTTP ${Response.status}).`);
-    return await Response.text();
+
+    if(ArgEncoding === 'base64') {
+      const BufferData = Buffer.from(await Response.arrayBuffer());
+      return { Text: '', Base64: BufferData.toString('base64'), Mimetype: ContentType };
+    }
+    return { Text: await Response.text(), Base64: '', Mimetype: ContentType };
   }
 
   /**
@@ -1457,44 +1489,8 @@ class SlackApp {
    * @returns {Promise<{ Base64: string, Mimetype: string }>}
    */
   async DownloadFileBase64Async(ArgFileURL) {
-    const AuthHeaders = { 'Authorization': `Bearer ${this.#WorkspaceInfo.LIVE_TOKEN}` };
-    const RequestURL = new URL(ArgFileURL);
-
-    // First request with redirect: 'manual' so same-origin redirects keep auth while
-    // cross-origin signed URLs are followed without leaking the workspace bearer token.
-    const First = await fetch(RequestURL, { headers: AuthHeaders, redirect: 'manual' });
-
-    let Response;
-    if(First.status >= 300 && First.status < 400) {
-      const Location = First.headers.get('location');
-      if(!Location)
-        throw new Error('Slack file redirect missing location header.');
-
-      const RedirectURL = new URL(Location, RequestURL);
-      if(RedirectURL.protocol !== 'https:')
-        throw new Error(`Refusing to follow Slack file redirect to non-HTTPS host '${RedirectURL.host || 'unknown-host'}'.`);
-
-      const ShouldForwardAuth = RedirectURL.origin === RequestURL.origin;
-      this.#SlackLogger.info(
-        `[DownloadFileBase64Async] following redirect to host: ${SlackApp.GetSafeUrlHostForLog(RedirectURL.toString())} | forwarded auth: ${ShouldForwardAuth}`
-      );
-      Response = await fetch(
-        RedirectURL,
-        ShouldForwardAuth ? { headers: AuthHeaders } : {}
-      );
-    } else {
-      Response = First;
-    }
-
-    const ContentType = Response.headers.get('content-type') ?? 'application/octet-stream';
-    this.#SlackLogger.info(`[DownloadFileBase64Async] HTTP ${Response.status} | ${ContentType}`);
-    if(!Response.ok)
-      throw new Error(`Failed to fetch Slack file (HTTP ${Response.status}).`);
-
-    // Read body as ArrayBuffer then encode to standard base64.
-    const BufferData = Buffer.from(await Response.arrayBuffer());
-    const Base64 = BufferData.toString('base64');
-    return { Base64: Base64, Mimetype: ContentType };
+    const Result = await this.DownloadFileAsync(ArgFileURL, 'base64', 'DownloadFileBase64Async');
+    return { Base64: Result.Base64, Mimetype: Result.Mimetype };
   }
 
   /**

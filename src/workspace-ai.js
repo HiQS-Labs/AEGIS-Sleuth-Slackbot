@@ -4,6 +4,7 @@ const {
   GetProviderDescriptorForModel,
   GetDefaultProviderDescriptor,
   GetAllProviderDescriptors,
+  GeminiModelPattern,
 } = require('./ai-providers');
 const OpenAIProvider = require('./ai-providers/openai-provider');
 
@@ -510,14 +511,124 @@ class WorkspaceAI {
    * @returns {Promise<object>}
    */
   async ProcessMultimodalMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName) {
-    const Provider = this.#GetProviderForModel(ArgModelName || this.#DefaultModelName);
-    if(typeof Provider.ProcessMultimodalMessageWithJsonResponseAsync !== 'function') {
-      throw new Error(`Provider '${Provider.Id}' does not implement ProcessMultimodalMessageWithJsonResponseAsync.`);
+    // GH-63 r2 (agy relay review): walk the whole preference list rather than only its head.
+    // Declaring three fallbacks and reaching only the first is a latent outage — when the lead
+    // model is retired the feature dies with two "fallbacks" that were never wired up.
+    const Candidates = ArgModelName ? [ArgModelName] : this.ResolveVisionModelNames();
+    let LastError = null;
+
+    for(let Index = 0; Index < Candidates.length; Index++) {
+      const ModelName = Candidates[Index];
+      const Provider = this.#GetProviderForModel(ModelName);
+      if(typeof Provider.ProcessMultimodalMessageWithJsonResponseAsync !== 'function') {
+        throw new Error(`Provider '${Provider.Id}' does not implement ProcessMultimodalMessageWithJsonResponseAsync.`);
+      }
+
+      try {
+        return await Provider.ProcessMultimodalMessageWithJsonResponseAsync(
+          ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ModelName
+        );
+      } catch(error) {
+        LastError = error;
+        // Only a model-availability failure is worth another attempt. Retrying a bad image or a
+        // quota error against every candidate would triple latency on failures that cannot succeed.
+        const HasNextCandidate = Index < Candidates.length - 1;
+        if(!HasNextCandidate || !WorkspaceAI.IsModelUnavailableError(error)) throw error;
+        this.#WarnVisionFallback(ModelName, Candidates[Index + 1], error);
+      }
     }
-    return Provider.ProcessMultimodalMessageWithJsonResponseAsync(
-      ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgImage, ArgModelName || this.#DefaultModelName
-    );
+
+    throw LastError || new Error('No vision model candidates were available.');
   }
+
+  /**
+   * Decide whether an error means "this model is not available to this workspace" — the only class
+   * of failure where trying the next candidate can help. Deliberately narrow: an unrecognized error
+   * propagates rather than silently burning the whole preference list.
+   * @param {any} ArgError Error thrown by a provider call.
+   * @returns {boolean}
+   */
+  static IsModelUnavailableError(ArgError) {
+    if(!ArgError) return false;
+    const Status = ArgError.status ?? ArgError.statusCode ?? null;
+    if(Status === 404) return true;
+    const Message = String(ArgError.message || '').toLowerCase();
+    return /model.*(not found|not supported|does not exist|unavailable|deprecated|retired)/.test(Message)
+      || /(not found|unsupported).*model/.test(Message);
+  }
+
+  /**
+   * Record a vision-model fallback so a silent downgrade is visible in production logs.
+   * @param {string} ArgFailedModel Model that reported itself unavailable.
+   * @param {string} ArgNextModel Next candidate being tried.
+   * @param {any} ArgError Originating error.
+   * @returns {void}
+   */
+  #WarnVisionFallback(ArgFailedModel, ArgNextModel, ArgError) {
+    const Detail = ArgError && ArgError.message ? ArgError.message : 'unknown error';
+    // eslint-disable-next-line no-console
+    console.warn(`[vision] model '${ArgFailedModel}' unavailable (${Detail}); falling back to '${ArgNextModel}'.`);
+  }
+
+  /**
+   * Resolve a model capable of vision/multimodal work, independent of the workspace's default
+   * chat model (GH-63).
+   *
+   * Vision is pinned the same way web search is pinned to OpenAI (see
+   * `ProcessGeminiWebSearchAsync` / the Responses API accessor below): capability lives with a
+   * specific provider, so following the workspace default silently breaks the feature whenever an
+   * operator switches the default to Claude or GPT. Before this, that mismatch surfaced to users
+   * as "Image analysis failed — please try again later", which invites a retry that can never
+   * succeed.
+   *
+   * @returns {string} The best Gemini model name suitable for multimodal requests.
+   * @throws {Error & { code: string }} `vision_provider_not_configured` when the workspace has no
+   *   Gemini credentials, so callers can render an honest message instead of a transient one.
+   */
+  ResolveVisionModelName() {
+    return this.ResolveVisionModelNames()[0];
+  }
+
+  /**
+   * The ordered vision-model candidates for this workspace, best first (GH-63 r2).
+   *
+   * `ProcessMultimodalMessageWithJsonResponseAsync` walks this whole list, so every entry in
+   * `VisionModelPreference` is genuinely reachable. The single-value `ResolveVisionModelName()`
+   * is the head of this list and exists for callers that only need the primary choice.
+   *
+   * @returns {string[]} One or more Gemini model names, best first.
+   * @throws {Error & { code: string }} `vision_provider_not_configured` when the workspace has no
+   *   Gemini credentials.
+   */
+  ResolveVisionModelNames() {
+    // An already-Gemini default is honored as-is — an operator who pinned a specific Gemini
+    // model (including a future one this list does not know about) should keep getting it, and it
+    // leads the candidate order rather than being replaced by our defaults.
+    const PinnedDefault = GeminiModelPattern.test(this.#DefaultModelName || '')
+      ? this.#DefaultModelName
+      : null;
+
+    if(!PinnedDefault && !this.#WorkspaceInfo.GEMINI_API_KEY) {
+      const error = /** @type {Error & { code?: string }} */ (
+        new Error('Image OCR requires a Gemini model, which is not configured for this workspace.')
+      );
+      error.code = 'vision_provider_not_configured';
+      throw error;
+    }
+
+    const Candidates = PinnedDefault ? [PinnedDefault] : [];
+    for(const ModelName of WorkspaceAI.VisionModelPreference) {
+      if(!Candidates.includes(ModelName)) Candidates.push(ModelName);
+    }
+    return Candidates;
+  }
+
+  /**
+   * Preferred vision-capable models, best first. Extend here — and only here — if another
+   * provider gains multimodal support.
+   * @type {string[]}
+   */
+  static VisionModelPreference = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
   /**
    * Send a message to the configured AI provider and return the response as text.

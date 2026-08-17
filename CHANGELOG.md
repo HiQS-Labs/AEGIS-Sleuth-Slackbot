@@ -33,6 +33,19 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.293 - 2026-08-17
+The image-to-list feature I shipped yesterday never actually worked when you used it — uploading a
+screenshot and asking for a list got you "I can only read text-based files" instead. That's fixed,
+it now works whether or not you @mention me, it no longer breaks if your workspace uses Claude or
+GPT as its default model, and you can now ask for it directly with "scan image for text" or
+"convert text into slack list" instead of hoping I infer what you meant.
+
+**Technical:** GH-62, GH-63, GH-64 — follow-ups to GH-58 found in post-merge review.
+- **GH-62 — attachment pipelines unified.** `#OnAppMentionAsync` ran the text-context ingest first and unconditionally; `SelectContextMemoryFile()` classifies any image as `unsupported`, which counts as handled, so the handler returned before reaching the OCR branch in the `else`. Replaced two parallel pipelines with one `ResolveAttachmentIntent()` (`none|text|image-ocr|unsupported`) in `context-file-classifier.js`, one `#HandleAttachmentAsync` shared by `#OnAppMentionAsync` and `#OnMessageAsync` (closing the hands-free gap, which previously had no image path at all), and one `SlackApp.DownloadFileAsync(url, encoding)` — `GetFileContentAsync` and `DownloadFileBase64Async` had been ~30 duplicated lines that included the redirect/HTTPS/auth-forwarding guard, so hardening one silently missed the other. `#IsImageListCreationRequest` moved to `HasListCreationIntent` so classification and intent live together.
+- **GH-63 — vision model pinned.** OCR passed `DefaultModelName`, but only `GeminiProvider` implements the multimodal method, so a Claude/GPT-default workspace threw and users were told "please try again later" for a permanent misconfiguration. Added `WorkspaceAI.ResolveVisionModelName()` with an ordered `VisionModelPreference`, honoring an already-Gemini default; a missing credential now raises `vision_provider_not_configured` and renders a message naming the real cause.
+- **GH-64 — explicit commands.** `command-catalog.json` had 58 entries and none mentioned OCR or images, so `rmm`, `help`, and the commands list could not see the feature. Registered `scan-image-for-text` and `convert-text-into-slack-list` with `Aliases` + `IntentPhrases`, and split the fused OCR handler into `#ExtractListItemsFromImageAsync` and `#MaterializeListFromItemsAsync` so `image → text → items → list` is composable; `CreateListFromExtractedItemsAsync` stays the single materialization seam.
+- **Tests:** 22 new across 2 suites, driving real `app_mention` / `message` payloads through the event handlers. The GH-58 suite passed 27/27 with this bug present because every test started below the entry point; mutation-tested both new suites by reintroducing each defect to confirm they fail.
+
 ## 1.4.292 - 2026-08-17
 When you upload a screenshot or photo of an itemized list or table in Slack and ask me to create a
 list, I now use Gemini Flash's vision OCR to extract every item, title, and penalty/fine amount,

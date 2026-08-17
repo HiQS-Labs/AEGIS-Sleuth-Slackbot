@@ -711,6 +711,85 @@
     "HelpSection": "Search & Knowledge"
   },
   {
+    "Id": "scan-image-for-text",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Read the text out of an uploaded image using Vision OCR and post it back, without creating anything.",
+    "SyntaxExamples": [
+      "@Sleuth AI scan image for text",
+      "@Sleuth AI ocr image for text"
+    ],
+    "Aliases": [
+      "scan image for text",
+      "ocr image for text",
+      "scan the image",
+      "ocr the image",
+      "scan image",
+      "ocr image"
+    ],
+    "IntentPhrases": [
+      "read the text in this screenshot",
+      "what does this image say",
+      "extract the text from this photo",
+      "ocr this picture for me",
+      "pull the words out of this image"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the user wants the text itself. If they want an interactive Slack List built from the image, use convert-text-into-slack-list or just let the image list route handle it.",
+      "Requires an image attachment on the same message."
+    ],
+    "RegisteredRoutes": [
+      "scan image for text"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 84,
+    "CommandsListOrder": 172,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "convert-text-into-slack-list",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Turn text — pasted, quoted, or already scanned out of an image — into an interactive Slack List.",
+    "SyntaxExamples": [
+      "@Sleuth AI convert text into slack list",
+      "@Sleuth AI convert text into slack list 1. Fix railing $200 2. PPE violation"
+    ],
+    "Aliases": [
+      "convert text into slack list",
+      "convert text to slack list",
+      "convert the text into a slack list",
+      "make a slack list from this",
+      "turn this into a list"
+    ],
+    "IntentPhrases": [
+      "turn this text into a list",
+      "make a slack list out of what i just pasted",
+      "convert these items into a checklist",
+      "build a list from this text",
+      "put this into a slack list"
+    ],
+    "ArgumentHints": [
+      "SourceText"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the source is text. When the source is an image, the image list route handles extraction and creation in one step.",
+      "With no text supplied it falls back to the thread's context memory, so it composes after scan-image-for-text."
+    ],
+    "RegisteredRoutes": [
+      "convert text into slack list"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 85,
+    "CommandsListOrder": 173,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
     "Id": "view-stratalist",
     "Permission": "public",
     "Risk": "low",

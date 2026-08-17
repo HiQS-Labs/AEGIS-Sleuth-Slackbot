@@ -31,6 +31,29 @@ goal: >
 
 ### In progress
 
+- **Unify Slack attachment handling (GH-62)** — **in progress on branch
+  `gh-62-unify-attachment-pipeline`.** The GH-58 Vision OCR feature shipped in 1.4.292 is
+  unreachable from Slack: the text-context ingest runs first, classifies any image as
+  `unsupported`, and returns before the OCR check is reached. Root cause is two parallel attachment
+  pipelines — duplicated dispatch, download, and selection. Collapses them to one
+  `ResolveAttachmentIntent()`, one shared dispatch across app_mention + message events, and one
+  `DownloadFileAsync()` holding the redirect/auth guard once.
+  → [PROJECT/2-WORKING/GH-62-UNIFY-ATTACHMENT-PIPELINE.md](PROJECT/2-WORKING/GH-62-UNIFY-ATTACHMENT-PIPELINE.md)
+
+- **Pin Vision OCR to a Gemini provider (GH-63)** — **in progress on branch
+  `gh-62-unify-attachment-pipeline`.** OCR passes the workspace default model, but only
+  `GeminiProvider` implements the multimodal method — so a Claude/GPT-default workspace fails
+  permanently while the user is told "please try again later". Pins the provider the way web search
+  already does and reports a configuration mismatch honestly.
+  → [PROJECT/2-WORKING/GH-63-PIN-OCR-PROVIDER.md](PROJECT/2-WORKING/GH-63-PIN-OCR-PROVIDER.md)
+
+- **Explicit OCR and list-conversion commands (GH-64)** — **in progress on branch
+  `gh-62-unify-attachment-pipeline`; depends on GH-62.** `command-catalog.json` has 58 entries and
+  none mention OCR or images, so `rmm`, `help`, and the commands list cannot see the feature at all.
+  Registers "scan image for text" and "convert text into Slack list" as real catalog entries and
+  splits the fused OCR-plus-list handler into two composable seams.
+  → [PROJECT/2-WORKING/GH-64-EXPLICIT-OCR-COMMANDS.md](PROJECT/2-WORKING/GH-64-EXPLICIT-OCR-COMMANDS.md)
+
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
