@@ -31,29 +31,6 @@ goal: >
 
 ### In progress
 
-- **Unify Slack attachment handling (GH-62)** — **in progress on branch
-  `gh-62-unify-attachment-pipeline`.** The GH-58 Vision OCR feature shipped in 1.4.292 is
-  unreachable from Slack: the text-context ingest runs first, classifies any image as
-  `unsupported`, and returns before the OCR check is reached. Root cause is two parallel attachment
-  pipelines — duplicated dispatch, download, and selection. Collapses them to one
-  `ResolveAttachmentIntent()`, one shared dispatch across app_mention + message events, and one
-  `DownloadFileAsync()` holding the redirect/auth guard once.
-  → [PROJECT/2-WORKING/GH-62-UNIFY-ATTACHMENT-PIPELINE.md](PROJECT/2-WORKING/GH-62-UNIFY-ATTACHMENT-PIPELINE.md)
-
-- **Pin Vision OCR to a Gemini provider (GH-63)** — **in progress on branch
-  `gh-62-unify-attachment-pipeline`.** OCR passes the workspace default model, but only
-  `GeminiProvider` implements the multimodal method — so a Claude/GPT-default workspace fails
-  permanently while the user is told "please try again later". Pins the provider the way web search
-  already does and reports a configuration mismatch honestly.
-  → [PROJECT/2-WORKING/GH-63-PIN-OCR-PROVIDER.md](PROJECT/2-WORKING/GH-63-PIN-OCR-PROVIDER.md)
-
-- **Explicit OCR and list-conversion commands (GH-64)** — **in progress on branch
-  `gh-62-unify-attachment-pipeline`; depends on GH-62.** `command-catalog.json` has 58 entries and
-  none mention OCR or images, so `rmm`, `help`, and the commands list cannot see the feature at all.
-  Registers "scan image for text" and "convert text into Slack list" as real catalog entries and
-  splits the fused OCR-plus-list handler into two composable seams.
-  → [PROJECT/2-WORKING/GH-64-EXPLICIT-OCR-COMMANDS.md](PROJECT/2-WORKING/GH-64-EXPLICIT-OCR-COMMANDS.md)
-
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
@@ -224,6 +201,34 @@ goal: >
   [PROJECT/2-WORKING/GH-418-STARTUP-CI-RESULTS-POLL.md](PROJECT/2-WORKING/GH-418-STARTUP-CI-RESULTS-POLL.md)
 
 ### Completed
+
+- **Unify Slack attachment handling (GH-62)** — **merged to `development` 2026-08-17 via PR
+  [#65](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/65); CI green; issue
+  [#62](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/62) closed.** GH-58's Vision OCR
+  shipped in 1.4.292 unreachable from Slack — the text-context ingest ran first, classified any image
+  as `unsupported`, and returned before the OCR branch. Root cause was two parallel attachment
+  pipelines with duplicated dispatch, download, and selection. Now one `ResolveAttachmentIntent()`,
+  one `#HandleAttachmentAsync` shared by app_mention + message events (closing a hands-free gap that
+  had no image path at all), and one `DownloadFileAsync()` holding the redirect/auth guard once.
+  Shipped as 1.4.293 with an entry-point test suite and `npm run attachments:e2e`.
+  → [PROJECT/3-COMPLETED/GH-62-UNIFY-ATTACHMENT-PIPELINE.md](PROJECT/3-COMPLETED/GH-62-UNIFY-ATTACHMENT-PIPELINE.md)
+
+- **Pin Vision OCR to a Gemini provider (GH-63)** — **merged to `development` 2026-08-17 via PR
+  [#65](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/65); CI green; issue
+  [#63](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/63) closed.** OCR followed the
+  workspace default model, but only `GeminiProvider` implements the multimodal method, so a
+  Claude/GPT-default workspace failed permanently while being told to try again later. The agy QA
+  relay then caught that only `VisionModelPreference[0]` was reachable; the call now walks the whole
+  ordered candidate list with a narrow `IsModelUnavailableError()` retry.
+  → [PROJECT/3-COMPLETED/GH-63-PIN-OCR-PROVIDER.md](PROJECT/3-COMPLETED/GH-63-PIN-OCR-PROVIDER.md)
+
+- **Explicit OCR and list-conversion commands (GH-64)** — **merged to `development` 2026-08-17 via PR
+  [#65](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/65); CI green; issue
+  [#64](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/64) closed.** `command-catalog.json`
+  had 58 entries and none mentioning OCR, so `rmm`, `help`, and the commands list could not see the
+  feature. Registered `scan-image-for-text` and `convert-text-into-slack-list` with `Aliases` +
+  `IntentPhrases`, and split the fused handler into extract/materialize seams.
+  → [PROJECT/3-COMPLETED/GH-64-EXPLICIT-OCR-COMMANDS.md](PROJECT/3-COMPLETED/GH-64-EXPLICIT-OCR-COMMANDS.md)
 
 - **Gemini Vision OCR and Slack List Creation Pipeline (GH-58)** — **merged to `development`
   2026-08-17 via PR [#59](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/59); CI green;
