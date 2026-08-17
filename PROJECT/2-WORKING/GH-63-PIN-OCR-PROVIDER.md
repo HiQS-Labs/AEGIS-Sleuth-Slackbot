@@ -19,7 +19,7 @@ context_tags: [ocr, provider-selection, error-honesty, ai-providers]
 
 | What was just completed | What's next |
 |---|---|
-| **Implemented at 1.4.293.** `WorkspaceAI.ResolveVisionModelName()` pins vision to `VisionModelPreference` (`gemini-2.5-flash` → `2.0` → `1.5`), honors an already-Gemini default even when unknown to the list, and throws typed `vision_provider_not_configured` when no Gemini credential exists; the caller now renders a message naming the real cause instead of "try again later". Mutation-verified: restoring the unpinned behavior fails 3 tests. E2E confirms a Claude-default workspace still reaches `generativelanguage.googleapis.com`. | **Confirm which model production workspaces actually default to.** If already Gemini this was latent; if not, it was live. Owner: noel. |
+| **Implemented at 1.4.293; hardened after the agy QA relay (Approved r2).** `ResolveVisionModelNames()` returns the ordered candidates and `ProcessMultimodalMessageWithJsonResponseAsync` walks them — the relay caught that the original only ever read `VisionModelPreference[0]`, leaving the two declared fallbacks unreachable and one deprecation away from an outage. Retry is narrowed by `IsModelUnavailableError()` so a malformed image or quota error fails once, not three times; downgrades are logged; a caller-named model is never substituted. Typed `vision_provider_not_configured` still separates the honest configuration message from the transient one. 8 fallback tests + mutation verification. | **Confirm which model production workspaces actually default to.** If already Gemini this was latent; if not, it was live. Owner: noel. |
 
 ## Problem Statement
 
