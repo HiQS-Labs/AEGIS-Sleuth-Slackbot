@@ -31,12 +31,6 @@ goal: >
 
 ### In progress
 
-- **Test suite data/runtime isolation across Jest workers (GH-60)** — **complete, in PR review.**
-  Test suites share a non-isolated `data/runtime/` tree across parallel Jest worker processes,
-  causing cross-process state races and flaky test failures. Fix routes all runtime state under
-  `SLEUTH_DATA_DIR` (with per-worker temp directory isolation in Jest setup) and adds a regression
-  guard. → [PROJECT/2-WORKING/GH-60-ISOLATE-TEST-RUNTIME-DATA.md](PROJECT/2-WORKING/GH-60-ISOLATE-TEST-RUNTIME-DATA.md)
-
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
@@ -207,6 +201,13 @@ goal: >
   [PROJECT/2-WORKING/GH-418-STARTUP-CI-RESULTS-POLL.md](PROJECT/2-WORKING/GH-418-STARTUP-CI-RESULTS-POLL.md)
 
 ### Completed
+
+- **Test suite data/runtime isolation across Jest workers (GH-60)** — **merged to `development`
+  2026-08-17 via PR [#61](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/61); CI green.**
+  Test suites shared a non-isolated `data/runtime/` tree across parallel Jest worker processes,
+  causing cross-process state races and flaky test failures. Fix routes all runtime state under
+  `SLEUTH_DATA_DIR` (with per-worker temp directory isolation in Jest setup) and adds a regression
+  guard. → [PROJECT/3-COMPLETED/GH-60-ISOLATE-TEST-RUNTIME-DATA.md](PROJECT/3-COMPLETED/GH-60-ISOLATE-TEST-RUNTIME-DATA.md)
 
 - **Anchor the jest globs so the merge gate stops crying wolf (GH-48)** — **merged to `development`
   2026-08-11 via PR [#49](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/49); CI green.**
