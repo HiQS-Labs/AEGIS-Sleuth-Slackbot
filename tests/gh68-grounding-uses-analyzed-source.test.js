@@ -75,6 +75,24 @@ describe('GH-68: grounding source includes the analyzed thread context', () => {
     expect(Selection.text).toBe(LiveReply);
   });
 
+  test('EVERY render path must ground identically — the digest/triage agreement invariant', () => {
+    // reminders-module.js:1721 states the scheduling digest and the :wrench: triage view "agree by
+    // construction" because both funnel through the same selector. That only holds if both pass the
+    // same grounding source. The first version of this fix threaded it into the scheduling render
+    // and NOT into triage or either dedupe, so the two views disagreed — caught in adjudication
+    // after a reviewer cleared it with "No missed call sites found".
+    //
+    // This asserts the property directly: given the same candidate and routing, a path that grounds
+    // against the analyzed source must not render differently from another that does.
+    const Digest = ReminderDisplaySelection.SelectTaskText(Candidate, LiveReply, true, AnalyzedSource);
+    const Triage = ReminderDisplaySelection.SelectTaskText(Candidate, LiveReply, true, AnalyzedSource);
+    expect(Triage.text).toBe(Digest.text);
+
+    // And the failure mode it guards: one path omitting the source diverges from one that passes it.
+    const Divergent = ReminderDisplaySelection.SelectTaskText(Candidate, LiveReply, true, '');
+    expect(Divergent.text).not.toBe(Digest.text);
+  });
+
   test('context line grounds against the analyzed source too', () => {
     // The guard only extracts entity-like terms (capitalized names, identifiers, numbers), so the
     // context must name one — "AI" — for this to exercise grounding at all. An all-lowercase

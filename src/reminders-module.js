@@ -1732,7 +1732,7 @@ class RemindersModule {
     // (trigger + displayed task text) so each distinct bullet appears once. This is a no-op when synthesis
     // is ON and candidates carry distinct titles, and correctly collapses genuine duplicate extractions.
     AnalysisResult.reminders = this.#DedupeCandidatesByRenderIdentity(
-      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn,
+      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
     );
 
     // exit early if the recommendation is to ignore the message.
@@ -2104,7 +2104,9 @@ class RemindersModule {
       OriginalText, TriageResult.analysis.reminders,
     );
     const TriageCandidates = this.#DedupeCandidatesByRenderIdentity(
-      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn,
+      // GH-68: same analyzed-source grounding as the scheduling dedupe above. The comment directly
+      // above exists because a triage/production candidate-set mismatch already happened once.
+      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, OriginalText,
     );
     const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageCandidates);
 
@@ -2174,7 +2176,10 @@ class RemindersModule {
 
         const SanitizedTrigger = SlackFormatUtils.SanitizeForInlineSlack(Reminder.scheduling_trigger);
         const SanitizedTask = SlackFormatUtils.SanitizeForInlineSlack(
-          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn)
+          // GH-68: ground triage against the SAME analyzed text the scheduling path uses.
+          // Omitting it is precisely how "triage and the digest disagree about the same message"
+          // (see the routing comment above) comes back.
+          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, OriginalText)
         );
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
@@ -2252,11 +2257,13 @@ class RemindersModule {
    * @param {boolean} ArgSynthesisOn The routing decision for this message.
    * @returns {GptReminderInfo[]} candidates with render-duplicates removed, first occurrence kept.
    */
-  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn) {
+  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText = '') {
     const SeenRenderKeys = new Set();
     return (ArgCandidates || []).filter(ArgCandidate => {
       const RenderKey = `${ArgCandidate.scheduling_trigger} `
-        + this.#SelectReminderTaskText(ArgCandidate, ArgNormalizedOriginalText, ArgSynthesisOn);
+        // GH-68: must ground identically to the real render, or the key is computed from text the
+        // user never sees and duplicates collapse (or fail to) on the wrong basis.
+        + this.#SelectReminderTaskText(ArgCandidate, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
       if(SeenRenderKeys.has(RenderKey)) return false;
       SeenRenderKeys.add(RenderKey);
       return true;
