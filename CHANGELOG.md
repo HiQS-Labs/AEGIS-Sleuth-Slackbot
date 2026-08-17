@@ -33,6 +33,48 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.303 - 2026-08-18
+I got the message about the photo list. When you said "make a todo list for by OCRing the attached
+image," I was listening for "make a list" exactly — that extra word "todo" made me give you my
+text-files-only speech instead of reading the image. I now understand todo/task/checklist lists,
+and when you only want the text OUT of an image ("read the text in this screenshot") I'll post the
+text without building a list you didn't ask for. "Make a list from this image" is also a real
+command now, so it shows up in help and the commands list.
+
+**Technical:** GH-73, GH-74, GH-75, GH-76 — the four graded follow-ups to the GH-58 OCR feature,
+shipped in one branch.
+- **GH-73 — intent grammar + action split.** `HasListCreationIntent` (`src/context-file-classifier.js`)
+  required `list` immediately after verb+article, so the modifier "todo" broke every alternation and
+  `ResolveAttachmentIntent` returned `unsupported` → the text-files-only rejection. The verb arm now
+  accepts 0–2 modifier words and `checklist`. New `HasImageTextExtractionIntent` adds a scan-only
+  arm, and the resolver's single `image-ocr` kind is split into `image-list` (extract + materialize)
+  vs `image-text` (extract + post text, never create a list) — routing a scan-only request through
+  the old kind would have materialized a list the user didn't ask for. List intent wins when a
+  message carries both signals. `#HandleAttachmentAsync` dispatches the two arms; `image-text`
+  reuses `HandleScanImageCommandAsync`'s posting shape so both entry points render identically.
+- **GH-74 — explicit catalog entry + route.** The image→List capability was invisible to
+  `rmm`/help/commands (the GH-64 entries cover text-only scan and text-source conversion).
+  Registered `make list from image` in `#RegisterCommandRoutes` (canonical closure pattern) and
+  added the `make-list-from-image` catalog entry; the two sibling entries' disambiguation notes now
+  point at it. Per the Codex refinement, no image-list phrasings were mirrored into
+  `scan-image-for-text` or `convert-text-into-slack-list` — their declared behaviors differ.
+- **GH-75 — direct ListsModule injection.** `#MaterializeListFromItemsAsync` reached ListsModule
+  via `#RemindersModule?.ListsModule`; now injected as a nullable 6th constructor arg in
+  `src/app.js` (ListsModule is already constructed before ChatModule). Availability guard and its
+  user-facing fallback unchanged.
+- **GH-76 — failure-post dedup.** New `#FailOcrAsync` centralizes only posting + returning
+  `{ ok: false }`; each of the extraction failure sites keeps its own log level, diagnostic, and
+  error object, and the GH-63 permanent-vs-transient message choice stays at the site that knows
+  the error code. No catch boundary in the helper.
+- **Tests.** `tests/attachment-pipeline-entry-point.test.js` grows 17→20 tests: e2e tests assert BOTH the
+  selected branch and its side effect (list created for the todo wording; NO list for the scan
+  wording), unit tables cover the production sentence, modifiers, and the scan arm. Mutation-
+  verified both ways: reintroducing the narrow grammar turns exactly the six new grammar tests red
+  (14 pre-existing stay green); disabling the scan arm turns exactly the three scan tests red.
+  `scripts/attachment-pipeline-e2e.js` updated for the renamed kinds and the injected ListsModule
+  (23/23). Help regenerated (`data/static/HELP.md`). `validate:commands` remains red on
+  `ask-self` — pre-existing on `development` (#39 class), verified identical on the untouched tree.
+
 ## 1.4.302 - 2026-08-18
 Your per-channel reminder settings are now protected against being overwritten on service restarts, and production deployments now dynamically discover the active application directory directly from systemd.
 

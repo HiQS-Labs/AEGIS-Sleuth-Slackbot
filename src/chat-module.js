@@ -174,6 +174,14 @@ class ChatModule {
   #NotionModule;
 
   /**
+   * Lists module reference, injected directly at construction (GH-75). Nullable — the Slack Lists
+   * integration is optional per workspace, and `#MaterializeListFromItemsAsync` degrades to a
+   * plain-text items summary when it is absent.
+   * @type {import('./lists-module')|null}
+   */
+  #ListsModule = null;
+
+  /**
    * Chat system instructions template.
    * @type {string}
    */
@@ -307,8 +315,11 @@ class ChatModule {
    * @param {import("./reminders-module")} ArgRemindersModule
    * @param {import("./stats-module")} ArgStatsModule
    * @param {import("./notion-module")} ArgNotionModule
+   * @param {import("./lists-module")|null} [ArgListsModule] Lists module for OCR list
+   *   materialization, injected directly rather than reached through RemindersModule (GH-75).
+   *   Nullable: the Slack Lists integration is optional per workspace.
    */
-  constructor(ArgSlackApp, ArgWorkspaceStats, ArgRemindersModule, ArgStatsModule, ArgNotionModule) {
+  constructor(ArgSlackApp, ArgWorkspaceStats, ArgRemindersModule, ArgStatsModule, ArgNotionModule, ArgListsModule = null) {
     // save the Slack app instance.
     this.#SlackApp = ArgSlackApp;
 
@@ -316,6 +327,7 @@ class ChatModule {
     this.#RemindersModule = ArgRemindersModule;
     this.#StatsModule = ArgStatsModule;
     this.#NotionModule = ArgNotionModule;
+    this.#ListsModule = ArgListsModule;
 
     // initialize the WorkspaceAI instance using the workspace info and stats.
     this.#WorkspaceAI = new WorkspaceAI(this.#SlackApp.WorkspaceInfo, ArgWorkspaceStats);
@@ -423,6 +435,25 @@ class ChatModule {
         ExtractTextFromImageAsync: (ArgSlackApp, ArgEvent) =>
           this.#ExtractListItemsFromImageAsync(ArgSlackApp, ArgEvent, 'Extract all text from this image.'),
       }),
+    });
+
+    // GH-74: explicit image→List counterpart to the natural-language attachment route. Same
+    // extraction + materialization seams as the unified attachment dispatch — not a third
+    // pipeline. Reachable when the request is worded as a command but no image is attached, in
+    // which case the extractor posts its own "did not find an image attachment" guidance.
+    Router.Register({
+      Pattern: /^(?:make|create|build|generate)\s+(?:a\s+|an\s+)?(?:[a-z-]+\s+)?(?:list|checklist)\s+(?:from|of|out\s+of)\s+(?:the\s+|this\s+|that\s+)?(?:attached\s+)?image\b/i,
+      DescribePattern: /^(?:make|create|build|generate)\s+(?:a\s+|an\s+)?(?:[a-z-]+\s+)?(?:list|checklist)\s+(?:from|of|out\s+of)\s+.*image/i,
+      Route: 'make list from image',
+      // Router routes return void; the journey helper's boolean is a handler-chain signal the
+      // router does not consume, so it is awaited and discarded here.
+      Handle: async (ArgEventInfo) => {
+        await this.#TryProcessImageForListCreationAsync(
+          this.#SlackApp,
+          ArgEventInfo,
+          'Extract all list items from this image.'
+        );
+      },
     });
 
     Router.Register({
@@ -2683,10 +2714,21 @@ class ChatModule {
     if(Intent.Kind === 'none')
       return { Handled: false, TextFileWasStored: false };
 
-    if(Intent.Kind === 'image-ocr') {
-      // Hand the resolved file straight through — re-selecting here could pick a different
-      // attachment than the one this dispatch decision was made on.
+    // Both image arms hand the resolved file straight through — re-selecting here could pick a
+    // different attachment than the one this dispatch decision was made on.
+    if(Intent.Kind === 'image-list') {
       await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgText, Intent.File);
+      return { Handled: true, TextFileWasStored: false };
+    }
+
+    // GH-73: a scan-only intent stops after extraction and posts the text — it must never
+    // materialize a Slack List. Reuses the explicit scan command's posting shape (bullets plus
+    // the "convert" hint) so both entry points render identically.
+    if(Intent.Kind === 'image-text') {
+      await HandleScanImageCommandAsync(this.#SlackApp, ArgEventInfo, {
+        ExtractTextFromImageAsync: (ArgScanSlackApp, ArgScanEvent) =>
+          this.#ExtractListItemsFromImageAsync(ArgScanSlackApp, ArgScanEvent, 'Extract all text from this image.', Intent.File),
+      });
       return { Handled: true, TextFileWasStored: false };
     }
 
@@ -2933,12 +2975,7 @@ class ChatModule {
     const ImageSelection = ArgImageFile || SelectImageAttachment(ArgEventInfo.files);
     if(!ImageSelection) {
       ArgSlackApp.Logger.warn('[ocr-list] no image attachment found in files array.');
-      await ArgSlackApp.PostMessageTextAsync(
-        ArgEventInfo.channel,
-        ReplyTS,
-        'I did not find an image attachment to process.'
-      );
-      return { ok: false };
+      return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'I did not find an image attachment to process.');
     }
 
     try {
@@ -2946,12 +2983,7 @@ class ChatModule {
       const DownloadURL = ImageSelection.url_private_download || ImageSelection.url_private;
       if(!DownloadURL) {
         ArgSlackApp.Logger.error('[ocr-list] image missing url_private_download/url_private.');
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          'Could not access the image file for processing.'
-        );
-        return { ok: false };
+        return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'Could not access the image file for processing.');
       }
 
       let DownloadResult;
@@ -2959,22 +2991,12 @@ class ChatModule {
         DownloadResult = await ArgSlackApp.DownloadFileBase64Async(DownloadURL);
       } catch(downloadError) {
         ArgSlackApp.Logger.error(`[ocr-list] failed to download image '${ImageSelection.name}':`, downloadError);
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          'Failed to download the image. Please try uploading it again.'
-        );
-        return { ok: false };
+        return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'Failed to download the image. Please try uploading it again.');
       }
 
       if(!DownloadResult || !DownloadResult.Base64) {
         ArgSlackApp.Logger.warn('[ocr-list] DownloadFileBase64Async returned empty result.');
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          'The image file appeared to be empty.'
-        );
-        return { ok: false };
+        return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'The image file appeared to be empty.');
       }
 
       ArgSlackApp.Logger.info(
@@ -3005,24 +3027,14 @@ class ChatModule {
         );
       } catch(readError) {
         ArgSlackApp.Logger.error('[ocr-list] could not read OCR instruction file:', readError);
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          'OCR instruction file is missing on the server.'
-        );
-        return { ok: false };
+        return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'OCR instruction file is missing on the server.');
       }
       try {
         const SchemaPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-schema.json');
         SchemaObject = JSON.parse(await fs.readFile(SchemaPath, 'utf8'));
       } catch(schemaError) {
         ArgSlackApp.Logger.error('[ocr-list] could not read OCR schema file:', schemaError);
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          'OCR schema file is missing on the server.'
-        );
-        return { ok: false };
+        return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'OCR schema file is missing on the server.');
       }
 
       // Step 3: run Gemini Vision OCR via WorkspaceAI.
@@ -3043,35 +3055,24 @@ class ChatModule {
         // "try again later" invites a retry that can never succeed and hides the real fix.
         const IsConfigurationFailure = ocrError
           && (ocrError.code === 'vision_provider_not_configured' || ocrError.code === 'provider_not_configured');
-        const ContextLines = [
-          '• AI Provider: Google Gemini',
-          `• Model: \`${this.#WorkspaceAI?.DefaultModelName || 'unknown'}\``,
-        ];
-        const FullErrorMsg = await BuildErrorReportAsync(
+        return this.#FailOcrAsync(
           ArgSlackApp,
           ArgEventInfo.channel,
+          ReplyTS,
           IsConfigurationFailure
             ? "Image OCR needs a Gemini model, which isn't configured for this workspace. Ask a workspace admin to add a Gemini API key."
             : 'Image analysis failed — please try again later.',
-          ContextLines
+          [
+            '• AI Provider: Google Gemini',
+            `• Model: \`${this.#WorkspaceAI?.DefaultModelName || 'unknown'}\``,
+          ]
         );
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          FullErrorMsg
-        );
-        return { ok: false };
       }
 
       const ExtractedItems = (OcrResult && Array.isArray(OcrResult.items)) ? OcrResult.items : [];
       if(ExtractedItems.length === 0) {
         ArgSlackApp.Logger.info('[ocr-list] model returned zero extracted items.');
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          "I didn't detect any list items in that image. Try another screenshot with clearer text."
-        );
-        return { ok: false };
+        return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, "I didn't detect any list items in that image. Try another screenshot with clearer text.");
       }
 
       return {
@@ -3081,18 +3082,38 @@ class ChatModule {
       };
     } catch(unexpectedError) {
       ArgSlackApp.Logger.error('[ocr-list] unexpected failure during extraction:', unexpectedError);
-      const FullErrorMsg = await BuildErrorReportAsync(
-        ArgSlackApp,
-        ArgEventInfo.channel,
-        'Something went wrong while reading that image.'
-      );
-      await ArgSlackApp.PostMessageTextAsync(
-        ArgEventInfo.channel,
-        ReplyTS,
-        FullErrorMsg
-      );
-      return { ok: false };
+      return this.#FailOcrAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, 'Something went wrong while reading that image.');
     }
+  }
+
+  /**
+   * Post an OCR extraction failure message and yield the not-ok result (GH-76).
+   *
+   * Deliberately minimal: it centralizes ONLY the repeated posting + return mechanics. Each call
+   * site keeps its own log level, diagnostic message, and error object, and the GH-63
+   * permanent-vs-transient message choice stays at the site that knows the error code. There is
+   * intentionally no catch boundary and no logging here — a variadic do-everything helper would be
+   * harder to audit than the duplication it removes.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Channel to post the failure message to.
+   * @param {string} ArgReplyTS Thread timestamp to reply in (already computed by the caller).
+   * @param {string} ArgUserMessage User-facing failure message, already selected by the caller.
+   * @param {string[]} [ArgContextLines] Extra contextual diagnostic lines for this failure (GH-88).
+   * @returns {Promise<{ ok: false }>}
+   */
+  async #FailOcrAsync(ArgSlackApp, ArgChannelID, ArgReplyTS, ArgUserMessage, ArgContextLines = []) {
+    // GH-88: every OCR failure carries the diagnostics baseline. This is the ONLY place that
+    // happens for this route — which is exactly why GH-76 collapsed the seven duplicated failure
+    // blocks into this helper first. Attaching the baseline at nine call sites would have
+    // reintroduced the duplication GH-76 removed.
+    const FullErrorMsg = await BuildErrorReportAsync(
+      ArgSlackApp,
+      ArgChannelID,
+      ArgUserMessage,
+      ArgContextLines
+    );
+    await ArgSlackApp.PostMessageTextAsync(ArgChannelID, ArgReplyTS, FullErrorMsg);
+    return { ok: false };
   }
 
   /**
@@ -3116,11 +3137,12 @@ class ChatModule {
       : 'Extracted List';
 
     try {
-      // Step 4: create the Slack List via ListsModule.
+      // Step 4: create the Slack List via ListsModule — injected directly at construction (GH-75),
+      // no longer reached through RemindersModule. Nullable: the Lists integration is optional.
       /** @type {import('./lists-module')|null} */
-      const ListsModuleInstance = this.#RemindersModule?.ListsModule || null;
+      const ListsModuleInstance = this.#ListsModule;
       if(!ListsModuleInstance || typeof ListsModuleInstance.CreateListFromExtractedItemsAsync !== 'function') {
-        ArgSlackApp.Logger.warn('[ocr-list] ListsModule not available on RemindersModule.');
+        ArgSlackApp.Logger.warn('[ocr-list] ListsModule not available (not configured for this workspace).');
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
