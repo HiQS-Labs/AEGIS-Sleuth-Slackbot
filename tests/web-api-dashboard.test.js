@@ -40,7 +40,7 @@ async function SessionGetAsync(ArgPort, ArgPath, ArgToken = TestSessionToken) {
 describe('GET /admin/dashboard/* (reminders dashboard)', () => {
   /** @type {WebAPI} */
   let API;
-  const RemindersDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+  const RemindersDir = workspaces.GetSubdirPath('reminders');
   const TestWorkspaceName = 'WebAPIDashboardTest';
   const RemindersFilePath = path.join(RemindersDir, `${TestWorkspaceName}_reminders.json`);
   const CompletedFilePath = path.join(RemindersDir, `${TestWorkspaceName}_completed.json`);

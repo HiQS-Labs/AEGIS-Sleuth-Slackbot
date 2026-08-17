@@ -17,6 +17,7 @@ jest.mock('../src/workspace-ai', () => {
 });
 
 const ChatModule = require('../src/chat-module');
+const workspaces = require('../src/workspaces');
 const { ISSUE_REPO } = require('../src/github-issue-filer');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
@@ -50,7 +51,7 @@ const EmptyWorkspaceStats = {
   IncomingGptMessageLength: 0,
 };
 
-const BugReportsFilePath = path.join(__dirname, '..', 'data', 'runtime', 'bugs', `${WORKSPACE_NAME}_bugs.json`);
+const BugReportsFilePath = workspaces.GetSubdirPath('bugs', `${WORKSPACE_NAME}_bugs.json`);
 
 async function ReadBugReportsAsync() {
   try {

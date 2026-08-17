@@ -11,12 +11,11 @@ const {
   ReminderHasActivePR,
 } = require('./show-me-context');
 const { DoesReminderMatchClient } = require('../client-mapping');
+const workspaces = require('../workspaces');
 
 // ---------------------------------------------------------------------------
 // Persisted client/project map  (data/runtime/client-project-map/<ws>.json)
 // ---------------------------------------------------------------------------
-
-const RUNTIME_MAP_DIR = path.join(__dirname, '..', '..', 'data', 'runtime', 'client-project-map');
 
 /**
  * Absolute path for a workspace's persisted project map.
@@ -24,7 +23,7 @@ const RUNTIME_MAP_DIR = path.join(__dirname, '..', '..', 'data', 'runtime', 'cli
  * @returns {string}
  */
 function GetProjectMapPath(ArgWorkspaceId) {
-  return path.join(RUNTIME_MAP_DIR, `${ArgWorkspaceId}.json`);
+  return workspaces.GetSubdirPath('client-project-map', `${ArgWorkspaceId}.json`);
 }
 
 /**
@@ -57,7 +56,7 @@ function LoadProjectMap(ArgWorkspaceId) {
 function SaveProjectMap(ArgWorkspaceId, ArgMap) {
   if(!ArgWorkspaceId) return;
   try {
-    fs.mkdirSync(RUNTIME_MAP_DIR, { recursive: true });
+    fs.mkdirSync(workspaces.GetSubdirPath('client-project-map'), { recursive: true });
     // Crash-atomic (GH-12); sync variant because SaveProjectMap is a synchronous helper.
     WriteFileDurableSync(GetProjectMapPath(ArgWorkspaceId), JSON.stringify(ArgMap, null, 2));
   } catch(_) {

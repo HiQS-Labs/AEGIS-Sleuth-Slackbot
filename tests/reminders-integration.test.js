@@ -9,6 +9,7 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
 const { BuildCompactTextForReminder } = require('../src/reminders-display-utils');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
@@ -55,8 +56,8 @@ function MakeWorkspaceInfo(ArgSuffix) {
  * @returns {{ remindersFilePath: string, counterFilePath: string, enabledChannelsFilePath: string, completedFilePath: string, eventsFilePath: string }}
  */
 function GetReminderRuntimePaths(ArgWorkspaceName) {
-  const RemindersDirPath = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
-  const EventsDirPath = path.join(__dirname, '..', 'data', 'runtime', 'events');
+  const RemindersDirPath = workspaces.GetSubdirPath('reminders');
+  const EventsDirPath = workspaces.GetSubdirPath('events');
   return {
     remindersFilePath: path.join(RemindersDirPath, `${ArgWorkspaceName}_reminders.json`),
     counterFilePath: path.join(RemindersDirPath, `${ArgWorkspaceName}_reminder_counter.json`),

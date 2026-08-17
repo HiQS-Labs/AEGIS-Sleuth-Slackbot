@@ -17,6 +17,7 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 const BaseWorkspaceInfo = {
@@ -36,7 +37,7 @@ const EmptyWorkspaceStats = {
   IncomingGptMessageCount: 0, IncomingGptMessageLength: 0,
 };
 
-const RuntimeRoot = path.join(__dirname, '..', 'data', 'runtime');
+const RuntimeRoot = workspaces.GetRuntimeDirPath();
 
 function RemindersFilePath(ArgWorkspace) {
   return path.join(RuntimeRoot, 'reminders', `${ArgWorkspace}_reminders.json`);

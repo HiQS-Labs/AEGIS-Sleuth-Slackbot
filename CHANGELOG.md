@@ -33,6 +33,11 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.291 - 2026-08-17
+I've made test suite runs cleanly isolated across parallel worker processes, so background test runs never interfere with each other or pollute the workspace runtime files on disk.
+
+**Technical:** GH-60 (port of issue #435). Parallel Jest workers previously read and wrote shared paths inside `data/runtime/**`, leading to cross-process race conditions and persistent runtime file artifacts. Added `Workspaces.GetRuntimeDirPath()` and `Workspaces.GetSubdirPath(ArgSubdir, ArgFilename)` respecting `SLEUTH_DATA_DIR` / `AEGIS_DATA_DIR`. Configured Jest `setupFiles` with `tests/runtime-setup.js` to isolate runtime data to temporary worker directories. Updated all runtime file consumers across `src/` and `tests/` to use dynamic subdir resolution. Added `tests/test-runtime-isolation.test.js`.
+
 ## 1.4.290 - 2026-08-14
 When you follow up on something with "can we get it done by Monday?", I now go back and read what
 "it" actually refers to, instead of scheduling your question word-for-word. Before this I would set

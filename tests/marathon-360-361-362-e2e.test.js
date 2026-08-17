@@ -25,6 +25,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
+const workspaces = require('../src/workspaces');
 
 jest.mock('../src/workspace-ai');
 const MockWorkspaceAI = require('../src/workspace-ai');
@@ -121,7 +122,7 @@ async function SetupTempDirsAsync() {
   TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sleuth-e2e-p6-'));
   StaticDir = path.join(TempDir, 'data', 'static');
   EventStoreDir = path.join(TempDir, 'data', 'events');
-  RemindersRuntimeDir = path.join(__dirname, '..', 'data', 'runtime', 'reminders');
+  RemindersRuntimeDir = workspaces.GetSubdirPath('reminders');
   ProjectMapDir = path.join(TempDir, 'data', 'runtime', 'projects');
   await fs.mkdir(StaticDir, { recursive: true });
   await fs.mkdir(EventStoreDir, { recursive: true });
