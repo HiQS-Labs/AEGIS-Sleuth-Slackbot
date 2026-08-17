@@ -74,6 +74,17 @@ shipped in one branch.
   `scripts/attachment-pipeline-e2e.js` updated for the renamed kinds and the injected ListsModule
   (23/23). Help regenerated (`data/static/HELP.md`). `validate:commands` remains red on
   `ask-self` — pre-existing on `development` (#39 class), verified identical on the untouched tree.
+- **PR-78 review — the drift boundary is now an invariant, not an assertion.** New guard in
+  `tests/ocr-provider-pin-and-commands.test.js` runs every `Alias` + `IntentPhrase` of the three
+  OCR catalog entries through `ResolveAttachmentIntent` with an image attached: each phrase must
+  resolve to an OCR arm or sit on an explicit `RmmOnly` allowlist (5 phrases, pinned to
+  `unsupported` so a grammar change forces a conscious removal), and an anti-rot check fails naming
+  any allowlist entry that no longer exists verbatim. Mutation-verified both ways. Writing the
+  guard surfaced the real answer to the reviewer's question about `convert-text-into-slack-list`:
+  its 3 generic list phrasings DO resolve to `image-list` with an image attached (intended — the
+  image is the only attachment, so a list from it is the right guess) while its 7 text-specific
+  ones stay `unsupported`; both halves are now pinned per-phrase, and the entry's
+  `DisambiguationNotes` state the boundary.
 
 ## 1.4.302 - 2026-08-18
 Your per-channel reminder settings are now protected against being overwritten on service restarts, and production deployments now dynamically discover the active application directory directly from systemd.

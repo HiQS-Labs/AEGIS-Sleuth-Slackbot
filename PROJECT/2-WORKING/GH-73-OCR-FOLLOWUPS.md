@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| All 4 phases implemented and verified: resolver split (`image-list`/`image-text`) + widened grammar, `make-list-from-image` route + catalog entry + regenerated help, ListsModule constructor injection, `#FailOcrAsync` dedup. 20/20 entry-point tests green, mutation-verified both ways; e2e 23/23; full `npm test` green; `npm run build` clean; changelog tone guard clean. | Commit, push `gh-73-ocr-followups`, open PR into `development` referencing #73 #74 #75 #76. Pre-existing red noted in PR: `validate:commands` (`ask-self`, #39 class) and PDDA's RELEASES.md/governance findings. |
+| All 4 phases implemented and verified (resolver split, catalog entry, injection, dedup; 20/20 + 23/23 e2e, mutation-verified, build/test green). PR-78 review addressed: drift-boundary guard added in `tests/ocr-provider-pin-and-commands.test.js` (49/49) — every OCR catalog phrasing resolves or sits on an explicit pinned `RmmOnly` allowlist with anti-rot; `convert-text-into-slack-list`'s mixed image behavior pinned per-phrase and documented in its `DisambiguationNotes`. | Merge PR #78. Reviewer takes the attachment-vs-route precedence gap into #80 (documented in #79) — explicitly handed off, not dropped. |
 
 ## Quad Concepts
 
