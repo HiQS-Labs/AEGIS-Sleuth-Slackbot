@@ -1950,7 +1950,15 @@ class RemindersModule {
     // compose and post feedback message if any reminders were scheduled.
     if(SuccessfullyScheduledReminders.size > 0) {
       // build the feedback message.
-      let FeedbackMessage = this.#ComposeFeedbackMessageText(ArgUserID, SuccessfullyScheduledReminders, AdjustedReminders, DisplaySourceMessageText);
+      // GH-68 r2: the CONFIRMATION message is the surface the user reads immediately, and it was
+      // the last renderer still deriving its own routing and grounding against the bare reply.
+      // reminders-module.js:1695 requires the one routing decision be threaded into EVERY
+      // #SelectReminderTaskText call; this one was not, so the confirmation showed the verbatim
+      // sentence while the scheduled digest showed the synthesized title.
+      let FeedbackMessage = this.#ComposeFeedbackMessageText(
+        ArgUserID, SuccessfullyScheduledReminders, AdjustedReminders, DisplaySourceMessageText,
+        SynthesisOn, ArgMessageText,
+      );
 
       // connection surfacing — append a footnote of related open work. Purely additive and fully
       // defensive: any failure here must never block reminder creation (the FSM is already committed).
@@ -2312,9 +2320,13 @@ class RemindersModule {
    * @param {Map<ReminderInfo, GptReminderInfo[]>} ArgScheduledReminders Map of scheduled reminders.
    * @param {Set<ReminderInfo>} [ArgAdjustedReminders] Set of reminders that had dates adjusted from past to future.
    * @param {string} [ArgNormalizedOriginalText] Normalized original message text, for verbatim task selection.
+   * @param {boolean} [ArgSynthesisOn] The message's ONE routing decision. Previously omitted, which
+   * made this renderer re-derive routing from normalized text — the confirmation could then disagree
+   * with the scheduled digest about the same reminder (GH-68 r2).
+   * @param {string} [ArgAnalyzedSourceText] Full text the analyzer saw, for the grounding check.
    * @returns {string}
    */
-  #ComposeFeedbackMessageText(ArgUserID, ArgScheduledReminders, ArgAdjustedReminders, ArgNormalizedOriginalText = '') {
+  #ComposeFeedbackMessageText(ArgUserID, ArgScheduledReminders, ArgAdjustedReminders, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
     // start with basic confirmation message.
     const ReminderCount = ArgScheduledReminders.size;
     const ReminderCountText = ReminderCount === 1 ?
@@ -2367,7 +2379,7 @@ class RemindersModule {
       const ClientName = ResolveClientNameForReminder(CurrentReminder, this.#SlackApp.WorkspaceInfo?.WORKSPACE_NAME);
 
       for(const CurrentGptReminder of CurrentGptReminders)
-        FeedbackMessage += `\n• ${ApplyClientPrefix(this.#SelectReminderTaskText(CurrentGptReminder, ArgNormalizedOriginalText), ClientName)}`;
+        FeedbackMessage += `\n• ${ApplyClientPrefix(this.#SelectReminderTaskText(CurrentGptReminder, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText), ClientName)}`;
     }
 
     // return the composed feedback message.
