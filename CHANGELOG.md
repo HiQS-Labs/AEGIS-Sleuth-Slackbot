@@ -33,6 +33,18 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.294 - 2026-08-17
+Reminders built from a thread now describe the actual task instead of echoing your follow-up
+sentence. If you say "can you do this by tomorrow morning?", I read back through the thread to find
+what "this" was and put THAT in the reminder.
+
+**Technical:** GH-68. GH-55 (antecedent enrichment) and GH-43 (title grounding) were each correct and cancelled out exactly, so a pronominal reply could never be synthesized.
+- **Root cause:** `SelectTaskText`'s `GroundingSource` was `NormalizedOriginal + ActionableLanguage` — the live reply ALONE — while GH-55 hands the analyzer the reply plus prepended thread context. Every antecedent-derived term therefore counted as invented, and the title was discarded in favor of the quoted span. Dev telemetry showed `synthesis=on task_source=ai_synthesized_task_title` followed by three `discarding an ungrounded reminder title` warnings; the "2 terms" were `Demo` and `AI` — in the thread, not in the reply.
+- **Fix:** ground against the text the analyzer actually saw. `ArgAnalyzedSourceText` is threaded from `reminders-module.js`, where `ArgMessageText` already holds the enriched text passed to `AnalyzeMessageForRemindersAsync`. GH-43's guarantee is unchanged — a title still may not name anything outside the source; only WHICH source is corrected.
+- **Every render path, not just one.** A QA relay (aider / `qwen/qwen3-max`) returned Approved with "No missed call sites found"; adjudication found that false. Four sites still grounded against `''`: triage display, the dedupe render-identity key, and triage dedupe. `reminders-module.js:1721` requires the scheduling digest and the `:wrench:` triage view to "agree by construction" — grounding only the scheduling render broke that, and the dedupe key was being computed from text the user never sees.
+- **Known gap, pre-existing:** `#ComposeFeedbackMessageText` omits the routing decision entirely and remains on the legacy fallback.
+- **Tests:** `tests/gh68-grounding-uses-analyzed-source.test.js` — 6 cases, including a negative control that fails if the widening is reverted, a check that the guard still rejects genuinely invented terms, and a pin on the digest/triage agreement invariant.
+
 ## 1.4.293 - 2026-08-17
 The image-to-list feature I shipped yesterday never actually worked when you used it — uploading a
 screenshot and asking for a list got you "I can only read text-based files" instead. That's fixed,
