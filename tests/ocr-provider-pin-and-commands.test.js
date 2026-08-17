@@ -167,3 +167,85 @@ describe('GH-64: OCR capabilities are discoverable through the command catalog',
     expect(new Set(HelpOrders).size).toBe(HelpOrders.length);
   });
 });
+
+describe('GH-74 (PR-78 review): catalog phrasings and the attachment resolver cannot drift', () => {
+  const { ResolveAttachmentIntent } = require('../src/context-file-classifier');
+
+  const ImageFiles = [{ name: 'fines.png', mimetype: 'image/png', size: 50000 }];
+
+  // Phrasings that deliberately do NOT deterministically resolve to an OCR arm. They are RMM
+  // discovery examples — the AI intent resolver carries them; the narrow attachment regex does
+  // not, by design. This list is the explicit boundary #74 asked for: adding a catalog phrasing
+  // now either resolves, or the test fails loudly naming the phrase until it is allowlisted here
+  // (a conscious act), or it is RMM-only and nothing changes.
+  const RmmOnlyPhrasings = new Set([
+    // scan-image-for-text
+    'what does this image say',
+    'extract the text from this photo',
+    'pull the words out of this image',
+    // make-list-from-image
+    'turn this image into a slack list',
+    'extract the items in this photo into a list',
+  ]);
+
+  // Entries whose advertised phrasings must reach an OCR arm when an image is attached.
+  const ImageSourceEntryIds = ['scan-image-for-text', 'make-list-from-image'];
+  // Text-source entry: with an image attached its phrasings deliberately do NOT auto-route —
+  // the deterministic answer is 'unsupported' (stated in its DisambiguationNotes).
+  const TextSourceEntryIds = ['convert-text-into-slack-list'];
+
+  function CatalogPhrasingsFor(ArgId) {
+    const Entry = CommandCatalog.find((ArgEntry) => ArgEntry.Id === ArgId) || {};
+    return [...(Entry.Aliases || []), ...(Entry.IntentPhrases || [])];
+  }
+
+  test('every entry this boundary covers exists in the catalog', () => {
+    for(const Id of [...ImageSourceEntryIds, ...TextSourceEntryIds]) {
+      expect(CommandCatalog.find((ArgEntry) => ArgEntry.Id === Id)).toBeDefined();
+    }
+  });
+
+  test.each(
+    ImageSourceEntryIds.flatMap((ArgId) => CatalogPhrasingsFor(ArgId).map((ArgPhrase) => [ArgId, ArgPhrase]))
+  )('%s — "%s" resolves to an OCR arm or is allowlisted as RMM-only', (_ArgId, ArgPhrase) => {
+    const Kind = ResolveAttachmentIntent(ImageFiles, ArgPhrase).Kind;
+    if(RmmOnlyPhrasings.has(ArgPhrase)) {
+      // Pins the allowlist itself: the phrase is expected NOT to resolve today. If a grammar
+      // change makes it resolve, this fails and forces a conscious removal from the list.
+      expect(Kind).toBe('unsupported');
+    } else {
+      expect(['image-list', 'image-text']).toContain(Kind);
+    }
+  });
+
+  // Phrasings on the text-source entry that are GENERIC list-creation wordings: with an image
+  // attached they resolve to image-list, and that is the intended answer — the image is the only
+  // thing attached, so building a list from it is the right guess. Pinned so the mixed behavior
+  // of this entry (3 resolve, 7 do not) is a documented contract, not an accident.
+  const GenericListPhrasings = new Set([
+    'make a slack list from this',
+    'make a slack list out of what i just pasted',
+    'build a list from this text',
+  ]);
+
+  test.each(
+    TextSourceEntryIds.flatMap((ArgId) => CatalogPhrasingsFor(ArgId).map((ArgPhrase) => [ArgId, ArgPhrase]))
+  )('text-source %s — "%s" is pinned: text-specific stays unsupported, generic resolves to image-list', (_ArgId, ArgPhrase) => {
+    const Kind = ResolveAttachmentIntent(ImageFiles, ArgPhrase).Kind;
+    if(GenericListPhrasings.has(ArgPhrase)) {
+      expect(Kind).toBe('image-list');
+    } else {
+      expect(Kind).toBe('unsupported');
+    }
+  });
+
+  test('the RMM-only allowlist has not rotted — every entry still exists verbatim in the catalog', () => {
+    const AllPhrasings = new Set(
+      [...ImageSourceEntryIds, ...TextSourceEntryIds].flatMap((ArgId) => CatalogPhrasingsFor(ArgId))
+    );
+    for(const Phrase of [...RmmOnlyPhrasings, ...GenericListPhrasings]) {
+      // Failure output names the orphaned allowlist phrase so it gets deleted, not ignored.
+      expect(AllPhrasings).toContain(Phrase);
+    }
+  });
+});

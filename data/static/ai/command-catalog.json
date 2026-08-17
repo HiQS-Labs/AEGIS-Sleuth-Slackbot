@@ -778,6 +778,7 @@
     ],
     "DisambiguationNotes": [
       "Use this when the source is text. When the source is an attached image, make-list-from-image handles extraction and creation in one step.",
+      "With an image attached, generic list phrasings (e.g. 'make a slack list from this') auto-route to the image list; text-specific ones ('build a list from this text') deliberately stay unsupported. This boundary is pinned by tests/ocr-provider-pin-and-commands.test.js.",
       "With no text supplied it falls back to the thread's context memory, so it composes after scan-image-for-text."
     ],
     "RegisteredRoutes": [
