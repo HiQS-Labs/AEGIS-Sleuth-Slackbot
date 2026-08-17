@@ -38,11 +38,14 @@ const TaskGrounding = require('./task-grounding');
  * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message. When omitted the
  * caller has no routing decision and the verbatim path is NOT taken — matching the historical
  * behavior where an absent decision meant "fall through to the candidate".
+ * @param {string} [ArgAnalyzedSourceText] The FULL text the analyzer was given, including any
+ * thread context GH-55 prepended. Grounding must be checked against everything the model actually
+ * saw; see the grounding constant below for why a subset silently disables synthesis (GH-68).
  * @returns {{text: string, source: 'verbatim'|'title'|'span'|'fallback', ungroundedTerms: string[]}}
  * `ungroundedTerms` is non-empty only when a proposed title was REJECTED — that is the event worth
  * logging, and it is returned rather than logged so this stays pure.
  */
-function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
   const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
   const Candidate = ArgReminderInfo || {};
 
@@ -59,7 +62,14 @@ function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynt
   // identifier, and number it names must already appear in the message. A title that invents one is
   // discarded and the quoted span is shown instead — a clumsier reminder beats a confidently wrong
   // one. The evidence span itself is never rewritten; that guarantee is untouched.
-  const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage}`;
+  //
+  // GH-68: ground against everything the ANALYZER saw, not just the live reply. GH-55 prepends
+  // thread context so the model can resolve "can you do this by tomorrow morning?" — but this check
+  // measured against the un-enriched reply alone, so every antecedent-derived term counted as
+  // invented and the title was discarded. The two features cancelled out exactly: enrichment on,
+  // synthesis on, verbatim output. Widening keeps the guarantee (nothing outside the source may be
+  // named) while measuring it against the real source.
+  const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage} ${(ArgAnalyzedSourceText || '').trim()}`;
   const UngroundedTerms = RawReminderMessage
     ? TaskGrounding.UngroundedTerms(RawReminderMessage, GroundingSource)
     : [];
@@ -105,9 +115,11 @@ function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynt
  * @param {DisplaySelectionInput} ArgReminderInfo Candidate from the analyzer.
  * @param {string} [ArgNormalizedOriginalText] Normalized original message text.
  * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message.
+ * @param {string} [ArgAnalyzedSourceText] Full text the analyzer saw, including prepended thread
+ * context — same reason as SelectTaskText (GH-68).
  * @returns {{text: string, suppressedBy: null|'empty'|'verbatim-path'|'ungrounded'|'restates-task'}}
  */
-function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
   const Candidate = ArgReminderInfo || {};
   const Context = (Candidate.context || '').trim();
   if(!Context) return { text: '', suppressedBy: 'empty' };
@@ -116,7 +128,8 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   if(ArgSynthesisOn === false) return { text: '', suppressedBy: 'verbatim-path' };
 
   const ActionableLanguage = (Candidate.actionable_language || '').trim();
-  const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage}`;
+  // GH-68: same widening as SelectTaskText — both grounded against a subset of what the model saw.
+  const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage} ${(ArgAnalyzedSourceText || '').trim()}`;
   if(TaskGrounding.UngroundedTerms(Context, GroundingSource).length > 0)
     return { text: '', suppressedBy: 'ungrounded' };
 
