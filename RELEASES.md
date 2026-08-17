@@ -16,6 +16,26 @@ Deadline: July 25, 2026
 Description: FTest
 <!--test-->
 
+Release: 1.5.0
+Status: Draft
+Codename: "Confluence"
+Milestone: One extraction path. Delete intent-selector grammars; keep verifiers.
+Target Date:
+GH_URL: https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/80
+Issues: #80 frozen manifest · #79 charter/rule · #77, #66 moot under one path · #74 canonical
+  (option 2), #73 superseded · #75, #76 ride along
+Issues frozen: 2026-08-17 in #80. Scope changes by succeeding that issue, not by editing it.
+Not in scope: #67 (ships on its own, first — live echo-loop risk), #51 (blocked on GH-50 corpus)
+Deploys: ad-hoc to dev/production as work lands. This block is a bookkeeping unit, NOT a deploy gate.
+Front-door reviewed: No
+Shakedown reviewed: No
+License file: No
+Description: Deliberately short — see #80 and #79. This file's own history is the reason: the
+  "Ledger" block above had to be corrected for describing declined work as pending, so the
+  narrative lives on the issues where it can be closed, not here where it goes stale.
+  Minor bump because the user-visible default changes for everyone (verbatim display is deleted,
+  not retuned); 1.5.0 was left FREE by the Ledger block. Knock to 1.4.296 if that reads too big.
+
 Codename: "Silverlining"
 Release: TBD
 Front-door reviewed: No
