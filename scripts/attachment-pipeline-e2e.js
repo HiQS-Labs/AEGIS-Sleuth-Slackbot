@@ -116,7 +116,9 @@ function RunResolverStage() {
   const Png = [{ name: 'fines.png', mimetype: 'image/png', size: 100 }];
   const Md = [{ name: 'notes.md', mimetype: 'text/markdown', size: 100 }];
 
-  Check("image + list intent -> 'image-ocr'", ResolveAttachmentIntent(Png, 'create a list').Kind === 'image-ocr');
+  Check("image + list intent -> 'image-list'", ResolveAttachmentIntent(Png, 'create a list').Kind === 'image-list');
+  Check("image + todo-list wording (GH-73) -> 'image-list'", ResolveAttachmentIntent(Png, 'make a todo list for by OCRing the attached image').Kind === 'image-list');
+  Check("image + scan wording (GH-73) -> 'image-text'", ResolveAttachmentIntent(Png, 'read the text in this screenshot').Kind === 'image-text');
   Check("image + no intent -> 'unsupported'", ResolveAttachmentIntent(Png, 'hello').Kind === 'unsupported');
   Check("text file wins over image", ResolveAttachmentIntent([...Md, ...Png], 'create a list').Kind === 'text');
   Check("no files -> 'none'", ResolveAttachmentIntent([], 'create a list').Kind === 'none');
@@ -213,12 +215,11 @@ async function RunDispatchStageAsync() {
   const ChatModule = require(path.join(__dirname, '..', 'src', 'chat-module'));
 
   const CreateCalls = [];
-  const RemindersModule = {
-    ListsModule: {
-      CreateListFromExtractedItemsAsync: async (ArgOptions) => {
-        CreateCalls.push(ArgOptions);
-        return { ok: true, ListId: 'L_E2E', Permalink: 'https://slack.com/lists/L_E2E', ItemCount: ArgOptions.Items.length };
-      },
+  // GH-75: ListsModule is injected directly into ChatModule, no longer nested on RemindersModule.
+  const ListsModule = {
+    CreateListFromExtractedItemsAsync: async (ArgOptions) => {
+      CreateCalls.push(ArgOptions);
+      return { ok: true, ListId: 'L_E2E', Permalink: 'https://slack.com/lists/L_E2E', ItemCount: ArgOptions.Items.length };
     },
   };
 
@@ -235,7 +236,7 @@ async function RunDispatchStageAsync() {
   try {
     new ChatModule(App, {
       RecordAIRequest: () => {}, RecordAIResponse: () => {}, RecordAIError: () => {}, IncrementCounter: () => {},
-    }, RemindersModule, null, null);
+    }, {}, null, null, ListsModule);
 
     const Handled = await App.SimulateAppMentionAsync({
       channel: 'C_E2E',

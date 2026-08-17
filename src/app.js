@@ -332,7 +332,10 @@ async function RunAppAsync() {
       StatsModuleInstance.Stats,
       RemindersModuleInstance,
       StatsModuleInstance,
-      NotionModuleInstance
+      NotionModuleInstance,
+      // GH-75: injected directly — ChatModule's OCR list materialization no longer reaches
+      // ListsModule through RemindersModule.ListsModule.
+      ListsModuleInstance
     );
 
     // connect ListsModule to RemindersModule (bidirectional).

@@ -737,7 +737,7 @@
     ],
     "ArgumentHints": [],
     "DisambiguationNotes": [
-      "Use this when the user wants the text itself. If they want an interactive Slack List built from the image, use convert-text-into-slack-list or just let the image list route handle it.",
+      "Use this when the user wants the text itself. If they want an interactive Slack List built from the image, use make-list-from-image.",
       "Requires an image attachment on the same message."
     ],
     "RegisteredRoutes": [
@@ -777,7 +777,7 @@
       "SourceText"
     ],
     "DisambiguationNotes": [
-      "Use this when the source is text. When the source is an image, the image list route handles extraction and creation in one step.",
+      "Use this when the source is text. When the source is an attached image, make-list-from-image handles extraction and creation in one step.",
       "With no text supplied it falls back to the thread's context memory, so it composes after scan-image-for-text."
     ],
     "RegisteredRoutes": [
@@ -787,6 +787,42 @@
     "IncludeInCommandsList": true,
     "HelpOrder": 85,
     "CommandsListOrder": 173,
+    "HelpSection": "Search & Knowledge"
+  },
+  {
+    "Id": "make-list-from-image",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Turn an attached image into an interactive Slack List in one step — Vision OCR extraction plus list creation.",
+    "SyntaxExamples": [
+      "@Sleuth AI make a list from this image",
+      "@Sleuth AI make a todo list from the attached image"
+    ],
+    "Aliases": [
+      "make a list from this image",
+      "make list from image",
+      "create a list from this image",
+      "build a checklist from this image"
+    ],
+    "IntentPhrases": [
+      "make a todo list out of this screenshot",
+      "turn this image into a slack list",
+      "extract the items in this photo into a list",
+      "generate a task list from the attached image"
+    ],
+    "ArgumentHints": [],
+    "DisambiguationNotes": [
+      "Use this when the source is an attached image and the user wants a Slack List. For text-only output use scan-image-for-text; when the source is already text use convert-text-into-slack-list.",
+      "Requires an image attachment on the same message. Natural-language phrasings also route here through the attachment resolver."
+    ],
+    "RegisteredRoutes": [
+      "make list from image"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 86,
+    "CommandsListOrder": 174,
     "HelpSection": "Search & Knowledge"
   },
   {

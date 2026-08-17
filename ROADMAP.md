@@ -31,6 +31,18 @@ goal: >
 
 ### In progress
 
+- **OCR follow-ups: intent grammar, resolver action split, catalog entry, wiring cleanups
+  (GH-73/74/75/76)** — branch `gh-73-ocr-followups`. The GH-58 OCR feature, repaired in 1.4.293
+  (#62/63/64), still mis-routed the production request "make a todo list for by OCRing the
+  attached image" to the text-files-only rejection: `HasListCreationIntent` required `list`
+  immediately after verb+article, so the modifier "todo" broke every alternation. One branch closes
+  all four graded follow-ups: widen the grammar and split the resolver result into `image-list`
+  vs `image-text` so scan-only requests stop after extraction (#73, Codex-refined), add an explicit
+  `make-list-from-image` catalog entry + route instead of mirroring phrases into mismatched
+  entries (#74), constructor-inject ListsModule into ChatModule (#75), and deduplicate the seven
+  OCR failure-post blocks into a posting-only helper (#76). →
+  [PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md](PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md)
+
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
