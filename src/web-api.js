@@ -12,6 +12,7 @@ const RemindersDisplayUtils = require('./reminders-display-utils');
 const SlackFormatUtils = require('./slack-format-utils');
 const { ResolveClientIdentity } = require('./client-mapping');
 const { createEventStore } = require('./event-store');
+const { createLedgerCoverage } = require('./ledger-coverage');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for our own types.
@@ -355,7 +356,7 @@ class WebAPI {
    * @returns {Promise<{ Reminders: any[], RemindersFilePath: string }>}
    */
   async #ReadWorkspaceRemindersAsync(ArgWorkspaceName, ArgFlagName = 'REMINDERS_READ_SOURCE') {
-    const RemindersFilePath = path.join(__dirname, '..', 'data', 'runtime', 'reminders', `${ArgWorkspaceName}_reminders.json`);
+    const RemindersFilePath = workspaces.GetSubdirPath('reminders', `${ArgWorkspaceName}_reminders.json`);
     const ReadAuthoritativeAsync = async () => {
       try {
         const RawJSON = await fs.readFile(RemindersFilePath, 'utf8');
@@ -371,6 +372,7 @@ class WebAPI {
     const Result = await ReadWithProjectionFallbackAsync({
       flagName: ArgFlagName,
       Logger: console,
+      IsCoverageCleanAsync: () => this.#IsLedgerCoverageCleanAsync(ArgWorkspaceName),
       ReadAuthoritativeAsync,
       ReadProjectionAsync: async () => (await this.#ReadWorkspaceProjectionAsync(ArgWorkspaceName)).reminders,
     });
@@ -384,8 +386,38 @@ class WebAPI {
    * @param {string} ArgWorkspaceName Workspace name.
    * @returns {Promise<{ reminders: any[], completed: any[] }>}
    */
+  /**
+   * The coverage gate for a workspace's ledger.
+   *
+   * `createLedgerCoverage` returns the SAME instance for a given directory within a process, so
+   * this shares state with the one `reminders-module` holds rather than starting a second, blank
+   * view — an append in flight there is visible here, which is the whole point of the in-flight
+   * counter. Any failure answers `false`: a gate that cannot report is not a gate that passed.
+   * @param {string} ArgWorkspaceName
+   * @returns {Promise<boolean>}
+   */
+  async #IsLedgerCoverageCleanAsync(ArgWorkspaceName) {
+    try {
+      const Coverage = createLedgerCoverage({
+        rootDir: workspaces.GetSubdirPath('events'),
+        Logger: console,
+      });
+      return await Coverage.IsCleanAsync(ArgWorkspaceName);
+    } catch(error) {
+      console.warn('[web-api] ledger coverage gate could not be evaluated; treating as unclean.', error);
+      return false;
+    }
+  }
+
+  /**
+   * Fold a workspace's event ledger for the Phase 5 read flags.  An absent or
+   * incomplete log is an error on purpose: ReadWithProjectionFallbackAsync then
+   * serves the JSON store instead of an unsafe empty projection.
+   * @param {string} ArgWorkspaceName Workspace name.
+   * @returns {Promise<{ reminders: any[], completed: any[] }>}
+   */
   async #ReadWorkspaceProjectionAsync(ArgWorkspaceName) {
-    const EventsRootPath = path.join(__dirname, '..', 'data', 'runtime', 'events');
+    const EventsRootPath = workspaces.GetSubdirPath('events');
     const SafeWorkspaceName = String(ArgWorkspaceName).replace(/[^A-Za-z0-9._-]/g, '_');
     const EventsFilePath = path.join(EventsRootPath, `${SafeWorkspaceName}_events.jsonl`);
     await fs.access(EventsFilePath);
@@ -403,11 +435,12 @@ class WebAPI {
    * @returns {Promise<any[]>}
    */
   async #ReadWorkspaceCompletedAsync(ArgWorkspaceName) {
-    const CompletedFilePath = path.join(__dirname, '..', 'data', 'runtime', 'reminders', `${ArgWorkspaceName}_completed.json`);
+    const CompletedFilePath = workspaces.GetSubdirPath('reminders', `${ArgWorkspaceName}_completed.json`);
 
     const Result = await ReadWithProjectionFallbackAsync({
       flagName: 'COMPLETED_READ_SOURCE',
       Logger: console,
+      IsCoverageCleanAsync: () => this.#IsLedgerCoverageCleanAsync(ArgWorkspaceName),
       ReadAuthoritativeAsync: async () => {
         try {
           const RawJSON = await fs.readFile(CompletedFilePath, 'utf8');

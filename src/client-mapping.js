@@ -3,13 +3,21 @@
 const fs = require('fs');
 const path = require('path');
 const { WriteFileDurableSync } = require('./durable-write');
+const workspaces = require('./workspaces');
 
 // ponytail: env override so tests can point at their own fixture instead of overwriting the real
 // file. The previous hack wrote the fixture over data/static/client-channel-mapping.json and
 // restored it after — which raced every other jest worker reading the same path.
 const ConfigPath = process.env.SLEUTH_CLIENT_MAPPING_PATH
   || path.join(__dirname, '..', 'data', 'static', 'client-channel-mapping.json');
-const OverlayDirPath = path.join(__dirname, '..', 'data', 'runtime', 'client-mapping-overlay');
+
+/**
+ * Get the directory for client mapping overlays.
+ * @returns {string}
+ */
+function GetOverlayDirPath() {
+  return process.env.SLEUTH_CLIENT_OVERLAY_DIR || workspaces.GetSubdirPath('client-mapping-overlay');
+}
 
 /**
  * Merged client cache keyed by workspace name. The empty-string key holds the base-only list.
@@ -45,7 +53,7 @@ function LoadBaseClientsSync() {
 function LoadOverlayClientsSync(ArgWorkspaceName) {
   if(!ArgWorkspaceName) return [];
   try {
-    const OverlayPath = path.join(OverlayDirPath, `${ArgWorkspaceName}.json`);
+    const OverlayPath = path.join(GetOverlayDirPath(), `${ArgWorkspaceName}.json`);
     const Raw = fs.readFileSync(OverlayPath, 'utf8');
     const Parsed = JSON.parse(Raw);
     return Array.isArray(Parsed.clients) ? Parsed.clients : [];
@@ -358,8 +366,9 @@ function WriteClientOverlaySync(ArgWorkspaceName, ArgOverlay) {
   if(!ArgWorkspaceName || typeof ArgWorkspaceName !== 'string') {
     throw new Error('WriteClientOverlaySync requires a workspace name');
   }
-  fs.mkdirSync(OverlayDirPath, { recursive: true });
-  const OverlayPath = path.join(OverlayDirPath, `${ArgWorkspaceName}.json`);
+  const OverlayDir = GetOverlayDirPath();
+  fs.mkdirSync(OverlayDir, { recursive: true });
+  const OverlayPath = path.join(OverlayDir, `${ArgWorkspaceName}.json`);
   // Crash-atomic (GH-12). Kept SYNCHRONOUS deliberately: this function is `...Sync` by name and
   // contract, and its callers are synchronous. WriteFileDurableSync exists precisely so this call
   // site gains durability without an async refactor rippling through them.

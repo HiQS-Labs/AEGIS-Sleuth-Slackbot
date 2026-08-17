@@ -17,6 +17,7 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const RemindersModule = require('../src/reminders-module');
+const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 const BaseWorkspaceInfo = {
@@ -36,7 +37,7 @@ const EmptyWorkspaceStats = {
   IncomingGptMessageCount: 0, IncomingGptMessageLength: 0,
 };
 
-const RuntimeRoot = path.join(__dirname, '..', 'data', 'runtime');
+const RuntimeRoot = workspaces.GetRuntimeDirPath();
 
 function RemindersFilePath(ArgWorkspace) {
   return path.join(RuntimeRoot, 'reminders', `${ArgWorkspace}_reminders.json`);
@@ -45,12 +46,36 @@ function EventsFilePath(ArgWorkspace) {
   return path.join(RuntimeRoot, 'events', `${ArgWorkspace}_events.jsonl`);
 }
 
+function CoverageFilePathFor(ArgWorkspace) {
+  return path.join(RuntimeRoot, 'events', `${ArgWorkspace}_ledger_coverage.json`);
+}
+
 async function CleanupAsync(ArgWorkspace) {
   await fs.mkdir(path.join(RuntimeRoot, 'reminders'), { recursive: true });
   for(const FileName of ['reminders.json', 'reminder_counter.json', 'enabled_channels.json', 'completed.json']) {
     await fs.rm(path.join(RuntimeRoot, 'reminders', `${ArgWorkspace}_${FileName}`), { force: true });
   }
   await fs.rm(EventsFilePath(ArgWorkspace), { force: true });
+  await fs.rm(CoverageFilePathFor(ArgWorkspace), { force: true });
+}
+
+/**
+ * Assert no append was REJECTED while driving a scenario.
+ *
+ * A payload that omits a v2-required key does not throw and does not fail the transition — append()
+ * resolves `{ ok:false }`, the module logs a non-fatal warning, and the event is simply never
+ * written. So a test can drive a path, assert the user-visible behaviour, pass, and leave the ledger
+ * silently short. The only durable trace is the coverage gap marker, which is what this reads.
+ *
+ * That is exactly how the reschedule emitter shipped without `ignoreSnooze`: every other assertion
+ * still held. Calling this at the end of an emission scenario turns each one into a shape check for
+ * whatever paths it happens to touch.
+ */
+async function AssertNoDroppedAppendsAsync(ArgWorkspace) {
+  let Raw = null;
+  try { Raw = await fs.readFile(CoverageFilePathFor(ArgWorkspace), 'utf8'); } catch { return; }
+  const Marker = JSON.parse(Raw);
+  expect(Marker).toMatchObject({ state: expect.not.stringMatching(/^gap$/) });
 }
 
 /** Poll the ledger file until ArgPredicate(parsedLines) is satisfied (fire-and-forget append may lag). */
@@ -284,6 +309,18 @@ describe('P3 Phase 1 — non-authoritative event emission from the FSM', () => {
       expect(typeof Snoozed.ts).toBe('string');
       expect(Snoozed.payload.by).toBe('U_ASSIGNEE');
       expect(typeof Snoozed.payload.until).toBe('string');
+
+      // This cycle also advances the reminder back INTO `scheduled`, so it exercises the
+      // transition-time ReminderScheduled emitter — the one that shipped without `ignoreSnooze` and
+      // had every one of its appends rejected on production. The assertions above all passed while
+      // that was true, because a dropped append changes nothing a caller can see.
+      const Rescheduled = (await ReadLedgerForTypeAsync(Workspace, ReminderID, 'ReminderScheduled'))
+        .filter(ArgEvent => ArgEvent.type === 'ReminderScheduled' && ArgEvent.reminderId === ReminderID)
+        .pop();
+      expect(Rescheduled).toBeDefined();
+      expect(Rescheduled.payload).toHaveProperty('ignoreSnooze');
+      expect(typeof Rescheduled.payload.ignoreSnooze).toBe('boolean');
+      await AssertNoDroppedAppendsAsync(Workspace);
     } finally {
       jest.useRealTimers();
       await Reminders.StopAsync();

@@ -83,7 +83,10 @@ test('a FAILED append records a durable gap that survives a restart', async (t) 
   assert.equal(await Coverage.IsCleanAsync('acme'), false);
 
   // A brand-new instance, as after a process restart, reading only what is on disk.
-  const Restarted = createLedgerCoverage({ rootDir: Root });
+  // `isolate` is REQUIRED here: instances are shared per rootDir, so without it this would get the
+  // same object back, answer from its in-memory marker cache, and pass without ever proving the gap
+  // survives on disk — the test asserting nothing.
+  const Restarted = createLedgerCoverage({ rootDir: Root, isolate: true });
   assert.equal(await Restarted.IsCleanAsync('acme'), false, 'a restart must not clear a real gap');
   assert.match(await Restarted.DescribeAsync('acme'), /gap recorded/);
 });

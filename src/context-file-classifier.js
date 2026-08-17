@@ -36,6 +36,11 @@ const TEXT_BARE_NAMES = new Set(['makefile', 'dockerfile', 'readme', 'license', 
 // MIME prefixes that are always binary media — a fast reject path.
 const BINARY_MIMETYPE_PREFIXES = ['image/', 'video/', 'audio/', 'font/'];
 
+// Supported image MIME types for Vision OCR processing.
+const IMAGE_MIMETYPES = new Set([
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif',
+]);
+
 // Textual MIME types that do not start with "text/".
 const TEXT_APPLICATION_MIMETYPES = new Set([
   'application/json', 'application/ld+json', 'application/xml', 'application/sql',
@@ -141,12 +146,37 @@ function LooksLikeHtmlErrorPage(ArgContent) {
   return Head.startsWith('<!doctype html') || Head.startsWith('<html');
 }
 
+/**
+ * Decide whether a Slack file is an image supported by Gemini Vision OCR.
+ * @param {{ mimetype?: string }} ArgFile Slack file object.
+ * @returns {boolean}
+ */
+function IsImageMediaFile(ArgFile) {
+  if(!ArgFile) return false;
+  const Mimetype = String(ArgFile.mimetype || '').toLowerCase().trim();
+  return IMAGE_MIMETYPES.has(Mimetype);
+}
+
+/**
+ * Pick the first image attachment from a Slack files array (for Vision OCR),
+ * or null when no image is attached.
+ * @param {SlackFileInfo[]|undefined} ArgFiles
+ * @returns {SlackFileInfo|null}
+ */
+function SelectImageAttachment(ArgFiles) {
+  if(!Array.isArray(ArgFiles) || ArgFiles.length === 0) return null;
+  return ArgFiles.find((ArgFile) => IsImageMediaFile(ArgFile)) || null;
+}
+
 module.exports = {
   TEXT_FILE_EXTENSIONS,
   TEXT_FILETYPES,
+  IMAGE_MIMETYPES,
   GetFileExtension,
   IsTextLikeContextFile,
   IsBinaryMediaFile,
+  IsImageMediaFile,
   SelectContextMemoryFile,
+  SelectImageAttachment,
   LooksLikeHtmlErrorPage,
 };

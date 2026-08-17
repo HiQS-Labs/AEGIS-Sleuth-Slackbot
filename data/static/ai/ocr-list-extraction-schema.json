@@ -1,0 +1,46 @@
+{
+  "name": "ocr_list_extraction",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "A short descriptive title for the list extracted from the image."
+      },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_number": {
+              "type": ["string", "integer"],
+              "description": "The numbering or bullet marker of this item as it appears in the image (e.g. \"1\", \"a\", \"i\", \"*\")."
+            },
+            "text": {
+              "type": "string",
+              "description": "The primary text content of the list item."
+            },
+            "amount": {
+              "type": ["string", "null"],
+              "description": "A monetary value, quantity, or numeric measurement associated with the item, if present in the image. Null when absent."
+            },
+            "notes": {
+              "type": ["string", "null"],
+              "description": "Any secondary detail, comment, sub-bullet, or annotation attached to the item. Null when absent."
+            }
+          },
+          "required": [
+            "item_number",
+            "text"
+          ]
+        }
+      }
+    },
+    "required": [
+      "title",
+      "items"
+    ],
+    "additionalProperties": false
+  }
+}

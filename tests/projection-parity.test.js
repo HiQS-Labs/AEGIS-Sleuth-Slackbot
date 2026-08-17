@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
+  BLOCKED_PROJECTION_FLAGS,
   BuildProjectedRebalanceExport,
   FindMissingNativeReminderFields,
   FindMissingRelayStateFields,
@@ -104,28 +105,90 @@ async function AssertIndependentlyReversibleAsync(ArgFlagName) {
   assert.deepEqual(RolledBack, { value: 'json', source: 'authoritative' });
 }
 
-// REPLACED after QA round 2. Every projection flag is now BLOCKED, so "independently reversible"
-// (flag-ON serves the projection) is no longer the contract — flag-ON must still serve the
-// authoritative store. A torn append can leave a valid-but-short ledger that strict mode accepts,
-// so this surface cannot serve until a coverage checkpoint exists.
-async function AssertBlockedFlagStaysAuthoritativeAsync(ArgFlagName) {
-  for(const FlagValue of [undefined, 'projection']) {
+// REWRITTEN 2026-08-08. These previously asserted "flag-ON still serves the authoritative store,
+// because every flag is BLOCKED". That blocklist is now empty — the guarantee moved from a global
+// compile-time refusal to a per-workspace runtime one — so asserting the old shape would keep
+// passing via the default-deny branch while proving nothing about the gate that replaced it.
+//
+// The contract now has four cases, and a flag is only safe if it satisfies all of them.
+async function AssertFlagIsCoverageGatedAsync(ArgFlagName) {
+  /** @param {object} ArgOverrides */
+  const ReadAsync = async (ArgOverrides) => {
     let ProjectionRead = false;
     const Result = await ReadWithProjectionFallbackAsync({
       flagName: ArgFlagName,
-      environment: FlagValue === undefined ? {} : { [ArgFlagName]: FlagValue },
       Logger: { warn: () => {} },
       ReadAuthoritativeAsync: async () => 'json',
       ReadProjectionAsync: async () => { ProjectionRead = true; return 'projection'; },
+      ...ArgOverrides,
     });
-    assert.equal(Result.source, 'authoritative', `${ArgFlagName} flag=${String(FlagValue)}`);
+    return { Result, ProjectionRead };
+  };
+
+  // 1. Flag off — authoritative, and the projection is never even read.
+  const Off = await ReadAsync({ environment: {}, IsCoverageCleanAsync: async () => true });
+  assert.equal(Off.Result.source, 'authoritative', `${ArgFlagName}: flag off`);
+  assert.equal(Off.ProjectionRead, false);
+
+  // 2. Flag on but NO gate supplied — default-deny. This is the case every production call site
+  //    used to be in, and the one that made the whole mechanism inert.
+  const Ungated = await ReadAsync({ environment: { [ArgFlagName]: 'projection' } });
+  assert.equal(Ungated.Result.source, 'authoritative', `${ArgFlagName}: no gate supplied`);
+  assert.equal(Ungated.ProjectionRead, false, 'an ungated read must not touch the projection');
+
+  // 3. Flag on, gate says unclean — authoritative.
+  const Unclean = await ReadAsync({
+    environment: { [ArgFlagName]: 'projection' }, IsCoverageCleanAsync: async () => false,
+  });
+  assert.equal(Unclean.Result.source, 'authoritative', `${ArgFlagName}: unclean coverage`);
+  assert.equal(Unclean.ProjectionRead, false);
+
+  // 4. Flag on, coverage proven — NOW it serves. Without this the other three would be satisfied by
+  //    a flag that can never work at all, which is not the same as a flag that is safe.
+  const Clean = await ReadAsync({
+    environment: { [ArgFlagName]: 'projection' }, IsCoverageCleanAsync: async () => true,
+  });
+  assert.equal(Clean.Result.source, 'projection', `${ArgFlagName}: verified coverage must serve`);
+  assert.equal(Clean.Result.value, 'projection');
+}
+
+/**
+ * The parked contract, for a flag that is blocked outright.
+ *
+ * REPLACED the per-flag coverage-gate assertions on 2026-08-09. Those proved case 4 — "flag on,
+ * coverage proven, NOW it serves" — which is precisely the behaviour the parking decision removes.
+ * The gate contract itself is unchanged and still fully exercised, just under an unblocked
+ * synthetic flag (see the test below), so nothing lost coverage: what changed is which flags are
+ * allowed to reach it.
+ * @param {string} ArgFlagName
+ */
+async function AssertFlagIsParkedAsync(ArgFlagName) {
+  for(const Gate of [undefined, async () => false, async () => true]) {
+    let ProjectionRead = false;
+    const Result = await ReadWithProjectionFallbackAsync({
+      flagName: ArgFlagName,
+      environment: { [ArgFlagName]: 'projection' },
+      Logger: { warn: () => {} },
+      IsCoverageCleanAsync: Gate,
+      ReadAuthoritativeAsync: async () => 'json',
+      ReadProjectionAsync: async () => { ProjectionRead = true; return 'projection'; },
+    });
+    assert.equal(Result.source, 'authoritative', `${ArgFlagName} is parked and must not serve`);
     assert.equal(Result.value, 'json');
-    assert.equal(ProjectionRead, false, 'a blocked flag must not even read the projection');
+    assert.equal(ProjectionRead, false, `${ArgFlagName}: a parked flag must not even read the fold`);
   }
 }
 
-test('REMINDERS_READ_SOURCE stays authoritative in BOTH flag states while blocked', async () => {
-  await AssertBlockedFlagStaysAuthoritativeAsync('REMINDERS_READ_SOURCE');
+test('REMINDERS_READ_SOURCE is PARKED — never serves, even with proven coverage', async () => {
+  await AssertFlagIsParkedAsync('REMINDERS_READ_SOURCE');
+});
+
+test('the coverage-gate contract itself still holds, for any flag that is not parked', async () => {
+  // Keeps all four cases of the gate covered — including "proven coverage serves" — so parking the
+  // real flags did not quietly retire the mechanism's own tests.
+  const UNPARKED = 'PROJECTION_ERROR_PATH_TEST_ONLY'; // registered in PROJECTION_FLAGS, never parked
+  assert.equal(BLOCKED_PROJECTION_FLAGS.has(UNPARKED), false, 'guard: the probe flag must be free');
+  await AssertFlagIsCoverageGatedAsync(UNPARKED);
 });
 
 // REPLACED 2026-08-08 (QA finding). This asserted COMPLETED_READ_SOURCE was independently
@@ -147,10 +210,12 @@ test('COMPLETED_READ_SOURCE stays on the authoritative store in BOTH flag states
   }
 });
 
-// REPLACED after QA round 2: rescheduling resets IgnoreSnooze in the live queue but ReminderScheduled
-// never carries it, so the fold keeps a stale value and this export would publish it externally.
-test('REBALANCE_EXPORT_SOURCE stays authoritative in BOTH flag states while blocked', async () => {
-  await AssertBlockedFlagStaysAuthoritativeAsync('REBALANCE_EXPORT_SOURCE');
+// Was blocked because rescheduling resets IgnoreSnooze in the live queue while ReminderScheduled did
+// not carry it, so the fold kept a stale value this export would publish externally. Schema v2
+// carries `ignoreSnooze`; the gate below is what proves it for a given workspace's actual data.
+test('REBALANCE_EXPORT_SOURCE is PARKED — never serves, even with proven coverage', async () => {
+  // Descoping the rebalance integration removed its env var; it never blocked the flag. Now blocked.
+  await AssertFlagIsParkedAsync('REBALANCE_EXPORT_SOURCE');
 });
 
 test('a projection error logs and returns the authoritative value', async () => {
@@ -162,6 +227,10 @@ test('a projection error logs and returns the authoritative value', async () => 
     // With every real flag blocked, asserting this through one of them would prove nothing — the
     // block short-circuits before ReadProjectionAsync ever runs.
     flagName: TEST_ONLY_UNBLOCKED_FLAG, environment: { [TEST_ONLY_UNBLOCKED_FLAG]: 'projection' }, Logger,
+    // The coverage gate is default-deny, so this has to pass it before the error path is reachable
+    // at all. Without a clean gate the read is refused earlier and ReadProjectionAsync never runs —
+    // which would make this assert the wrong fallback for the wrong reason.
+    IsCoverageCleanAsync: async () => true,
     ReadAuthoritativeAsync: async () => 'json',
     ReadProjectionAsync: async () => { throw new Error('induced projection error'); },
   });
@@ -242,25 +311,27 @@ test('the harness proves byte-compatible rebalance captures separately from fold
 // "flag works" test. A reversibility test that only proves OFF behaves like today would pass
 // happily while the ON path served wrong records.
 
-test('COMPLETED_READ_SOURCE cannot select the projection even when explicitly enabled', async () => {
+test('COMPLETED_READ_SOURCE cannot select the projection without proven coverage', async () => {
   const Warnings = [];
   let ProjectionRead = false;
   const Result = await ReadWithProjectionFallbackAsync({
     flagName: 'COMPLETED_READ_SOURCE',
     environment: { COMPLETED_READ_SOURCE: 'projection' },
     Logger: { warn: (/** @type {string} */ ArgMessage) => Warnings.push(ArgMessage) },
+    // No gate supplied — the shape every production call site had before this was wired.
     ReadAuthoritativeAsync: async () => ['authoritative'],
     ReadProjectionAsync: async () => { ProjectionRead = true; return ['projection']; },
   });
 
-  // The authoritative completedMs is stamped with Date.now() while the event carries a separately
-  // sampled ISO instant, so the two can never be byte-identical. Blocked until a schema change
-  // carries the authoritative value verbatim.
+  // Schema v2 fixed the completedMs mismatch that once blocked this flag, so the refusal is no
+  // longer about a lossy fold — as of 2026-08-09 it is blocked because the read cutover is PARKED.
+  // The observable outcome is the same refusal; only the stated reason moved, and the warning is
+  // asserted below so the two never drift apart silently.
   assert.equal(Result.source, 'authoritative');
   assert.deepEqual(Result.value, ['authoritative']);
-  assert.equal(ProjectionRead, false, 'the lossy projection must not even be read');
-  assert.equal(Warnings.length, 1, 'a blocked flag must warn loudly, not fail silently');
-  assert.match(Warnings[0], /BLOCKED/);
+  assert.equal(ProjectionRead, false, 'an unverified projection must not even be read');
+  assert.equal(Warnings.length, 1, 'a refused read must warn loudly, not fail silently');
+  assert.match(Warnings[0], /BLOCKED/, 'the warning must name the actual reason for refusal');
 });
 
 test('relay-state parity applies to BASELINE events too, not just native creations', () => {
@@ -573,16 +644,42 @@ test('a clean ledger lets the projection serve', async () => {
 
 test('the coverage gate is consulted only AFTER the flag and block checks', async () => {
   // Ordering matters for cost: a blocked or flag-off read must never pay for a coverage lookup.
-  let Consulted = false;
-  await ReadWithProjectionFallbackAsync({
-    flagName: 'REMINDERS_READ_SOURCE',
-    environment: { REMINDERS_READ_SOURCE: 'projection' },
-    Logger: { warn: () => {} },
-    IsCoverageCleanAsync: async () => { Consulted = true; return true; },
-    ReadAuthoritativeAsync: async () => 'json',
-    ReadProjectionAsync: async () => 'projection',
-  });
-  assert.equal(Consulted, false, 'a BLOCKED flag short-circuits before the coverage check');
+  /** @param {Record<string,string>} ArgEnvironment @param {string} ArgFlag */
+  const ConsultedForAsync = async (ArgEnvironment, ArgFlag) => {
+    let Consulted = false;
+    await ReadWithProjectionFallbackAsync({
+      flagName: ArgFlag,
+      environment: ArgEnvironment,
+      Logger: { warn: () => {} },
+      IsCoverageCleanAsync: async () => { Consulted = true; return true; },
+      ReadAuthoritativeAsync: async () => 'json',
+      ReadProjectionAsync: async () => 'projection',
+    });
+    return Consulted;
+  };
+
+  assert.equal(
+    await ConsultedForAsync({}, 'REMINDERS_READ_SOURCE'), false,
+    'a flag that is OFF short-circuits before the coverage check'
+  );
+
+  // BLOCKED_PROJECTION_FLAGS is empty now, so the emergency-stop path has to be exercised by
+  // putting something in it — otherwise this branch is dead code that no test covers, and the one
+  // rollback lever we have would rot unnoticed.
+  BLOCKED_PROJECTION_FLAGS.add('REMINDERS_READ_SOURCE');
+  try {
+    assert.equal(
+      await ConsultedForAsync({ REMINDERS_READ_SOURCE: 'projection' }, 'REMINDERS_READ_SOURCE'), false,
+      'a BLOCKED flag short-circuits before the coverage check'
+    );
+  } finally {
+    BLOCKED_PROJECTION_FLAGS.delete('REMINDERS_READ_SOURCE');
+  }
+
+  assert.equal(
+    await ConsultedForAsync({ REMINDERS_READ_SOURCE: 'projection' }, 'REMINDERS_READ_SOURCE'), true,
+    'an enabled, unblocked flag DOES pay for the lookup — otherwise nothing gates it'
+  );
 });
 
 test('the projected rebalance export carries assigneeIds, not just the deprecated scalar', () => {

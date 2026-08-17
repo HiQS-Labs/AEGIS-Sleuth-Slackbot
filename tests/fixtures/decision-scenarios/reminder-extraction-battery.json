@@ -1,0 +1,836 @@
+{
+  "$comment": [
+    "GH-43 reminder-extraction battery, in the executable form GH-44 Phase 6 consumes.",
+    "The human-readable spec lives at PROJECT/1-INBOX/REMINDER-EXTRACTION-BATTERY-CORPUS.md — this",
+    "file is the machine copy the harness replays. Scenario ids match that doc (S-01..S-15).",
+    "",
+    "Every scenario is a THREAD: `turns` is an ordered array of {user, text}, reusing the shape",
+    "scripts/reminder-thread-battery.js already validates. A single-message case is a one-turn",
+    "thread; nothing special-cases it.",
+    "",
+    "`recordedResponse` is the model answer replayed for that scenario, so a run is deterministic",
+    "and makes zero network calls. A scenario WITHOUT one is reported skipped, never passed."
+  ],
+  "scenarios": [
+    {
+      "id": "S-01",
+      "name": "reported case: address block + status report + first-person commitment",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-gate",
+        "task-context-split",
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> <@U_BETA> root cause: The weekly photo-request system could only ever see a small, fixed batch of photos, and once it emailed about a plant once it never checked it again.\nOver time that batch got fully used up, so the system had nothing left to send.\nWe fixed it so the scan now covers all photos, and plants can be re-requested after enough time has passed. Emails will resume for every yard after the next deployment\ni am going to deploy the changes tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "first-person commitment with an explicit time trigger",
+        "reminders": [
+          {
+            "actionable_language": "i am going to deploy the changes",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "deploy the changes",
+            "context": "the scan only ever saw a small fixed batch of photos"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "taskTextExcludes": [
+          "root cause",
+          "photo-request system"
+        ],
+        "taskTextContains": [
+          "deploy"
+        ],
+        "maxTaskLength": 80,
+        "contextContains": [
+          "fixed batch"
+        ],
+        "contextDistinctFromTask": true
+      }
+    },
+    {
+      "id": "S-02",
+      "name": "address block, then a direct ask to one of the mentioned people",
+      "decision": "multi-task-extraction",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> <@U_BETA> heads up, the staging box is back."
+        },
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> can you run the smoke tests tomorrow morning?"
+        }
+      ],
+      "recordedResponse": {
+        "candidates": [
+          {
+            "taskIndex": 1,
+            "title": "run the smoke tests",
+            "sourceMessageNumbers": [
+              2
+            ],
+            "sourceTs": [
+              "2.0"
+            ],
+            "assigneeID": "U_ALPHA",
+            "deadline": "tomorrow morning",
+            "deadlineResolution": "explicit",
+            "confidence": "high",
+            "flag": null,
+            "duplicateOpenReminderID": null
+          }
+        ],
+        "rationale": "one direct ask addressed to a named person"
+      }
+    },
+    {
+      "id": "S-03",
+      "name": "first person, no mentions at all (regression guard)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "I'll deploy the changes tomorrow morning."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "firm first-person commitment",
+        "reminders": [
+          {
+            "actionable_language": "I'll deploy the changes",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Deploy the changes"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender"
+      }
+    },
+    {
+      "id": "S-04",
+      "name": "self-commitment plus a delegation in one message",
+      "decision": "multi-task-extraction",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "I'll write up the migration notes tonight, and <@U_BETA> please review them by EOD tomorrow."
+        }
+      ],
+      "recordedResponse": {
+        "candidates": [
+          {
+            "taskIndex": 1,
+            "title": "write up the migration notes",
+            "sourceMessageNumbers": [
+              1
+            ],
+            "sourceTs": [
+              "1.0"
+            ],
+            "assigneeID": "U_SENDER",
+            "deadline": "tonight",
+            "deadlineResolution": "explicit",
+            "confidence": "high",
+            "flag": null,
+            "duplicateOpenReminderID": null
+          },
+          {
+            "taskIndex": 2,
+            "title": "review them",
+            "sourceMessageNumbers": [
+              1
+            ],
+            "sourceTs": [
+              "1.0"
+            ],
+            "assigneeID": "U_BETA",
+            "deadline": "EOD tomorrow",
+            "deadlineResolution": "explicit",
+            "confidence": "high",
+            "flag": null,
+            "duplicateOpenReminderID": null
+          }
+        ],
+        "rationale": "owner varies per candidate within one message"
+      }
+    },
+    {
+      "id": "S-05",
+      "name": "mention as a subject reference, not an assignee",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> found the root cause in the cron job. I'll patch it tomorrow morning."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "first-person commitment; the mention is a past-tense subject",
+        "reminders": [
+          {
+            "actionable_language": "I'll patch it",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Patch the cron job"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender"
+      }
+    },
+    {
+      "id": "S-06",
+      "name": "genuine shared assignment (regression guard, GH-22)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> <@U_BETA> can you both test the new release tomorrow morning?"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "direct ask to two named people",
+        "reminders": [
+          {
+            "actionable_language": "can you both test the new release",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Test the new release"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "mentions",
+        "assignees": [
+          "U_ALPHA",
+          "U_BETA"
+        ]
+      }
+    },
+    {
+      "id": "S-07",
+      "name": "long unpunctuated note with a small buried task",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-gate"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "quick update on the billing sync we spent most of the week tracing why invoices were duplicating turns out the retry handler was not idempotent so a timeout would replay the whole batch we have a patch in review now\ni'll ship it tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "buried commitment with a time trigger",
+        "reminders": [
+          {
+            "actionable_language": "i'll ship it",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Ship the billing-sync retry patch"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "taskTextExcludes": [
+          "billing sync we spent"
+        ],
+        "maxTaskLength": 80
+      }
+    },
+    {
+      "id": "S-08",
+      "name": "short, clean, already-actionable message (regression guard)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-gate"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "Deploy the hotfix tomorrow morning."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "direct instruction with a time trigger",
+        "reminders": [
+          {
+            "actionable_language": "Deploy the hotfix",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Deploy the hotfix",
+            "context": ""
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "taskTextContains": [
+          "hotfix"
+        ],
+        "maxTaskLength": 80,
+        "contextEmpty": true
+      }
+    },
+    {
+      "id": "S-09",
+      "name": "long, properly punctuated note (regression guard)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-gate"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "Finished the audit today. The connection pool was leaking on every failed handshake. I patched it locally and the leak is gone. Tests are green on my branch. I will merge and deploy it tomorrow morning."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "commitment at the end of a long status note",
+        "reminders": [
+          {
+            "actionable_language": "I will merge and deploy it",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Merge and deploy the connection-pool leak fix"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "taskTextExcludes": [
+          "Finished the audit"
+        ],
+        "maxTaskLength": 90
+      }
+    },
+    {
+      "id": "S-10",
+      "name": "long note with no actionable task (negative control)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-gate"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "Post-mortem summary. The outage started at 02:14 and lasted 40 minutes. Root cause was a bad DNS entry pushed by the provider. They have rolled it back. No action needed on our side, sharing for visibility."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "ignore",
+        "rationale": "informational post-mortem with no commitment",
+        "reminders": []
+      },
+      "expected": {
+        "recommendation": "ignore"
+      }
+    },
+    {
+      "id": "S-11",
+      "name": "quoted task name (regression guard)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-gate"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "I need to work on \"On-going Project: Yard Photo Backfill\" tomorrow morning."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "quoted task name must be preserved verbatim",
+        "reminders": [
+          {
+            "actionable_language": "I need to work on \"On-going Project: Yard Photo Backfill\"",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "\"On-going Project: Yard Photo Backfill\""
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "taskTextContains": [
+          "On-going Project: Yard Photo Backfill"
+        ]
+      }
+    },
+    {
+      "id": "S-12",
+      "name": "root cause plus commitment, context worth keeping",
+      "decision": "reminder-analysis",
+      "targets": [
+        "task-context-split"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "Found it — the nightly export was writing to the old bucket after the migration, so nothing downstream saw the new files. Fix is a one-line config change. I'll roll it out tomorrow morning."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "commitment with useful surrounding context",
+        "reminders": [
+          {
+            "actionable_language": "I'll roll it out",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Roll out the export bucket config fix",
+            "context": "the nightly export was writing to the old bucket after the migration"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "taskTextExcludes": [
+          "nightly export was writing"
+        ],
+        "maxTaskLength": 80,
+        "contextContains": [
+          "old bucket"
+        ],
+        "contextDistinctFromTask": true,
+        "displayNeverIncludes": [
+          "Redshift"
+        ]
+      }
+    },
+    {
+      "id": "S-13",
+      "name": "multi-step commitment (regression guard)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "task-context-split"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "Can you please review the Development branch and if it's safe push to Production this morning?"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "two-step request with a time trigger",
+        "reminders": [
+          {
+            "actionable_language": "review the Development branch and if it's safe push to Production",
+            "scheduling_trigger": "this morning",
+            "reminder_message": "Review Development branch and if safe push to Production"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "taskTextContains": [
+          "review",
+          "push"
+        ]
+      }
+    },
+    {
+      "id": "S-14",
+      "name": "past-tense completion (negative control)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership",
+        "synthesis-gate"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> <@U_BETA> I deployed the changes this morning, all green."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "ignore",
+        "rationale": "past-tense report; the time word is descriptive",
+        "reminders": []
+      },
+      "expected": {
+        "recommendation": "ignore"
+      }
+    },
+    {
+      "id": "S-15",
+      "name": "weak acknowledgment (negative control)",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> I'll keep that in mind when I get to that plugin."
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "ignore",
+        "rationale": "weak acknowledgment, no firm commitment",
+        "reminders": []
+      },
+      "expected": {
+        "recommendation": "ignore"
+      }
+    },
+    {
+      "id": "S-16",
+      "name": "long unpunctuated multi-line note with NO quoted span — only the newline rule can route it",
+      "decision": "reminder-analysis",
+      "targets": [
+        "synthesis-routing"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "heads up on the warehouse sync\nthe connector has been retrying against the old endpoint since friday\ni cleared the backlog by hand this morning so nothing is stuck right now\nthe permanent fix is a config change on our side\ni will push that config change tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "commitment at the end of a status note; the analyzer returned no quoted span",
+        "reminders": [
+          {
+            "actionable_language": "",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Push the warehouse-sync connector config change"
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "taskTextExcludes": [
+          "retrying against the old endpoint"
+        ],
+        "maxTaskLength": 80
+      }
+    },
+    {
+      "id": "S-17",
+      "name": "ADVERSARIAL: multi-task response assigns to a user who does not appear in the thread",
+      "decision": "multi-task-extraction",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> can you rotate the staging certs tomorrow morning?"
+        },
+        {
+          "user": "U_ALPHA",
+          "text": "yep on it"
+        }
+      ],
+      "recordedResponse": {
+        "candidates": [
+          {
+            "taskIndex": 1,
+            "title": "rotate the staging certs",
+            "sourceMessageNumbers": [
+              1
+            ],
+            "sourceTs": [
+              "1.0"
+            ],
+            "assigneeID": "U_GHOST",
+            "deadline": "tomorrow morning",
+            "deadlineResolution": "explicit",
+            "confidence": "high",
+            "flag": null,
+            "duplicateOpenReminderID": null
+          }
+        ],
+        "rationale": "adversarial: U_GHOST is not an author and is not mentioned anywhere in the thread"
+      },
+      "expected": {
+        "assigneesNeverInclude": [
+          "U_GHOST"
+        ],
+        "candidateAssignees": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "S-18",
+      "name": "ADVERSARIAL: analyzer owner_mentions names a user absent from the message",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> the staging cert rotation is tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "adversarial: no grammatical subject, so the analyzer verdict is consulted",
+        "reminders": [
+          {
+            "actionable_language": "the staging cert rotation",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Rotate the staging certs",
+            "owner": "mentioned",
+            "owner_mentions": [
+              "U_GHOST",
+              "U_ALPHA"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "assignees": [
+          "U_ALPHA"
+        ],
+        "assigneesNeverInclude": [
+          "U_GHOST"
+        ]
+      }
+    },
+    {
+      "id": "S-19",
+      "name": "analyzer owner=speaker resolves an address block that has no grammatical subject",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "no first- or second-person marker; the analyzer attributes it to the author",
+        "reminders": [
+          {
+            "actionable_language": "the connection-pool patch goes out",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Ship the connection-pool patch",
+            "owner": "speaker",
+            "owner_mentions": []
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "assignees": [
+          "U_SENDER"
+        ]
+      }
+    },
+    {
+      "id": "S-20",
+      "name": "ADVERSARIAL: synthesized title and context invent a system absent from the source",
+      "decision": "reminder-analysis",
+      "targets": [
+        "task-context-split"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "quick note on the report job: it has been timing out since the index change went in last week, and the retry loop just masks it so nobody noticed until the finance team asked. the real fix is bumping the query timeout on our side. i will push that fix tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "adversarial: Snowflake and 4x appear nowhere in the message",
+        "reminders": [
+          {
+            "actionable_language": "i will push that fix",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Bump the Snowflake query timeout by 4x",
+            "context": "the Snowflake report job has been timing out since the index change",
+            "owner": "speaker",
+            "owner_mentions": []
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "displayNeverIncludes": [
+          "Snowflake",
+          "4x"
+        ],
+        "contextEmpty": true
+      }
+    },
+    {
+      "id": "S-21",
+      "name": "ADVERSARIAL: the bot is @-mentioned and must never become an assignee",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "<@U_BOT> <@U_ALPHA> can you rotate the staging certs tomorrow morning?"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "second-person ask; the bot is addressed but cannot own work",
+        "reminders": [
+          {
+            "actionable_language": "can you rotate the staging certs",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Rotate the staging certs",
+            "context": "",
+            "owner": "mentioned",
+            "owner_mentions": [
+              "U_BOT",
+              "U_ALPHA"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "assignees": [
+          "U_ALPHA"
+        ],
+        "assigneesNeverInclude": [
+          "U_BOT"
+        ]
+      }
+    },
+    {
+      "id": "S-22",
+      "name": "ADVERSARIAL: reporting a delegation must not assign the work to the reporter",
+      "decision": "reminder-analysis",
+      "targets": [
+        "ownership"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "I asked <@U_ALPHA> to rotate the staging certs tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "delegation reported in the first person",
+        "reminders": [
+          {
+            "actionable_language": "I asked <@U_ALPHA> to rotate the staging certs",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Rotate the staging certs",
+            "context": "",
+            "owner": "mentioned",
+            "owner_mentions": [
+              "U_ALPHA"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "assignees": [
+          "U_ALPHA"
+        ],
+        "owner": "mentions"
+      }
+    },
+    {
+      "id": "S-23",
+      "name": "ADVERSARIAL: an invented product name at the START of the title must not bypass grounding",
+      "decision": "reminder-analysis",
+      "targets": [
+        "task-context-split"
+      ],
+      "sender": "U_SENDER",
+      "turns": [
+        {
+          "user": "U_SENDER",
+          "text": "the nightly deployment keeps stalling on the same step and the retry loop hides it from the dashboard, so nobody noticed until this week. i will push the config fix tomorrow morning"
+        }
+      ],
+      "recordedResponse": {
+        "recommendation": "schedule",
+        "rationale": "adversarial: Acme appears nowhere in the message",
+        "reminders": [
+          {
+            "actionable_language": "i will push the config fix",
+            "scheduling_trigger": "tomorrow morning",
+            "reminder_message": "Acme deployment config fix",
+            "context": "",
+            "owner": "speaker",
+            "owner_mentions": []
+          }
+        ]
+      },
+      "expected": {
+        "recommendation": "schedule",
+        "owner": "sender",
+        "displayNeverIncludes": [
+          "Acme"
+        ]
+      }
+    }
+  ]
+}

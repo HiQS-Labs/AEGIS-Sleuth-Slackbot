@@ -33,6 +33,354 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.292 - 2026-08-17
+When you upload a screenshot or photo of an itemized list or table in Slack and ask me to create a
+list, I now use Gemini Flash's vision OCR to extract every item, title, and penalty/fine amount,
+and automatically build an interactive Slack List for you with a link back to the thread.
+
+**Technical:** GH-58. Added multimodal Vision OCR extraction pipeline using Google Gemini Flash models (`gemini-2.5-flash` / `gemini-1.5-flash` / `gemini-2.0-flash`) and integrated it into the Slack Lists harness.
+- **Multimodal File Classification & Ingestion:** `src/context-file-classifier.js` now provides `IsImageMediaFile` and `SelectImageAttachment` for images (`png`, `jpeg`, `webp`, `gif`). `src/slack-app.js` adds `DownloadFileBase64Async` with Bearer auth and redirect safety.
+- **AI Prompt & Schema:** `data/static/ai/ocr-list-extraction-instructions.md` and `ocr-list-extraction-schema.json` enforce strict structured JSON outputs (`title`, `items` with `item_number`, `text`, `amount`, `notes`). Registered in `scripts/validate-ai-prompts.js`.
+- **GeminiProvider & WorkspaceAI:** `src/ai-providers/gemini-provider.js` supports `ProcessMultimodalMessageWithJsonResponseAsync` sending `inlineData` parts alongside system instructions and schema sanitization. `src/workspace-ai.js` dispatches multimodal requests to the active provider.
+- **Slack List Materialization:** `src/lists-module.js` provides `CreateListFromExtractedItemsAsync` to create lists with 5 columns (`Item #`, `Item / Task`, `Amount / Fine`, `Notes`, `Status`) and populate item rows. `src/chat-module.js` routes OCR list requests and posts interactive confirmation with permalink.
+- **Tests:** 27 new tests in `tests/gemini-ocr-slack-list.test.js`.
+
+## 1.4.291 - 2026-08-17
+I've made test suite runs cleanly isolated across parallel worker processes, so background test runs never interfere with each other or pollute the workspace runtime files on disk.
+
+**Technical:** GH-60 (port of issue #435). Parallel Jest workers previously read and wrote shared paths inside `data/runtime/**`, leading to cross-process race conditions and persistent runtime file artifacts. Added `Workspaces.GetRuntimeDirPath()` and `Workspaces.GetSubdirPath(ArgSubdir, ArgFilename)` respecting `SLEUTH_DATA_DIR` / `AEGIS_DATA_DIR`. Configured Jest `setupFiles` with `tests/runtime-setup.js` to isolate runtime data to temporary worker directories. Updated all runtime file consumers across `src/` and `tests/` to use dynamic subdir resolution. Added `tests/test-runtime-isolation.test.js`.
+
+## 1.4.290 - 2026-08-14
+When you follow up on something with "can we get it done by Monday?", I now go back and read what
+"it" actually refers to, instead of scheduling your question word-for-word. Before this I would set
+a reminder that said only "Can we try to get it done by end of day on Monday?" — which told you
+nothing about the task and quietly assigned it to you rather than the person who agreed to do it.
+In threads this works right away; in a regular channel it stays switched off until an admin turns it
+on, because reading back through channel history costs real money on every message.
+
+**Technical:** GH-55. Two independent blockers, each fatal alone. `TryEnrichVagueCompletionFromAboveAsync`
+opened with `if(!ArgEventInfo.thread_ts) return false;` and its caller only reached it inside an
+`if(ArgEventInfo.thread_ts)` block, so two top-level channel posts 47 minutes apart could never be
+connected. And `get <pronoun> done` matched none of the three existing reference patterns — the
+pronoun sits *between* verb and participle, a shape the enumerated verb list has no entry for.
+
+- **Verb-agnostic detection** — a fourth verb list would have bought this phrasing and lost the
+  next, which this file's own comment on `ABOVE_REFERENCE_PATTERN` already warned about ("a losing
+  whack-a-mole"). `IsObjectPositionPronounReference` asks the grammatical question instead: is the
+  pronoun the sentence's **object** ("get **it** done by Monday") or its **subject** ("**it** will
+  rain on friday")? That is decided by two *closed* word classes — clause boundaries and
+  auxiliaries — neither of which grows when someone invents a new way to say "finish this".
+- **Channel lookback** — the `thread_ts` gate is lifted, reusing the existing
+  `GetRecentChannelMessagesAsync` wrapper rather than adding Slack plumbing. **Participant
+  continuity is required, not recency alone**: a busy channel interleaves conversations, so the
+  candidate must be from the follow-up's author or mention them. Same-channel only, 2-hour window
+  (the reported failure had a 47-minute gap — a shorter window would not have fixed it).
+- **Provenance** — enriched reminders now carry `EnrichedFrom` (source ts, structural path, and the
+  author's own pre-enrichment words), emitted to the ledger as `enrichedFrom`. `REQUIRED_PAYLOAD_KEYS`
+  validates a required *minimum*, so this is additive with no schema bump. A wrong stitch is now
+  auditable after the fact instead of silently wrong.
+- **Kill switch** — `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED`, default OFF. Unset means AI-call volume
+  identical to before this change. In-thread resolution needs no flag.
+- **Tests** — 47 new, including a 9-case conversational-noise corpus kept as a fixture rather than a
+  comment. Mutation-tested, all five caught. **One mutation initially survived**: disabling the
+  clause-boundary check broke nothing, because every noise case in the first corpus happened to use
+  an auxiliary and so was caught twice over. Six subject-plus-simple-main-verb cases ("It rains on
+  friday", "That broke yesterday") were added to pin the half of the rule the corpus could not fail
+  on. Full suite 111 suites / 1908 jest / 116 node, `tsc` exit 0.
+
+## 1.4.277 - 2026-08-11
+When a very long note contains one short thing you promised to do, I now shorten it to that task
+instead of pasting the whole note into the reminder. I was already meant to do this, but I was
+measuring the task's share of the message so coarsely that a small enough task rounded away to
+nothing and I concluded there was no task to find at all.
+
+**Technical:** GH-51. `DescribeSynthesisRouting` rounded the actionable-span ratio with `toFixed(2)`
+*before* the buried-task gate read it. That collapses any span under 0.5% of the message to exactly
+`0`, and `SpanRatioUsable` read that `0` as "no span was quoted at all" — so a 35-character
+commitment quoted from a 7,000-character note, the most deeply buried task there is and precisely
+what the gate exists to catch, was classified as having no evidence of a buried task.
+
+- **Fix** — `RawSpanRatio` (unrounded) now drives both decisions: `SpanRatioUsable` asks
+  `LongestSpan > 0` (the measurement, not its report), and the `BURIED_TASK_MAX_SPAN_RATIO` ceiling
+  is compared raw, so it no longer silently admits up to 0.3549…. `actionableSpanRatio` stays 2dp as
+  the **reported** value, leaving the telemetry format unchanged; the existing `ratio_usable=` field
+  simply becomes truthful.
+- **Tests** — 3 new regressions (sub-0.5% span still routes by the ratio gate; reported-0-from-tiny
+  stays distinguishable from reported-0-from-absent; ceiling compared raw). Mutation-tested, both
+  mutations caught. 109 suites / 1852 jest / 116 node / 0 failures / `tsc` exit 0, GH-43's replay
+  battery included.
+- **Scope, measured not assumed:** against 30 days of production telemetry (216 messages, 128 with
+  `ratio=0`) this explains **at most 1** of them — the median zero-ratio message is 241 chars, where
+  nothing rounds away. The other ~127 are an empty `actionable_language` from the analyzer, a
+  separate cause. **Issue #51 stays open** for that, blocked on the GH-50 corpus.
+
+## 1.4.276 - 2026-08-11
+Nothing changes in how I behave. Behind the scenes, my team can now switch on a detailed record of
+how I decide what counts as a task, which is what they need to make me more precise about it. That
+recording stays off unless someone deliberately turns it on, because it would save the actual text of
+your messages.
+
+**Technical:** GH-50. GH-44 built the decision-capture path end to end and never connected it —
+`SetDecisionCapture` had zero callers outside tests, so `EmitCaptureAsync` short-circuited on the
+absent config and **no record was ever written in any deployed environment**. Found while diagnosing
+a production mis-render whose only post-hoc evidence was one deliberately lossy journald line
+(`msg_len`/`sentences`/`segment`/`synthesis`/`actionable_span_ratio`, no raw text, no model output).
+
+- **Arming gate** — `RemindersAIPipeline.IsDecisionCaptureEnabled()` reads `DECISION_CAPTURE_ENABLED`,
+  **default off**; `IsDecisionCaptureWorkspaceAllowed()` reads an optional
+  `DECISION_CAPTURE_WORKSPACES` allowlist (exact match); `IsDecisionCaptureArmedFor()` requires both.
+  The gates stay separate so the fleet can be armed with collection scoped to one tenant. Mirrors
+  `ROUTER_SHADOW_WORKSPACES` (GH-397) rather than inventing a second capture convention.
+- **Wiring** — `reminders-module.js` arms the pipeline at construction, writing
+  `data/runtime/decisions/<workspace>_decisions.jsonl`. `Workspace` is passed explicitly, never
+  resolved from module state (AGENTS.md §0.1). The corpus root sits outside `data/runtime/events/`,
+  which is the P3 authoritative ledger.
+- **Tests** — 9 new in `tests/decision-capture-arming.test.js`; mutation-tested with all three
+  mutations caught (default off→on, exact→substring match, dropping the master-flag gate). Wiring
+  smoke-tested against the real store including two-tenant file isolation. 1858 jest / 116 node / 0
+  failures / `tsc` exit 0. `validate:commands` fails identically on `development` (pre-existing).
+- **Not solved:** retention. Records carry raw tenant text with no rotation, cap, or expiry. The flag
+  must not be set on production until a retention policy exists.
+## 1.4.275 - 2026-08-11
+Nothing changes in how I behave — this is a fix to my own test setup. My test run could fail for a
+reason that had nothing to do with the change being tested, which made it hard to trust. It no longer
+does that.
+
+**Technical:** GH-48. `package.json`'s jest `testMatch` was unanchored (`**/tests/**/*.test.js`), so
+it matched any directory named `tests/` anywhere under the repo root — including the partial
+snapshots the relay harness writes to `.tick/orphan-backups/<utc>-<pid>/` when its containment
+reverts a file mid-turn. Those snapshots carry a test file without its sibling `src/`, so they can
+never resolve and always report `Test suite failed to run`; the signature is a run showing a failed
+suite with zero failed tests. This broke `npm test` — the pre-merge gate and DeployHQ's build step —
+on an unpredictable schedule, twice during GH-37.
+
+Both globs are now anchored to `<rootDir>`: `testMatch` → `<rootDir>/tests/**/*.test.js`, and
+`collectCoverageFrom` → `<rootDir>/src/**/*.js`, which carried the same defect for coverage runs. A
+`<rootDir>/.tick/` ignore entry was written and then removed: mutation testing showed the anchor
+alone and the ignore alone each fully prevent the collection, and the anchor is the more general of
+the two, so carrying both was redundant. Verified with an orphan backup still on disk — 109 suites /
+1849 tests green, suite count unchanged, no legitimate suite dropped.
+
+## 1.4.274 - 2026-08-10
+That bug I could only *show* you last release is fixed. If you address a message to colleagues and
+then say you'll do something yourself, the reminder is yours now — and they're kept in the loop
+rather than being handed your work. Long notes get a short task instead of your whole message pasted
+into a bullet, with the background on its own line underneath and the original still quoted in full.
+I'm allowed to reword the task now, but only using words you actually wrote: if I reach for a system
+or a number you never mentioned, I throw my version away and quote you instead.
+
+**Technical:** GH-43, all four phases, measured against the GH-44 replay battery rather than asserted.
+The battery went 4 FAIL / 11 PASS on unmodified `development` to 20 PASS.
+
+- **Ownership (Phase 1A)** — `src/reminder-ownership.js`. Ownership now reads the **grammatical
+  subject of the commitment**, not the mention list. First-person → the sender; second-person ask →
+  the mentioned people (GH-22 shared assignment intact); no signal → prior behavior byte-for-byte.
+  Derived from the trigger group's actionable spans, so first-person prose elsewhere in a long note
+  cannot hijack a task that is really an ask of somebody else. `"we"` is excluded as ambiguous.
+- **Analyzer verdict (Phase 1B)** — `owner` / `owner_mentions` added to the reminder schema and
+  prompt, which previously had no ownership rules at all. Consulted **only where grammar is
+  ambiguous**, inverting the plan's original precedence: Phase 1A resolves the common case correctly
+  at zero model cost, so a paid uncertain answer must not override a free correct one.
+  `owner_mentions` is intersected with the mentions actually in the source — the model may narrow the
+  set, never extend it. Reconciling this with `ExtractMultiTaskCandidatesAsync` exposed that its
+  "Never invent users" prompt rule was **never enforced**; both paths now share
+  `ConstrainAssigneeToParticipants`.
+- **Synthesis routing (Phase 2)** — two independent fixes, each proven load bearing by perturbation.
+  `CountSentences` treats a hard newline as a thought boundary (the reported message counted 3 of its
+  5 thoughts, routing it to the verbatim segment). A **buried-task ratio gate** routes a message
+  ≥150 chars whose longest actionable span is ≤0.35 of it to synthesis regardless of sentence count —
+  GH-337 already computed that ratio, named the case in a comment, and then ignored it. Routing now
+  takes the **raw** message text; normalizing first collapses the newlines the counter depends on.
+  `DescribeSynthesisRouting` is the single computation and the predicate delegates to it, so the
+  telemetry line can no longer disagree with the bullet a user sees.
+- **Task/context split + grounding (Phase 3)** — `context` added to the schema, rendered as an
+  indented subordinate line, never fused into the bullet. `src/task-grounding.js` narrows the
+  verbatim guarantee rather than dropping it: `actionable_language` stays byte-exact as the audit
+  span, while the display title may be rewritten only within the source's vocabulary. Zero false
+  positives across all 20 recorded titles. A failing title falls back to the quoted span.
+- **`NotifyIDs` persisted** — addressees who did not take the work, disjoint from `AssigneeIDs` and
+  deliberately non-authoritative. Additive on `ReminderCreated`; the fold rehydrates via
+  `WhenRecorded` and the emit is conditional, so absent stays absent and projection parity holds for
+  both historical reminders and the list-row creation path.
+- **Harness fix** — `scripts/decision-replay.js` handed recorded responses to the pipeline by
+  reference while the pipeline writes back to them, so the first run corrupted the require-cached
+  fixture and later runs replayed a response the file never contained. The existing determinism test
+  could not catch it because the corruption is idempotent. Responses are deep-cloned per call now.
+- Battery grew 15 → 20 scenarios: `S-16` (ratio unusable, newline rule is the only router), `S-17`
+  and `S-18` (adversarial fabricated users, one per ownership path), `S-19` (ambiguous grammar the
+  deterministic rules cannot reach), `S-20` (adversarial ungrounded title).
+- **Branch QA (agy, `Approved` r3/3)** caught two blockers, both the same failure — a harness
+  measuring itself. The "both mechanisms disabled" perturbation was claimed but never tested (and the
+  claim was stale: the real failure set includes `S-16`), and the grounding perturbation was
+  structurally incapable of failing, because `decision-replay.js` reimplemented the display rule
+  rather than calling it. Fixed structurally: the rule now lives in
+  `src/reminder-display-selection.js` and production and the harness share it. That refactor exposed
+  a **third** divergence — production applies an over-compression fallback the harness never did, and
+  it fired on the reported message, so the battery had been reporting a bullet production would not
+  render. Its GH-337 threshold was tightened from `<= 3` to `<= 2` words and now has the test coverage
+  it shipped without.
+- **`NotifyIDs` parity fix** — `BaselineReminderImported` has two producers besides the native
+  creation path (`state-snapshot-writer.js`, `scripts/baseline-import.js`) and both dropped the field.
+  Parity compares the union of keys, so a reminder carrying `NotifyIDs` would fold to one without it
+  and fail; compaction is irreversible, so it would be lost permanently. A third gap —
+  `ApplyCreationEnrichment` never applying a recorded `notifyIds`, so the key-presence contract held
+  only for the *first* creation-shaped event — was found by Codex and fixed the same way.
+- **Second QA pass (Codex), five more concrete bypasses.** An independent review deliberately aimed at
+  what the first reviewer under-covered. It found the grounding substring bypass independently
+  (`"Deploy to PROD"` grounded by the word *reproduce*; `"Deploy Acme"` by *xacmey*) and four more:
+  a **fourth harness-vs-production divergence** (replay reported the bot as an assignee, because it
+  never passed the bot ID production always passes); the `:wrench:` triage feeding the ownership
+  resolver **different inputs than scheduling**, so it could explain a rule the reminder did not
+  follow; a **leading Unicode homoglyph** erasing the evidence entirely, because ASCII-only
+  tokenization deleted the codepoint and `[A-Z]` did not see a Cyrillic capital as a capital; and the
+  first-word exemption applying to **any** first token, so an invented product name rendered simply by
+  being moved to the front.
+- **Ownership is now an actual subject test.** `HasFirstPersonCommitment` matched any first-person
+  token anywhere, which mis-assigned three distinct shapes: a possessive (`"<@alpha> will deploy my
+  report"`), reported speech (`'<@alpha> said "I will deploy the patch"'`), and a delegation
+  (`"I asked <@alpha> to deploy"`). All three assigned the work to the wrong person. Object and
+  possessive forms are gone from the pattern, quoted speech no longer triggers the strong override,
+  and delegation verbs defer to the analyzer. `"I have to deploy it"` deliberately still counts — a
+  missed delegation degrades to the analyzer verdict, a missed commitment reassigns real work.
+- Battery grew again to 23: `S-21` (the bot must never be an assignee), `S-22` (delegation), `S-23`
+  (invented entity at the *start* of a title).
+
+## 1.4.273 - 2026-08-10
+When a reminder comes out wrong, you can now ask me why. React 🔧 on the message and I'll tell you not
+just what I decided, but what drove it — whether I shortened your text or kept it whole and why, and
+how I worked out who the reminder was for. That second one is worth a look: if you addressed a message
+to two colleagues and then committed to something yourself, I'll show you that I assigned it to them
+and not to you. That is a real bug, and now it's visible instead of silent.
+
+**Technical:** GH-44. Consolidates three partial implementations of AI-decision capture into one
+subsystem rather than adding a fourth. `src/decision-corpus-store.js` is `router-shadow-store.js`
+generalized — the only routing-specific thing in it was the filename suffix — and `router-shadow-store.js`
+is now a facade pinned to the `router-shadow` stream, so the GH-397 production corpus filename and
+`ShadowFilePath` signature are unchanged and its 22 tests pass with zero modifications.
+
+`DecideAsync` grows optional `ModelName`, `PromptVersion`, `SchemaVersion`, `DebugFacts` and `Validate`
+on the spec, plus an opt-in `Capture`. Absent `Capture` means the store is never touched, so no
+existing call site changed behavior. `Validate` runs inside the chokepoint so a caller's specific
+error propagates byte-identically while the corpus still classifies the record `invalid` instead of a
+false `ok` — the fix for a defect agy caught during plan review, where populating `RequiredFields`
+would have made the generic error mask three test-asserted messages.
+
+Reminder analysis and the thread multi-task extractor both route through the chokepoint now. The
+latter required promoting its system prompt and response schema out of inline literals into
+`data/static/ai/multi-task-extraction-{instructions.md,schema.json}`, verified byte-identical rather
+than eyeballed; while inline they were structurally invisible to `validate:ai`, which only walks
+`EXPECTED_PAIRS` (issue #41).
+
+`src/decision-explain.js` renders whatever facts a spec declares, so the 🔧 triage gained the GH-337
+routing facts and an ownership trace that previously existed only in a server log line. It also owns
+the single mention-extraction rule the write path, triage view and replay harness all now share.
+
+`scripts/decision-replay.js` (`npm run decision:replay`) replays thread-shaped scenarios against a
+committed baseline. Scenarios carry expectations as well as a baseline, because diffing alone would
+have enshrined current behavior as correct; against `development` the GH-43 battery reports 4 FAIL /
+11 PASS, with S-01 reproducing all three reported defects and the GH-22 shared-assignment guard
+staying green.
+
+## 1.4.272 - 2026-08-10
+I no longer publish internal workspace, host, or New Relic fallback-key references in the public documentation.
+
+**Technical:** Replaced the production workspace census, server host/path references, and New Relic fallback-key references in `HONEST.md` and `deploy/reminders-export/README.md` with `[redacted]`.
+
+## 1.4.271 - 2026-08-10
+When a Slack thread is linked to a GitHub issue, I no longer copy every later reply onto it. I check
+first whether the reply is really about that task, and if it looks like a new or unrelated one I
+leave GitHub alone and just schedule it as its own reminder. You can also stop me relaying a thread
+by clicking the 🐙 I already put on the messages I've relayed — no need to remember a separate emoji.
+
+**Technical:** GH-37. `GitHubCommentRelay` previously gated only on thread structure, so any reminder
+in a thread carrying a GitHub URL authorized every subsequent reply to be posted as a comment on that
+issue. Each linked reminder is now scored independently against the incoming reply via a new
+`github-relay-relevance` prompt pair, and the comment is posted only to the URLs of reminders
+returning `decision: 'relay'` at `confidence >= 0.7`. Scoring per reminder rather than per message
+also fixes the fan-out defect where a thread with two linked issues copied every reply onto both.
+The gate fails closed — model error, unusable response, or absent workspace AI all resolve to `skip`
+— and a skipped message still falls through to `RemindersModule` and becomes its own reminder.
+
+`OnReactionAddedAsync` adds the `octocat`/`github` reaction as a stop trigger alongside the existing
+🛑/⏹/`stop relay` message triggers. It guards against the bot's own acknowledgement reaction (which
+would otherwise stop the relay it just started) and resolves `item.ts` through
+`SlackApp.GetMessageThreadTsAsync` because a reaction event carries no thread context. It returns
+`false`, so `RemindersModule` still sees ✅/🗑/⏰ on the same message.
+
+Supporting refactor: `src/ai-decision.js` now owns the prompt-asset loading, caching, model call,
+required-field validation, and failure policy shared by this gate and the existing reminder-dedup
+call. `WorkspaceAI` is passed in explicitly (per-workspace, per AGENTS.md §0.1); the module-level
+cache holds only static repo assets. Dedup passes no fallback, so its throw-on-invalid-response
+behavior is unchanged — the migration is behavior-identical, evidenced by the existing 36 pipeline
+tests passing unmodified. Field validation treats undefined/null/empty-string as missing rather than
+using a falsy check, so a numeric `confidence` of 0 counts as a real answer. New prompt pair
+registered in `scripts/validate-ai-prompts.js`. 55 relay tests and 12 new `ai-decision` tests.
+
+Merged with the event schema v2 relay work: the ledger hook keeps constructor position 4 and the
+workspace-AI getter takes position 5; the thread-scoped relay-state emit now fires from the shared
+`#StopRelayAsync`, so the new reaction stop trigger records to the ledger too. Two parity defects
+fixed during that merge, both mutation-tested: `GitHubRelayStarted` is written for every reminder in
+the thread rather than the gate-filtered subset (`reminders-projection.js:533-554` folds thread state
+onto every reminder, so a narrowed write would let the projection invent keys the JSON store never
+had); and the stop path emits immediately after a successful save, with the Slack acknowledgement
+demoted to best-effort, so a failed reaction can no longer leave the store stopped while the ledger
+is silent.
+## 1.4.270 - 2026-08-09
+Nothing changes for you day to day — but I've formally closed the book on a long-running internal migration. My reminder data has always lived in JSON files, with an experimental event log kept alongside it. That log will *not* be taking over: it's now permanently marked "reference only", and the switches that could have turned it on are disabled in code rather than just switched off in config. I also handle one more shutdown signal, so nothing in flight gets dropped when I'm restarted.
+
+**Technical:** P3 Phase 5 closed out — the read cutover is **parked by decision**, not abandoned or pending.
+
+- **All four projection flags blocked in code**, not merely `authoritative` in server config: `REMINDERS_READ_SOURCE`, `COMPLETED_READ_SOURCE`, `REBALANCE_EXPORT_SOURCE` via `BLOCKED_PROJECTION_FLAGS`, plus `SUMMARIZE_WEEK_COMPLETED_SOURCE` via a new `IsProjectionRequested()` helper — that one reads `process.env` at its own call site and never reaches the coverage gate, making it the least protected of the four. Config alone left a live path from a routine `projection-parity-harness --record-coverage` run to a production cutover with no deploy and no review.
+- **`SIGTERM` handled alongside `SIGINT`** (`src/app.js`). Node exits immediately on an unhandled SIGTERM, skipping `StopAsync` and losing the reminder queue, channel settings, reminder counter and completion history — not just the ledger. This deployment survived only because a server-side unit file sets `KillSignal=2`; durability is now a property of the code.
+- **The decision, on mechanism not preference:** a crashed append writes nothing to the ledger, so no ledger-derived quantity distinguishes "no append was attempted" from "an append was attempted and lost". A coverage marker therefore cannot certify the completeness that serving a projection requires. The ledger is retained as a non-authoritative projection/research substrate — not audit-grade, not a deferred authority migration.
+- Two properties recorded as **accepted boundaries, not defects**: completion retention is a deliberate 365-day policy split between `CompletionStore` and the fold; and dual-write coverage can never certify completeness, since either side can lead and snapshot-only changes emit no event.
+- Tests updated to assert the parked contract rather than the old cutover contract, with the coverage-gate contract still exercised in full under an unblocked synthetic flag so no mechanism lost coverage. Mutation-verified: unblocking the four flags fails 7 tests.
+- Plan doc moved to `PROJECT/3-COMPLETED/`; `ROADMAP.md` reduced to a ledger pointer. Residual items deferred with explicit revival triggers (section D). See GH-35.
+
+
+## 1.4.269 - 2026-08-09
+I was quietly losing part of my own history. Every time I rescheduled a reminder to the next day, the
+note I write to my history log about it was being thrown away — the reminder itself rescheduled
+correctly, so nothing looked wrong from the outside, but my record of why it moved was gone. I have
+also started refusing to answer from my rebuilt history unless that history has been checked against
+my authoritative records first, rather than assuming it is complete.
+
+**Technical:** `#EmitTransitionEvent`'s `ReminderScheduled` payload omitted `ignoreSnooze`, which
+schema v2 requires, so `append()` rejected it as an invalid shape and wrote nothing. The
+creation-time emitter carried the field, so the birth case was covered while every FSM reschedule
+was dropped. It surfaced only as a durable coverage gap on production — appends are best-effort and
+the warning is non-fatal. No test drove a transition INTO `scheduled`;
+`AssertNoDroppedAppendsAsync` now reads the coverage marker at the end of each emission scenario, so
+a rejected append fails the suite instead of changing nothing observable.
+
+The coverage gate is now load-bearing rather than advisory. `ReadWithProjectionFallbackAsync` is
+default-deny: an absent gate, a non-`true` answer, or a gate that throws all serve the authoritative
+store, where previously an absent gate was a bypass and every production call site supplied none.
+`IsCleanAsync` is threaded through all three read sites, and `createLedgerCoverage` returns one
+instance per ledger directory so `web-api` observes `reminders-module`'s in-flight appends instead of
+starting from a blank view. `readAll` no longer answers `[]` for every failure — `ENOENT` still
+means an empty stream, other errors raise `LedgerReadError`, and an unparseable line before the end
+raises `LedgerCorruptionError`, since a torn tail is an interrupted append but a hole in the middle
+means events are missing. `BLOCKED_PROJECTION_FLAGS` is empty and kept as the emergency stop, still
+tested by temporarily adding to it. `projection-parity-harness --record-coverage` is the only
+sanctioned way to reach `verified`, and records a gap when a run finds diffs.
+
+## 1.4.268 - 2026-08-08
+The code behind `ask-self` — the command that lets me answer questions about my own architecture and
+history — now lives in this repository instead of being installed separately onto the server. Nothing
+changes about what I can answer; it just means the code that does it is readable by anyone reading
+me, and can no longer drift between the machine it runs on and the source it came from.
+
+**Technical:** `src/rag/` and `src/chat-commands/ask-self-command.js` are tracked rather than
+gitignored. They were audited before landing: no credentials are embedded, `GOOGLE_API_KEY` and
+`SLEUTH_RAG_GITHUB_PAT` are read from the environment as before, and the PR corpus repository is now
+chosen by `SLEUTH_RAG_GITHUB_OWNER`/`_REPO` instead of being hardcoded — a fork points at its own
+history and this repo names no private one. The guarded optional `require` in `chat-module.js`
+deliberately stays: the *index* is still a build artifact and is still gitignored, so a fresh clone
+has the code but no `data/rag/sleuth-rag.sqlite` and must degrade quietly rather than crash. `tsc`
+now type-checks these four files under `checkJs` along with everything else, and `npm run rag:ingest`
+exists — the error text had pointed at that script for months without it being defined.
+
 ## 1.4.267 - 2026-08-08
 When several people share a reminder, anything reading my exported data now sees all of them. It
 used to see only the first, so a shared task looked like it belonged to one person. I also stop

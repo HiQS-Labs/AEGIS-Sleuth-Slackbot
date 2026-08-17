@@ -1,0 +1,43 @@
+{
+  "name": "multi_task_extraction",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "candidates": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "taskIndex": { "type": "number" },
+            "title": { "type": "string" },
+            "sourceMessageNumbers": { "type": "array", "items": { "type": "number" } },
+            "sourceTs": { "type": "array", "items": { "type": "string" } },
+            "assigneeID": { "type": ["string", "null"] },
+            "deadline": { "type": ["string", "null"] },
+            "deadlineResolution": { "type": "string", "enum": ["explicit", "convention", "blank"] },
+            "confidence": { "type": "string", "enum": ["high", "low"] },
+            "flag": { "type": ["string", "null"] },
+            "duplicateOpenReminderID": { "type": ["string", "null"] }
+          },
+          "required": [
+            "taskIndex",
+            "title",
+            "sourceMessageNumbers",
+            "sourceTs",
+            "assigneeID",
+            "deadline",
+            "deadlineResolution",
+            "confidence",
+            "flag",
+            "duplicateOpenReminderID"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "rationale": { "type": "string" }
+    },
+    "required": ["candidates", "rationale"],
+    "additionalProperties": false
+  }
+}

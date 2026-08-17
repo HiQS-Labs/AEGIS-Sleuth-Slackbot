@@ -22,6 +22,7 @@ const {
   SelectContextMemoryFile,
   IsBinaryMediaFile,
   LooksLikeHtmlErrorPage,
+  SelectImageAttachment,
 } = require('./context-file-classifier');
 const HandleRestartCommandAsync = require('./chat-commands/restart-command');
 const HandleVersionCommandAsync = require('./chat-commands/version-command');
@@ -30,6 +31,29 @@ const HandleRunDailyDigestCommandAsync = require('./chat-commands/run-daily-dige
 const HandleClearChannelModelCommandAsync = require('./chat-commands/clear-channel-model-command');
 const HandleShowChannelModelCommandAsync = require('./chat-commands/show-channel-model-command');
 const HandleAskCodeCommandAsync = require('./chat-commands/ask-code-command');
+
+// OPTIONAL private plugin seam. `src/rag/` is planned as `sleuth-plugin-rag` (PROJECT/2-WORKING/
+// P1-SPLIT.md:130) and is deliberately absent from the public repo, so this require MUST NOT be
+// allowed to fail the process. When the overlay is missing, ask-self simply does not exist; when it
+// is installed, the command and its triage path light up with no further wiring.
+//
+// This guard exists because the feature has already been lost once: a deploy that replaced the tree
+// with a copy lacking `src/rag/` silently dropped ask-self, and nothing announced it. An absent
+// overlay is now a supported state rather than an accident.
+/** @type {{ HandleAskSelfCommandAsync: Function, PostAskSelfTriageAsync: Function }|null} */
+let RagChatIntegration = null;
+try {
+  // @ts-ignore — resolved at runtime only. The overlay is absent from the public tree by design, so
+  // static resolution MUST NOT be a build error; `tsc` correctly reports TS2307 without this, which
+  // would make the public repo unbuildable for a feature it deliberately does not ship.
+  RagChatIntegration = require('./rag/chat-integration');
+} catch(error) {
+  // MODULE_NOT_FOUND is the expected public-repo case. Anything else means the overlay IS present
+  // but broken, which an operator needs to see rather than have swallowed as "not installed".
+  if(!error || error.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[chat-module] RAG overlay present but failed to load:', error && error.message);
+  }
+}
 const HandleAskWooCommandAsync = require('./chat-commands/ask-woo-command');
 const HandleWebSearchProviderCommandAsync = require('./chat-commands/web-search-provider-command');
 const HandleHelpFeaturesCommandAsync = require('./chat-commands/help-features-command');
@@ -100,6 +124,14 @@ class ChatModule {
    * @type {RegExp}
    */
   static AskCodeCommandRegex = /^ask-code\b[\s,:;.!?]+(.+)/is;
+
+  /**
+   * `ask-self <query>`. Kept in the public core even though its handler is an optional overlay:
+   * the pattern is not proprietary, and keeping it here means the router and the reaction path
+   * agree on what counts as an ask-self message whether or not the overlay is installed.
+   * @type {RegExp}
+   */
+  static AskSelfCommandRegex = /^ask-self\b[\s,:;.!?]+(.+)/is;
 
   /**
    * Slack app instance.
@@ -287,15 +319,16 @@ class ChatModule {
     // initialize the per-channel model override store. Disk load is deferred to StartAsync so
     // construction stays synchronous and matches the pattern used by other modules.
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
-    const ChannelModelsFilePath = path.resolve(
-      path.join(__dirname, '..', 'data', 'runtime', 'workspaces', `${WorkspaceName}_channel_models.json`)
+    const ChannelModelsFilePath = Workspaces.GetSubdirPath(
+      'workspaces',
+      `${WorkspaceName}_channel_models.json`
     );
     this.#ChannelModelSettings = new ChannelModelSettings(this.#SlackApp, ChannelModelsFilePath);
 
     // GH-397 router mode (off/shadow/active). Non-authoritative corpus lives OUTSIDE
     // data/runtime/events/ (that dir is the P3 authoritative ledger). Default mode is `off`.
     const RouterShadowStore = createRouterShadowStore({
-      rootDir: path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'shadow')),
+      rootDir: Workspaces.GetSubdirPath('shadow'),
     });
     this.#RouterShadow = new RouterShadowModule({
       WorkspaceName,
@@ -480,6 +513,18 @@ class ChatModule {
       Handle: (ArgEventInfo, ArgQuery) =>
         HandleAskCodeCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
     });
+
+    // Registered only when the private RAG overlay is installed, so the public build does not
+    // advertise a command that cannot answer. The handler itself is tenancy-gated on
+    // NEOCHROME_TEAM_ID and fail-closed, so this is the outer of two independent gates.
+    if(RagChatIntegration) {
+      Router.Register({
+        Pattern: ChatModule.AskSelfCommandRegex,
+        Route: 'ask-self',
+        Handle: (ArgEventInfo, ArgQuery) =>
+          RagChatIntegration.HandleAskSelfCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
+      });
+    }
 
     Router.Register({
       Pattern: /^ask-woo(?:\s+(.+))?$/is,
@@ -1050,6 +1095,14 @@ class ChatModule {
       const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(CommandTextWithoutMention);
       const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
 
+      // GH-58: detect image attachments carrying a list-creation request, run Gemini Vision OCR,
+      // and materialize extracted items directly into a Slack List. Short-circuits here so the
+      // message never falls through to command routing or generic chat.
+      if(ArgEventInfo.files?.length > 0 && ChatModule.#IsImageListCreationRequest(NormalizedCommandText)) {
+        if(await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, CommandTextWithoutMention))
+          return true;
+      }
+
       // GH-397 router mode: when armed, Gemini Flash Lite either shadows the resolver (logs a corpus
       // record, ZERO authority) or, in `active`, takes over resolution above a confidence floor.
       // `off`/`shadow` never change production behavior; `active` takeover falls back to the normal
@@ -1356,6 +1409,30 @@ class ChatModule {
   }
 
   /**
+   * Detect list-creation requests from images (GH-58). Matches commands like "create a list",
+   * "extract items", "turn this into a list" etc. alongside an attached image. Returns true
+   * so #TryProcessImageForListCreationAsync short-circuits before generic chat fallthrough.
+   * @param {string} ArgCommandText App mention text after removing the bot mention.
+   * @returns {boolean}
+   */
+  static #IsImageListCreationRequest(ArgCommandText) {
+    if(typeof ArgCommandText !== 'string') return false;
+    const NormalizedText = ArgCommandText
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if(NormalizedText.length === 0) return false;
+
+    // Keywords that signal a list-creation intent rather than plain chat.
+    return /\b(create|extract|convert|make|build|generate)\s+(a\s+)?list\b/i.test(NormalizedText)
+      || /ocr\s+(a\s+)?list/i.test(NormalizedText)
+      || /extract.*items?\s*(from|of)/i.test(NormalizedText)
+      || /list\s*(out|up|format)/i.test(NormalizedText);
+  }
+
+  /**
    * Action ID for the "Search the web" suggestion button attached to freeform chat answers.
    * Keep this stable — Slack matches block_actions payloads against it.
    */
@@ -1614,11 +1691,30 @@ class ChatModule {
     );
     if(MessageMetadata?.event_type === 'sleuth-ai-reminder-ids') return false;
 
-    // strip the bot mention so the regex matches both leading-mention and trailing-mention forms.
-    // strip the bot mention so route description matches both leading- and trailing-mention forms.
+    // strip the bot mention so the regex matches both leading-mention and trailing-mention forms,
+    // and so a route description matches either placement too.
     const TextWithoutMention = ArgSlackApp.AppMentionString
       ? OriginalMessage.text.replace(ArgSlackApp.AppMentionString, '').trim()
       : OriginalMessage.text.trim();
+
+    // ask-self gets its own triage rather than the generic chat one, because the useful diagnosis
+    // is the tenancy gate and the RAG module's real error — neither of which the generic path can
+    // see. Only reachable when the private overlay is installed; otherwise a wrench on an ask-self
+    // message falls through to normal chat triage, which is the honest answer for a build where
+    // the command does not exist.
+    if(RagChatIntegration) {
+      const AskSelfMatch = TextWithoutMention.match(ChatModule.AskSelfCommandRegex);
+      if(AskSelfMatch) {
+        await RagChatIntegration.PostAskSelfTriageAsync(
+          ArgSlackApp,
+          ArgEventInfo.item.channel,
+          ArgEventInfo.item.ts,
+          ArgEventInfo.user,
+          AskSelfMatch[1].trim()
+        );
+        return true;
+      }
+    }
 
     const ThreadDebugInfo = this.#GetThreadDebugInfo(
       ArgSlackApp,
@@ -2279,9 +2375,7 @@ class ChatModule {
    */
   #GetBugReportsFilePath() {
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
-    return path.resolve(
-      path.join(__dirname, '..', 'data', 'runtime', 'bugs', `${WorkspaceName}_bugs.json`)
-    );
+    return Workspaces.GetSubdirPath('bugs', `${WorkspaceName}_bugs.json`);
   }
 
   /**
@@ -2500,9 +2594,7 @@ class ChatModule {
    */
   #GetThreadMemoryFilePath() {
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;
-    return path.resolve(
-      path.join(__dirname, '..', 'data', 'runtime', 'context-memory', `${WorkspaceName}_thread_memory.json`)
-    );
+    return Workspaces.GetSubdirPath('context-memory', `${WorkspaceName}_thread_memory.json`);
   }
 
   /**
@@ -2743,6 +2835,230 @@ class ChatModule {
 
     // return the formatted text.
     return FormattedText;
+  }
+
+  /**
+   * Process an image attachment as a list-extraction request (GH-58). Detects images in
+   * ArgEventInfo.files, downloads them via SlackApp.DownloadFileBase64Async, runs Gemini
+   * Vision OCR through WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync using the
+   * ocr-list-extraction-instructions/schema pair, then materializes results into a Slack
+   * List via ListsModule.CreateListFromExtractedItemsAsync. Posts a confirmation reply on
+   * success, or a clear error message on failure.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
+   * @param {string} ArgCommandTextRaw Raw (mention-stripped) command text for logging/context.
+   * @returns {Promise<boolean>} true when the event was handled (list creation attempted).
+   */
+  async #TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw) {
+    const ReplyTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
+    const ImageSelection = SelectImageAttachment(ArgEventInfo.files);
+    if(!ImageSelection) {
+      ArgSlackApp.Logger.warn('[ocr-list] no image attachment found in files array.');
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyTS,
+        'I did not find an image attachment to process.'
+      );
+      return true;
+    }
+
+    try {
+      // Step 1: download the image as base64.
+      const DownloadURL = ImageSelection.url_private_download || ImageSelection.url_private;
+      if(!DownloadURL) {
+        ArgSlackApp.Logger.error('[ocr-list] image missing url_private_download/url_private.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Could not access the image file for processing.'
+        );
+        return true;
+      }
+
+      let DownloadResult;
+      try {
+        DownloadResult = await ArgSlackApp.DownloadFileBase64Async(DownloadURL);
+      } catch(downloadError) {
+        ArgSlackApp.Logger.error(`[ocr-list] failed to download image '${ImageSelection.name}':`, downloadError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Failed to download the image. Please try uploading it again.'
+        );
+        return true;
+      }
+
+      if(!DownloadResult || !DownloadResult.Base64) {
+        ArgSlackApp.Logger.warn('[ocr-list] DownloadFileBase64Async returned empty result.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'The image file appeared to be empty.'
+        );
+        return true;
+      }
+
+      ArgSlackApp.Logger.info(
+        `[ocr-list] downloaded image ${ImageSelection.name} (${ImageSelection.mimetype}, ${(DownloadResult.Base64 || '').length} base64 chars)`
+      );
+
+      // Step 2: load OCR instructions + schema from disk.
+      let InstructionsText;
+      let SchemaObject;
+      try {
+        InstructionsText = await fs.readFile(
+          path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-instructions.md'),
+          'utf8'
+        );
+      } catch(readError) {
+        ArgSlackApp.Logger.error('[ocr-list] could not read OCR instruction file:', readError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'OCR instruction file is missing on the server.'
+        );
+        return true;
+      }
+      try {
+        const SchemaPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-schema.json');
+        SchemaObject = JSON.parse(await fs.readFile(SchemaPath, 'utf8'));
+      } catch(schemaError) {
+        ArgSlackApp.Logger.error('[ocr-list] could not read OCR schema file:', schemaError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'OCR schema file is missing on the server.'
+        );
+        return true;
+      }
+
+      // Step 3: run Gemini Vision OCR via WorkspaceAI.
+      /** @type {{ title?: string, items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }} */
+      let OcrResult;
+      try {
+        OcrResult = await this.#WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync(
+          ArgCommandTextRaw || 'Extract all list items from this image.',
+          InstructionsText.trim(),
+          SchemaObject,
+          { Base64: DownloadResult.Base64, Mimetype: DownloadResult.Mimetype },
+          this.#WorkspaceAI.DefaultModelName
+        );
+      } catch(ocrError) {
+        ArgSlackApp.Logger.error('[ocr-list] Gemini Vision OCR failed:', ocrError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Image analysis failed — please try again later.'
+        );
+        return true;
+      }
+
+      const ExtractedItems = (OcrResult && Array.isArray(OcrResult.items)) ? OcrResult.items : [];
+      if(ExtractedItems.length === 0) {
+        ArgSlackApp.Logger.info('[ocr-list] model returned zero extracted items.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          "I didn't detect any list items in that image. Try another screenshot with clearer text."
+        );
+        return true;
+      }
+
+      // Step 4: create the Slack List via ListsModule.
+      /** @type {import('./lists-module')|null} */
+      const ListsModuleInstance = this.#RemindersModule?.ListsModule || null;
+      if(!ListsModuleInstance || typeof ListsModuleInstance.CreateListFromExtractedItemsAsync !== 'function') {
+        ArgSlackApp.Logger.warn('[ocr-list] ListsModule not available on RemindersModule.');
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Slack Lists is not configured for this workspace yet. The items have been extracted but the list could not be created.'
+        );
+        // Still post the extracted items summary so the user sees what was parsed.
+        const Title = (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List';
+        await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, Title, ExtractedItems);
+        return true;
+      }
+
+      let ListResult;
+      try {
+        ListResult = await ListsModuleInstance.CreateListFromExtractedItemsAsync({
+          ListTitle: (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List',
+          Items: ExtractedItems,
+          ChannelID: ArgEventInfo.channel,
+          UserID: ArgEventInfo.user,
+        });
+      } catch(listError) {
+        ArgSlackApp.Logger.error('[ocr-list] failed to create Slack List:', listError);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'Failed to create the Slack List. Check the logs for details.'
+        );
+        return true;
+      }
+
+      if(!ListResult || !ListResult.ok) {
+        ArgSlackApp.Logger.warn(`[ocr-list] create-list returned ok:false — ${ListResult?.error || 'unknown error'}`);
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          'List creation failed: ' + (ListResult?.error || 'unknown error.')
+        );
+        return true;
+      }
+
+      // Step 5: success — post confirmation with permalink.
+      const ItemCount = ListResult.ItemCount ?? ExtractedItems.length;
+      if(ListResult.Permalink) {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          `✅ Created list "${ListResult.ListId}" with ${ItemCount} item(s).\n<a|${ListResult.Permalink}>`
+        );
+      } else {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          `✅ Created list with ${ItemCount} item(s) (permalink unavailable).`
+        );
+      }
+
+      ArgSlackApp.Logger.info(
+        `[ocr-list] list created successfully: id=${ListResult.ListId} items=${ItemCount}`
+      );
+      return true;
+    } catch(error) {
+      ArgSlackApp.Logger.error('[ocr-list] unexpected error:', error);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyTS,
+        'An unexpected error occurred during image processing.'
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Fallback: post extracted items as a plain-text summary in Slack when ListsModule is unavailable.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {string} ArgChannelID Target channel ID.
+   * @param {string} ArgReplyTS Thread root timestamp.
+   * @param {string} ArgTitle List title.
+   * @param {Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }>} ArgItems Extracted item objects.
+   * @returns {Promise<void>}
+   */
+  async #PostExtractedItemsSummaryAsync(ArgSlackApp, ArgChannelID, ArgReplyTS, ArgTitle, ArgItems) {
+    const Lines = [`*${ArgTitle}* — ${ArgItems.length} item(s):`];
+    for(const Item of ArgItems.slice(0, 20)) {
+      const Num = Item.item_number != null ? `[${Item.item_number}] ` : '';
+      const Text = Item.text || '';
+      const Amt = Item.amount ? ` (${Item.amount})` : '';
+      const Notes = Item.notes ? ` — ${Item.notes}` : '';
+      Lines.push(`${Num}*${Text}*${Amt}${Notes}`);
+    }
+    if(ArgItems.length > 20) Lines.push(`\n_…and ${ArgItems.length - 20} more._`);
+    await ArgSlackApp.PostMessageTextAsync(ArgChannelID, ArgReplyTS, Lines.join('\n'));
   }
 }
 

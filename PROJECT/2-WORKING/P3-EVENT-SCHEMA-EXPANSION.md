@@ -423,7 +423,9 @@ claim.
   **Not done, and named rather than implied:** no flag was unblocked (Phase D needs a real-data
   parity run, an operator step); the generation-aware checkpoint in Phase C is not started, so a
   post-v2 stream that goes short between a mutation and a read is still undetectable, which is why
-  `REMINDERS_READ_SOURCE` stays blocked; `readAll()` still has no error signal; and full type/timestamp
+  `REMINDERS_READ_SOURCE` stays blocked; `readAll()` DOES now have an error signal (corrected
+  2026-08-14 — it throws `LedgerReadError` for any non-`ENOENT` failure; what is missing is a caller
+  that catches it, which is inert while all four flags are blocked); and full type/timestamp
   decoding at write time was not implemented — the fold coerces defensively at read time instead.
   Read-strictness was a genuine Codex/agy disagreement resolved in agy's favour, recorded under
   Phase A rather than quietly dropped.

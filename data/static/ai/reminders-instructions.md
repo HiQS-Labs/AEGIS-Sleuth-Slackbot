@@ -93,3 +93,30 @@ The JSON output must be generated as follows:
        - Example: given `"Let's do a quick test of the site with and without the plugin running so we know if there will be a performance hit" for tomorrow`, this string property should contain the COMPLETE text `"Let's do a quick test of the site with and without the plugin running so we know if there will be a performance hit"` - do NOT shorten to `"Let's do a quick test of the site"`.
        - For messages WITHOUT quoted text: synthesize a brief reminder of the actionable task.
        - Example: given `I will work on it tomorrow`, this string property should contain the text `Work on it`.
+    - `context`: ONE short line of *why* this task matters, taken from the surrounding message.
+       - This is the background a person needs to act on the reminder without re-opening the original message.
+       - It must NOT repeat the task. `reminder_message` says what to do; `context` says why it came up.
+       - Keep it to a single line. Do not summarize the whole message — pick the one fact that makes the task make sense.
+       - Example: given `Found it — the nightly export was writing to the old bucket after the migration, so nothing downstream saw the new files. Fix is a one-line config change. I'll roll it out tomorrow morning.`, `reminder_message` is `Roll out the export bucket config fix` and `context` is `the nightly export was writing to the old bucket after the migration`.
+       - Use an empty string `""` when the message is only a task with no surrounding background.
+       - Example: given `I'll deploy the hotfix tomorrow morning`, `context` is `""`.
+       - **GROUNDING RULE**: never introduce a system, product, person, number, or identifier that is not in the source message. This applies to `reminder_message` too — you may re-word freely, but every name and figure you use must already appear in the message. Anything you invent will be discarded and the reminder will fall back to quoting the message verbatim.
+    - `owner`: who is going to DO this task. Decide it from the **grammatical subject of the `actionable language`**, never from who is mentioned in the message.
+       - `speaker` — the author commits to doing it themselves.
+         - Example: given `i am going to deploy the changes tomorrow morning`, `owner` is `speaker`.
+         - Example: given `I'll patch it tonight`, `owner` is `speaker`.
+       - `mentioned` — the author asks one or more `@`-mentioned people to do it.
+         - Example: given `<@U123> can you test the release tomorrow?`, `owner` is `mentioned`.
+         - Example: given `<@U123> <@U456> please both review this by EOD`, `owner` is `mentioned`.
+       - `unclear` — the `actionable language` names no subject, or you cannot tell.
+         - Example: given `the deploy is tomorrow morning`, `owner` is `unclear`.
+       - **CRITICAL - ADDRESSED IS NOT ASSIGNED**: a message that OPENS with `@`-mentions and then continues in prose is being *addressed* to those people. That alone never makes `owner` be `mentioned`.
+         - Example: given `<@U123> <@U456> root cause: the scan only saw a fixed batch. i am going to deploy the changes tomorrow morning`, `owner` is `speaker` — the two mentioned users are the audience, and the only person committing to anything is the author.
+       - A first-person word inside somebody else's task does not make it `speaker`.
+         - Example: given `<@U123> can you send me the logs by EOD`, `owner` is `mentioned` — `me` is the object of U123's action, not a commitment by the author.
+       - `we` is ambiguous between the author and the team. Use `unclear` rather than guessing.
+    - `owner_mentions`: array of Slack user IDs being asked to do this task.
+       - Populate this ONLY when `owner` is `mentioned`. Use an empty array `[]` in every other case.
+       - Include only IDs that appear verbatim as `<@U…>` in the message, and only those in the clause carrying the commitment — not every mention in the message.
+       - Example: given `<@U123> please deploy tomorrow, cc <@U456>`, `owner_mentions` is `["U123"]`.
+       - **Never invent a user ID.** An ID not present in the source will be discarded.

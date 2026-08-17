@@ -3,6 +3,124 @@
 const fs = require('fs').promises;
 const path = require('path');
 const DateUtils = require('./date-utils');
+const { DecideAsync } = require('./ai-decision');
+const DecisionExplain = require('./decision-explain');
+const ReminderOwnership = require('./reminder-ownership');
+
+// deduplication decision spec. Prompt assets and validation live with the shared decision helper;
+// only the payload shaping below is dedup-specific.
+const DedupDecisionSpec = Object.freeze({
+  Name: 'reminder-dedup',
+  InstructionsFile: 'reminders-dedup-instructions.md',
+  SchemaFile: 'reminders-dedup-schema.json',
+  RequiredFields: ['recommendation', 'rationale'],
+});
+
+/**
+ * Validate a reminder-analysis response, throwing the exact messages this path has always thrown.
+ *
+ * GH-44 Phase 3: these three checks used to sit inline after the model call. They live in the spec's
+ * `Validate` hook now so they run INSIDE `DecideAsync` — which keeps the messages byte-identical for
+ * the tests that assert them (`tests/reminders-ai-pipeline.test.js:48/59/71`) while letting the
+ * decision corpus classify the record `invalid` instead of recording a false `ok`.
+ *
+ * `RequiredFields` is deliberately EMPTY for this spec: a populated list makes `HasRequiredFields`
+ * fail first and throw `DecideAsync`'s generic "Invalid reminder-analysis response…", which would
+ * take those three tests red. It also cannot express the type half of these checks — it treats
+ * `recommendation: 123` as present. (Caught by agy in the GH-44 plan relay, round 1.)
+ * @param {any} ArgResponse Parsed model response.
+ * @returns {void}
+ */
+function ValidateReminderAnalysis(ArgResponse) {
+  if(!('recommendation' in ArgResponse) || (typeof ArgResponse.recommendation !== 'string'))
+    throw new Error('GPT response is missing recommendation property or it is not a string.');
+
+  if(!('rationale' in ArgResponse) || (typeof ArgResponse.rationale !== 'string'))
+    throw new Error('GPT response is missing rationale property or it is not a string.');
+
+  if(!('reminders' in ArgResponse) || !Array.isArray(ArgResponse.reminders))
+    throw new Error('GPT response is missing reminders property or it is not an array.');
+}
+
+/**
+ * Single-message reminder analysis decision. Same prompt, schema, and (default) model as before the
+ * GH-44 migration — only the plumbing moved.
+ */
+const MultiTaskExtractionDecisionSpec = Object.freeze({
+  Name: 'multi-task-extraction',
+  InstructionsFile: 'multi-task-extraction-instructions.md',
+  SchemaFile: 'multi-task-extraction-schema.json',
+  // presence-only; the array/shape check below is the real gate, same as it was pre-migration.
+  RequiredFields: [],
+  // this path has always used the complex model — the reason AiDecisionSpec grew ModelName.
+  ModelName: null, // set per-call in ExtractMultiTaskCandidatesAsync (see WithComplexModel below)
+  PromptVersion: 'multi-task-v1',
+  SchemaVersion: 'multi-task-schema-v1',
+  /**
+   * @param {any} ArgResponse
+   * @returns {void}
+   */
+  Validate: (ArgResponse) => {
+    if(!ArgResponse || !Array.isArray(ArgResponse.candidates))
+      throw new Error('Multi-task extraction: invalid response from model.');
+  },
+  /**
+   * @param {any} ArgInput Serialized prompt payload.
+   * @param {any} ArgResponse Extraction result.
+   * @returns {object}
+   */
+  DebugFacts: (ArgInput, ArgResponse) => {
+    const Candidates = /** @type {any[]} */ (((ArgResponse && ArgResponse.candidates) || []));
+    return {
+      candidateCount: Candidates.length,
+      highConfidence: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.confidence === 'high').length,
+      lowConfidence: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.confidence === 'low').length,
+      flagged: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.flag).length,
+      duplicatesOfOpenReminders: Candidates.filter((/** @type {any} */ ArgC) => ArgC && ArgC.duplicateOpenReminderID).length,
+    };
+  },
+});
+
+/**
+ * The multi-task spec bound to a concrete model name. The model is a per-workspace runtime value, so
+ * it cannot be frozen into the module-level spec; this returns a shallow clone carrying it.
+ * @param {string} ArgModelName Model to pin (the workspace's complex model).
+ * @returns {import('./ai-decision').AiDecisionSpec}
+ */
+function WithComplexModel(ArgModelName) {
+  return { ...MultiTaskExtractionDecisionSpec, ModelName: ArgModelName };
+}
+
+const ReminderAnalysisDecisionSpec = Object.freeze({
+  Name: 'reminder-analysis',
+  InstructionsFile: 'reminders-instructions.md',
+  SchemaFile: 'reminders-schema.json',
+  RequiredFields: [],
+  Validate: ValidateReminderAnalysis,
+  PromptVersion: 'reminders-v1',
+  SchemaVersion: 'reminders-schema-v1',
+  /**
+   * Facts a human needs to explain why this message rendered the reminder it did. These are the
+   * GH-337 Phase 4 routing facts, which until now existed only in a server log line.
+   * @param {any} ArgInput Original message text.
+   * @param {any} ArgResponse Analysis result.
+   * @returns {object}
+   */
+  DebugFacts: (ArgInput, ArgResponse) => {
+    // GH-43 Phase 2: route on the raw input. Normalizing here would report a sentence count the real
+    // pipeline never computes, so the :wrench: explanation would describe a different decision than
+    // the one the user is staring at.
+    const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+      typeof ArgInput === 'string' ? ArgInput : '',
+      (ArgResponse && ArgResponse.reminders) || [],
+    );
+    return {
+      ...Routing,
+      recommendation: (ArgResponse && ArgResponse.recommendation) || null,
+      candidateCount: ((ArgResponse && ArgResponse.reminders) || []).length,
+    };
+  },
+});
 
 /**
  * Return a stable identity for the Slack thread that produced a reminder.
@@ -76,6 +194,15 @@ function GetReminderThreadIdentity(ArgReminderInfo) {
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.
  * @property {string} scheduling_trigger Verbatim quotation of the trigger associated with the actionable language.
  * @property {string} reminder_message Brief reminder of the actionable task that a user should perform.
+ * @property {string} [context] GH-43 Phase 3: one short line of WHY this task matters, drawn from the
+ * surrounding message. Rendered subordinately beneath the task bullet, never fused into it. Optional
+ * because recorded responses and older captures predate the field.
+ * @property {'speaker'|'mentioned'|'unclear'} [owner] GH-43 Phase 1B: who the analyzer judged is going
+ * to DO this task, from the grammatical subject of the actionable language. Optional because recorded
+ * responses and older captures predate the field.
+ * @property {string[]} [owner_mentions] Slack user IDs the analyzer says were asked to do it.
+ * Populated only when `owner` is `mentioned`, and always intersected with the mentions actually
+ * present in the source before use — the model may narrow the set, never extend it.
  */
 
 /**
@@ -98,17 +225,10 @@ function GetReminderThreadIdentity(ArgReminderInfo) {
  * Owns all GPT interactions and instruction/schema loading for the reminder pipeline.
  */
 class RemindersAIPipeline {
-  /**
-   * Reminder analysis instructions.
-   * @type {string}
-   */
-  #RemindersInstructions;
-
-  /**
-   * Reminder analysis schema.
-   * @type {ResponseSchema}
-   */
-  #RemindersSchema;
+  // NOTE (GH-44 Phase 3): the reminder-analysis instructions/schema fields that used to live here
+  // are gone. That path now goes through `ai-decision.js`, which owns its own cached asset loading
+  // from the same two files — keeping a second copy here would have been exactly the duplication
+  // this consolidation exists to remove. The remaining fields below still back un-migrated paths.
 
   /**
    * Date extraction instructions.
@@ -121,18 +241,6 @@ class RemindersAIPipeline {
    * @type {ResponseSchema}
    */
   #DateExtractionSchema;
-
-  /**
-   * Reminder deduplication instructions.
-   * @type {string}
-   */
-  #DedupInstructions;
-
-  /**
-   * Reminder deduplication schema.
-   * @type {ResponseSchema}
-   */
-  #DedupSchema;
 
   /**
    * Manual reminder task extraction instructions.
@@ -171,6 +279,12 @@ class RemindersAIPipeline {
   #GetPendingReminders;
 
   /**
+   * Decision-corpus capture config, or null for no capture (the default). GH-44.
+   * @type {{Store: {append: Function}, Workspace: string, Mode?: string}|null}
+   */
+  #DecisionCapture = null;
+
+  /**
    * Create a new RemindersAIPipeline instance.
    * @param {import('./workspace-ai')} ArgWorkspaceAI WorkspaceAI instance.
    * @param {import('./slack-app')} ArgSlackApp SlackApp instance.
@@ -183,6 +297,17 @@ class RemindersAIPipeline {
   }
 
   /**
+   * Enable (or with null, disable) decision-corpus capture for this pipeline's AI decisions.
+   * Off by default: constructed pipelines capture nothing until an operator wires a store in, so
+   * this is additive to every existing call site. GH-44.
+   * @param {{Store: {append: Function}, Workspace: string, Mode?: string}|null} ArgCapture
+   * @returns {void}
+   */
+  SetDecisionCapture(ArgCapture) {
+    this.#DecisionCapture = ArgCapture || null;
+  }
+
+  /**
    * Load instructions and schema files from disk if not already loaded.
    * @returns {Promise<void>}
    */
@@ -191,18 +316,8 @@ class RemindersAIPipeline {
     // the /data/static/ai folder, both of which are rooted in the project folder).
     const BasePath = path.join(__dirname, '..', 'data', 'static', 'ai');
 
-    // load the reminders instructions if not already loaded.
-    if(!this.#RemindersInstructions) {
-      const RemindersInstructionsPath = path.join(BasePath, 'reminders-instructions.md');
-      this.#RemindersInstructions = await fs.readFile(RemindersInstructionsPath, 'utf8');
-    }
-
-    // load the reminders schema if not already loaded.
-    if(!this.#RemindersSchema) {
-      const RemindersSchemaPath = path.join(BasePath, 'reminders-schema.json');
-      const RemindersSchemaContent = await fs.readFile(RemindersSchemaPath, 'utf8');
-      this.#RemindersSchema = JSON.parse(RemindersSchemaContent);
-    }
+    // (GH-44 Phase 3) reminders-instructions.md / reminders-schema.json are no longer read here —
+    // ai-decision.js loads and caches them for the reminder-analysis decision.
 
     // load the manual reminder task extraction instructions if not already loaded.
     if(!this.#ManualReminderTaskInstructions) {
@@ -217,18 +332,7 @@ class RemindersAIPipeline {
       this.#ManualReminderTaskSchema = JSON.parse(ManualReminderTaskSchemaContent);
     }
 
-    // load the deduplication instructions if not already loaded.
-    if(!this.#DedupInstructions) {
-      const DedupInstructionsPath = path.join(BasePath, 'reminders-dedup-instructions.md');
-      this.#DedupInstructions = await fs.readFile(DedupInstructionsPath, 'utf8');
-    }
-
-    // load the deduplication schema if not already loaded.
-    if(!this.#DedupSchema) {
-      const DedupSchemaPath = path.join(BasePath, 'reminders-dedup-schema.json');
-      const DedupSchemaContent = await fs.readFile(DedupSchemaPath, 'utf8');
-      this.#DedupSchema = JSON.parse(DedupSchemaContent);
-    }
+    // deduplication assets are loaded and cached on demand by the shared ai-decision helper.
 
     // load the date extraction instructions if not already loaded.
     if(!this.#DateExtractionInstructions) {
@@ -256,27 +360,16 @@ class RemindersAIPipeline {
    * @returns {Promise<GptReminderResponse>}
    */
   async AnalyzeMessageForRemindersAsync(ArgMessageText) {
-    // ensure AI system instructions and schema are loaded.
-    await this.LoadInstructionsAndSchemaAsync();
-
-    // send the message to the OpenAI chat API for analysis.
+    // GH-44 Phase 3: routed through the shared decision chokepoint. Prompt assets, the model call,
+    // and the three structural checks (now ValidateReminderAnalysis) all live behind DecideAsync, so
+    // this path gets corpus capture for free while its errors stay byte-identical. No fallback is
+    // configured — the caller has always owned this throw.
     const AnalysisResult = /** @type {GptReminderResponse} */(
-      await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
-        ArgMessageText, this.#RemindersInstructions, this.#RemindersSchema
-      )
+      await DecideAsync(this.#WorkspaceAI, ReminderAnalysisDecisionSpec, ArgMessageText, {
+        Capture: this.#DecisionCapture,
+        Logger: this.#SlackApp && this.#SlackApp.Logger,
+      })
     );
-
-    // sanity check the GPT analysis result to make sure it has the basic structure we expect.
-    {
-      if(!('recommendation' in AnalysisResult) || (typeof AnalysisResult.recommendation !== 'string'))
-        throw new Error('GPT response is missing recommendation property or it is not a string.');
-
-      if(!('rationale' in AnalysisResult) || (typeof AnalysisResult.rationale !== 'string'))
-        throw new Error('GPT response is missing rationale property or it is not a string.');
-
-      if(!('reminders' in AnalysisResult) || !Array.isArray(AnalysisResult.reminders))
-        throw new Error('GPT response is missing reminders property or it is not an array.');
-    }
 
     // apply deterministic fallback for direct asks with explicit time terms if the model recommended ignore.
     if(AnalysisResult.recommendation === 'ignore') {
@@ -331,6 +424,34 @@ class RemindersAIPipeline {
   static LONG_MESSAGE_SENTENCE_THRESHOLD = 4;
 
   /**
+   * Minimum message length (characters) before the buried-task ratio gate may fire (GH-43 Phase 2).
+   *
+   * Derived from the committed replay baseline, not guessed. Across the 15-scenario battery the
+   * messages that MUST synthesize start at 189 chars (`S-12`) and the longest that must stay
+   * verbatim is 94 (`S-13`) — a clean gap of [95, 188] with no scenario inside it. 150 sits near the
+   * middle of that gap, ~55 chars clear of the verbatim ceiling and ~39 clear of the synthesis floor.
+   * Length is load bearing on its own: `S-05` has a low 0.16 span ratio but is only 80 chars, and a
+   * short message with a short task is not a buried task — it is just a short message.
+   * @type {number}
+   */
+  static BURIED_TASK_MIN_LENGTH = 150;
+
+  /**
+   * Span-ratio ceiling at or below which a long message counts as "a small task buried in a big note"
+   * (GH-43 Phase 2).
+   *
+   * The battery constrains this only from below: every scenario that must synthesize sits at
+   * 0.13 or less (`S-09` 0.13, `S-12` 0.08, `S-01` 0.07, `S-07` 0.05), and it contains NO long
+   * message that must stay verbatim, so no observation pins the ceiling from above. 0.35 is
+   * therefore a deliberately conservative choice rather than a fitted one — it means "the actionable
+   * span is barely a third of the note, so most of what would be shown verbatim is context." Above
+   * it the message is mostly its own task and verbatim reads fine. Tighten it if prod telemetry ever
+   * produces a long message that should have stayed verbatim; see the open item in the plan doc.
+   * @type {number}
+   */
+  static BURIED_TASK_MAX_SPAN_RATIO = 0.35;
+
+  /**
    * Parse an env flag into an explicit boolean tri-state. Returns true/false when the flag is set
    * to a recognized truthy/falsy token, or null when unset/blank so callers can apply a default.
    * @param {string} ArgEnvName Environment variable name.
@@ -378,17 +499,75 @@ class RemindersAIPipeline {
   }
 
   /**
+   * Whether decision-corpus capture is armed at all, from `DECISION_CAPTURE_ENABLED`.
+   *
+   * **Default OFF, and deliberately so.** A corpus record carries the raw message text
+   * (`input`) and the model's full response, so the corpus is tenant data, not telemetry.
+   * Arming it must be an explicit operator decision, never a default that ships quietly.
+   * @returns {boolean}
+   */
+  static IsDecisionCaptureEnabled() {
+    const Flag = RemindersAIPipeline.#ReadFlagTriState('DECISION_CAPTURE_ENABLED');
+    return Flag === null ? false : Flag;
+  }
+
+  /**
+   * Whether THIS workspace may capture. An optional comma-separated `DECISION_CAPTURE_WORKSPACES`
+   * allowlist narrows collection to named workspaces; unset means every workspace may capture once
+   * the master flag is on. Mirrors `ROUTER_SHADOW_WORKSPACES` (GH-397) — same privacy guard, same
+   * shape, because this corpus captures raw text for the same reason and carries the same risk.
+   * @param {string} ArgWorkspaceName Workspace to test.
+   * @returns {boolean}
+   */
+  static IsDecisionCaptureWorkspaceAllowed(ArgWorkspaceName) {
+    const Raw = (process.env.DECISION_CAPTURE_WORKSPACES || '').trim();
+    if(!Raw) return true;
+    return Raw.split(',').map(ArgName => ArgName.trim()).filter(Boolean).includes(ArgWorkspaceName);
+  }
+
+  /**
+   * Both gates together: capture runs only when the master flag is on AND this workspace is
+   * allowed. The two are separate so an operator can arm the fleet and still scope collection to
+   * one tenant.
+   * @param {string} ArgWorkspaceName Workspace to test.
+   * @returns {boolean}
+   */
+  static IsDecisionCaptureArmedFor(ArgWorkspaceName) {
+    return RemindersAIPipeline.IsDecisionCaptureEnabled()
+      && RemindersAIPipeline.IsDecisionCaptureWorkspaceAllowed(ArgWorkspaceName);
+  }
+
+  /**
    * Count sentences in a message using terminal punctuation, with a floor of 1 for any non-empty
    * run-on text (so a long unpunctuated FYI still counts as content, not zero). Used to route a
    * message to the Normal vs Longer synthesis segment.
-   * @param {string} ArgText Message text.
+   *
+   * GH-43 Phase 2: a hard newline also ends a thought. Chat writers routinely drop the terminal
+   * period at the end of a line, and counting only `[.!?]` is exactly what let the reported
+   * production message — five distinct thoughts across four lines — count 3 and route to the Normal
+   * segment where synthesis is off. Each non-empty line contributes its terminal marks plus one more
+   * if it ends in unpunctuated trailing text, with a floor of 1 per line.
+   *
+   * **Pass the RAW message text, not the display-normalized text.**
+   * {@link NormalizeOriginalReminderText} collapses every newline to a space, so a normalized string
+   * can never exercise the newline rule — the whole fix would be silently inert.
+   * @param {string} ArgText Message text, newlines intact.
    * @returns {number}
    */
   static CountSentences(ArgText) {
     const Text = (ArgText || '').trim();
     if(!Text) return 0;
-    const TerminalMatches = Text.match(/[.!?]+(?=\s|$)/g);
-    return Math.max(TerminalMatches ? TerminalMatches.length : 0, 1);
+
+    const Lines = Text.split(/\r?\n/).map(ArgLine => ArgLine.trim()).filter(Boolean);
+    if(Lines.length === 0) return 0;
+
+    return Lines.reduce((ArgSum, ArgLine) => {
+      const TerminalMatches = ArgLine.match(/[.!?]+(?=\s|$)/g);
+      const TerminalCount = TerminalMatches ? TerminalMatches.length : 0;
+      // trailing text after the last terminal mark (or a line with none at all) is one more thought.
+      const EndsPunctuated = /[.!?]["'’”)\]]*$/.test(ArgLine);
+      return ArgSum + Math.max(TerminalCount + (EndsPunctuated ? 0 : 1), 1);
+    }, 0);
   }
 
   /**
@@ -396,30 +575,47 @@ class RemindersAIPipeline {
    * VERBATIM for a given original message, routing by sentence count to the Normal/Longer segment
    * (Phase 2 of GH-337). A set legacy master flag overrides both segments for back-compat.
    * Detection, date extraction, dedup, and triage are unaffected either way — only displayed text.
-   * @param {string} ArgOriginalText Normalized original Slack message text.
+   * Thin predicate over {@link DescribeSynthesisRouting}, which owns the decision.
+   * @param {string} ArgOriginalText Original Slack message text — pass it **raw**, newlines intact.
+   * @param {GptReminderInfo[]} [ArgReminders] Reminder candidates, for the buried-task ratio gate.
+   * @param {{SyntheticActionableSpan?: boolean}} [ArgOptions] See {@link DescribeSynthesisRouting}.
    * @returns {boolean} True to synthesize, false to keep verbatim.
    */
-  static IsTaskSynthesisEnabledForText(ArgOriginalText) {
-    const MasterOverride = RemindersAIPipeline.GetLegacyMasterSynthesisOverride();
-    if(MasterOverride !== null) return MasterOverride;
-
-    const SentenceCount = RemindersAIPipeline.CountSentences(ArgOriginalText);
-    return SentenceCount >= RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD
-      ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
-      : RemindersAIPipeline.IsNormalTextSynthesisEnabled();
+  static IsTaskSynthesisEnabledForText(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
+    return RemindersAIPipeline.DescribeSynthesisRouting(ArgOriginalText, ArgReminders, ArgOptions).synthesisOn;
   }
 
   /**
-   * Structured synthesis-routing facts for a message, for telemetry and display-source logging
-   * (Phase 4 of GH-337). No raw message text is included — only a length and a derived ratio.
-   * @param {string} ArgOriginalText Normalized original Slack message text.
+   * Structured synthesis-routing facts for a message — **the single place the verbatim-vs-synthesized
+   * decision is made** (Phase 4 of GH-337, extended by GH-43 Phase 2). No raw message text is
+   * included, only a length, a sentence count, a derived ratio, and the rule that decided.
+   *
+   * GH-43 Phase 2 inverts the old dependency: `IsTaskSynthesisEnabledForText` used to be the decision
+   * and this function merely reported alongside it, which let the logged facts and the actual routing
+   * be computed from different inputs. Now this is the computation and the predicate delegates here,
+   * so the `reminder display source:` log line can never disagree with the bullet the user sees.
+   *
+   * Two rules can route a message to the Longer segment:
+   *  1. **sentence count** ≥ {@link LONG_MESSAGE_SENTENCE_THRESHOLD} (GH-337's original rule), and
+   *  2. **buried task** — a message at least {@link BURIED_TASK_MIN_LENGTH} chars whose longest
+   *     actionable span is at most {@link BURIED_TASK_MAX_SPAN_RATIO} of it. This is the case
+   *     GH-337 already named in a comment ("a small buried task in a big note") and then ignored:
+   *     the ratio was computed, logged, and never consulted.
+   *
+   * @param {string} ArgOriginalText Original Slack message text. Pass it **raw** — newlines intact —
+   * so {@link CountSentences} can see line breaks; normalizing first makes the newline rule inert.
    * @param {GptReminderInfo[]} [ArgReminders] Reminder candidates, used for the actionable-span ratio.
-   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number }}
+   * @param {{SyntheticActionableSpan?: boolean}} [ArgOptions] `SyntheticActionableSpan` marks a
+   * candidate set whose `actionable_language` was manufactured rather than quoted by the analyzer —
+   * the force-schedule path sets it to the entire message, which pins the ratio at 1.0 and makes it
+   * meaningless. When set, the ratio is reported but never routed on.
+   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, routedBy: 'master_override'|'buried_task_ratio'|'sentence_count' }}
    */
-  static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = []) {
+  static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
     const Original = (ArgOriginalText || '').trim();
     const SentenceCount = RemindersAIPipeline.CountSentences(Original);
-    const Segment = SentenceCount >= RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD ? 'long' : 'normal';
+    const SentenceSegment = SentenceCount >= RemindersAIPipeline.LONG_MESSAGE_SENTENCE_THRESHOLD
+      ? 'long' : 'normal';
 
     // actionable-span ratio: longest quoted actionable span across candidates / message length.
     // Low ratio on a long message = a small buried task in a big note — the case synthesis targets.
@@ -427,16 +623,49 @@ class RemindersAIPipeline {
       const SpanLength = (ArgReminder?.actionable_language || '').trim().length;
       return SpanLength > ArgMax ? SpanLength : ArgMax;
     }, 0);
-    const ActionableSpanRatio = Original.length > 0
-      ? Math.min(1, Number((LongestSpan / Original.length).toFixed(2)))
+    // GH-51: keep the RAW ratio for every decision and round ONLY for reporting.
+    //
+    // Rounding first was a defect. `toFixed(2)` collapses any span under 0.5% of the message to
+    // exactly `0`, and the usability gate below then read that `0` as "no span was quoted at all".
+    // So a 35-character task quoted verbatim out of a 7,000-character note — the most deeply buried
+    // task there is, and precisely the case this gate exists to catch — was classified as having no
+    // evidence of a buried task. The gate failed hardest exactly where it mattered most.
+    const RawSpanRatio = Original.length > 0
+      ? Math.min(1, LongestSpan / Original.length)
       : 0;
+    // reported/logged only — two decimals keeps the existing telemetry format readable.
+    const ActionableSpanRatio = Number(RawSpanRatio.toFixed(2));
+
+    // "was a span quoted at all" is a fact about the MEASUREMENT, not about its rounded report, so
+    // ask the span directly. A synthetic span (force-schedule) is likewise not evidence.
+    const SpanRatioUsable = !ArgOptions?.SyntheticActionableSpan && LongestSpan > 0;
+    // compare on the raw ratio too: `BURIED_TASK_MAX_SPAN_RATIO` should mean what it says, rather
+    // than silently admitting up to 0.3549… because that rounds down to the threshold.
+    const IsBuriedTask = SpanRatioUsable
+      && Original.length >= RemindersAIPipeline.BURIED_TASK_MIN_LENGTH
+      && RawSpanRatio <= RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO;
+
+    const Segment = /** @type {'normal'|'long'} */ (IsBuriedTask ? 'long' : SentenceSegment);
+
+    const MasterOverride = RemindersAIPipeline.GetLegacyMasterSynthesisOverride();
+    const SynthesisOn = MasterOverride !== null
+      ? MasterOverride
+      : (Segment === 'long'
+        ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
+        : RemindersAIPipeline.IsNormalTextSynthesisEnabled());
+
+    const RoutedBy = /** @type {'master_override'|'buried_task_ratio'|'sentence_count'} */ (
+      MasterOverride !== null ? 'master_override' : (IsBuriedTask ? 'buried_task_ratio' : 'sentence_count')
+    );
 
     return {
       sentenceCount: SentenceCount,
       segment: Segment,
-      synthesisOn: RemindersAIPipeline.IsTaskSynthesisEnabledForText(Original),
+      synthesisOn: SynthesisOn,
       messageLength: Original.length,
       actionableSpanRatio: ActionableSpanRatio,
+      spanRatioUsable: SpanRatioUsable,
+      routedBy: RoutedBy,
     };
   }
 
@@ -515,8 +744,13 @@ class RemindersAIPipeline {
 
   /**
    * Build structured triage diagnostics for reminder analysis and date extraction.
+   *
+   * GH-44 Phase 5: also returns the decision's `debugFacts` — the same bag the corpus records —
+   * so the `:wrench:` view can explain WHY the output looks the way it does (which synthesis segment
+   * the message routed to, and whether synthesis was on) rather than only WHAT was decided. Sourced
+   * from the spec's own extractor, so this stays correct if the facts change.
    * @param {string} ArgMessageText Message to triage.
-   * @returns {Promise<{analysis: GptReminderResponse, dateExtractions: DateExtractionResult[]}>}
+   * @returns {Promise<{analysis: GptReminderResponse, dateExtractions: DateExtractionResult[], debugFacts: object|null}>}
    */
   async GetReminderTriageAsync(ArgMessageText) {
     const AnalysisResult = await this.AnalyzeMessageForRemindersAsync(ArgMessageText);
@@ -527,9 +761,18 @@ class RemindersAIPipeline {
       DateExtractions.push(DateExtraction);
     }
 
+    // best effort: a debug-fact bug must never break the triage view it was meant to illuminate.
+    let DebugFacts = null;
+    try {
+      DebugFacts = ReminderAnalysisDecisionSpec.DebugFacts(ArgMessageText, AnalysisResult);
+    } catch(error) {
+      DebugFacts = null;
+    }
+
     return {
       analysis: AnalysisResult,
       dateExtractions: DateExtractions,
+      debugFacts: DebugFacts,
     };
   }
 
@@ -711,16 +954,11 @@ class RemindersAIPipeline {
       new_reminder: ArgReminderInfo,
     }, null, 2);
 
-    // send the reminders to the GPT model for deduplication analysis.
+    // send the reminders to the GPT model for deduplication analysis. No fallback is configured, so
+    // an unusable response still throws to this caller exactly as it did before the helper existed.
     const DedupResult = /** @type {{recommendation: 'schedule'|'ignore', rationale: string}} */ (
-      await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
-        InputJson, this.#DedupInstructions, this.#DedupSchema,
-      )
+      await DecideAsync(this.#WorkspaceAI, DedupDecisionSpec, InputJson, { Capture: this.#DecisionCapture })
     );
-
-    // verify that the response has the required properties.
-    if(!DedupResult || !DedupResult.recommendation || !DedupResult.rationale)
-      throw new Error('Invalid deduplication response from GPT model.');
 
     // return the deduplication result.
     return { ...DedupResult, matched_by: 'semantic' };
@@ -760,82 +998,54 @@ class RemindersAIPipeline {
       DeadlineConvention ? `DeadlineConvention: ${DeadlineConvention}` : 'DeadlineConvention: (none)',
     ].join('\n');
 
-    const SystemPrompt = `You are a task extraction assistant. Given a multi-party Slack thread, identify ALL distinct actionable tasks mentioned. For each task:
-- Extract ONLY text that appears verbatim in the thread. Never invent or paraphrase.
-- Record the source message number(s) the task comes from.
-- Assign confidence: "high" if the task is explicitly stated and unambiguous; "low" if inferred or missing context.
-- For low-confidence candidates, add a "flag" note explaining what context is missing.
-- Resolve assignee: use DefaultAssigneeID if provided, otherwise the user from the source message. Never invent users.
-- Resolve deadline: if the thread contains an explicit date/time for the task, use it verbatim. If vague (e.g. "next week"), use DeadlineConvention slot if set, else leave blank. Never silently guess.
-- Flag any candidate that duplicates an already-open reminder (provide the open reminder ID).
-
-Output a JSON object with this exact schema:
-{
-  "candidates": [
-    {
-      "taskIndex": 1,
-      "title": "<verbatim task text from thread>",
-      "sourceMessageNumbers": [1, 2],
-      "sourceTs": ["<ts of source message>"],
-      "assigneeID": "<user ID or null>",
-      "deadline": "<verbatim deadline text or null>",
-      "deadlineResolution": "explicit | convention | blank",
-      "confidence": "high | low",
-      "flag": "<null or explanation if low-confidence or duplicate>",
-      "duplicateOpenReminderID": "<reminder ID or null>"
-    }
-  ],
-  "rationale": "<brief explanation of extraction decisions>"
-}`;
-
+    // GH-44 Phase 4: the system prompt and response schema moved to
+    // data/static/ai/multi-task-extraction-{instructions.md,schema.json}, byte-identical to the
+    // inline literals they replace. They were invisible to scripts/validate-ai-prompts.js while
+    // inline, so this prompt had never been validated; it is registered in EXPECTED_PAIRS now.
     const InputText = `OPERATOR DEFAULTS:\n${DefaultsBlock}\n\nTHREAD TRANSCRIPT:\n${Transcript}\n\nOPEN REMINDERS (for dedup check):\n${OpenRemindersSummary || '(none)'}`;
 
-    const MULTI_TASK_SCHEMA = {
-      name: 'multi_task_extraction',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          candidates: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                taskIndex: { type: 'number' },
-                title: { type: 'string' },
-                sourceMessageNumbers: { type: 'array', items: { type: 'number' } },
-                sourceTs: { type: 'array', items: { type: 'string' } },
-                assigneeID: { type: ['string', 'null'] },
-                deadline: { type: ['string', 'null'] },
-                deadlineResolution: { type: 'string', enum: ['explicit', 'convention', 'blank'] },
-                confidence: { type: 'string', enum: ['high', 'low'] },
-                flag: { type: ['string', 'null'] },
-                duplicateOpenReminderID: { type: ['string', 'null'] },
-              },
-              required: ['taskIndex', 'title', 'sourceMessageNumbers', 'sourceTs', 'assigneeID', 'deadline', 'deadlineResolution', 'confidence', 'flag', 'duplicateOpenReminderID'],
-              additionalProperties: false,
-            },
-          },
-          rationale: { type: 'string' },
-        },
-        required: ['candidates', 'rationale'],
-        additionalProperties: false,
-      },
-    };
-
+    // The array-shape check that used to sit below the call is now the spec's Validate hook, so it
+    // runs inside the chokepoint and throws the same message while the corpus records `invalid`.
     const Result = /** @type {MultiTaskExtractionResult} */ (
-      await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
-        InputText, SystemPrompt, MULTI_TASK_SCHEMA, this.#WorkspaceAI.ComplexModelName
+      await DecideAsync(
+        this.#WorkspaceAI,
+        WithComplexModel(this.#WorkspaceAI.ComplexModelName),
+        InputText,
+        { Capture: this.#DecisionCapture, Logger: this.#SlackApp && this.#SlackApp.Logger },
       )
     );
 
-    if(!Result || !Array.isArray(Result.candidates))
-      throw new Error('Multi-task extraction: invalid response from model.');
+    // GH-43 Phase 1B — reconcile the two ownership paths.
+    //
+    // This path's prompt has always said "Never invent users", and until now nothing enforced it: the
+    // model's `assigneeID` was taken verbatim. A prompt instruction is not a guarantee. The
+    // single-message path gained a code-level intersection guard in this phase, so the same guard
+    // applies here — the model may only ever name somebody who genuinely appears in the thread, as an
+    // author or as an `<@U…>` mention.
+    const ThreadParticipantIDs = /** @type {string[]} */ ([]);
+    for(const Message of ArgThreadMessages || []) {
+      if(Message.user && !ThreadParticipantIDs.includes(Message.user)) ThreadParticipantIDs.push(Message.user);
+      for(const MentionID of DecisionExplain.ExtractMentionIDs(Message.text || '')) {
+        if(!ThreadParticipantIDs.includes(MentionID)) ThreadParticipantIDs.push(MentionID);
+      }
+    }
+    // an operator-configured default is legitimate even when absent from the thread.
+    const AllowedAssigneeIDs = DefaultAssigneeID
+      ? ThreadParticipantIDs.concat([DefaultAssigneeID])
+      : ThreadParticipantIDs;
 
-    // Apply default assignee to any candidate missing one.
     for(const Candidate of Result.candidates) {
-      if(!Candidate.assigneeID && DefaultAssigneeID)
-        Candidate.assigneeID = DefaultAssigneeID;
+      const Constrained = ReminderOwnership.ConstrainAssigneeToParticipants(
+        Candidate.assigneeID, AllowedAssigneeIDs, DefaultAssigneeID,
+      );
+      if(Constrained.wasRejected && this.#SlackApp && this.#SlackApp.Logger) {
+        // worth a line: a rejected id means the model named somebody who is not in the thread.
+        this.#SlackApp.Logger.warn(
+          `multi-task extraction proposed an assignee absent from the thread; discarded. ` +
+          `candidates=${Result.candidates.length} participants=${ThreadParticipantIDs.length}`
+        );
+      }
+      Candidate.assigneeID = Constrained.assigneeID;
     }
 
     return Result;

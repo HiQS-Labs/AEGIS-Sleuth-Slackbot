@@ -2,6 +2,7 @@
 // import required modules.
 const GitHubSyncModule = require('./github-sync-module');
 const { ResolveMentionsForExternalDisplayAsync } = require('./slack-message-pipeline');
+const { DecideAsync } = require('./ai-decision');
 
 /**
  * @typedef {import('./slack-app')} SlackApp
@@ -18,6 +19,34 @@ const STOP_RELAY_EMOJIS = Object.freeze([
   '\u{23F9}',  // ⏹ stop button (with or without FE0F variation selector).
 ]);
 const STOP_RELAY_TEXT_PATTERN = /\bstop\s+relay\b/i;
+
+// GH-37: reaction names that stop the relay when a human adds one. The relay already marks every
+// relayed message with :octocat:, so the reaction a user is looking at is the one they click to stop
+// it — no separate emoji to remember. `octocat` is a custom Slack emoji, so a workspace that lacks
+// it simply never shows the affordance; `github` is accepted as the common alias.
+const STOP_RELAY_REACTIONS = Object.freeze(['octocat', 'github']);
+
+// GH-37: relevance decision spec for the relay gate. Being in the same thread is not evidence that
+// a reply belongs on a linked issue, so each reply is scored against each linked task before it
+// leaves Slack.
+const RELAY_RELEVANCE_SPEC = Object.freeze({
+  Name: 'github-relay-relevance',
+  InstructionsFile: 'github-relay-relevance-instructions.md',
+  SchemaFile: 'github-relay-relevance-schema.json',
+  RequiredFields: ['decision', 'confidence', 'rationale'],
+});
+
+// a relay decision below this confidence is treated as a skip. Deliberately asymmetric: a wrong
+// relay is a public GitHub comment a human deletes by hand, a wrong skip costs nothing because the
+// message stays in Slack and still becomes its own reminder.
+const RELAY_CONFIDENCE_THRESHOLD = 0.7;
+
+// returned when the model errors or answers unusably, so an AI outage cannot post a wrong comment.
+const RELAY_GATE_FALLBACK = Object.freeze({
+  decision: 'skip',
+  confidence: 0,
+  rationale: 'relevance gate unavailable, defaulting to skip',
+});
 
 /**
  * Decide whether a Slack message should stop the GitHub relay for its thread.
@@ -62,20 +91,34 @@ class GitHubCommentRelay {
   #EmitRelayStateChanged = null;
 
   /**
+   * Getter for the workspace AI client used by the relevance gate.
+   * Resolved lazily: RemindersModule constructs this relay before it creates WorkspaceAI in
+   * StartAsync, so capturing the instance at construction time would capture undefined.
+   * @type {() => (import('./workspace-ai')|null)}
+   */
+  #GetWorkspaceAI;
+
+  /**
    * Initialize a new GitHub comment relay.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {() => ReminderInfo[]} ArgGetPendingReminders Getter for pending reminders.
    * @param {() => Promise<void>} ArgSaveRemindersAsync Callback to persist reminders to disk.
    * @param {((ArgThreadKey: string, ArgState: { relayStarted: boolean, relayStopped: boolean }) => void)|null} [ArgEmitRelayStateChanged]
    *   Best-effort ledger hook, called only AFTER the authoritative save succeeds.
+   * @param {() => (import('./workspace-ai')|null)} [ArgGetWorkspaceAI] Getter for the workspace AI
+   * client used by the GH-37 relevance gate. Omitted in tests that never exercise the gate.
    */
-  constructor(ArgSlackApp, ArgGetPendingReminders, ArgSaveRemindersAsync, ArgEmitRelayStateChanged = null) {
+  constructor(
+    ArgSlackApp, ArgGetPendingReminders, ArgSaveRemindersAsync,
+    ArgEmitRelayStateChanged = null, ArgGetWorkspaceAI
+  ) {
     if(typeof ArgSaveRemindersAsync !== 'function')
       throw new Error('[github-comment-relay] ArgSaveRemindersAsync callback is required');
     this.#SlackApp = ArgSlackApp;
     this.#GetPendingReminders = ArgGetPendingReminders;
     this.#SaveRemindersAsync = ArgSaveRemindersAsync;
     this.#EmitRelayStateChanged = typeof ArgEmitRelayStateChanged === 'function' ? ArgEmitRelayStateChanged : null;
+    this.#GetWorkspaceAI = typeof ArgGetWorkspaceAI === 'function' ? ArgGetWorkspaceAI : () => null;
   }
 
   /**
@@ -92,6 +135,178 @@ class GitHubCommentRelay {
     } catch(error) {
       this.#SlackApp.Logger.warn('[github-comment-relay] relay-state event emit failed (non-fatal):', error);
     }
+  }
+
+  /**
+   * Find the pending reminders in a thread that are linked to a GitHub issue or PR.
+   *
+   * OriginalThreadTs is the root thread ts, set when the original message was itself a thread reply.
+   * Fall back to OriginalMessageID for top-level messages and legacy reminders without it.
+   *
+   * @param {string} ArgThreadTs Root thread timestamp.
+   * @param {string} ArgChannelID Channel the thread lives in.
+   * @returns {ReminderInfo[]}
+   */
+  #FindMonitoredReminders(ArgThreadTs, ArgChannelID) {
+    return this.#GetPendingReminders().filter(ArgReminder =>
+      (ArgReminder.OriginalThreadTs ?? ArgReminder.OriginalMessageID) === ArgThreadTs &&
+      ArgReminder.OriginalChannelID === ArgChannelID &&
+      Array.isArray(ArgReminder.GitHubUrls) &&
+      ArgReminder.GitHubUrls.length > 0
+    );
+  }
+
+  /**
+   * Stop the GitHub relay for a thread and acknowledge it in Slack.
+   *
+   * Shared by both stop paths: the 🛑 / ⏹ / "stop relay" message trigger and the GH-37 reaction
+   * trigger. Acknowledgement waits on a successful save so a user is only told the relay stopped
+   * when that will survive a restart.
+   *
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {ReminderInfo[]} ArgReminders Reminders in the thread to mark stopped.
+   * @param {string} ArgChannelID Channel to acknowledge in.
+   * @param {string} ArgAckMessageTS Message timestamp to acknowledge on.
+   * @param {string} ArgThreadTs Root thread timestamp, for logging.
+   * @returns {Promise<void>}
+   */
+  async #StopRelayAsync(ArgSlackApp, ArgReminders, ArgChannelID, ArgAckMessageTS, ArgThreadTs) {
+    // mark all matching reminders as relay-stopped in memory.
+    for(const StoppedReminder of ArgReminders)
+      StoppedReminder.GitHubRelayStopped = true;
+
+    // persist the stopped state; only acknowledge with a reaction when the save succeeds
+    // so users know the stop will survive an app restart.
+    let SaveSucceeded = false;
+    try {
+      await this.#SaveRemindersAsync();
+      SaveSucceeded = true;
+    } catch(error) {
+      this.#SlackApp.Logger.error('[github-comment-relay] failed to save relay-stopped state:', error);
+    }
+
+    if(SaveSucceeded) {
+      // Emit the thread's resulting state, not a delta, so the fold is a plain assignment. Only
+      // after the authoritative save succeeded — the ledger must never claim a stop the JSON store
+      // does not have. This runs BEFORE the Slack acknowledgement: the acknowledgement is a network
+      // call that can throw, and ordering it first would leave the JSON store stopped while the
+      // ledger never heard about it, which is the same parity divergence in the other direction.
+      this.#EmitThreadRelayState(
+        ArgThreadTs,
+        ArgReminders.some(ArgR => Boolean(ArgR.GitHubRelayStarted)),
+        true
+      );
+
+      this.#SlackApp.Logger.info(
+        `[github-comment-relay] relay stopped for thread ${ArgThreadTs} in channel ${ArgChannelID}`
+      );
+
+      // best-effort acknowledgement: the stop is already persisted and recorded, so a failed
+      // reaction must not unwind either.
+      try {
+        await ArgSlackApp.AddReactionAsync(ArgChannelID, ArgAckMessageTS, 'no_entry_sign');
+      } catch(error) {
+        this.#SlackApp.Logger.warn('[github-comment-relay] relay stopped but acknowledgement failed:', error);
+      }
+    }
+  }
+
+  /**
+   * Handle a Slack reaction and stop the thread's GitHub relay when a user adds the relay emoji.
+   *
+   * GH-37: the relay already marks each relayed message with :octocat:, so clicking that same
+   * reaction is the discoverable way to stop it — 🛑 / ⏹ still work and are unchanged.
+   *
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').ReactionAddedEventInfo} ArgEventInfo Reaction event payload.
+   * @returns {Promise<boolean>} Always false so downstream reaction handlers still run.
+   */
+  async OnReactionAddedAsync(ArgSlackApp, ArgEventInfo) {
+    try {
+      if(!STOP_RELAY_REACTIONS.includes(ArgEventInfo?.reaction)) return false;
+
+      // the relay adds this very reaction itself after a successful post. Without this guard the
+      // bot's own acknowledgement would immediately stop the relay it just started.
+      if(!ArgEventInfo.user || ArgEventInfo.user === ArgSlackApp.BotUserID) return false;
+
+      // check that the workspace has a GitHub PAT configured.
+      if(!ArgSlackApp.WorkspaceInfo.GITHUB_PAT) return false;
+
+      const ChannelID = ArgEventInfo.item?.channel;
+      const MessageTS = ArgEventInfo.item?.ts;
+      if(!ChannelID || !MessageTS) return false;
+
+      // a reaction event carries no thread context, and item.ts is usually a reply rather than the
+      // thread root the reminders are keyed on, so resolve the root before matching.
+      const ThreadTs = await ArgSlackApp.GetMessageThreadTsAsync(ChannelID, MessageTS);
+      if(!ThreadTs) return false;
+
+      const MatchingReminders = this.#FindMonitoredReminders(ThreadTs, ChannelID);
+      if(MatchingReminders.length === 0) return false;
+
+      // already stopped — nothing to do, and no second acknowledgement.
+      if(MatchingReminders.every(ArgR => ArgR.GitHubRelayStopped)) return false;
+
+      await this.#StopRelayAsync(ArgSlackApp, MatchingReminders, ChannelID, MessageTS, ThreadTs);
+
+    } catch(error) {
+      this.#SlackApp.Logger.error('[github-comment-relay] unexpected error handling reaction:', error);
+    }
+
+    // never consume the reaction — the reminders module still needs to see it.
+    return false;
+  }
+
+  /**
+   * Select which linked reminders a follow-up message actually belongs to.
+   *
+   * GH-37: thread membership alone used to authorize the relay, so a brand-new task posted in a
+   * thread was commented onto the earlier task's issue. Each reminder is scored independently, so a
+   * reply is relayed only to the issues it is genuinely about rather than to every issue in the
+   * thread.
+   *
+   * @param {ReminderInfo[]} ArgReminders Reminders in this thread that carry GitHub URLs.
+   * @param {string} ArgMessageText Follow-up message text.
+   * @returns {Promise<ReminderInfo[]>} Reminders whose linked issues should receive the comment.
+   */
+  async #SelectRelevantRemindersAsync(ArgReminders, ArgMessageText) {
+    const WorkspaceAI = this.#GetWorkspaceAI();
+
+    // no AI client means the gate cannot run. Fail closed rather than relaying unscored.
+    if(!WorkspaceAI) {
+      this.#SlackApp.Logger.warn(
+        '[github-comment-relay] no workspace AI available for the relevance gate; skipping relay'
+      );
+      return [];
+    }
+
+    const Scored = await Promise.all(ArgReminders.map(async ArgReminder => {
+      const Decision = await DecideAsync(
+        WorkspaceAI,
+        RELAY_RELEVANCE_SPEC,
+        {
+          linked_task: {
+            task_text: ArgReminder.ReminderMessageText,
+            github_urls: ArgReminder.GitHubUrls ?? [],
+          },
+          follow_up_message: ArgMessageText,
+        },
+        { Fallback: RELAY_GATE_FALLBACK, Logger: this.#SlackApp.Logger },
+      );
+
+      const Confidence = typeof Decision.confidence === 'number' ? Decision.confidence : 0;
+      const ShouldRelay = Decision.decision === 'relay' && Confidence >= RELAY_CONFIDENCE_THRESHOLD;
+
+      this.#SlackApp.Logger.info(
+        `[github-comment-relay] relevance gate for reminder ${ArgReminder.ReminderID}: ` +
+        `${ShouldRelay ? 'relay' : 'skip'} (decision=${Decision.decision}, ` +
+        `confidence=${Confidence}) — ${Decision.rationale}`
+      );
+
+      return ShouldRelay ? ArgReminder : null;
+    }));
+
+    return /** @type {ReminderInfo[]} */ (Scored.filter(ArgEntry => ArgEntry !== null));
   }
 
   /**
@@ -112,15 +327,7 @@ class GitHubCommentRelay {
       const WorkspacePat = ArgSlackApp.WorkspaceInfo.GITHUB_PAT;
       if(!WorkspacePat) return false;
 
-      // find reminders whose original message matches this thread's parent.
-      // OriginalThreadTs is the root thread ts (set when the original message was itself a thread reply).
-      // Fall back to OriginalMessageID for top-level messages and legacy reminders without OriginalThreadTs.
-      const MatchingReminders = this.#GetPendingReminders().filter(ArgReminder =>
-        (ArgReminder.OriginalThreadTs ?? ArgReminder.OriginalMessageID) === ArgEventInfo.thread_ts &&
-        ArgReminder.OriginalChannelID === ArgEventInfo.channel &&
-        Array.isArray(ArgReminder.GitHubUrls) &&
-        ArgReminder.GitHubUrls.length > 0
-      );
+      const MatchingReminders = this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel);
 
       if(MatchingReminders.length === 0) return false;
 
@@ -132,50 +339,37 @@ class GitHubCommentRelay {
 
       // check whether this message contains a stop-relay trigger (🛑, ⏹, or "stop relay").
       if(ContainsStopRelayTrigger(MessageText)) {
-        // mark all matching reminders as relay-stopped in memory.
-        for(const StoppedReminder of MatchingReminders)
-          StoppedReminder.GitHubRelayStopped = true;
-
-        // persist the stopped state; only acknowledge with a reaction when the save succeeds
-        // so users know the stop will survive an app restart.
-        let SaveSucceeded = false;
-        try {
-          await this.#SaveRemindersAsync();
-          SaveSucceeded = true;
-        } catch(error) {
-          this.#SlackApp.Logger.error('[github-comment-relay] failed to save relay-stopped state:', error);
-        }
-
-        if(SaveSucceeded) {
-          await ArgSlackApp.AddReactionAsync(ArgEventInfo.channel, ArgEventInfo.ts, 'no_entry_sign');
-          this.#SlackApp.Logger.info(
-            `[github-comment-relay] relay stopped for thread ${ArgEventInfo.thread_ts} in channel ${ArgEventInfo.channel}`
-          );
-          // Emit the thread's resulting state, not a delta, so the fold is a plain assignment.
-          // Only after the authoritative save succeeded — the ledger must never claim a stop the
-          // JSON store does not have.
-          this.#EmitThreadRelayState(
-            ArgEventInfo.thread_ts,
-            MatchingReminders.some(ArgR => Boolean(ArgR.GitHubRelayStarted)),
-            true
-          );
-        }
+        await this.#StopRelayAsync(
+          ArgSlackApp, MatchingReminders, ArgEventInfo.channel, ArgEventInfo.ts, ArgEventInfo.thread_ts
+        );
         return false;
       }
 
       // skip messages with no text (e.g. file-share-only, message_changed subtypes).
       if(!MessageText) return false;
 
-      // collect unique GitHub URLs across all matching reminders.
-      const UniqueUrls = [...new Set(MatchingReminders.flatMap(ArgR => ArgR.GitHubUrls ?? []))];
+      // GH-37: being in the thread is not enough — the reply must actually be about a linked task.
+      const RelevantReminders = await this.#SelectRelevantRemindersAsync(MatchingReminders, MessageText);
+
+      // nothing to relay. The message still falls through to RemindersModule below, which schedules
+      // it as its own reminder when it is a new task.
+      if(RelevantReminders.length === 0) {
+        this.#SlackApp.Logger.info(
+          `[github-comment-relay] no linked task matched this reply in thread ${ArgEventInfo.thread_ts}; not relaying`
+        );
+        return false;
+      }
+
+      // collect unique GitHub URLs across the reminders this reply is actually about.
+      const UniqueUrls = [...new Set(RelevantReminders.flatMap(ArgR => ArgR.GitHubUrls ?? []))];
 
       // resolve the Slack user's display name. GH-432: fall back to a plain `@id` (not `<@id>`) on
       // lookup failure — this comment leaves Slack's rendering context, so the raw mrkdwn token
       // would show up verbatim to a GitHub reader instead of a resolved-or-fallback mention.
       const DisplayName = await ArgSlackApp.GetUserDisplayNameAsync(ArgEventInfo.user) || `@${ArgEventInfo.user}`;
 
-      // determine whether this is the first relayed message for these reminders.
-      const IsFirstRelay = MatchingReminders.every(ArgR => !ArgR.GitHubRelayStarted);
+      // determine whether this is the first relayed message for the reminders being relayed to.
+      const IsFirstRelay = RelevantReminders.every(ArgR => !ArgR.GitHubRelayStarted);
 
       // fetch the Slack thread permalink when this is the first relay so GitHub readers can navigate back.
       let SlackThreadUrl = null;
@@ -201,12 +395,19 @@ class GitHubCommentRelay {
         // add a reaction to the Slack message to confirm relay.
         await ArgSlackApp.AddReactionAsync(ArgEventInfo.channel, ArgEventInfo.ts, 'octocat');
 
-        // Mark every reminder sharing this thread as relay-started — keyed on which ones are not
-        // already marked, rather than on IsFirstRelay. A reminder created after the relay began
-        // still belongs to a thread that is relaying, but the old IsFirstRelay-only write recorded
-        // it as never-relayed forever. That also made the JSON store and the thread-scoped ledger
-        // event disagree about the same thread, so parity could never hold. The save stays
-        // conditional, so a steady-state relay still costs no extra write.
+        // Mark each not-yet-started reminder as relay-started, rather than gating the whole write on
+        // IsFirstRelay — the old form recorded a reminder created after the relay began as
+        // never-relayed forever, and made the JSON store and the thread-scoped ledger event disagree
+        // about the same thread. The save stays conditional, so a steady-state relay costs no extra
+        // write.
+        //
+        // GH-37 note: this stays MatchingReminders, not the gate-filtered RelevantReminders, even
+        // though only some issues received a comment. GitHubRelayStarted is thread-scoped, not
+        // per-issue: reminders-projection.js:533-554 folds one thread's ledger state onto every
+        // reminder in that thread, so marking only the relayed-to subset leaves the others unset in
+        // the JSON store while the projection raises them — the invented-key parity divergence that
+        // file documents. Parity outranks the cosmetic cost, which is that a later first comment on
+        // a not-yet-relayed issue in the same thread omits the Slack permalink.
         const NewlyStarted = MatchingReminders.filter(ArgR => !ArgR.GitHubRelayStarted);
         if(NewlyStarted.length > 0) {
           for(const StartedReminder of NewlyStarted)

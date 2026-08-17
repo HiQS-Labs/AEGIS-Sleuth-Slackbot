@@ -1,6 +1,6 @@
 # p1 — Normalized projection inputs for entity linking
 
-Release 1.5.0 "Ledger" · P3 Phase 3, step 1 of 4 · plan: `PROJECT/2-WORKING/P3-EVENT-SOURCED-CORE.md`
+Release 1.5.0 "Ledger" · P3 Phase 3, step 1 of 4 · plan: `PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE.md`
 
 ## Goal
 

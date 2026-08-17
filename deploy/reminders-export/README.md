@@ -12,7 +12,7 @@ access, no open API port, no SSH tunnel.** This replaces the old
 sleuth-reminders-export.timer  (every 5 min, wall clock)
         └─ sleuth-reminders-export.service (oneshot)
               └─ node publish-reminders-export.mjs
-                    1. GET  http://127.0.0.1:2020/workspace/<ws>/reminders?format=rebalance&activeOnly=true   (loopback)
+                    1. GET  http://[redacted]/workspace/<ws>/reminders?format=rebalance&activeOnly=true   (loopback)
                     2. PUT  github.com/<repo>/contents/sync/sleuth/reminders-<ws>.json                          (contents API)
 ```
 
@@ -21,7 +21,7 @@ creates a commit when the reminder data actually changed.
 
 ## Credentials (reused — nothing new)
 
-Both are already in `/root/sleuth-app/.env.runtime`, loaded by the service via
+Both are already in `[redacted]`, loaded by the service via
 `EnvironmentFile`:
 
 - `WEB_API_BEARER_TOKEN` — read the local Sleuth API
@@ -32,7 +32,7 @@ Both are already in `/root/sleuth-app/.env.runtime`, loaded by the service via
 
 | Var | Default |
 |---|---|
-| `SLEUTH_EXPORT_WORKSPACE` | `neochrome` |
+| `SLEUTH_EXPORT_WORKSPACE` | `[redacted]` |
 | `SLEUTH_EXPORT_REPO` | `your-org/your-export-repo` (required — no default) |
 | `SLEUTH_EXPORT_PATH` | `sync/sleuth/reminders-<workspace>.json` |
 | `SLEUTH_EXPORT_BRANCH` | `main` |
@@ -62,7 +62,7 @@ systemctl daemon-reload && systemctl enable --now sleuth-reminders-export.timer
 
 ```bash
 # Run once now:
-set -a; . /root/sleuth-app/.env.runtime; set +a
+set -a; . [redacted]; set +a
 node /root/sleuth-reminders-export/publish-reminders-export.mjs
 
 systemctl list-timers sleuth-reminders-export.timer        # next/last run

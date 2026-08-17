@@ -4,11 +4,16 @@ const path = require('path');
 const crypto = require('crypto');
 const SlackApp = require('./slack-app');
 const WorkspaceAI = require('./workspace-ai');
+const workspaces = require('./workspaces');
 const DateUtils = require('./date-utils');
 const RemindersChannelSettings = require('./reminders-channel-settings');
 const RemindersAIPipeline = require('./reminders-ai-pipeline');
 const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
+const DecisionExplain = require('./decision-explain');
+const ReminderOwnership = require('./reminder-ownership');
+const TaskGrounding = require('./task-grounding');
+const ReminderDisplaySelection = require('./reminder-display-selection');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -24,6 +29,7 @@ const SlackFormatUtils = require('./slack-format-utils');
 const CompletionStore = require('./completion-store');
 const { createEventStore, CURRENT_SCHEMA_VERSION } = require('./event-store');
 const { createLedgerCoverage } = require('./ledger-coverage');
+const { createDecisionCorpusStore } = require('./decision-corpus-store');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
@@ -37,6 +43,15 @@ const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./r
  * @property {string} actionable_language Verbatim quotation of the actionable language detected in the message.
  * @property {string} scheduling_trigger Verbatim quotation of the trigger associated with the actionable language.
  * @property {string} reminder_message Brief reminder of the actionable task that a user should perform.
+ * @property {string} [context] GH-43 Phase 3: one short line of WHY this task matters, drawn from the
+ * surrounding message. Rendered subordinately beneath the task bullet, never fused into it. Optional
+ * because recorded responses and older captures predate the field.
+ * @property {'speaker'|'mentioned'|'unclear'} [owner] GH-43 Phase 1B: who the analyzer judged is going
+ * to DO this task, from the grammatical subject of the actionable language. Optional because recorded
+ * responses and older captures predate the field.
+ * @property {string[]} [owner_mentions] Slack user IDs the analyzer says were asked to do it.
+ * Populated only when `owner` is `mentioned`, and always intersected with the mentions actually
+ * present in the source before use — the model may narrow the set, never extend it.
  */
 
 /**
@@ -84,6 +99,8 @@ const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./r
  * @property {boolean} IgnoreSnooze        Post on snoozed days when true.
  * @property {string|null} [AssigneeID]    Deprecated compatibility mirror of the first AssigneeIDs entry. Retained for older readers.
  * @property {string[]} [AssigneeIDs]      Authoritative ordered, de-duplicated human Slack user IDs assigned to this shared reminder.
+ * @property {string[]} [NotifyIDs]        GH-43 Phase 3: people the message was ADDRESSED to who did not take the work — interested parties, never owners. Disjoint from AssigneeIDs by construction. Absent on records written before this phase, which is indistinguishable from "nobody to notify" and safe: nothing keys off it. Never used for assignment, completion, or any lifecycle decision (backwards compatible).
+ * @property {{sourceTs: string|null, path: string, originalText: string|null}} [EnrichedFrom] GH-55: antecedent provenance for a reminder whose task text was resolved from an EARLIER message — the source message ts, the structural path that resolved it, and the author's own words before enrichment. Present only on enriched creations; absent is indistinguishable from "not enriched" and nothing keys off it (backwards compatible). Exists so a wrong stitch can be read back after the fact rather than being invisible.
  * @property {string[]|null} [GitHubUrls]  GitHub issue or PR URLs extracted from the original message (backwards compatible).
  * @property {boolean} [GitHubRelayStopped] When true, no further Slack thread messages will be relayed to linked GitHub issues (backwards compatible).
  * @property {boolean} [GitHubRelayStarted] When true, at least one message has already been relayed; the first relay includes the Slack thread permalink (backwards compatible).
@@ -424,7 +441,8 @@ class RemindersModule {
         /** @type {any} */ ArgForceSchedule,
         /** @type {any} */ ArgThreadTS,
         /** @type {any} */ ArgLiveReplyText,
-        /** @type {any} */ ArgUsedEnrichedThreadContext
+        /** @type {any} */ ArgUsedEnrichedThreadContext,
+        /** @type {any} */ ArgEnrichment
       ) =>
         this.#TryScheduleRemindersAsync(
           ArgSlackApp,
@@ -435,19 +453,23 @@ class RemindersModule {
           ArgForceSchedule,
           ArgThreadTS,
           ArgLiveReplyText,
-          ArgUsedEnrichedThreadContext
+          ArgUsedEnrichedThreadContext,
+          ArgEnrichment
         ),
       CheckRemindersAsync: (/** @type {any} */ ArgIgnoreSnooze) => this.#CheckRemindersAsync(ArgIgnoreSnooze),
     });
 
     // instantiate the GitHub comment relay for forwarding thread replies to GitHub.
+    // WorkspaceAI is passed as a getter, not an instance: it is created in StartAsync, which runs
+    // after this constructor, so capturing it here would capture undefined.
     this.#GitHubCommentRelay = new GitHubCommentRelay(
       this.#SlackApp,
       () => this.#PendingRemindersQueue,
       () => this.#SaveRemindersAsync(),
       // Ledger hook. The relay owns the only path that mutates GitHubRelayStarted/Stopped, so this
       // is the one place a thread's relay state can change after creation.
-      (ArgThreadKey, ArgState) => this.#EmitThreadRelayStateChanged(ArgThreadKey, ArgState)
+      (ArgThreadKey, ArgState) => this.#EmitThreadRelayStateChanged(ArgThreadKey, ArgState),
+      () => this.#WorkspaceAI ?? null
     );
 
     // add handlers for message and app mention events.
@@ -456,6 +478,12 @@ class RemindersModule {
     this.#SlackApp.HandleMessage(this.#GitHubCommentRelay.OnMessageAsync.bind(this.#GitHubCommentRelay));
     this.#SlackApp.HandleMessage(this.#OnMessageAsync.bind(this));
     this.#SlackApp.HandleAppMention(this.#AppMentionHandler.OnAppMentionAsync.bind(this.#AppMentionHandler));
+
+    // GH-37: clicking the :octocat: the relay already leaves on a relayed message stops the relay.
+    // Returns false, so the reminders reaction handler still sees ✅/🗑/⏰ on the same message.
+    this.#SlackApp.HandleReactionAdded(
+      this.#GitHubCommentRelay.OnReactionAddedAsync.bind(this.#GitHubCommentRelay)
+    );
   }
 
   /**
@@ -514,7 +542,19 @@ class RemindersModule {
     const DueAtIso = ArgReminder.ShouldPostOn ? new Date(ArgReminder.ShouldPostOn).toISOString() : null;
     switch(ArgNextState) {
       case State.Scheduled:
-        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, { dueAt: DueAtIso, via: ArgReason || null });
+        this.#EmitLifecycleEvent('ReminderScheduled', ArgReminder, {
+          dueAt: DueAtIso,
+          via: ArgReason || null,
+          // v2 REQUIRES this, and omitting it here silently dropped every RESCHEDULE from the
+          // ledger: append() rejected the shape, logged a non-fatal warning, and recorded a durable
+          // coverage gap. The creation-time emitter carried it, so the birth case looked fine while
+          // the transition case lost events — found on production, not in review.
+          //
+          // Read AFTER the in-memory mutation, which is what #TransitionReminderState guarantees:
+          // the reschedule path sets `IgnoreSnooze = false` before transitioning, so this records
+          // the post-reset value the live queue actually holds.
+          ignoreSnooze: Boolean(ArgReminder.IgnoreSnooze),
+        });
         break;
       case State.Completed: {
         // completedMs is sampled ONCE here and shared with the authoritative CompletionRecord, so
@@ -712,6 +752,21 @@ class RemindersModule {
       text: Reminder.ReminderMessageText || null,
       assigneeId: Reminder.AssigneeID || null,
       assigneeIds: Reminder.AssigneeIDs,
+      // GH-43 Phase 3. Additive and non-authoritative; an older reader ignoring the key sees exactly
+      // the reminder it would have seen before this phase.
+      //
+      // EMITTED ONLY WHEN THE REMINDER ACTUALLY HAS IT, and that conditional is load bearing for
+      // projection parity. The list-row creation path (#CreateReminderFromListRow) never sets
+      // NotifyIDs, so its JSON record has no such key; emitting `notifyIds: []` there anyway would
+      // make the fold rehydrate `NotifyIDs: []` and the projected reminder would carry a key the
+      // authoritative store does not. Absent has to stay absent on both sides.
+      ...(Array.isArray(Reminder.NotifyIDs) ? { notifyIds: Reminder.NotifyIDs } : {}),
+      // GH-55. Same conditional discipline and the same reason as notifyIds above: emitted only when
+      // the reminder actually carries it, so an unenriched creation stays byte-comparable across the
+      // store and the fold. REQUIRED_PAYLOAD_KEYS validates a required MINIMUM, not an exact set, so
+      // this is additive — no schema bump, and an older reader that ignores the key sees exactly the
+      // reminder it would have seen before.
+      ...(Reminder.EnrichedFrom ? { enrichedFrom: Reminder.EnrichedFrom } : {}),
       sourceChannelId: Reminder.OriginalChannelID || Reminder.TargetChannelID || null,
       targetChannelId: Reminder.TargetChannelID || null,
       source: 'fsm',
@@ -962,7 +1017,17 @@ class RemindersModule {
    */
   async ReadAllEventsAsync() {
     if(!this.#EventStore || !this.#EventWorkspace) return [];
-    return this.#EventStore.readAll(this.#EventWorkspace);
+    try {
+      return await this.#EventStore.readAll(this.#EventWorkspace);
+    } catch(error) {
+      // `readAll` signals a genuine read failure now, rather than returning `[]` for everything.
+      // That signal exists for the PROJECTION read path, which must fall back to the authoritative
+      // store instead of serving an empty fold. This method backs a Slack-facing shadow comparison
+      // whose documented contract is "[] when there is nothing to read", so it keeps absorbing the
+      // failure — loudly, rather than by pretending the ledger was empty.
+      this.#SlackApp.Logger?.warn?.('[reminders] event ledger unreadable; treating as empty for the shadow read', error);
+      return [];
+    }
   }
 
   /**
@@ -1122,6 +1187,14 @@ class RemindersModule {
   }
 
   /**
+   * Get the ListsModule instance.
+   * @returns {import('./lists-module')|null}
+   */
+  get ListsModule() {
+    return this.#ListsModule;
+  }
+
+  /**
    * Set the GitHub sync module instance for debug/testing integration.
    * @param {import('./github-sync-module')} ArgGitHubSyncModule GitHub sync module instance.
    */
@@ -1144,7 +1217,7 @@ class RemindersModule {
     );
 
     // compute the reminders directory path and ensure it exists.
-    const RemindersDirPath = path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'reminders'));
+    const RemindersDirPath = workspaces.GetSubdirPath('reminders');
     await fs.mkdir(RemindersDirPath, { recursive: true });
     try {
       const TestPath = path.join(RemindersDirPath, `.tmp_${Date.now()}`);
@@ -1174,7 +1247,7 @@ class RemindersModule {
     // Best-effort — nothing reads it back yet (projections consume it out-of-band), so there is
     // no LoadAsync and no boot dependency on it.
     this.#EventStore = createEventStore({
-      rootDir: path.join(RemindersDirPath, '..', 'events'),
+      rootDir: workspaces.GetSubdirPath('events'),
     });
     this.#EventWorkspace = WorkspaceName;
 
@@ -1182,7 +1255,7 @@ class RemindersModule {
     // here, because the shortfall is in the file, not merely in this process's memory — a restart
     // must not forget it.
     this.#LedgerCoverage = createLedgerCoverage({
-      rootDir: path.join(RemindersDirPath, '..', 'events'),
+      rootDir: workspaces.GetSubdirPath('events'),
       Logger: this.#SlackApp.Logger,
     });
 
@@ -1191,6 +1264,30 @@ class RemindersModule {
 
     // instantiate the AI pipeline for reminder analysis, date extraction, and deduplication.
     this.#AIPipeline = new RemindersAIPipeline(this.#WorkspaceAI, this.#SlackApp, () => this.#PendingRemindersQueue);
+
+    // GH-50: arm the decision corpus. GH-44 built the capture path end to end but never wired a
+    // production caller, so `SetDecisionCapture` had no caller outside tests and NO records were
+    // ever written in any deployed environment — the corpus was dead code. Wiring it here is the
+    // whole fix; the store, the record shape, and the failure policy already existed.
+    //
+    // Off unless an operator arms it (see IsDecisionCaptureArmedFor). The store lives under
+    // data/runtime/decisions/, deliberately OUTSIDE data/runtime/events/ — that directory is the
+    // P3 authoritative ledger, and this corpus is disposable, non-authoritative, replayed offline.
+    // Mirrors the GH-397 router-shadow wiring rather than inventing a second capture convention.
+    if(RemindersAIPipeline.IsDecisionCaptureArmedFor(WorkspaceName)) {
+      this.#AIPipeline.SetDecisionCapture({
+        Store: createDecisionCorpusStore({
+          rootDir: workspaces.GetSubdirPath('decisions'),
+        }),
+        // Workspace is passed explicitly and never resolved from module state: every workspace
+        // shares this process, so a global here would cross-file one tenant's decisions into
+        // another's corpus (AGENTS.md section 0.1).
+        Workspace: WorkspaceName,
+      });
+      this.#SlackApp.Logger.info(
+        `[decision-capture] armed for workspace ${WorkspaceName} — records under data/runtime/decisions/.`
+      );
+    }
 
     // instantiate the reaction handler for managing emoji-driven lifecycle transitions.
     this.#ReactionHandler = new RemindersReactionHandler(this.#SlackApp, {
@@ -1357,13 +1454,20 @@ class RemindersModule {
     if(ArgEventInfo.thread_ts) {
       const WasHandled = await this.#AppMentionHandler.TryHandleTaskAboveShorthandAsync(ArgSlackApp, ArgEventInfo);
       if(WasHandled) return true;
-
-      // When the message is a vague commitment ("will do it at 10pm") rather than an explicit
-      // "do above" command, enrich the scheduler context with the preceding message so the AI
-      // derives a meaningful task title instead of extracting the placeholder pronoun.
-      const WasEnriched = await this.#AppMentionHandler.TryEnrichVagueCompletionFromAboveAsync(ArgSlackApp, ArgEventInfo);
-      if(WasEnriched) return true;
     }
+
+    // When the message is a vague commitment ("will do it at 10pm") or an object-position pronoun
+    // reference ("get it done by Monday") rather than an explicit "do above" command, enrich the
+    // scheduler context with the preceding message so the AI derives a meaningful task title instead
+    // of extracting the placeholder pronoun.
+    //
+    // GH-55: no longer inside the thread_ts branch. The reported failure was two TOP-LEVEL channel
+    // posts 47 minutes apart, which this gate made structurally unreachable — the pronoun path could
+    // never fire for them at all. Outside a thread the method is still inert unless
+    // CHANNEL_ANTECEDENT_LOOKBACK_ENABLED is armed, so an unset flag preserves today's call volume
+    // exactly. `TryHandleTaskAboveShorthandAsync` above stays thread-only: it walks thread replies.
+    const WasEnriched = await this.#AppMentionHandler.TryEnrichVagueCompletionFromAboveAsync(ArgSlackApp, ArgEventInfo);
+    if(WasEnriched) return true;
 
     // Skip messages with no temporal language — if there is no time reference the LLM must invent
     // both the scheduling trigger and the task title, which causes hallucination (see 1.4.142).
@@ -1485,6 +1589,10 @@ class RemindersModule {
    * @param {string|null} [ArgThreadTs] Thread timestamp when the source message is a reply.
    * @param {string|null} [ArgLiveReplyText] Raw live reply text before any thread-context enrichment.
    * @param {boolean} [ArgUsedEnrichedThreadContext] True when ArgMessageText includes prepended thread context.
+   * @param {{SourceTs: string|null, Path: string}|null} [ArgEnrichment] GH-55 antecedent provenance —
+   * which earlier message supplied the context and which structural path resolved it. Recorded on the
+   * reminder and in the ledger so a WRONG stitch is auditable after the fact instead of silent. Null
+   * on every non-enriched path, and absent-stays-absent all the way to the event payload.
    * @returns {Promise<boolean>}
    */
   async #TryScheduleRemindersAsync(
@@ -1496,7 +1604,8 @@ class RemindersModule {
     ArgForceSchedule,
     /** @type {string|null} */ ArgThreadTs = null,
     /** @type {string|null} */ ArgLiveReplyText = null,
-    ArgUsedEnrichedThreadContext = false
+    ArgUsedEnrichedThreadContext = false,
+    /** @type {{SourceTs: string|null, Path: string}|null} */ ArgEnrichment = null
   ) {
     if(!this.#AIPipeline) {
       this.#SlackApp.Logger.warn('skipping reminder scheduling before reminders startup finished initializing.');
@@ -1525,9 +1634,13 @@ class RemindersModule {
       // message's length segment; when it is off the original message text is the displayed task
       // (selected verbatim by #SelectReminderTaskText), so the call would be wasted. Fall back to the
       // original message if synthesis fails.
-      if(RemindersAIPipeline.IsTaskSynthesisEnabledForText(
-        RemindersAIPipeline.NormalizeOriginalReminderText(ArgMessageText)
-      )) {
+      // GH-43 Phase 2: route on the RAW message, not the display-normalized one. Normalization
+      // collapses newlines to spaces, and the sentence counter now treats a newline as a thought
+      // boundary — normalizing first would make that rule inert at the exact call site that decides
+      // whether to spend the LLM call. There are no analyzer candidates here by construction (this
+      // branch only runs when the analyzer returned `ignore` or nothing), so the ratio gate cannot
+      // apply and routing falls to the sentence count.
+      if(RemindersAIPipeline.IsTaskSynthesisEnabledForText(ArgMessageText)) {
         try {
           ForceScheduledReminderMessage = await this.#AIPipeline.ExtractManualReminderTaskAsync(ArgMessageText);
         } catch(error) {
@@ -1567,19 +1680,27 @@ class RemindersModule {
       return true;
     }
 
-    const DisplaySourceMessageText = RemindersAIPipeline.NormalizeOriginalReminderText(
-      ArgUsedEnrichedThreadContext && ArgLiveReplyText
-        ? ArgLiveReplyText
-        : ArgMessageText
-    );
+    // the RAW display source keeps its newlines for routing; the normalized one is what gets shown.
+    // GH-43 Phase 2: these must stay distinct — routing on the normalized string silently disables
+    // the newline-as-sentence-boundary rule, which is what let the reported message count 3.
+    const RawDisplaySourceText = ArgUsedEnrichedThreadContext && ArgLiveReplyText
+      ? ArgLiveReplyText
+      : ArgMessageText;
+    const DisplaySourceMessageText = RemindersAIPipeline.NormalizeOriginalReminderText(RawDisplaySourceText);
     const DisplayQuoteSource = ArgUsedEnrichedThreadContext && ArgLiveReplyText
       ? 'live_reply'
       : 'message_text';
-    // synthesis routing is now length-aware (GH-337 Phase 2): the same normalized original drives
-    // both the displayed task selection and this log line, so digest/triage can never disagree.
+    // synthesis routing is length- and ratio-aware (GH-337 Phase 2, GH-43 Phase 2). This is the ONE
+    // place the decision is made for this message: the boolean below is threaded into every
+    // #SelectReminderTaskText call rather than each of them re-deriving it, so the dedupe pass, the
+    // scheduled digest, and the log line cannot disagree even in principle.
     const SynthesisRouting = RemindersAIPipeline.DescribeSynthesisRouting(
-      DisplaySourceMessageText, AnalysisResult.reminders
+      RawDisplaySourceText, AnalysisResult.reminders,
+      // the force-schedule branch above sets actionable_language to the whole message, pinning the
+      // ratio at 1.0. Reported, never routed on.
+      { SyntheticActionableSpan: UsedSyntheticForceSchedule }
     );
+    const SynthesisOn = SynthesisRouting.synthesisOn;
     const DisplayTaskSource = SynthesisRouting.synthesisOn
       ? 'ai_synthesized_task_title'
       : DisplayQuoteSource === 'live_reply'
@@ -1593,7 +1714,8 @@ class RemindersModule {
       ` quote_source=${DisplayQuoteSource} task_source=${DisplayTaskSource}` +
       ` msg_len=${SynthesisRouting.messageLength} sentences=${SynthesisRouting.sentenceCount}` +
       ` segment=${SynthesisRouting.segment} synthesis=${SynthesisRouting.synthesisOn ? 'on' : 'off'}` +
-      ` actionable_span_ratio=${SynthesisRouting.actionableSpanRatio}`
+      ` actionable_span_ratio=${SynthesisRouting.actionableSpanRatio}` +
+      ` ratio_usable=${SynthesisRouting.spanRatioUsable ? 'yes' : 'no'} routed_by=${SynthesisRouting.routedBy}`
     );
 
     // NOTE: the displayed task text (verbatim vs. synthesized analyzer brief) is now selected lazily by
@@ -1609,13 +1731,9 @@ class RemindersModule {
     // — even though only ONE reminder is queued per trigger group. Dedupe on the rendered identity
     // (trigger + displayed task text) so each distinct bullet appears once. This is a no-op when synthesis
     // is ON and candidates carry distinct titles, and correctly collapses genuine duplicate extractions.
-    const SeenReminderRenderKeys = new Set();
-    AnalysisResult.reminders = AnalysisResult.reminders.filter(CurrentReminderInfo => {
-      const RenderKey = `${CurrentReminderInfo.scheduling_trigger} ${this.#SelectReminderTaskText(CurrentReminderInfo, DisplaySourceMessageText)}`;
-      if(SeenReminderRenderKeys.has(RenderKey)) return false;
-      SeenReminderRenderKeys.add(RenderKey);
-      return true;
-    });
+    AnalysisResult.reminders = this.#DedupeCandidatesByRenderIdentity(
+      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn,
+    );
 
     // exit early if the recommendation is to ignore the message.
     if(AnalysisResult.recommendation === 'ignore') return false;
@@ -1623,15 +1741,13 @@ class RemindersModule {
     // exit early if there are no reminders to schedule. This should not happen unless the GPT model is broken.
     if(AnalysisResult.reminders.length === 0) return false;
 
-    // group reminders by their scheduling trigger so we can schedule them together.
+    // Group reminders by their scheduling trigger so we can schedule them together. The grouping
+    // rule is shared with the :wrench: triage (GH-43) — a trigger group is the boundary at which
+    // ownership is decided, and the two paths disagreeing about what a group is produced a triage
+    // that confidently explained a rule the reminders had not followed.
     const RemindersByTrigger = /** @type {Record<string, GptReminderInfo[]>} */ ({});
-    for(const CurrentReminderInfo of AnalysisResult.reminders) {
-      // initialize the array for the current trigger if it doesn't exist.
-      if(!RemindersByTrigger[CurrentReminderInfo.scheduling_trigger])
-        RemindersByTrigger[CurrentReminderInfo.scheduling_trigger] = [];
-
-      // add the reminder to the array for the current trigger.
-      RemindersByTrigger[CurrentReminderInfo.scheduling_trigger].push(CurrentReminderInfo);
+    for(const Group of ReminderOwnership.GroupCandidatesByTrigger(AnalysisResult.reminders)) {
+      RemindersByTrigger[Group.trigger] = Group.candidates;
     }
 
     // track successfully scheduled reminders for display in the feedback message.
@@ -1671,16 +1787,70 @@ class RemindersModule {
       // append bulleted list of key tasks to the reminder message. NOTE: the reminder messages shown here were
       // extracted by the GPT model and are not the same as the message text sent by the user.
       NewReminderMessageText = CurrentReminders.reduce((ArgAccumulatedText, ArgCurrentReminder) => {
-        return ArgAccumulatedText + `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText)}`;
+        const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn)}`;
+        // GH-43 Phase 3: context renders SUBORDINATELY on its own indented italic line, never inline
+        // in the bullet. Fusing the two is the second defect from the report — the root-cause
+        // paragraph and the commitment sharing one string. The full original stays in the blockquote
+        // above, so the bullet is free to be short and the context is free to be optional.
+        return ArgAccumulatedText + TaskLine
+          + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn);
       }, NewReminderMessageText + "\n\nKey task(s):");
 
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
       const TargetChannelID = await this.#GetReminderChannelIdAsync(ArgChannelID);
 
-      // Extract every explicitly mentioned human assignee from the original quoted source. The
-      // factory retains the first one in AssigneeID for older readers while the array is authoritative.
+      // GH-43 Phase 1A: ownership is resolved from the GRAMMATICAL SUBJECT of the commitment, not
+      // from mention-scraping alone. Previously any `<@…>` in the source became an assignee and the
+      // sender was used only when that set was empty, so a status report addressed to two colleagues
+      // and ending "i am going to deploy the changes tomorrow morning" assigned the deploy to its
+      // audience and left its author off entirely. Mentions still win for a second-person ask, which
+      // is what keeps GH-22 shared assignment ("can you both test this") intact.
       const ExtractedAssigneeIDs = this.#ExtractAssigneeIDsFromReminderText(NewReminderMessageText);
-      const AssigneeIDs = ExtractedAssigneeIDs.length > 0 ? ExtractedAssigneeIDs : [ArgUserID];
+      // the actionable spans for THIS trigger group — not the whole message, so an unrelated
+      // first-person sentence elsewhere in a long note cannot hijack ownership.
+      const GroupActionableLanguage = CurrentReminders
+        .map(ArgCandidate => ArgCandidate.actionable_language || '')
+        .join(' ')
+        .trim();
+      // GH-43 Phase 1B: the analyzer's own per-candidate `owner` verdict, collapsed across this
+      // trigger group. It only gets consulted when the grammar is ambiguous — see ResolveAssignees.
+      const GroupOwner = ReminderOwnership.ReduceGroupOwner(CurrentReminders);
+
+      // KNOWN LIMITATION, made visible rather than silent (Codex, branch relay round 6).
+      //
+      // One trigger group becomes ONE reminder with ONE assignee set, so a message that commits the
+      // author to something AND asks somebody else to do something else *under the same trigger*
+      // cannot be represented: the spans are concatenated and a single resolver call picks one
+      // owner. GH-43's plan named this the hardest ownership case and pre-authorized documenting it
+      // — "a documented limitation is acceptable, a silent wrong answer is not."
+      //
+      // Splitting a group into per-candidate reminders is a structural change to the scheduling
+      // contract, well outside this issue. The THREAD path already models per-candidate ownership
+      // correctly (`assigneeID` per candidate), so the fix for anyone hitting this is to use it.
+      // Logged so it shows up in triage instead of being discovered from a wrong reminder.
+      const OwnerDisagreement = ReminderOwnership.FindOwnerDisagreement(CurrentReminders);
+      if(OwnerDisagreement.length > 0) {
+        ArgSlackApp.Logger.warn(
+          `reminder ownership: trigger "${CurrentTrigger}" has ${OwnerDisagreement.length} different ` +
+          `candidate owners (${OwnerDisagreement.join(', ')}) collapsed into one assignee set ` +
+          `(known GH-43 limitation: one trigger group = one reminder). ` +
+          `Candidates=${CurrentReminders.length}.`
+        );
+      }
+      const Ownership = ReminderOwnership.ResolveAssignees({
+        MessageText: DisplaySourceMessageText,
+        ActionableLanguage: GroupActionableLanguage,
+        MentionedIDs: ExtractedAssigneeIDs,
+        SenderID: ArgUserID,
+        AnalyzerOwner: GroupOwner.owner,
+        AnalyzerOwnerMentions: GroupOwner.ownerMentions,
+      });
+      const AssigneeIDs = Ownership.assigneeIDs.length > 0 ? Ownership.assigneeIDs : [ArgUserID];
+      ArgSlackApp.Logger.info(
+        `reminder ownership: resolved_by=${Ownership.resolvedBy} assignees=${AssigneeIDs.length}` +
+        ` mentions=${ExtractedAssigneeIDs.length} notify=${Ownership.notifyIDs.length}` +
+        ` analyzer_owner=${GroupOwner.owner || 'none'}`
+      );
 
       // get channel name while we have access (bot received the message, so it should have access)
       const OriginalChannelName = await this.#SlackApp.GetChannelNameAsync(ArgChannelID);
@@ -1697,7 +1867,23 @@ class RemindersModule {
         ReminderMessageText: NewReminderMessageText,
         AssigneeID: AssigneeIDs[0],
         AssigneeIDs: AssigneeIDs,
+        // GH-43 Phase 3: the addressees of a first-person commitment. Before this they were computed
+        // and thrown away, so "@a @b … i'll deploy tomorrow" lost every trace that @a and @b were
+        // told. Persisted as a record of intent only — see the ReminderInfo typedef.
+        NotifyIDs: Ownership.notifyIDs.filter(ArgID => !AssigneeIDs.includes(ArgID)),
         GitHubUrls: GitHubUrls.length > 0 ? GitHubUrls : null,
+        // GH-55 antecedent provenance. Spread conditionally so a non-enriched reminder carries no
+        // such key at all — the same absent-stays-absent discipline the NotifyIDs emission documents,
+        // and what keeps the ledger fold and the JSON store byte-comparable on unenriched paths.
+        // `ArgLiveReplyText` is the user's own words before enrichment: with this pair, a wrong
+        // stitch can be read back afterwards instead of being invisible.
+        ...(ArgEnrichment ? {
+          EnrichedFrom: {
+            sourceTs: ArgEnrichment.SourceTs || null,
+            path: ArgEnrichment.Path,
+            originalText: ArgLiveReplyText || null,
+          },
+        } : {}),
       });
 
       // check for duplicate reminders before queueing, unless force scheduling is enabled (this serves as an escape
@@ -1889,16 +2075,106 @@ class RemindersModule {
       `• Reminder candidates: ${TriageResult.analysis.reminders.length}`,
     );
 
+    // GH-44 Phase 5: why the displayed task text looks the way it does. These routing facts decide
+    // verbatim-vs-synthesized and previously existed only in a server log line — the one place a
+    // person debugging a wrong reminder from inside Slack could never see them. Additive: renders
+    // nothing at all when the decision carries no facts.
+    FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+      'Why this task text', TriageResult.debugFacts,
+    ));
+
+    // GH-44 Phase 5 / GH-43 Phase 1A: how ownership resolves for this message. This now runs the
+    // REAL resolver rather than re-implementing the old mention-scraping rule, so the triage view and
+    // the scheduling path cannot drift apart — a triage that explains a rule the pipeline no longer
+    // follows is worse than no triage at all.
+    // RESOLVED PER TRIGGER GROUP, exactly as scheduling does it (GH-43, Codex branch relay r9).
+    // This used to concatenate every trigger's actionable span into ONE resolver call, so a message
+    // with `tomorrow`/"I will deploy" and `friday`/"@alpha please review" scheduled correctly as two
+    // reminders — U_SENDER, then U_ALPHA — while the triage explained the whole thing as U_ALPHA /
+    // second-person-ask. Patching the mixed-owner warning treated the symptom; grouping here is the
+    // cause, and it removes the divergence rather than annotating it.
+    const TriageSenderID = OriginalMessage.user || '';
+    const TriageMentionedIDs = this.#ExtractAssigneeIDsFromReminderText(OriginalText);
+    const TriageNormalizedText = RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText);
+    // The SAME render-identity dedupe scheduling applies before grouping. Without it, two same-trigger
+    // candidates that display identically survive here but not in production, so triage resolves a
+    // different candidate set — and blames a collapse that had already happened upstream.
+    // (Codex, branch relay round 10.)
+    const TriageRoutingForOwnership = RemindersAIPipeline.DescribeSynthesisRouting(
+      OriginalText, TriageResult.analysis.reminders,
+    );
+    const TriageCandidates = this.#DedupeCandidatesByRenderIdentity(
+      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn,
+    );
+    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageCandidates);
+
+    for(const Group of TriageGroups) {
+      // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver
+      // different inputs than the scheduling path does is the same drift this section exists to
+      // prevent, one level down.
+      const GroupOwnerVerdict = ReminderOwnership.ReduceGroupOwner(Group.candidates);
+      const GroupOwnership = ReminderOwnership.ResolveAssignees({
+        MessageText: TriageNormalizedText,
+        ActionableLanguage: Group.candidates
+          .map((/** @type {any} */ ArgCandidate) => ArgCandidate.actionable_language || '')
+          .join(' ')
+          .trim(),
+        MentionedIDs: TriageMentionedIDs,
+        SenderID: TriageSenderID,
+        AnalyzerOwner: GroupOwnerVerdict.owner,
+        AnalyzerOwnerMentions: GroupOwnerVerdict.ownerMentions,
+      });
+      const GroupAssigneeIDs = GroupOwnership.assigneeIDs.length > 0
+        ? GroupOwnership.assigneeIDs
+        : [TriageSenderID].filter(Boolean);
+
+      // labelled by trigger only when there is more than one, so the common single-trigger case
+      // reads exactly as it did before.
+      const SectionTitle = TriageGroups.length > 1
+        ? `How ownership resolved — "${SlackFormatUtils.SanitizeForInlineSlack(Group.trigger)}"`
+        : 'How ownership resolved';
+      FeedbackLines.push(...DecisionExplain.RenderDecisionFactsSection(
+        SectionTitle,
+        DecisionExplain.DescribeAssigneeResolution(
+          TriageMentionedIDs, GroupAssigneeIDs, TriageSenderID,
+          { ResolvedBy: GroupOwnership.resolvedBy, NotifyIDs: GroupOwnership.notifyIDs },
+        ),
+      ));
+
+      // The one shape grouping genuinely cannot fix: candidates that disagree about the owner WITHIN
+      // a single trigger. One trigger is one reminder with one assignee set, so they get collapsed.
+      // Surfaced here rather than only in the server log, so somebody debugging a wrong assignee sees
+      // the limitation instead of a confident single `resolvedBy`. (Codex r7; scoped per-trigger r8.)
+      const GroupDisagreement = ReminderOwnership.FindOwnerDisagreement(Group.candidates);
+      if(GroupDisagreement.length > 0) {
+        FeedbackLines.push(
+          `• :warning: This trigger mixes ${GroupDisagreement.length} different owners ` +
+          `(${SlackFormatUtils.SanitizeForInlineSlack(GroupDisagreement.join(', '))}). One trigger ` +
+          'produces one reminder with one assignee set, so they were collapsed — a known limitation, ' +
+          'not a misread. Split the asks into separate messages, or use whole-thread extraction, ' +
+          'which assigns each task independently.'
+        );
+      }
+    }
+
     if(TriageResult.analysis.reminders.length === 0) {
       FeedbackLines.push('• No reminder candidates were extracted from this message.');
     } else {
+      // GH-43 Phase 2: one routing decision for the whole message, from the RAW text and the full
+      // candidate set — the same inputs the scheduling path uses. Deriving it per candidate from
+      // normalized text is what let triage and the digest disagree about the same message.
+      const TriageRouting = RemindersAIPipeline.DescribeSynthesisRouting(
+        OriginalText, TriageResult.analysis.reminders
+      );
+      const TriageNormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText);
+
       for(let ReminderIndex = 0; ReminderIndex < TriageResult.analysis.reminders.length; ReminderIndex++) {
         const Reminder = TriageResult.analysis.reminders[ReminderIndex];
         const DateResult = TriageResult.dateExtractions[ReminderIndex];
 
         const SanitizedTrigger = SlackFormatUtils.SanitizeForInlineSlack(Reminder.scheduling_trigger);
         const SanitizedTask = SlackFormatUtils.SanitizeForInlineSlack(
-          this.#SelectReminderTaskText(Reminder, RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText))
+          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn)
         );
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
@@ -1925,30 +2201,102 @@ class RemindersModule {
    * (GH-337 Phase 1). The choice is length-aware (Phase 2): when synthesis is disabled for this
    * message's segment, the normalized original message is shown verbatim; when enabled, the analyzer's
    * brief is used, falling back to the quoted actionable span when that brief is over-compressed.
+   * GH-43 Phase 2 makes the routing decision an **argument** rather than something this function
+   * re-derives. It used to call `IsTaskSynthesisEnabledForText` on the normalized text it was handed,
+   * which meant every call site independently recomputed the gate from a string that had already had
+   * its newlines stripped. Callers now compute {@link RemindersAIPipeline.DescribeSynthesisRouting}
+   * once per message, from the raw text and the full candidate set, and pass the result down.
    * @param {GptReminderInfo} ArgReminderInfo Reminder candidate from the AI analyzer.
    * @param {string} [ArgNormalizedOriginalText] Normalized original message text (verbatim source).
+   * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message. Omit only when no
+   * routing was computed; the legacy sentence-count-on-normalized-text fallback then applies.
    * @returns {string}
    */
-  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '') {
+  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
+    const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
+      ? ArgSynthesisOn
+      : RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal);
 
-    // verbatim path: synthesis disabled for this message's length segment → show the user's wording
-    // unchanged. This reproduces the prior synthesis-OFF behavior byte-for-byte.
-    if(NormalizedOriginal && !RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal))
-      return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(NormalizedOriginal);
+    // The decision itself lives in reminder-display-selection.js so the replay harness can run the
+    // REAL rule instead of a copy of it (agy branch relay r1). This method keeps only what is
+    // genuinely Slack-specific: the warn line and the mrkdwn mention normalization.
+    const Selection = ReminderDisplaySelection.SelectTaskText(
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+    );
+    if(Selection.ungroundedTerms.length > 0) {
+      this.#SlackApp.Logger.warn(
+        `discarding an ungrounded reminder title: it names ${Selection.ungroundedTerms.length} term(s) ` +
+        `absent from the source message. Falling back to the quoted actionable span.`
+      );
+    }
+    return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Selection.text);
+  }
 
-    // synthesis path: reuse the analyzer's brief, with a deterministic quality fallback to the quoted
-    // actionable span when the brief looks suspiciously over-compressed relative to that span.
-    const ReminderMessage = ArgReminderInfo.reminder_message?.trim() || '';
-    const ActionableLanguage = ArgReminderInfo.actionable_language?.trim() || '';
-    const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
-    const IsLikelyOverCompressed = ReminderWordCount <= 3 && ActionableLanguage.length > (ReminderMessage.length + 12);
+  /**
+   * Collapse candidates that render to the same bullet under the same trigger.
+   *
+   * The analyzer can emit several candidates for one scheduling trigger (e.g. one per numbered item).
+   * With synthesis OFF every one of them displays the identical normalized original, so they would
+   * otherwise produce N byte-for-byte identical bullets even though only ONE reminder is queued per
+   * trigger group. A no-op when synthesis is ON and the candidates carry distinct titles.
+   *
+   * **Shared with the `:wrench:` triage** (GH-43, Codex branch relay r10). Scheduling deduped and
+   * triage did not, so for two same-trigger candidates that render identically — speaker
+   * `I will deploy the patch` and mentioned `please review it` — production kept the first and
+   * resolved `U_SENDER`, while triage kept both, resolved `U_ALPHA`, and printed a limitation warning
+   * for a collapse that had already happened upstream. Fourth instance on this branch of the same
+   * shape: one rule, two copies, drifting.
+   * @param {GptReminderInfo[]} ArgCandidates Analyzer candidates.
+   * @param {string} ArgNormalizedOriginalText Normalized original message text.
+   * @param {boolean} ArgSynthesisOn The routing decision for this message.
+   * @returns {GptReminderInfo[]} candidates with render-duplicates removed, first occurrence kept.
+   */
+  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn) {
+    const SeenRenderKeys = new Set();
+    return (ArgCandidates || []).filter(ArgCandidate => {
+      const RenderKey = `${ArgCandidate.scheduling_trigger} `
+        + this.#SelectReminderTaskText(ArgCandidate, ArgNormalizedOriginalText, ArgSynthesisOn);
+      if(SeenRenderKeys.has(RenderKey)) return false;
+      SeenRenderKeys.add(RenderKey);
+      return true;
+    });
+  }
 
-    const TaskText = IsLikelyOverCompressed
-      ? ActionableLanguage
-      : (ReminderMessage || ActionableLanguage || NormalizedOriginal || 'Task not specified');
+  /**
+   * The subordinate context line rendered beneath a task bullet, or `''` when there is none
+   * (GH-43 Phase 3).
+   *
+   * Returns a leading `\n` so callers can concatenate unconditionally — the empty string is the
+   * common case and must add nothing at all, not a blank line.
+   *
+   * Three things suppress it, each for its own reason:
+   *  - **synthesis off** — the bullet is already the whole verbatim message, so a context line would
+   *    restate text the reader is looking at.
+   *  - **ungrounded** — the same constraint that governs the title. Context is prose *about* the
+   *    message and is exactly where an invented detail would be most plausible and least checkable.
+   *  - **redundant with the task** — a model that echoes the title as context adds noise.
+   * @param {GptReminderInfo} ArgReminderInfo Reminder candidate from the AI analyzer.
+   * @param {string} [ArgNormalizedOriginalText] Normalized original message text.
+   * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message.
+   * @returns {string} `'\n  _<context>_'`, or `''`.
+   */
+  #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+    const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
+    const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
+      ? ArgSynthesisOn
+      : RemindersAIPipeline.IsTaskSynthesisEnabledForText(NormalizedOriginal);
 
-    return SlackFormatUtils.NormalizeUserMentionsToMrkdwn(TaskText);
+    // as with the task text, the rule lives in reminder-display-selection.js so the harness runs it
+    // rather than a copy of it.
+    const Selection = ReminderDisplaySelection.SelectContextLine(
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+    );
+    if(Selection.suppressedBy === 'ungrounded')
+      this.#SlackApp.Logger.warn('discarding an ungrounded reminder context line.');
+    if(!Selection.text) return '';
+
+    return `\n  _${SlackFormatUtils.NormalizeUserMentionsToMrkdwn(Selection.text)}_`;
   }
 
   /**
@@ -1979,6 +2327,15 @@ class RemindersModule {
     // (or none, falling back to the sender) must stay byte-identical to the pre-GH-22 wording.
     const SharedWorkText = TargetUsers.length > 1 ? ' as shared work' : '';
     let FeedbackMessage = `${ReminderCountText} been scheduled${SharedWorkText} for ${TargetUsersText}.`;
+
+    // GH-43 Phase 3: people the message was addressed to who did not take the work. Before this they
+    // were either assigned the task outright (the reported defect) or dropped without trace. Naming
+    // them here — as recipients, not owners — is what makes "@a @b … i'll deploy tomorrow" render
+    // honestly: assigned to the author, and @a and @b were told.
+    const NotifyUsers = (Array.isArray(FirstReminder?.NotifyIDs) ? FirstReminder.NotifyIDs : [])
+      .filter((/** @type {string} */ ArgID) => ArgID && ArgID !== this.#SlackApp.BotUserID && !TargetUsers.includes(ArgID));
+    if(NotifyUsers.length > 0)
+      FeedbackMessage += ` ${NotifyUsers.map((/** @type {string} */ ArgID) => `<@${ArgID}>`).join(', ')} ${NotifyUsers.length === 1 ? 'was' : 'were'} also mentioned and will be kept in the loop.`;
     const GitHubMonitoringFeedback = RemindersModule.BuildGitHubMonitoringFeedback(ArgScheduledReminders);
     if(GitHubMonitoringFeedback)
       FeedbackMessage += `\n${GitHubMonitoringFeedback}`;
@@ -2055,34 +2412,11 @@ class RemindersModule {
       }
     }
 
-    // Extract user mentions from the text
-    const UserMentionPattern = /<@([^>|]+)(?:\|[^>]*)?>/g;
-    /** @type {string[]} */
-    const UserIds = [];
-    let Match;
-    
-    while((Match = UserMentionPattern.exec(TextToSearch)) !== null) {
-      const UserId = Match[1];
-      if(!UserIds.includes(UserId)) {
-        UserIds.push(UserId);
-      }
-    }
-
-    if(UserIds.length === 0) {
-      return [];
-    }
-
-    // Filter out the bot user ID - the bot should never be the assignee
-    const BotUserID = this.#SlackApp.BotUserID;
-    const HumanUserIds = BotUserID
-      ? UserIds.filter(Id => Id !== BotUserID)
-      : UserIds;
-
-    if(HumanUserIds.length === 0) {
-      return [];
-    }
-
-    return HumanUserIds;
+    // GH-44: mention extraction now comes from the ONE shared rule in decision-explain.js, so the
+    // triage view and the replay harness read ownership exactly the way this write path does rather
+    // than from three copies of the same regex that can drift. Behavior is unchanged: same pattern,
+    // same first-appearance de-duplication, same bot exclusion.
+    return DecisionExplain.ExtractMentionIDs(TextToSearch, this.#SlackApp.BotUserID);
   }
 
   /**
@@ -2984,6 +3318,13 @@ class RemindersModule {
         const Result = await ReadWithProjectionFallbackAsync({
           flagName: 'REMINDERS_READ_SOURCE',
           Logger: this.#SlackApp.Logger,
+          // The gate is default-deny, so omitting this is not a soft option — it would serve the
+          // authoritative store forever. A missing coverage object means the ledger was never
+          // initialized, which is itself a reason not to project.
+          IsCoverageCleanAsync: async () => {
+            if(!this.#LedgerCoverage || !this.#EventWorkspace) return false;
+            return this.#LedgerCoverage.IsCleanAsync(this.#EventWorkspace);
+          },
           ReadAuthoritativeAsync: async () => {
             const RemindersJSON = await fs.readFile(this.#ReminderFilePath, 'utf8');
             // Date revival preserves the in-memory contract used by the reminder scheduler.

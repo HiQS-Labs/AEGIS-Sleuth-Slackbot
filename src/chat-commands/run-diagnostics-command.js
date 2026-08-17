@@ -45,8 +45,8 @@ async function HandleRunDiagnosticsCommandAsync(ArgSlackApp, ArgEventInfo, ArgDe
   else Results.push(`Slack API connectivity: FAILED - ${SlackDiag.error}`);
 
   const WorkspaceDir = workspaces.GetDirPath();
-  const StatsDir = path.resolve(path.join(__dirname, '..', '..', 'data', 'runtime', 'stats'));
-  const RemindersDir = path.resolve(path.join(__dirname, '..', '..', 'data', 'runtime', 'reminders'));
+  const StatsDir = workspaces.GetSubdirPath('stats');
+  const RemindersDir = workspaces.GetSubdirPath('reminders');
   for(const info of [
     { name: 'Workspaces directory', path: WorkspaceDir },
     { name: 'Stats directory', path: StatsDir },

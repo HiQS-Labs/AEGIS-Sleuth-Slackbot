@@ -57,11 +57,38 @@ const VALID_WORKSPACE_NAME_REGEX = /^[a-zA-Z0-9_\-]+$/;
  */
 class Workspaces {
   /**
+   * Get the path to the root runtime data directory (respects SLEUTH_DATA_DIR / AEGIS_DATA_DIR).
+   * @returns {string}
+   */
+  static GetRuntimeDirPath() {
+    if(process.env.SLEUTH_DATA_DIR && process.env.SLEUTH_DATA_DIR.trim().length > 0) {
+      return path.resolve(process.env.SLEUTH_DATA_DIR.trim());
+    }
+    if(process.env.AEGIS_DATA_DIR && process.env.AEGIS_DATA_DIR.trim().length > 0) {
+      return path.resolve(process.env.AEGIS_DATA_DIR.trim());
+    }
+    return path.resolve(path.join(__dirname, '..', 'data', 'runtime'));
+  }
+
+  /**
+   * Get the path to a subdirectory or file under the root runtime directory.
+   * @param {string} ArgSubdir Subdirectory name (e.g. 'reminders', 'events', 'stats').
+   * @param {string} [ArgFilename] Optional file name within the subdirectory.
+   * @returns {string}
+   */
+  static GetSubdirPath(ArgSubdir, ArgFilename = '') {
+    if(ArgFilename && ArgFilename.length > 0) {
+      return path.resolve(path.join(this.GetRuntimeDirPath(), ArgSubdir, ArgFilename));
+    }
+    return path.resolve(path.join(this.GetRuntimeDirPath(), ArgSubdir));
+  }
+
+  /**
    * Get the path to the directory where workspace files are stored.
    * @returns {string}
    */
   static GetDirPath() {
-    return path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'workspaces'));
+    return path.resolve(path.join(this.GetRuntimeDirPath(), 'workspaces'));
   }
 
   /**

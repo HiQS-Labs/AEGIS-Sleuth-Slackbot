@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const { WriteFileDurableAsync } = require('./durable-write');
 const os = require('os');
+const workspaces = require('./workspaces');
 
 /**
  * Build the default GitHub API client using global fetch (Node 18+).
@@ -151,7 +152,7 @@ class SnapshotRelayModule {
         && this.#SlackApp.WorkspaceInfo.SNAPSHOT_RELAY_ENABLED === true;
       const FlagEnabled = EnabledViaEnv || EnabledViaConfig;
 
-    const DefaultSeenPath = path.resolve(path.join(__dirname, '..', 'data', 'runtime', 'snapshot-relay-seen.json'));
+    const DefaultSeenPath = workspaces.GetSubdirPath('', 'snapshot-relay-seen.json');
     const DefaultPat = ArgConfig.pat ?? process.env.SLEUTH_RAG_GITHUB_PAT ?? '';
     const DefaultRepo = ArgConfig.repo ?? (process.env.SNAPSHOT_RELAY_REPO || '');
     const DefaultDir = ArgConfig.dir ?? (process.env.SNAPSHOT_RELAY_DIR || 'snapshots');

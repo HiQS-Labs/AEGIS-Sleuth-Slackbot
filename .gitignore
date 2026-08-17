@@ -516,3 +516,15 @@ docs/incident-report-*.md
 .github/workflows/experimental-deploy.yml
 .github/workflows/pr-list-email.yml
 .github/scripts/
+
+# --- RAG overlay: now IN this repo (was a private overlay until 2026-08-08) ---
+# `src/rag/` and the ask-self command used to be gitignored as the unextracted sleuth-plugin-rag.
+# They were audited and carry no keys and no proprietary data: every credential comes from the
+# environment (GOOGLE_API_KEY, SLEUTH_RAG_GITHUB_PAT) and the PR corpus repo is env-selected, so
+# nothing here names a private repo. They are tracked now — being untracked meant the only copies
+# lived in one worktree and on the server.
+#
+# `chat-module.js` still requires them through the guarded optional seam, which stays: it is what
+# lets a clone run clean when the built index is absent. What must NEVER be committed is the index
+# itself — see the data/rag/ rules above; the .sqlite is a build artifact of `ingest.mjs`.
+/.tick/

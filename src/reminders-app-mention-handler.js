@@ -15,6 +15,7 @@ const {
 } = require('./client-mapping');
 const { CommandRouter } = require('./chat-command-router');
 const { summarizeWeekFromEvents } = require('./summarize-week-projection');
+const { IsProjectionRequested } = require('./reminders-projection');
 const HandleRememberAboveCommandAsync = require('./chat-commands/remember-above-command');
 const HandleSendToGithubCommandAsync = require('./chat-commands/send-to-github-command');
 
@@ -71,6 +72,74 @@ const VAGUE_REFERENCE_IN_THREAD_PATTERN = new RegExp(
   '(?:it\\b|(?:this|that)\\b(?!\\s+(?:week|month|year|day|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b))',
   'i',
 );
+
+// GH-55. The general rule the three patterns above are each a special case of: an unresolved pronoun
+// means "the task is elsewhere" — but ONLY when the pronoun is the grammatical OBJECT, not the
+// SUBJECT. "get **it** done by Monday" points at earlier work; "**it** will rain on friday" is small
+// talk that happens to contain a pronoun and a weekday.
+//
+// This is deliberately NOT a fourth verb list. VAGUE_COMPLETION_IN_THREAD_PATTERN enumerates
+// do/handle/finish/get-to/…, and the comment on ABOVE_REFERENCE_PATTERN above already documents why
+// that approach loses: every new phrasing needs its own entry. `get <pronoun> done` is exactly such a
+// miss — the pronoun sits BETWEEN verb and participle, a shape no entry in that list has, and adding
+// one would buy this case and lose the next.
+//
+// Object position is decided instead by two CLOSED word classes. Neither grows when someone invents
+// a new way to say "finish this", which is the property that makes this rule terminal rather than
+// another round of whack-a-mole:
+//   1. Clause boundaries — a pronoun that opens a clause is that clause's subject.
+//   2. Auxiliaries and modals — a pronoun immediately followed by one is the subject of that verb.
+// A pronoun that is neither clause-initial nor followed by an auxiliary is an object.
+//
+// Both tests are needed; each alone admits a false positive the other rejects:
+//   "I think it will rain on friday" is not clause-initial  -> only the auxiliary test rejects it.
+//   "this is due tomorrow and it is fine" has `it` after a
+//   coordinator                                             -> only the boundary test rejects it.
+const CLAUSE_BOUNDARY_BEFORE_PRONOUN =
+  /(?:^|[.,;:!?—-]|\b(?:and|but|or|so|because|that|which|when|while|if|then|though|although|since|unless)\b)\s*$/i;
+
+const SUBJECT_AUXILIARY_AFTER_PRONOUN =
+  /^\s*(?:'ll|'d|'s|’ll|’d|’s|is|isn't|are|aren't|was|wasn't|were|weren't|will|won't|would|wouldn't|can|can't|cannot|could|couldn't|shall|should|shouldn't|may|might|must|mustn't|has|hasn't|have|haven't|had|hadn't|does|doesn't|do|don't|did|didn't|seems|looks|sounds)\b/i;
+
+// Same temporal exclusion VAGUE_REFERENCE_IN_THREAD_PATTERN applies: "discuss this week" schedules,
+// it does not refer. Only demonstratives can be temporal — "it" never is, which is why "send it
+// monday" must stay a reference.
+const TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE =
+  /^\s*(?:week|month|year|day|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+
+/**
+ * True when ArgText contains a vague pronoun (it/this/that) in OBJECT position — the general
+ * grammatical signal that the real task lives in an earlier message. Exported for tests so the
+ * corpus in PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md is a fixture rather than a comment.
+ * @param {string} ArgText
+ * @returns {boolean}
+ */
+function IsObjectPositionPronounReference(ArgText) {
+  const Text = ArgText || '';
+  const PronounMatcher = /\b(it|this|that)\b/gi;
+  let Match;
+  while((Match = PronounMatcher.exec(Text)) !== null) {
+    const Pronoun = Match[1].toLowerCase();
+    const Before = Text.slice(0, Match.index);
+    const After = Text.slice(Match.index + Match[0].length);
+    if(CLAUSE_BOUNDARY_BEFORE_PRONOUN.test(Before)) continue;
+    if(SUBJECT_AUXILIARY_AFTER_PRONOUN.test(After)) continue;
+    if(Pronoun !== 'it' && TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE.test(After)) continue;
+    return true;
+  }
+  return false;
+}
+
+// GH-55 channel-lookback recency window. Named constants with a rationale rather than magic numbers,
+// because both are the difference between "resolved the antecedent" and "stitched the wrong one".
+//
+// MAX_AGE: the reported production failure had 47 minutes between the task and the follow-up, so a
+// window under an hour would not have fixed the case this issue was filed for. Two hours covers a
+// working session's back-and-forth without reaching into yesterday's unrelated conversation.
+// SCAN_LIMIT: one conversations.history page. The participant-continuity filter — not the page size —
+// is what decides correctness, so a larger page buys nothing but latency.
+const CHANNEL_ANTECEDENT_MAX_AGE_SECONDS = 2 * 60 * 60;
+const CHANNEL_ANTECEDENT_SCAN_LIMIT = 30;
 
 // Temporal-cue prefilter used by:
 //   - RemindersModule#OnMessageAsync (gates LLM auto-scheduling — see 1.4.142)
@@ -242,12 +311,16 @@ class RemindersAppMentionHandler {
    * @returns {Promise<boolean>} true if a reminder was successfully scheduled with enriched context
    */
   async TryEnrichVagueCompletionFromAboveAsync(ArgSlackApp, ArgEventInfo) {
-    if(!ArgEventInfo.thread_ts) return false;
+    const InThread = Boolean(ArgEventInfo.thread_ts);
+    // GH-55: outside a thread this path is inert unless the channel-lookback kill switch is armed,
+    // so an unset flag leaves AI-call volume byte-identical to before this change.
+    if(!InThread && !RemindersAppMentionHandler.IsChannelAntecedentLookbackEnabled()) return false;
     const Text = ArgEventInfo.text || '';
     const HasVagueReference =
       VAGUE_COMPLETION_IN_THREAD_PATTERN.test(Text) ||
       VAGUE_REFERENCE_IN_THREAD_PATTERN.test(Text) ||
-      ABOVE_REFERENCE_PATTERN.test(Text);
+      ABOVE_REFERENCE_PATTERN.test(Text) ||
+      IsObjectPositionPronounReference(Text);
     if(!HasVagueReference) return false;
     const TriggerMatch = this.#GetSchedulingTriggerMatch(Text);
     if(!TriggerMatch) return false;
@@ -260,9 +333,11 @@ class RemindersAppMentionHandler {
 
     let PrecedingMessages = [];
     try {
-      PrecedingMessages = await this.#CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInfo, 3);
+      PrecedingMessages = InThread
+        ? await this.#CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInfo, 3)
+        : await this.#CollectChannelAntecedentCandidatesAsync(ArgSlackApp, ArgEventInfo);
     } catch(error) {
-      ArgSlackApp.Logger.error('vague reference enrichment: failed to fetch preceding thread messages:', error);
+      ArgSlackApp.Logger.error('vague reference enrichment: failed to fetch preceding messages:', error);
       return false;
     }
 
@@ -270,13 +345,21 @@ class RemindersAppMentionHandler {
 
     const ContextBlock = PrecedingMessages.map((/** @type {any} */ ArgMessage) => ArgMessage.text).join('\n');
     const EnrichedText = `${ContextBlock}\n${ArgEventInfo.text}`;
-    const StructuralPath = VAGUE_COMPLETION_IN_THREAD_PATTERN.test(Text)
-      ? 'vague_completion_in_thread'
+    const ReferenceShape = VAGUE_COMPLETION_IN_THREAD_PATTERN.test(Text)
+      ? 'vague_completion'
       : VAGUE_REFERENCE_IN_THREAD_PATTERN.test(Text)
-        ? 'vague_reference_in_thread'
-        : 'above_reference_in_thread';
+        ? 'vague_reference'
+        : ABOVE_REFERENCE_PATTERN.test(Text)
+          ? 'above_reference'
+          : 'object_position_pronoun';
+    const StructuralPath = `${ReferenceShape}_${InThread ? 'in_thread' : 'in_channel'}`;
+    // The antecedent's ts is what makes a wrong stitch auditable rather than silent — it rides
+    // through to the ReminderCreated ledger payload as `enrichedFrom` (GH-55).
+    const AntecedentTs = PrecedingMessages[PrecedingMessages.length - 1]?.ts || null;
     ArgSlackApp.Logger.info(
-      `reminder path fired: path=${StructuralPath} enrichment=thread_context temporal_trigger="${TriggerMatch}" prepended_messages=${PrecedingMessages.length}`
+      `reminder path fired: path=${StructuralPath} enrichment=${InThread ? 'thread_context' : 'channel_context'}` +
+      ` temporal_trigger="${TriggerMatch}" prepended_messages=${PrecedingMessages.length}` +
+      ` antecedent_ts=${AntecedentTs || 'none'}`
     );
     return await this.#TryScheduleRemindersAsync(
       ArgSlackApp,
@@ -285,10 +368,63 @@ class RemindersAppMentionHandler {
       ArgEventInfo.ts,
       ArgEventInfo.user,
       false,
-      ArgEventInfo.thread_ts,
+      ArgEventInfo.thread_ts ?? null,
       ArgEventInfo.text,
-      true
+      true,
+      { SourceTs: AntecedentTs, Path: StructuralPath }
     );
+  }
+
+  /**
+   * Whether channel-level antecedent lookback is armed. Default OFF — this is a kill switch for a
+   * change that increases `conversations.history` + OpenAI call volume on a live workspace, not a
+   * phase gate. Unset (or any unrecognized value) leaves the enrichment path thread-only, exactly
+   * as it behaved before GH-55.
+   * @returns {boolean}
+   */
+  static IsChannelAntecedentLookbackEnabled() {
+    const Raw = (process.env.CHANNEL_ANTECEDENT_LOOKBACK_ENABLED || '').trim().toLowerCase();
+    return Raw === '1' || Raw === 'true' || Raw === 'yes' || Raw === 'on';
+  }
+
+  /**
+   * Collect a channel antecedent for a TOP-LEVEL message (GH-55). Distinct from
+   * `#CollectPrecedingHumanThreadMessagesAsync`, which returns `[]` when there is no thread and
+   * walks `conversations.replies`; this walks `conversations.history` on the channel timeline.
+   *
+   * **Participant continuity is the load-bearing filter, not recency.** A busy channel interleaves
+   * conversations, so time + message count alone will happily stitch "get it done by Friday" onto an
+   * unrelated mention three messages earlier. A thread is an explicit human assertion that messages
+   * belong together; a channel offers no such signal, so we require the next best one: the candidate
+   * must be from the follow-up's own author, or must mention them.
+   *
+   * Returns at most ONE message. The thread path prepends up to 3 because a thread bounds the
+   * conversation for us; here every extra message is another chance to stitch the wrong one, and
+   * every extra `<@U…>` in the block is another assignee the mentions fallback may pick up.
+   * @param {any} ArgSlackApp
+   * @param {any} ArgEventInfo
+   * @returns {Promise<Array<any>>}
+   */
+  async #CollectChannelAntecedentCandidatesAsync(ArgSlackApp, ArgEventInfo) {
+    const Recent = await ArgSlackApp.GetRecentChannelMessagesAsync(
+      ArgEventInfo.channel,
+      CHANNEL_ANTECEDENT_SCAN_LIMIT
+    );
+    const CurrentTs = Number(ArgEventInfo.ts);
+    const AuthorMentionToken = ArgEventInfo.user ? `<@${ArgEventInfo.user}>` : null;
+
+    // conversations.history returns newest-first; walk it in that order so the FIRST match is the
+    // most recent qualifying antecedent.
+    for(const Candidate of Recent) {
+      if(!Candidate?.text || Candidate.bot_id) continue;
+      const CandidateTs = Number(Candidate.ts);
+      if(!Number.isFinite(CandidateTs) || CandidateTs >= CurrentTs) continue;
+      if(CurrentTs - CandidateTs > CHANNEL_ANTECEDENT_MAX_AGE_SECONDS) break;
+      const SameAuthor = Boolean(ArgEventInfo.user) && Candidate.user === ArgEventInfo.user;
+      const MentionsAuthor = Boolean(AuthorMentionToken) && Candidate.text.includes(AuthorMentionToken);
+      if(SameAuthor || MentionsAuthor) return [Candidate];
+    }
+    return [];
   }
 
   /**
@@ -1246,8 +1382,13 @@ class RemindersAppMentionHandler {
     // parity. The projection path is also wrapped so it can never break the weekly summary: any error
     // falls back to the authoritative CompletionStore. Projection completed-rows are field-compatible
     // (summary / assigneeID / completedMs) so the rendering below is unchanged either way.
-    const UseProjectionForCompleted =
-      String(process.env.SUMMARIZE_WEEK_COMPLETED_SOURCE || '').toLowerCase() === 'projection';
+    // Goes through the shared blocklist rather than reading process.env directly. This call site has
+    // no coverage gate at all, so before this it was the LEAST protected of the four projection
+    // flags — the catch below only fires on a thrown error, and a silently-wrong fold is not an
+    // error. Parked by decision along with the other three (see the blocklist's comment).
+    const UseProjectionForCompleted = IsProjectionRequested('SUMMARIZE_WEEK_COMPLETED_SOURCE', {
+      Logger: ArgSlackApp.Logger,
+    });
     let CompletedRows;
     if(UseProjectionForCompleted) {
       try {
@@ -1997,3 +2138,7 @@ module.exports = RemindersAppMentionHandler;
 // Exposed for regression tests that lock the standalone-command anchoring (see REMEMBER_ABOVE_PATTERN).
 module.exports.REMEMBER_ABOVE_PATTERN = REMEMBER_ABOVE_PATTERN;
 module.exports.SEND_TO_GITHUB_PATTERN = SEND_TO_GITHUB_PATTERN;
+// GH-55: exported so the noise corpus is a runnable fixture rather than a comment. The gate item
+// "conversational noise does NOT fire an AI call" is only checkable against the production rule.
+module.exports.IsObjectPositionPronounReference = IsObjectPositionPronounReference;
+module.exports.CHANNEL_ANTECEDENT_MAX_AGE_SECONDS = CHANNEL_ANTECEDENT_MAX_AGE_SECONDS;
