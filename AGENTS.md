@@ -356,6 +356,59 @@ After any catalog change run `npm run validate:commands`. If the entry has `Incl
 - Adding architecture rules to this file without code evidence.
 - **Registering new NL command phrasings as inline `Router.Register(...)` blocks when the target route already exists.** Add the phrasing to `Aliases`, `IntentPhrases`, or `RegexAliases` in `data/static/ai/command-catalog.json` instead. Code-only aliases are invisible to `rmm`, help generation, and `validate:commands`. The only accepted exception is a pattern that requires runtime function logic or closes over private module state — if that applies, document the exception in code comments and note it in `CHANGELOG.md`.
 
+## 16) Lessons Learned
+
+_Each line is a rule that cost us a shipped defect. Evidence in parentheses — per §15, nothing goes
+here without it. Full narrative lives in `CHANGELOG.md` under `#lessonslearned`._
+
+**Verifying**
+
+- **Read the surface the user sees, not the convenient one.** Never crop harness output with
+  `sed`/`grep` to the section you expect your fix to change. GH-68 shipped twice as "verified"
+  because a `sed -n "/SCHEDULED REMINDERS/,$p"` filter discarded the posted confirmation reply —
+  the only surface the user ever looks at — and kept the one that already agreed with the fix.
+- **When one object has several render paths, a disagreement between them IS the bug.** Reminders
+  render through `#ComposeFeedbackMessageText` (posted now) and the stored text (posted later);
+  neither summarizes the other (`reminders-module.js:1693-1696`, `scripts/reminder-thread-battery.js`).
+- **Mutation-verify every new regression test.** Reintroduce the bug and confirm the new test — and
+  only it — goes red. GH-58's 27 tests all passed against the reintroduced defect; they were
+  testing a layer the bug did not reach.
+- **Verify an AI reviewer's citations before acting on its verdict.** Two reviews this repo drove
+  returned confident `file:line` references to lines that do not exist, and one `Approved` with
+  "No missed call sites found" concealed four (`CHANGELOG.md` § 1.4.294). Relay threads live under
+  gitignored `.xyz/`, so adjudications must be summarized into `CHANGELOG.md` to survive.
+
+**Changing**
+
+- **An all-call-sites invariant has no "out of scope" exception.** If a comment says a value must be
+  threaded into *every* call so paths "cannot disagree even in principle," the site you want to skip
+  as pre-existing is the first one to check, not the one to defer (GH-68; the skipped 7th call site
+  was the user-visible one).
+- **Two individually-correct features can cancel out exactly.** No component is wrong, so no
+  component's tests fail, and telemetry reports success while output is wrong. GH-55 enriched the
+  analyzer's input; GH-43 then validated the result against the *un-enriched* input. When telemetry
+  says a feature ran but the output disagrees, suspect a downstream guard discarding a good result —
+  not the feature.
+- **One entry point per input class.** Slack attachments had three near-duplicate handling paths and
+  the OCR route was reachable from none of them. Route through a single resolver
+  (`ResolveAttachmentIntent` in `src/context-file-classifier.js`), and see §15 on catalog-registered
+  phrasings rather than inline `Router.Register` blocks.
+- **Register a fallback chain's every candidate, or say it's a stub.** `VisionModelPreference` shipped
+  with only `[0]` reachable — a fallback list that could not fall back (GH-63).
+
+**Harnesses**
+
+- **A test harness must not alter production identity to isolate itself.** Isolate by data directory
+  (`SLEUTH_DATA_DIR`), never by renaming the workspace: `WORKSPACE_NAME` drives client mappings,
+  overlays, and display, so a suffixed name silently disables the rendering under test
+  (`scripts/reminder-thread-battery.js`, GH-60/GH-68).
+- **A harness default that bypasses a production gate will hide bugs behind an empty result.** The
+  battery defaulted to `channelType: "im"`, which skips the enabled-channels gate (GH-412) — a
+  scenario faithfully reproducing a real channel thread returned zero reminders and read as "no bug."
+  Seed the gate instead of routing around it.
+- **State what a harness cannot see, in the same place it prints its results.** Slack renders
+  `<!date^…>` client-side; no offline harness can. Undocumented divergences get read as fidelity.
+
 ## Architectural Baseline (current state)
 
 _Diagnosed, not prescribed — this reflects how the repo actually works today, not a target._

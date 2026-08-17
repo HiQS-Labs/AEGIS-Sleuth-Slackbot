@@ -19,9 +19,12 @@
 //
 // Scenario file shape:
 //   {
-//     "channel": "C_HARNESS",           // optional, defaults to "C_HARNESS"
-//     "channelType": "im",              // optional, defaults to "im" (DM) so the per-channel
-//                                       // enabled-reminders gate never needs pre-setup (GH-412)
+//     "channel": "C_HARNESS",           // optional, defaults to "C_HARNESS". Use the REAL Slack
+//                                       // channel ID to get production's client-prefix rendering.
+//     "channelType": "channel",         // optional, defaults to "channel" — the shape almost every
+//                                       // reported bug actually has. The harness seeds the
+//                                       // enabled-reminders file for it, so no pre-setup is needed.
+//                                       // Set "im" explicitly to exercise the DM bypass (GH-412).
 //     "turns": [
 //       { "user": "U_NOEL", "text": "let's run to the park" },
 //       { "user": "U_NOEL", "text": "Can you also bring some food" },
@@ -29,13 +32,32 @@
 //     ]
 //   }
 //
+// ## Fidelity to real Slack — read this before trusting a green run (GH-68)
+//
+// This harness exists to show what a user would SEE, so every deliberate divergence from production
+// is a place a real defect can hide. GH-68 is the worked example: the grounding guard discarded a
+// correctly-synthesized reminder title, and the harness *did* print the broken text — in the posted
+// confirmation reply — while the trailing reminder dump showed the fixed text. The two surfaces
+// disagreed, which was itself the bug (reminders-module.js:1695 requires every render path to be
+// handed the same routing decision), and reading only the trailing dump certified a broken build.
+// Hence: both surfaces are now labeled explicitly for what they are, and neither is a summary of
+// the other. If they disagree, that IS the finding — do not reconcile them by eye.
+//
+// What still is NOT 1:1, and why:
+//  - `<!date^…^{date_long_pretty}|fallback>` renders as a raw token. Slack does that substitution
+//    client-side; no offline harness can. Read the `|fallback` half.
+//  - "Related: X (N open reminders)" reflects the isolated store, so counts differ from production.
+//  - The real LLM is called, so titles vary run to run. Compare SHAPE, not bytes.
+//
 // Side-effect profile: Slack posts never leave this process (MockSlackApp records them in-memory
 // as SentMessages/SentBlockMessages). RemindersModule IS started (real ChannelSettings/AIPipeline)
-// but against a throwaway, pid-suffixed workspace name (`<workspace>-test-harness-<pid>`), so its
-// disk-backed persistence (reminders/enabled-channels/counter/completed/events-ledger files) never
-// touches the real workspace's runtime files and never collides across concurrent invocations —
-// those throwaway files are deleted again when the harness exits (before AND after the run). The
-// real LLM IS called for turns that reach AI extraction (real API cost/latency, same as
+// against the REAL workspace name — production resolves client mappings, overlays and display names
+// from that name, so renaming it (as this harness used to) silently changed the rendering under
+// test. Isolation is by DATA DIRECTORY instead (SLEUTH_DATA_DIR, GH-60): all disk-backed persistence
+// is redirected to a throwaway pid-scoped tree, so the real workspace's runtime files are never
+// written at all — strictly safer than the old pid-suffixed-name scheme, which wrote its throwaway
+// files into the real data/runtime and relied on remembering to delete each one. The real LLM IS
+// called for turns that reach AI extraction (real API cost/latency, same as
 // first-time-user-battery.js). A turn whose SimulateMessageAsync call throws is still printed in
 // full, but the process exits non-zero afterward — this is not swallowed into a green run.
 
@@ -53,13 +75,16 @@ if(typeof global.jest === 'undefined') {
 }
 
 const fs = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const Workspaces = require('../src/workspaces');
 const RemindersModule = require('../src/reminders-module');
 const { MockSlackApp } = require('../tests/mocks/mock-slack-app');
 
 const DEFAULT_CHANNEL = 'C_HARNESS';
-const DEFAULT_CHANNEL_TYPE = 'im';
+// A channel thread, not a DM — the shape real reports arrive in. The old "im" default existed only
+// to skip the enabled-channels gate; the harness now seeds that file, so the bypass is opt-in.
+const DEFAULT_CHANNEL_TYPE = 'channel';
 const BASE_TS_SECONDS = 1700000000;
 const TS_STEP_SECONDS = 5;
 
@@ -182,6 +207,63 @@ async function CleanupRuntimeFilesAsync(ArgWorkspaceName) {
 }
 
 /**
+ * Redirect ALL runtime persistence into a throwaway pid-scoped tree, so the harness can keep the
+ * REAL workspace name (which production renders from) without touching the real workspace's files.
+ *
+ * Respects an explicitly-set SLEUTH_DATA_DIR — the same convention `tests/runtime-setup.js` uses,
+ * so running under Jest keeps the per-worker isolation the runner already established instead of
+ * clobbering it mid-file.
+ *
+ * The client overlay is COPIED in rather than read through from the real tree: `ApplyClientPrefix`
+ * needs it to render "<Client> - <task>" the way production does, and a copy makes it structurally
+ * impossible for a harness run to write over live client mappings.
+ *
+ * @param {string} ArgWorkspaceName Real workspace name.
+ * @returns {Promise<string|null>} The temp root this call created, or null when isolation was
+ * already in force (caller must not delete a directory it did not create).
+ */
+async function IsolateRuntimeTreeAsync(ArgWorkspaceName) {
+  if(process.env.SLEUTH_DATA_DIR && process.env.SLEUTH_DATA_DIR.trim().length > 0) return null;
+
+  // resolve read-only inputs against the REAL tree before redirecting.
+  const RealOverlayPath = Workspaces.GetSubdirPath('client-project-map', `${ArgWorkspaceName}.json`);
+
+  const IsolatedRoot = path.join(os.tmpdir(), `sleuth-reminder-battery-${process.pid}`);
+  process.env.SLEUTH_DATA_DIR = IsolatedRoot;
+
+  const IsolatedOverlayDir = Workspaces.GetSubdirPath('client-project-map');
+  await fs.mkdir(IsolatedOverlayDir, { recursive: true });
+  try {
+    await fs.copyFile(RealOverlayPath, path.join(IsolatedOverlayDir, `${ArgWorkspaceName}.json`));
+  } catch(error) {
+    // no overlay for this workspace is normal (the static base list still applies) — anything else
+    // is a real failure and must not be swallowed into a run that then renders without prefixes.
+    if(error.code !== 'ENOENT') throw error;
+  }
+
+  return IsolatedRoot;
+}
+
+/**
+ * Seed the enabled-reminders file so a channel-typed scenario reaches the extraction pipeline.
+ *
+ * Without this, a scenario faithfully describing a real channel thread returns ZERO reminders and
+ * reads as "no bug here" — the gate at reminders-module.js:1442 rejects the message before any AI
+ * runs. That silent empty result is why the harness defaulted to "im" and diverged from production.
+ *
+ * @param {string} ArgWorkspaceName Real workspace name.
+ * @param {string} ArgChannelID Channel the scenario runs in.
+ * @returns {Promise<void>}
+ */
+async function SeedEnabledChannelAsync(ArgWorkspaceName, ArgChannelID) {
+  const EnabledChannelsPath = Workspaces.GetSubdirPath(
+    'reminders', `${ArgWorkspaceName}_enabled_channels.json`
+  );
+  await fs.mkdir(path.dirname(EnabledChannelsPath), { recursive: true });
+  await fs.writeFile(EnabledChannelsPath, `${JSON.stringify([ArgChannelID], null, 2)}\n`);
+}
+
+/**
  * Build a Slack-shaped ts string for the given turn index.
  * @param {number} ArgTurnIndex Zero-based turn index.
  * @returns {string}
@@ -198,16 +280,22 @@ function MakeTurnTS(ArgTurnIndex) {
  * @returns {Promise<void>}
  */
 async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
+  // load workspace config from the REAL tree first — isolation redirects that lookup too.
   const RealWorkspaceInfo = await Workspaces.LoadWorkspaceInfoByNameAsync(ArgWorkspaceName);
-  // pid-suffixed so concurrent invocations (or a stale name from a prior crashed run) never
-  // collide or load/delete each other's throwaway state.
-  const HarnessWorkspaceInfo = {
-    ...RealWorkspaceInfo,
-    WORKSPACE_NAME: `${RealWorkspaceInfo.WORKSPACE_NAME}-test-harness-${process.pid}`,
-  };
-  // start clean even though the pid suffix already makes collisions vanishingly unlikely —
-  // cheap insurance against pid reuse or a hand-crafted --keep-data name reused deliberately.
+
+  // Isolate by data directory, NOT by renaming the workspace. Production resolves client mappings
+  // and display identity from WORKSPACE_NAME, so a suffixed name quietly disabled the very
+  // rendering this harness is supposed to reproduce (the missing "<Client> - " prefix, GH-68).
+  const IsolatedRoot = await IsolateRuntimeTreeAsync(RealWorkspaceInfo.WORKSPACE_NAME);
+  const HarnessWorkspaceInfo = { ...RealWorkspaceInfo };
+
+  // start clean: a prior --keep-data run (or a reused pid) must not leak reminders into this one.
   await CleanupRuntimeFilesAsync(HarnessWorkspaceInfo.WORKSPACE_NAME);
+
+  // a non-DM scenario has to opt the channel in, exactly as a real workspace admin would have.
+  const IsDirectMessage = ArgScenario.channelType === 'im';
+  if(!IsDirectMessage)
+    await SeedEnabledChannelAsync(HarnessWorkspaceInfo.WORKSPACE_NAME, ArgScenario.channel);
 
   // the full scenario is known upfront, so the entire turn list (including turns not yet
   // "simulated") can be pre-loaded as the thread fixture — #CollectPrecedingHumanThreadMessagesAsync
@@ -235,7 +323,9 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
   await Reminders.StartAsync(EmptyWorkspaceStats);
 
   console.log('================================================================');
-  console.log(`WORKSPACE: ${ArgWorkspaceName}  (harness data isolated under "${HarnessWorkspaceInfo.WORKSPACE_NAME}")`);
+  console.log(`WORKSPACE: ${HarnessWorkspaceInfo.WORKSPACE_NAME}  (real name — client mappings apply)`);
+  console.log(`RUNTIME DATA: ${Workspaces.GetRuntimeDirPath()}${IsolatedRoot ? '  (throwaway)' : '  (pre-set SLEUTH_DATA_DIR)'}`);
+  console.log(`CHANNEL: ${ArgScenario.channel}  type=${ArgScenario.channelType}${IsDirectMessage ? '  (DM — enabled-channels gate bypassed)' : '  (seeded as reminder-enabled)'}`);
   console.log(`COMPLEX MODEL (reminder extraction): ${Reminders.WorkspaceAI ? Reminders.WorkspaceAI.ComplexModelName : '(n/a)'}`);
   console.log('================================================================\n');
 
@@ -271,14 +361,20 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
       console.log(`${Turn.user}: ${Turn.text}`);
       console.log(`handled=${WasHandled}  text-replies=${NewTexts.length}  block-replies=${NewBlocks.length}`);
       if(CaptureError) console.log(`ERROR: ${CaptureError.message}`);
-      for(const Sent of NewTexts) console.log(`SLEUTH:\n${Sent.text}\n`);
-      for(const Block of NewBlocks) console.log(`SLEUTH (blocks fallback text):\n${Block.text}\n`);
+      // THIS is the surface a user reacts to — the confirmation Sleuth posts back into the thread,
+      // rendered by #ComposeFeedbackMessageText. It is a SEPARATE render path from the stored text
+      // dumped at the end of the run, and GH-68 is the case where the two disagreed. Labeled so it
+      // cannot be mistaken for a duplicate of that dump and filtered away.
+      for(const Sent of NewTexts) console.log(`SLEUTH → posted reply (what the user sees NOW):\n${Sent.text}\n`);
+      for(const Block of NewBlocks) console.log(`SLEUTH → posted reply, blocks fallback text:\n${Block.text}\n`);
       console.log('');
     }
 
     const AllReminders = Reminders.GetAllReminders();
     console.log('================================================================');
-    console.log(`SCHEDULED REMINDERS (${AllReminders.length}):`);
+    console.log(`STORED REMINDER TEXT (${AllReminders.length}) — posted LATER when each fires.`);
+    console.log('NOT a summary of the replies above: a different render path composed it.');
+    console.log('If it disagrees with a posted reply, that disagreement is the finding.');
     console.log('================================================================');
     for(const Reminder of AllReminders) {
       console.log(`- "${Reminder.ReminderMessageText}"`);
@@ -287,7 +383,11 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
     if(AllReminders.length === 0) console.log('(none)');
   } finally {
     await Reminders.StopAsync();
-    if(!ArgKeepData) await CleanupRuntimeFilesAsync(HarnessWorkspaceInfo.WORKSPACE_NAME);
+    if(!ArgKeepData) {
+      await CleanupRuntimeFilesAsync(HarnessWorkspaceInfo.WORKSPACE_NAME);
+      // only remove a tree this call created — never one the caller (or Jest) set up.
+      if(IsolatedRoot) await fs.rm(IsolatedRoot, { recursive: true, force: true });
+    }
   }
 
   // surface turn failures as a real non-zero exit instead of a clean-looking run — printed
@@ -334,6 +434,8 @@ module.exports = {
   LoadScenarioAsync,
   GetReminderRuntimeFilePaths,
   CleanupRuntimeFilesAsync,
+  IsolateRuntimeTreeAsync,
+  SeedEnabledChannelAsync,
   MakeTurnTS,
   RunScenarioAsync,
 };
