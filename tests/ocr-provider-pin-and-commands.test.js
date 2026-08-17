@@ -81,6 +81,51 @@ describe('GH-63: vision model is pinned independently of the default chat model'
   });
 });
 
+describe('GH-63 r2 (agy review): every declared fallback model is actually reachable', () => {
+  const Stats = {
+    RecordAIRequest: () => {}, RecordAIResponse: () => {}, RecordAIError: () => {},
+    IncrementCounter: () => {},
+  };
+
+  function MakeAgent(ArgDefaultModel) {
+    return new WorkspaceAI(
+      { WORKSPACE_NAME: 'FallbackWorkspace', GEMINI_API_KEY: 'g-key' },
+      Stats,
+      ArgDefaultModel
+    );
+  }
+
+  test('the candidate list exposes every preference entry, not just the head', () => {
+    const Candidates = MakeAgent('gpt-4o-mini').ResolveVisionModelNames();
+    for(const ModelName of WorkspaceAI.VisionModelPreference) {
+      expect(Candidates).toContain(ModelName);
+    }
+  });
+
+  test('a pinned Gemini default leads the list but no longer hides the fallbacks', () => {
+    const Candidates = MakeAgent('gemini-3.0-experimental').ResolveVisionModelNames();
+    expect(Candidates[0]).toBe('gemini-3.0-experimental');
+    expect(Candidates.length).toBeGreaterThan(1);
+    // No duplicates, even if the pinned model is also in the preference list.
+    expect(new Set(Candidates).size).toBe(Candidates.length);
+  });
+
+  // The candidate-walking loop itself is exercised in
+  // tests/vision-model-fallback.test.js, which mocks the provider registry at module load —
+  // the only honest way to intercept a function this module destructures at require time.
+
+  test.each([
+    ['404 status', Object.assign(new Error('nope'), { status: 404 }), true],
+    ['model not found message', new Error('model gemini-x not found'), true],
+    ['unsupported model message', new Error('Unsupported model: gemini-x'), true],
+    ['quota error', new Error('quota exceeded for this project'), false],
+    ['malformed image', new Error('image payload was rejected as malformed'), false],
+    ['null', null, false],
+  ])('IsModelUnavailableError(%s) -> %s', (_Label, ArgError, ArgExpected) => {
+    expect(WorkspaceAI.IsModelUnavailableError(ArgError)).toBe(ArgExpected);
+  });
+});
+
 describe('GH-64: OCR capabilities are discoverable through the command catalog', () => {
   test('the catalog is no longer blind to OCR — the measurement that justified this work', () => {
     const Matching = CommandCatalog.filter(

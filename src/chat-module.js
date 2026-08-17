@@ -2667,7 +2667,9 @@ class ChatModule {
       return { Handled: false, TextFileWasStored: false };
 
     if(Intent.Kind === 'image-ocr') {
-      await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgText);
+      // Hand the resolved file straight through — re-selecting here could pick a different
+      // attachment than the one this dispatch decision was made on.
+      await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgText, Intent.File);
       return { Handled: true, TextFileWasStored: false };
     }
 
@@ -2902,11 +2904,16 @@ class ChatModule {
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
    * @param {string} [ArgCommandTextRaw] Raw (mention-stripped) command text used as the prompt.
+   * @param {import('./slack-app').SlackFileInfo|null} [ArgImageFile] The image already chosen by
+   *   `ResolveAttachmentIntent`. Passed through so the dispatch path does not re-run selection and
+   *   risk picking a different attachment than the one it routed on (agy relay review r1). Callers
+   *   without a resolved file (the explicit `scan image for text` command) omit it and selection
+   *   falls back to the same helper the resolver uses.
    * @returns {Promise<{ ok: boolean, Title?: string, Items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }>}
    */
-  async #ExtractListItemsFromImageAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw) {
+  async #ExtractListItemsFromImageAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw, ArgImageFile = null) {
     const ReplyTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
-    const ImageSelection = SelectImageAttachment(ArgEventInfo.files);
+    const ImageSelection = ArgImageFile || SelectImageAttachment(ArgEventInfo.files);
     if(!ImageSelection) {
       ArgSlackApp.Logger.warn('[ocr-list] no image attachment found in files array.');
       await ArgSlackApp.PostMessageTextAsync(
@@ -3055,7 +3062,12 @@ class ChatModule {
   async #MaterializeListFromItemsAsync(ArgSlackApp, ArgEventInfo, ArgTitle, ArgItems) {
     const ReplyTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
     const ExtractedItems = ArgItems;
-    const OcrResult = { title: ArgTitle };
+    // agy relay review r1: the extraction result was previously re-wrapped as `{ title: ArgTitle }`
+    // purely so the lifted body could keep reading `OcrResult.title`. The title is already a
+    // parameter — read it directly rather than carrying a shim that outlives the refactor.
+    const ListTitle = (typeof ArgTitle === 'string' && ArgTitle.trim().length > 0)
+      ? ArgTitle
+      : 'Extracted List';
 
     try {
       // Step 4: create the Slack List via ListsModule.
@@ -3069,15 +3081,14 @@ class ChatModule {
           'Slack Lists is not configured for this workspace yet. The items have been extracted but the list could not be created.'
         );
         // Still post the extracted items summary so the user sees what was parsed.
-        const Title = (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List';
-        await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, Title, ExtractedItems);
+        await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, ListTitle, ExtractedItems);
         return true;
       }
 
       let ListResult;
       try {
         ListResult = await ListsModuleInstance.CreateListFromExtractedItemsAsync({
-          ListTitle: (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List',
+          ListTitle,
           Items: ExtractedItems,
           ChannelID: ArgEventInfo.channel,
           UserID: ArgEventInfo.user,
@@ -3176,10 +3187,12 @@ class ChatModule {
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
    * @param {string} ArgCommandTextRaw Raw (mention-stripped) command text.
+   * @param {import('./slack-app').SlackFileInfo|null} [ArgImageFile] Image already resolved by the
+   *   unified dispatch, threaded through so selection happens exactly once per event.
    * @returns {Promise<boolean>} true when the event was handled.
    */
-  async #TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw) {
-    const Extraction = await this.#ExtractListItemsFromImageAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw);
+  async #TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw, ArgImageFile = null) {
+    const Extraction = await this.#ExtractListItemsFromImageAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw, ArgImageFile);
     if(!Extraction.ok) return true;
     return this.#MaterializeListFromItemsAsync(
       ArgSlackApp,
