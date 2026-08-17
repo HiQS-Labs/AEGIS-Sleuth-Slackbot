@@ -134,6 +134,64 @@ function SelectContextMemoryFile(ArgFiles) {
 }
 
 /**
+ * Detect a list-creation / OCR intent in the text accompanying an attachment (GH-58, GH-62).
+ * Lives here rather than in ChatModule so that attachment classification and the intent that
+ * selects a handler are decided in ONE place — the split between them is what made the OCR
+ * feature unreachable (GH-62). GH-64 extends this with catalog-driven aliases.
+ * @param {string} ArgText Message text with the bot mention already stripped.
+ * @returns {boolean}
+ */
+function HasListCreationIntent(ArgText) {
+  if(typeof ArgText !== 'string') return false;
+  const NormalizedText = ArgText
+    .replace(/[“”]/g, '"')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if(NormalizedText.length === 0) return false;
+
+  return /\b(create|extract|convert|make|build|generate)\s+(a\s+)?list\b/i.test(NormalizedText)
+    || /ocr\s+(a\s+)?list/i.test(NormalizedText)
+    || /extract.*items?\s*(from|of)/i.test(NormalizedText)
+    || /list\s*(out|up|format)/i.test(NormalizedText);
+}
+
+/**
+ * Single resolver for "what is this attachment, and who owns it?" (GH-62).
+ *
+ * Replaces the previous arrangement where `SelectContextMemoryFile` and `SelectImageAttachment`
+ * were consulted independently by two different branches of ChatModule and disagreed: an image
+ * was 'unsupported' to the first and a valid selection to the second, so whichever branch ran
+ * first won. That is why GH-58's OCR feature never executed.
+ *
+ * Resolution order is deliberate:
+ * - A text-readable attachment always wins. Text context memory is the older, broader capability,
+ *   and a user attaching a document plus an image most likely wants the document read.
+ * - An image only routes to OCR when the accompanying text carries a list/OCR intent. An image
+ *   with no such intent stays 'unsupported' so the existing "I can only read text files" guidance
+ *   still fires — silently ignoring an attachment is the failure mode this whole module exists to
+ *   prevent.
+ *
+ * @param {SlackFileInfo[]|undefined} ArgFiles Attachments from the Slack event payload.
+ * @param {string} [ArgText] Message text with the bot mention stripped.
+ * @returns {{ Kind: 'none'|'text'|'image-ocr'|'unsupported', File: SlackFileInfo|null }}
+ */
+function ResolveAttachmentIntent(ArgFiles, ArgText) {
+  if(!Array.isArray(ArgFiles) || ArgFiles.length === 0)
+    return { Kind: 'none', File: null };
+
+  const TextFile = ArgFiles.find((ArgFile) => IsTextLikeContextFile(ArgFile));
+  if(TextFile) return { Kind: 'text', File: TextFile };
+
+  const ImageFile = SelectImageAttachment(ArgFiles);
+  if(ImageFile && HasListCreationIntent(ArgText))
+    return { Kind: 'image-ocr', File: ImageFile };
+
+  return { Kind: 'unsupported', File: ArgFiles[0] };
+}
+
+/**
  * Heuristic guard for content that is actually a Slack HTML error/login page rather
  * than the requested file. Deliberately narrow (only a leading HTML document marker)
  * so genuine text uploads that legitimately start with '<' — XML, SVG, HTML fragments,
@@ -178,5 +236,7 @@ module.exports = {
   IsImageMediaFile,
   SelectContextMemoryFile,
   SelectImageAttachment,
+  HasListCreationIntent,
+  ResolveAttachmentIntent,
   LooksLikeHtmlErrorPage,
 };

@@ -112,6 +112,12 @@ The normal reminder creation flow is:
 7. Snooze suppression must pass through `#ShouldSuppressForSnooze(...)` before posting.
 8. Posted reminders can be completed, canceled, snoozed, retried, or dead-lettered depending on the state transition.
 
+A scheduled reminder is rendered **twice by separate code**: the confirmation posted immediately
+(`#ComposeFeedbackMessageText`) and the reminder text stored for posting at its due time (composed at
+the `#SelectReminderTaskText` reduce). Both must be handed the same synthesis routing decision and
+grounding source, or the two disagree for one reminder — see the invariant comment above
+`SynthesisRouting` in `src/reminders-module.js`, which is authoritative.
+
 ### Reminder FSM and Write-Path Contract
 
 Reminder state is an explicit FSM with three enforcement points — do not bypass any of them:
@@ -459,6 +465,19 @@ It mirrors the AEGIS wrapper contract closely enough to test:
 - module behavior without connecting to a real Slack workspace
 
 This is the preferred layer for repeatable Slack-flow regression coverage.
+
+Two scripted batteries drive the real modules through that mock wrapper and print what a user would
+see, turn by turn — useful when the question is "what does this actually render?" rather than "does
+this assertion hold":
+
+- `scripts/reminder-thread-battery.js` — replays a multi-turn thread through the real
+  `RemindersModule` (real LLM). Read its file header before trusting a run: it documents exactly
+  where the harness is and is not 1:1 with Slack, and why the two reminder render surfaces it prints
+  are not summaries of each other.
+- `scripts/first-time-user-battery.js` — the same idea for the app-mention/chat command surface.
+
+Both are observation tools, not gates; `npm test` remains the regression net. Lessons about trusting
+their output live in `AGENTS.md` §16, not here.
 
 ### 3. Real Slack smoke tests
 

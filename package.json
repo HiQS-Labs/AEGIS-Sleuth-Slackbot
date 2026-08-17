@@ -1,6 +1,6 @@
 {
   "name": "aegis",
-  "version": "1.4.292",
+  "version": "1.4.295",
   "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
   "main": "src/app.js",
   "engines": {
@@ -20,6 +20,7 @@
     "slack:harness:post": "node scripts/slack-harness-post.js",
     "slack:harness:file-upload": "node scripts/slack-harness-file-upload.js",
     "lists:harness": "node scripts/lists-harness.js",
+    "attachments:e2e": "node scripts/attachment-pipeline-e2e.js",
     "stratalist:spike": "node scripts/stratalist-import-spike.js",
     "reconstruct:github": "node scripts/reconstruct-github-reminders.js",
     "validate:ai": "node scripts/validate-ai-prompts.js",

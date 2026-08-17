@@ -20,6 +20,8 @@ const {
   LoadScenarioAsync,
   GetReminderRuntimeFilePaths,
   CleanupRuntimeFilesAsync,
+  IsolateRuntimeTreeAsync,
+  SeedEnabledChannelAsync,
   MakeTurnTS,
   RunScenarioAsync,
 } = require('../scripts/reminder-thread-battery');
@@ -95,7 +97,10 @@ describe('reminder-thread-battery LoadScenarioAsync', () => {
 
     const Scenario = await LoadScenarioAsync(TmpScenarioPath);
     expect(Scenario.channel).toBe('C_HARNESS');
-    expect(Scenario.channelType).toBe('im');
+    // GH-68: was 'im'. A DM skips the enabled-channels gate, so the harness's DEFAULT shape was
+    // one real reports almost never have. The harness now seeds that gate, so defaulting to a
+    // channel thread costs nothing and stops the default run from diverging from production.
+    expect(Scenario.channelType).toBe('channel');
     expect(Scenario.turns).toEqual([{ user: 'U_NOEL', text: "let's run to the park" }]);
   });
 
@@ -144,9 +149,11 @@ describe('reminder-thread-battery path/ts helpers', () => {
 });
 
 describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real LLM calls)', () => {
-  // pid-suffixed so concurrent invocations (or a stale name from a prior crashed run) never
-  // collide — see GH-424 Codex review. Constant within this process's test run.
-  const HarnessWorkspaceName = `${FakeWorkspaceInfo.WORKSPACE_NAME}-test-harness-${process.pid}`;
+  // GH-68: the harness no longer renames the workspace. Production resolves client mappings and
+  // display identity from WORKSPACE_NAME, so a suffixed name disabled the very rendering the
+  // harness exists to reproduce. Isolation is by SLEUTH_DATA_DIR instead — already in force here,
+  // per-worker, from tests/runtime-setup.js, so RunScenarioAsync leaves it alone.
+  const HarnessWorkspaceName = FakeWorkspaceInfo.WORKSPACE_NAME;
 
   let LoadWorkspaceSpy;
   beforeEach(() => {
@@ -250,5 +257,48 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
     const [EnrichedText] = AnalysisCall;
     expect(EnrichedText).toContain('Can you also bring some food');
     expect(EnrichedText).toContain('please see above and meet at the park at 2 PM tomorrow');
+  });
+
+  // GH-68 — THE PIN. Before this change a channel-typed scenario was rejected by the
+  // enabled-channels gate (reminders-module.js:1442) before any AI ran, so a scenario faithfully
+  // describing the reported thread produced ZERO reminders and read as "no bug here". That silent
+  // empty result is precisely why the harness diverged from Slack, so it gets a regression test
+  // rather than a comment.
+  test('a CHANNEL-typed scenario reaches AI extraction — the enabled-channels gate is seeded', async () => {
+    const MockProcessMessage = ConfigureMockWorkspaceAI(MockWorkspaceAI, { recommendation: 'ignore' });
+
+    await RunScenarioAsync(
+      FakeWorkspaceInfo.WORKSPACE_NAME,
+      {
+        channel: 'C_REAL_CHANNEL',
+        channelType: 'channel',
+        turns: [{ user: 'U_NOEL', text: 'ship the thing by 2 PM tomorrow' }],
+      },
+      false
+    );
+
+    expect(MockProcessMessage.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  test('SeedEnabledChannelAsync writes the channel list RemindersChannelSettings expects', async () => {
+    await SeedEnabledChannelAsync(HarnessWorkspaceName, 'C_SEEDED');
+
+    const SeededPath = Workspaces.GetSubdirPath(
+      'reminders', `${HarnessWorkspaceName}_enabled_channels.json`
+    );
+    // shape matters: LoadEnabledChannelsAsync does `new Set(JSON.parse(...))`, so a bare array is
+    // the contract. An object would parse and then silently enable nothing.
+    expect(JSON.parse(await fs.readFile(SeededPath, 'utf8'))).toEqual(['C_SEEDED']);
+  });
+
+  test('IsolateRuntimeTreeAsync leaves a caller-established SLEUTH_DATA_DIR alone', async () => {
+    // Under Jest, runtime-setup.js already isolated this worker. If the harness clobbered that, it
+    // would redirect the REST of the worker's tests to its own temp tree mid-run and then delete
+    // it — the exact cross-worker leakage GH-60 fixed.
+    const PreExisting = process.env.SLEUTH_DATA_DIR;
+    expect(PreExisting).toBeTruthy();
+
+    await expect(IsolateRuntimeTreeAsync(HarnessWorkspaceName)).resolves.toBeNull();
+    expect(process.env.SLEUTH_DATA_DIR).toBe(PreExisting);
   });
 });

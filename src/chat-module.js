@@ -23,6 +23,7 @@ const {
   IsBinaryMediaFile,
   LooksLikeHtmlErrorPage,
   SelectImageAttachment,
+  ResolveAttachmentIntent,
 } = require('./context-file-classifier');
 const HandleRestartCommandAsync = require('./chat-commands/restart-command');
 const HandleVersionCommandAsync = require('./chat-commands/version-command');
@@ -58,6 +59,8 @@ const HandleAskWooCommandAsync = require('./chat-commands/ask-woo-command');
 const HandleWebSearchProviderCommandAsync = require('./chat-commands/web-search-provider-command');
 const HandleHelpFeaturesCommandAsync = require('./chat-commands/help-features-command');
 const HandleViewStratalistCommandAsync = require('./chat-commands/view-stratalist-command');
+const HandleScanImageCommandAsync = require('./chat-commands/scan-image-command');
+const HandleConvertToListCommandAsync = require('./chat-commands/convert-to-list-command');
 const HandleChangelogCommandAsync = require('./chat-commands/changelog-command');
 const HandleCommandsListAsync = require('./chat-commands/commands-list-command');
 const HandleRunDiagnosticsCommandAsync = require('./chat-commands/run-diagnostics-command');
@@ -407,6 +410,34 @@ class ChatModule {
       Pattern: /^refresh\s+clients\b/i,
       Route: 'refresh clients',
       Handle: (ArgEventInfo) => HandleRefreshClientsCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    // GH-64: explicit OCR / list-conversion commands. These dispatch into the same extraction and
+    // materialization seams the natural-language route uses — deliberately NOT a third pipeline.
+    Router.Register({
+      Pattern: /^(?:scan|ocr)\s+(?:the\s+)?image(?:\s+for\s+text)?\b/i,
+      DescribePattern: /^(?:scan|ocr)\s+(?:the\s+)?image/i,
+      Route: 'scan image for text',
+      Handle: (ArgEventInfo) => HandleScanImageCommandAsync(this.#SlackApp, ArgEventInfo, {
+        ExtractTextFromImageAsync: (ArgSlackApp, ArgEvent) =>
+          this.#ExtractListItemsFromImageAsync(ArgSlackApp, ArgEvent, 'Extract all text from this image.'),
+      }),
+    });
+
+    Router.Register({
+      Pattern: /^convert\s+(?:the\s+)?text\s+into\s+(?:a\s+)?slack\s+list\b[\s,:;.!?]*(.*)/is,
+      DescribePattern: /^convert\s+(?:the\s+)?text\s+into\s+(?:a\s+)?slack\s+list/i,
+      Route: 'convert text into slack list',
+      Handle: (ArgEventInfo, ArgSourceText) => HandleConvertToListCommandAsync(
+        this.#SlackApp,
+        ArgEventInfo,
+        ArgSourceText,
+        {
+          ExtractItemsFromTextAsync: (ArgText) => this.#ExtractItemsFromTextAsync(ArgText),
+          MaterializeListAsync: (ArgSlackApp, ArgEvent, ArgTitle, ArgItems) =>
+            this.#MaterializeListFromItemsAsync(ArgSlackApp, ArgEvent, ArgTitle, ArgItems),
+        }
+      ),
     });
 
     Router.Register({
@@ -1076,32 +1107,24 @@ class ChatModule {
     // post when the user also asked a question — the AI's attribution footer signals which file was
     // used, and suppressing prevents the confirmation from appearing in the thread context the AI
     // reads on the same turn.
-    const FileStoreResult = await this.#TryStoreThreadMemoryFileAsync(
+    const AttachmentResult = await this.#HandleAttachmentAsync(
       ArgSlackApp,
       ArgEventInfo,
+      CommandTextWithoutMention,
       !!CommandTextWithoutMention
     );
-    const FileWasHandled = FileStoreResult.FoundContextFile;
-    const FileWasLoaded = FileStoreResult.FileWasStored;
+    if(AttachmentResult.Handled) return true;
+    const FileWasLoaded = AttachmentResult.TextFileWasStored;
 
-    if(FileWasHandled) {
-      if(!FileWasLoaded) return true;
+    if(FileWasLoaded) {
       // if the message contained only the file with no question, the confirmation is sufficient.
       if(!CommandTextWithoutMention) return true;
       // question text is present alongside the upload — skip command routing and fall through
       // to generate an AI answer grounded in the just-loaded context memory.
     } else {
-      // no file — run the normal command routing pipeline.
+      // no attachment took ownership — run the normal command routing pipeline.
       const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(CommandTextWithoutMention);
       const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
-
-      // GH-58: detect image attachments carrying a list-creation request, run Gemini Vision OCR,
-      // and materialize extracted items directly into a Slack List. Short-circuits here so the
-      // message never falls through to command routing or generic chat.
-      if(ArgEventInfo.files?.length > 0 && ChatModule.#IsImageListCreationRequest(NormalizedCommandText)) {
-        if(await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, CommandTextWithoutMention))
-          return true;
-      }
 
       // GH-397 router mode: when armed, Gemini Flash Lite either shadows the resolver (logs a corpus
       // record, ZERO authority) or, in `active`, takes over resolution above a confidence floor.
@@ -1408,29 +1431,9 @@ class ChatModule {
     return HasReminderNoun && HasCreationVerb;
   }
 
-  /**
-   * Detect list-creation requests from images (GH-58). Matches commands like "create a list",
-   * "extract items", "turn this into a list" etc. alongside an attached image. Returns true
-   * so #TryProcessImageForListCreationAsync short-circuits before generic chat fallthrough.
-   * @param {string} ArgCommandText App mention text after removing the bot mention.
-   * @returns {boolean}
-   */
-  static #IsImageListCreationRequest(ArgCommandText) {
-    if(typeof ArgCommandText !== 'string') return false;
-    const NormalizedText = ArgCommandText
-      .replace(/[“”]/g, '"')
-      .replace(/[’]/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-    if(NormalizedText.length === 0) return false;
-
-    // Keywords that signal a list-creation intent rather than plain chat.
-    return /\b(create|extract|convert|make|build|generate)\s+(a\s+)?list\b/i.test(NormalizedText)
-      || /ocr\s+(a\s+)?list/i.test(NormalizedText)
-      || /extract.*items?\s*(from|of)/i.test(NormalizedText)
-      || /list\s*(out|up|format)/i.test(NormalizedText);
-  }
+  // GH-62: #IsImageListCreationRequest moved to context-file-classifier.HasListCreationIntent so
+  // that attachment classification and the intent selecting a handler are decided in one place.
+  // Splitting them across two modules is what let the image path and the text path disagree.
 
   /**
    * Action ID for the "Search the web" suggestion button attached to freeform chat answers.
@@ -1914,14 +1917,17 @@ class ChatModule {
       // thread context memory before any other handling. Suppress the confirmation when the message
       // also has question text (same-turn contamination fix).
       const HasQuestionText = !!ArgEventInfo.text.trim();
-      const FileStoreResult = await this.#TryStoreThreadMemoryFileAsync(
+      // GH-62: same unified dispatch as #OnAppMentionAsync. Previously this site called the text
+      // ingest directly and had no image path at all, so a screenshot uploaded without an
+      // @mention could never OCR even once the app_mention ordering was correct.
+      const AttachmentResult = await this.#HandleAttachmentAsync(
         ArgSlackApp,
         ArgEventInfo,
+        ArgEventInfo.text,
         HasQuestionText
       );
-      const FileWasHandled = FileStoreResult.FoundContextFile;
-      const FileWasLoaded = FileStoreResult.FileWasStored;
-      if(FileWasHandled && !FileWasLoaded) return true;
+      if(AttachmentResult.Handled) return true;
+      const FileWasLoaded = AttachmentResult.TextFileWasStored;
       if(FileWasLoaded && !HasQuestionText) return true;
 
       // attempt to handle deterministic responses first (skip when file was just loaded).
@@ -2635,6 +2641,53 @@ class ChatModule {
   }
 
   /**
+   * Single dispatch point for every Slack attachment (GH-62).
+   *
+   * Before this existed, `#OnAppMentionAsync` and `#OnMessageAsync` each reached for attachment
+   * handling on their own: the text ingest ran first and unconditionally, and the image/OCR check
+   * lived in a mutually exclusive `else` branch reached only when no attachment was recognized.
+   * Because the text classifier reports an image as 'unsupported' — which counts as recognized —
+   * the OCR branch was unreachable and GH-58's feature never ran in production. Routing every
+   * attachment through one resolver here is what makes that class of bug structurally impossible
+   * rather than merely fixed once.
+   *
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @param {string} ArgText Message text with the bot mention stripped.
+   * @param {boolean} ArgSuppressConfirmation Suppress the "I've loaded…" post when question text
+   *   accompanies the upload (same-turn context contamination fix).
+   * @returns {Promise<{ Handled: boolean, TextFileWasStored: boolean }>}
+   *   `Handled` means the event is fully dealt with and the caller must stop. `TextFileWasStored`
+   *   means a text file became thread context memory and the caller may continue to an AI answer.
+   */
+  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation) {
+    const Intent = ResolveAttachmentIntent(ArgEventInfo.files, ArgText);
+
+    if(Intent.Kind === 'none')
+      return { Handled: false, TextFileWasStored: false };
+
+    if(Intent.Kind === 'image-ocr') {
+      // Hand the resolved file straight through — re-selecting here could pick a different
+      // attachment than the one this dispatch decision was made on.
+      await this.#TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgText, Intent.File);
+      return { Handled: true, TextFileWasStored: false };
+    }
+
+    // 'text' and 'unsupported' are both owned by the context-memory ingest, which already posts
+    // the right message for each case.
+    const FileStoreResult = await this.#TryStoreThreadMemoryFileAsync(
+      ArgSlackApp,
+      ArgEventInfo,
+      ArgSuppressConfirmation
+    );
+
+    if(FileStoreResult.FileWasStored)
+      return { Handled: false, TextFileWasStored: true };
+
+    return { Handled: true, TextFileWasStored: false };
+  }
+
+  /**
    * Detect an uploaded MD file in the event, download it, and store as thread context memory.
    * Only processes when the event is in a thread (thread_ts is set). Replaces any prior memory
    * for the same thread. Posts a confirmation reply on success, or an error reply on oversized files.
@@ -2838,20 +2891,29 @@ class ChatModule {
   }
 
   /**
-   * Process an image attachment as a list-extraction request (GH-58). Detects images in
-   * ArgEventInfo.files, downloads them via SlackApp.DownloadFileBase64Async, runs Gemini
-   * Vision OCR through WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync using the
-   * ocr-list-extraction-instructions/schema pair, then materializes results into a Slack
-   * List via ListsModule.CreateListFromExtractedItemsAsync. Posts a confirmation reply on
-   * success, or a clear error message on failure.
+   * Run Vision OCR over an image attachment and return the structured items (GH-58, split out in
+   * GH-64). Downloads via SlackApp.DownloadFileBase64Async, then runs
+   * WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync against the
+   * ocr-list-extraction-instructions/schema pair.
+   *
+   * Extraction is deliberately separate from list materialization so `scan image for text` can
+   * stop here while the list route continues — one extraction implementation, two consumers.
+   * Every failure posts its own specific message before returning `{ ok: false }`, so callers
+   * must not post a second, vaguer one.
+   *
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
-   * @param {string} ArgCommandTextRaw Raw (mention-stripped) command text for logging/context.
-   * @returns {Promise<boolean>} true when the event was handled (list creation attempted).
+   * @param {string} [ArgCommandTextRaw] Raw (mention-stripped) command text used as the prompt.
+   * @param {import('./slack-app').SlackFileInfo|null} [ArgImageFile] The image already chosen by
+   *   `ResolveAttachmentIntent`. Passed through so the dispatch path does not re-run selection and
+   *   risk picking a different attachment than the one it routed on (agy relay review r1). Callers
+   *   without a resolved file (the explicit `scan image for text` command) omit it and selection
+   *   falls back to the same helper the resolver uses.
+   * @returns {Promise<{ ok: boolean, Title?: string, Items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }>}
    */
-  async #TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw) {
+  async #ExtractListItemsFromImageAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw, ArgImageFile = null) {
     const ReplyTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
-    const ImageSelection = SelectImageAttachment(ArgEventInfo.files);
+    const ImageSelection = ArgImageFile || SelectImageAttachment(ArgEventInfo.files);
     if(!ImageSelection) {
       ArgSlackApp.Logger.warn('[ocr-list] no image attachment found in files array.');
       await ArgSlackApp.PostMessageTextAsync(
@@ -2859,7 +2921,7 @@ class ChatModule {
         ReplyTS,
         'I did not find an image attachment to process.'
       );
-      return true;
+      return { ok: false };
     }
 
     try {
@@ -2872,7 +2934,7 @@ class ChatModule {
           ReplyTS,
           'Could not access the image file for processing.'
         );
-        return true;
+        return { ok: false };
       }
 
       let DownloadResult;
@@ -2885,7 +2947,7 @@ class ChatModule {
           ReplyTS,
           'Failed to download the image. Please try uploading it again.'
         );
-        return true;
+        return { ok: false };
       }
 
       if(!DownloadResult || !DownloadResult.Base64) {
@@ -2895,7 +2957,7 @@ class ChatModule {
           ReplyTS,
           'The image file appeared to be empty.'
         );
-        return true;
+        return { ok: false };
       }
 
       ArgSlackApp.Logger.info(
@@ -2917,7 +2979,7 @@ class ChatModule {
           ReplyTS,
           'OCR instruction file is missing on the server.'
         );
-        return true;
+        return { ok: false };
       }
       try {
         const SchemaPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-schema.json');
@@ -2929,28 +2991,35 @@ class ChatModule {
           ReplyTS,
           'OCR schema file is missing on the server.'
         );
-        return true;
+        return { ok: false };
       }
 
       // Step 3: run Gemini Vision OCR via WorkspaceAI.
       /** @type {{ title?: string, items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }} */
       let OcrResult;
       try {
+        // GH-63: no explicit model — WorkspaceAI pins a vision-capable one. Passing the workspace
+        // default here is what made OCR fail permanently on Claude/GPT-default workspaces.
         OcrResult = await this.#WorkspaceAI.ProcessMultimodalMessageWithJsonResponseAsync(
           ArgCommandTextRaw || 'Extract all list items from this image.',
           InstructionsText.trim(),
           SchemaObject,
-          { Base64: DownloadResult.Base64, Mimetype: DownloadResult.Mimetype },
-          this.#WorkspaceAI.DefaultModelName
+          { Base64: DownloadResult.Base64, Mimetype: DownloadResult.Mimetype }
         );
       } catch(ocrError) {
         ArgSlackApp.Logger.error('[ocr-list] Gemini Vision OCR failed:', ocrError);
+        // GH-63: a missing Gemini credential is permanent, not transient. Telling the user to
+        // "try again later" invites a retry that can never succeed and hides the real fix.
+        const IsConfigurationFailure = ocrError
+          && (ocrError.code === 'vision_provider_not_configured' || ocrError.code === 'provider_not_configured');
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
-          'Image analysis failed — please try again later.'
+          IsConfigurationFailure
+            ? "Image OCR needs a Gemini model, which isn't configured for this workspace. Ask a workspace admin to add a Gemini API key."
+            : 'Image analysis failed — please try again later.'
         );
-        return true;
+        return { ok: false };
       }
 
       const ExtractedItems = (OcrResult && Array.isArray(OcrResult.items)) ? OcrResult.items : [];
@@ -2961,9 +3030,46 @@ class ChatModule {
           ReplyTS,
           "I didn't detect any list items in that image. Try another screenshot with clearer text."
         );
-        return true;
+        return { ok: false };
       }
 
+      return {
+        ok: true,
+        Title: (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List',
+        Items: ExtractedItems,
+      };
+    } catch(unexpectedError) {
+      ArgSlackApp.Logger.error('[ocr-list] unexpected failure during extraction:', unexpectedError);
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ReplyTS,
+        'Something went wrong while reading that image.'
+      );
+      return { ok: false };
+    }
+  }
+
+  /**
+   * Materialize OCR-extracted items into a Slack List (GH-58; separated from extraction in GH-64).
+   * `ListsModule.CreateListFromExtractedItemsAsync` stays the single materialization seam, shared
+   * by the image route and the text→list command.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
+   * @param {string} ArgTitle List title.
+   * @param {Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }>} ArgItems Extracted items.
+   * @returns {Promise<boolean>} true when the event was handled.
+   */
+  async #MaterializeListFromItemsAsync(ArgSlackApp, ArgEventInfo, ArgTitle, ArgItems) {
+    const ReplyTS = ArgEventInfo.thread_ts ?? ArgEventInfo.ts;
+    const ExtractedItems = ArgItems;
+    // agy relay review r1: the extraction result was previously re-wrapped as `{ title: ArgTitle }`
+    // purely so the lifted body could keep reading `OcrResult.title`. The title is already a
+    // parameter — read it directly rather than carrying a shim that outlives the refactor.
+    const ListTitle = (typeof ArgTitle === 'string' && ArgTitle.trim().length > 0)
+      ? ArgTitle
+      : 'Extracted List';
+
+    try {
       // Step 4: create the Slack List via ListsModule.
       /** @type {import('./lists-module')|null} */
       const ListsModuleInstance = this.#RemindersModule?.ListsModule || null;
@@ -2975,15 +3081,14 @@ class ChatModule {
           'Slack Lists is not configured for this workspace yet. The items have been extracted but the list could not be created.'
         );
         // Still post the extracted items summary so the user sees what was parsed.
-        const Title = (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List';
-        await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, Title, ExtractedItems);
+        await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, ListTitle, ExtractedItems);
         return true;
       }
 
       let ListResult;
       try {
         ListResult = await ListsModuleInstance.CreateListFromExtractedItemsAsync({
-          ListTitle: (OcrResult && typeof OcrResult.title === 'string') ? OcrResult.title : 'Extracted List',
+          ListTitle,
           Items: ExtractedItems,
           ChannelID: ArgEventInfo.channel,
           UserID: ArgEventInfo.user,
@@ -3037,6 +3142,64 @@ class ChatModule {
       );
       return true;
     }
+  }
+
+  /**
+   * Extract structured list items from plain text (GH-64).
+   *
+   * Reuses `ocr-list-extraction-schema.json` — the same contract the image route uses — so both
+   * entry points produce one item shape and feed the same materialization seam. Uses the
+   * workspace's normal text model, not the pinned vision model: no image is involved, so there is
+   * no multimodal requirement and pinning would needlessly narrow provider choice.
+   *
+   * @param {string} ArgSourceText Text to convert into list items.
+   * @returns {Promise<{ ok: boolean, Title?: string, Items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }>}
+   */
+  async #ExtractItemsFromTextAsync(ArgSourceText) {
+    const InstructionsText = await fs.readFile(
+      path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-instructions.md'),
+      'utf8'
+    );
+    const SchemaObject = JSON.parse(await fs.readFile(
+      path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-schema.json'),
+      'utf8'
+    ));
+
+    /** @type {{ title?: string, items?: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }> }} */
+    const Result = await this.#WorkspaceAI.ProcessMessageWithJsonResponseAsync(
+      ArgSourceText,
+      InstructionsText.trim(),
+      SchemaObject
+    );
+
+    const Items = (Result && Array.isArray(Result.items)) ? Result.items : [];
+    return {
+      ok: Items.length > 0,
+      Title: (Result && typeof Result.title === 'string') ? Result.title : 'Extracted List',
+      Items,
+    };
+  }
+
+  /**
+   * Image → Slack List, composed from the two seams above (GH-58 behavior, GH-64 structure).
+   * Kept as one method because the unified attachment dispatch and the natural-language route both
+   * want the whole journey; the explicit `scan image for text` command stops after extraction.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
+   * @param {string} ArgCommandTextRaw Raw (mention-stripped) command text.
+   * @param {import('./slack-app').SlackFileInfo|null} [ArgImageFile] Image already resolved by the
+   *   unified dispatch, threaded through so selection happens exactly once per event.
+   * @returns {Promise<boolean>} true when the event was handled.
+   */
+  async #TryProcessImageForListCreationAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw, ArgImageFile = null) {
+    const Extraction = await this.#ExtractListItemsFromImageAsync(ArgSlackApp, ArgEventInfo, ArgCommandTextRaw, ArgImageFile);
+    if(!Extraction.ok) return true;
+    return this.#MaterializeListFromItemsAsync(
+      ArgSlackApp,
+      ArgEventInfo,
+      Extraction.Title,
+      Extraction.Items
+    );
   }
 
   /**

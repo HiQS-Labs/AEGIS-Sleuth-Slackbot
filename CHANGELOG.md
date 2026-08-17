@@ -33,6 +33,70 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.295 - 2026-08-17
+Nothing changes for you — this one fixes the offline test harness engineers use to check my reminder
+wording before it reaches you. It was quietly testing a different setup than the one you actually
+use, which is how the reminder bug in 1.4.294 got through three rounds of "verified" before you
+caught it in Slack.
+
+**Technical:** `scripts/reminder-thread-battery.js` fidelity pass, prompted by GH-68 shipping a fix
+that the harness had already been printing evidence against. Three divergences from production, each
+now closed or documented:
+
+- **Isolation renamed the workspace.** The harness ran as `<workspace>-test-harness-<pid>` so its
+  reminder files wouldn't collide with the real ones. But production resolves client mappings,
+  overlays, and display identity *from* `WORKSPACE_NAME` — so the rename disabled `ApplyClientPrefix`
+  and the harness never rendered the `"Sleuth - "` prefix that real output leads with. Now isolated
+  by **data directory** (`SLEUTH_DATA_DIR`, the lever GH-60 added on this same branch) with the real
+  name kept, and the workspace's client overlay copied into the throwaway tree so prefixes resolve
+  exactly as production. Strictly safer than before as a side effect: the old scheme wrote its
+  throwaway files *into* the real `data/runtime` and depended on deleting each of five paths
+  afterward; nothing is written outside the temp tree now. Respects a pre-set `SLEUTH_DATA_DIR` (same
+  convention as `tests/runtime-setup.js`) so a Jest worker's isolation is never clobbered mid-run.
+- **`channelType` defaulted to `"im"`.** A DM bypasses the per-channel enabled-reminders gate
+  (GH-412), so the default run took a code path essentially no real report takes — and a scenario
+  written to match a real channel thread returned **zero reminders** and read as "no bug here",
+  because the gate rejected it before any AI ran. The harness now seeds the enabled-channels file, so
+  the default is `"channel"` and the DM bypass is opt-in. Pinned by a regression test, mutation-
+  verified: disabling the seed fails that test and only that test.
+- **Two render paths, one ambiguous label.** The turn-by-turn `SLEUTH:` output is the posted
+  confirmation (`#ComposeFeedbackMessageText`); the trailing dump is the *stored* text a reminder
+  posts later. They are composed separately, and GH-68 is exactly the case where they disagreed —
+  which `reminders-module.js:1695` says must be impossible. Reading only the trailing dump certified
+  a build whose confirmation message was still wrong. Both surfaces are now labeled for what they
+  are, with the trailing block stating outright that a disagreement between them *is* the finding.
+
+Remaining known non-1:1 behavior is documented in the file header rather than silently tolerated:
+Slack renders `<!date^…>` client-side (no offline harness can), related-reminder counts reflect the
+isolated store, and the real LLM makes titles vary run to run — compare shape, not bytes.
+
+Not a code-path change: `src/` is untouched. 1989 tests green, `tsc` clean.
+
+## 1.4.294 - 2026-08-17
+Reminders built from a thread now describe the actual task instead of echoing your follow-up
+sentence. If you say "can you do this by tomorrow morning?", I read back through the thread to find
+what "this" was and put THAT in the reminder.
+
+**Technical:** GH-68. GH-55 (antecedent enrichment) and GH-43 (title grounding) were each correct and cancelled out exactly, so a pronominal reply could never be synthesized.
+- **Root cause:** `SelectTaskText`'s `GroundingSource` was `NormalizedOriginal + ActionableLanguage` — the live reply ALONE — while GH-55 hands the analyzer the reply plus prepended thread context. Every antecedent-derived term therefore counted as invented, and the title was discarded in favor of the quoted span. Dev telemetry showed `synthesis=on task_source=ai_synthesized_task_title` followed by three `discarding an ungrounded reminder title` warnings; the "2 terms" were `Demo` and `AI` — in the thread, not in the reply.
+- **Fix:** ground against the text the analyzer actually saw. `ArgAnalyzedSourceText` is threaded from `reminders-module.js`, where `ArgMessageText` already holds the enriched text passed to `AnalyzeMessageForRemindersAsync`. GH-43's guarantee is unchanged — a title still may not name anything outside the source; only WHICH source is corrected.
+- **Every render path, not just one.** A QA relay (aider / `qwen/qwen3-max`) returned Approved with "No missed call sites found"; adjudication found that false. Four sites still grounded against `''`: triage display, the dedupe render-identity key, and triage dedupe. `reminders-module.js:1721` requires the scheduling digest and the `:wrench:` triage view to "agree by construction" — grounding only the scheduling render broke that, and the dedupe key was being computed from text the user never sees.
+- **The confirmation message too.** `#ComposeFeedbackMessageText` — the "Tasks for Tomorrow at ..." reply the user reads immediately — was the last renderer passing neither the routing decision nor the analyzed source, so it re-derived routing from normalized text and grounded against the bare reply. It showed the verbatim sentence while the scheduled digest showed the synthesized title. All seven `#SelectReminderTaskText` call sites now pass both, which is what `reminders-module.js:1695` requires ("threaded into every ... call ... cannot disagree even in principle").
+- **Tests:** `tests/gh68-grounding-uses-analyzed-source.test.js` — 6 cases, including a negative control that fails if the widening is reverted, a check that the guard still rejects genuinely invented terms, and a pin on the digest/triage agreement invariant.
+
+## 1.4.293 - 2026-08-17
+The image-to-list feature I shipped yesterday never actually worked when you used it — uploading a
+screenshot and asking for a list got you "I can only read text-based files" instead. That's fixed,
+it now works whether or not you @mention me, it no longer breaks if your workspace uses Claude or
+GPT as its default model, and you can now ask for it directly with "scan image for text" or
+"convert text into slack list" instead of hoping I infer what you meant.
+
+**Technical:** GH-62, GH-63, GH-64 — follow-ups to GH-58 found in post-merge review.
+- **GH-62 — attachment pipelines unified.** `#OnAppMentionAsync` ran the text-context ingest first and unconditionally; `SelectContextMemoryFile()` classifies any image as `unsupported`, which counts as handled, so the handler returned before reaching the OCR branch in the `else`. Replaced two parallel pipelines with one `ResolveAttachmentIntent()` (`none|text|image-ocr|unsupported`) in `context-file-classifier.js`, one `#HandleAttachmentAsync` shared by `#OnAppMentionAsync` and `#OnMessageAsync` (closing the hands-free gap, which previously had no image path at all), and one `SlackApp.DownloadFileAsync(url, encoding)` — `GetFileContentAsync` and `DownloadFileBase64Async` had been ~30 duplicated lines that included the redirect/HTTPS/auth-forwarding guard, so hardening one silently missed the other. `#IsImageListCreationRequest` moved to `HasListCreationIntent` so classification and intent live together.
+- **GH-63 — vision model pinned.** OCR passed `DefaultModelName`, but only `GeminiProvider` implements the multimodal method, so a Claude/GPT-default workspace threw and users were told "please try again later" for a permanent misconfiguration. Added `WorkspaceAI.ResolveVisionModelName()` with an ordered `VisionModelPreference`, honoring an already-Gemini default; a missing credential now raises `vision_provider_not_configured` and renders a message naming the real cause.
+- **GH-64 — explicit commands.** `command-catalog.json` had 58 entries and none mentioned OCR or images, so `rmm`, `help`, and the commands list could not see the feature. Registered `scan-image-for-text` and `convert-text-into-slack-list` with `Aliases` + `IntentPhrases`, and split the fused OCR handler into `#ExtractListItemsFromImageAsync` and `#MaterializeListFromItemsAsync` so `image → text → items → list` is composable; `CreateListFromExtractedItemsAsync` stays the single materialization seam.
+- **Tests:** 22 new across 2 suites, driving real `app_mention` / `message` payloads through the event handlers. The GH-58 suite passed 27/27 with this bug present because every test started below the entry point; mutation-tested both new suites by reintroducing each defect to confirm they fail.
+
 ## 1.4.292 - 2026-08-17
 When you upload a screenshot or photo of an itemized list or table in Slack and ask me to create a
 list, I now use Gemini Flash's vision OCR to extract every item, title, and penalty/fine amount,

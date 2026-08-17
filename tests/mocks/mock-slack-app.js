@@ -133,6 +133,14 @@ class MockSlackApp {
     // configurable per-test mock for Slack file downloads used by context memory ingestion.
     this.GetFileContentAsync = jest.fn().mockResolvedValue('');
 
+    // GH-62: binary download used by the Vision OCR path. Present so an image attachment can be
+    // driven all the way through #OnAppMentionAsync — the entry point whose missing coverage let
+    // the OCR feature ship unreachable.
+    this.DownloadFileBase64Async = jest.fn().mockResolvedValue({
+      Base64: 'dGVzdC1pbWFnZS1ieXRlcw==',
+      Mimetype: 'image/png',
+    });
+
     this.#AdminUsers = new Set(ArgOptions.AdminUsers || []);
     this.#ChannelCreatorsById = new Map(Object.entries(ArgOptions.ChannelCreatorsById || {}));
     this.#ThreadMessagesById = new Map(Object.entries(ArgOptions.ThreadMessagesById || {}));

@@ -1732,7 +1732,7 @@ class RemindersModule {
     // (trigger + displayed task text) so each distinct bullet appears once. This is a no-op when synthesis
     // is ON and candidates carry distinct titles, and correctly collapses genuine duplicate extractions.
     AnalysisResult.reminders = this.#DedupeCandidatesByRenderIdentity(
-      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn,
+      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
     );
 
     // exit early if the recommendation is to ignore the message.
@@ -1787,13 +1787,13 @@ class RemindersModule {
       // append bulleted list of key tasks to the reminder message. NOTE: the reminder messages shown here were
       // extracted by the GPT model and are not the same as the message text sent by the user.
       NewReminderMessageText = CurrentReminders.reduce((ArgAccumulatedText, ArgCurrentReminder) => {
-        const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn)}`;
+        const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn, ArgMessageText)}`;
         // GH-43 Phase 3: context renders SUBORDINATELY on its own indented italic line, never inline
         // in the bullet. Fusing the two is the second defect from the report — the root-cause
         // paragraph and the commitment sharing one string. The full original stays in the blockquote
         // above, so the bullet is free to be short and the context is free to be optional.
         return ArgAccumulatedText + TaskLine
-          + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn);
+          + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn, ArgMessageText);
       }, NewReminderMessageText + "\n\nKey task(s):");
 
       // get the channel ID where we will post the reminder, falling back to the original channel if lookup fails.
@@ -1950,7 +1950,15 @@ class RemindersModule {
     // compose and post feedback message if any reminders were scheduled.
     if(SuccessfullyScheduledReminders.size > 0) {
       // build the feedback message.
-      let FeedbackMessage = this.#ComposeFeedbackMessageText(ArgUserID, SuccessfullyScheduledReminders, AdjustedReminders, DisplaySourceMessageText);
+      // GH-68 r2: the CONFIRMATION message is the surface the user reads immediately, and it was
+      // the last renderer still deriving its own routing and grounding against the bare reply.
+      // reminders-module.js:1695 requires the one routing decision be threaded into EVERY
+      // #SelectReminderTaskText call; this one was not, so the confirmation showed the verbatim
+      // sentence while the scheduled digest showed the synthesized title.
+      let FeedbackMessage = this.#ComposeFeedbackMessageText(
+        ArgUserID, SuccessfullyScheduledReminders, AdjustedReminders, DisplaySourceMessageText,
+        SynthesisOn, ArgMessageText,
+      );
 
       // connection surfacing — append a footnote of related open work. Purely additive and fully
       // defensive: any failure here must never block reminder creation (the FSM is already committed).
@@ -2104,7 +2112,9 @@ class RemindersModule {
       OriginalText, TriageResult.analysis.reminders,
     );
     const TriageCandidates = this.#DedupeCandidatesByRenderIdentity(
-      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn,
+      // GH-68: same analyzed-source grounding as the scheduling dedupe above. The comment directly
+      // above exists because a triage/production candidate-set mismatch already happened once.
+      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, OriginalText,
     );
     const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageCandidates);
 
@@ -2174,7 +2184,10 @@ class RemindersModule {
 
         const SanitizedTrigger = SlackFormatUtils.SanitizeForInlineSlack(Reminder.scheduling_trigger);
         const SanitizedTask = SlackFormatUtils.SanitizeForInlineSlack(
-          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn)
+          // GH-68: ground triage against the SAME analyzed text the scheduling path uses.
+          // Omitting it is precisely how "triage and the digest disagree about the same message"
+          // (see the routing comment above) comes back.
+          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, OriginalText)
         );
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
@@ -2212,7 +2225,7 @@ class RemindersModule {
    * routing was computed; the legacy sentence-count-on-normalized-text fallback then applies.
    * @returns {string}
    */
-  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+  #SelectReminderTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
     const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
       ? ArgSynthesisOn
@@ -2222,7 +2235,7 @@ class RemindersModule {
     // REAL rule instead of a copy of it (agy branch relay r1). This method keeps only what is
     // genuinely Slack-specific: the warn line and the mrkdwn mention normalization.
     const Selection = ReminderDisplaySelection.SelectTaskText(
-      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn, ArgAnalyzedSourceText,
     );
     if(Selection.ungroundedTerms.length > 0) {
       this.#SlackApp.Logger.warn(
@@ -2252,11 +2265,13 @@ class RemindersModule {
    * @param {boolean} ArgSynthesisOn The routing decision for this message.
    * @returns {GptReminderInfo[]} candidates with render-duplicates removed, first occurrence kept.
    */
-  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn) {
+  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText = '') {
     const SeenRenderKeys = new Set();
     return (ArgCandidates || []).filter(ArgCandidate => {
       const RenderKey = `${ArgCandidate.scheduling_trigger} `
-        + this.#SelectReminderTaskText(ArgCandidate, ArgNormalizedOriginalText, ArgSynthesisOn);
+        // GH-68: must ground identically to the real render, or the key is computed from text the
+        // user never sees and duplicates collapse (or fail to) on the wrong basis.
+        + this.#SelectReminderTaskText(ArgCandidate, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
       if(SeenRenderKeys.has(RenderKey)) return false;
       SeenRenderKeys.add(RenderKey);
       return true;
@@ -2281,7 +2296,7 @@ class RemindersModule {
    * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message.
    * @returns {string} `'\n  _<context>_'`, or `''`.
    */
-  #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined) {
+  #SelectReminderContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
     const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
     const SynthesisOn = typeof ArgSynthesisOn === 'boolean'
       ? ArgSynthesisOn
@@ -2290,7 +2305,7 @@ class RemindersModule {
     // as with the task text, the rule lives in reminder-display-selection.js so the harness runs it
     // rather than a copy of it.
     const Selection = ReminderDisplaySelection.SelectContextLine(
-      ArgReminderInfo, NormalizedOriginal, SynthesisOn,
+      ArgReminderInfo, NormalizedOriginal, SynthesisOn, ArgAnalyzedSourceText,
     );
     if(Selection.suppressedBy === 'ungrounded')
       this.#SlackApp.Logger.warn('discarding an ungrounded reminder context line.');
@@ -2305,9 +2320,13 @@ class RemindersModule {
    * @param {Map<ReminderInfo, GptReminderInfo[]>} ArgScheduledReminders Map of scheduled reminders.
    * @param {Set<ReminderInfo>} [ArgAdjustedReminders] Set of reminders that had dates adjusted from past to future.
    * @param {string} [ArgNormalizedOriginalText] Normalized original message text, for verbatim task selection.
+   * @param {boolean} [ArgSynthesisOn] The message's ONE routing decision. Previously omitted, which
+   * made this renderer re-derive routing from normalized text — the confirmation could then disagree
+   * with the scheduled digest about the same reminder (GH-68 r2).
+   * @param {string} [ArgAnalyzedSourceText] Full text the analyzer saw, for the grounding check.
    * @returns {string}
    */
-  #ComposeFeedbackMessageText(ArgUserID, ArgScheduledReminders, ArgAdjustedReminders, ArgNormalizedOriginalText = '') {
+  #ComposeFeedbackMessageText(ArgUserID, ArgScheduledReminders, ArgAdjustedReminders, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
     // start with basic confirmation message.
     const ReminderCount = ArgScheduledReminders.size;
     const ReminderCountText = ReminderCount === 1 ?
@@ -2360,7 +2379,7 @@ class RemindersModule {
       const ClientName = ResolveClientNameForReminder(CurrentReminder, this.#SlackApp.WorkspaceInfo?.WORKSPACE_NAME);
 
       for(const CurrentGptReminder of CurrentGptReminders)
-        FeedbackMessage += `\n• ${ApplyClientPrefix(this.#SelectReminderTaskText(CurrentGptReminder, ArgNormalizedOriginalText), ClientName)}`;
+        FeedbackMessage += `\n• ${ApplyClientPrefix(this.#SelectReminderTaskText(CurrentGptReminder, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText), ClientName)}`;
     }
 
     // return the composed feedback message.
