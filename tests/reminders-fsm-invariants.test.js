@@ -20,6 +20,7 @@ const MockWorkspaceAI = require('../src/workspace-ai');
 const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const RemindersModule = require('../src/reminders-module');
+const RemindersChannelSettings = require('../src/reminders-channel-settings');
 const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
@@ -384,5 +385,31 @@ describe('completion capture to the Sleuth completion store', () => {
 
     const Rows = Restarted.GetCompletedRemindersBetween(0, Number.MAX_SAFE_INTEGER);
     expect(Rows.map(r => r.reminderId)).toContain(Created.reminder.ReminderID);
+  });
+
+  test('shutdown does not persist memory over disk for enabled channels (GH-86 Phase 3)', async () => {
+    // Seed enabled channels file on disk with pre-existing channels
+    const RemindersDirPath = workspaces.GetSubdirPath('reminders');
+    const EnabledChannelsFile = path.join(RemindersDirPath, `${WorkspaceInfo.WORKSPACE_NAME}_enabled_channels.json`);
+    const SeededChannels = ['C_CHAN_1', 'C_CHAN_2', 'C_CHAN_3'];
+    await fs.writeFile(EnabledChannelsFile, JSON.stringify(SeededChannels), 'utf8');
+
+    const SaveSpy = jest.spyOn(RemindersChannelSettings.prototype, 'SaveEnabledChannelsAsync');
+
+    // Create a new module instance, start it and immediately stop it without any channel changes
+    const App = new MockSlackApp({ WorkspaceInfo });
+    const TestModule = new RemindersModule(App);
+    await TestModule.StartAsync(EmptyStats);
+
+    // Stop the module — it must NOT write memory over disk
+    await TestModule.StopAsync();
+
+    expect(SaveSpy).not.toHaveBeenCalled();
+
+    // Verify disk content is preserved intact
+    const DiskContent = JSON.parse(await fs.readFile(EnabledChannelsFile, 'utf8'));
+    expect(DiskContent).toEqual(SeededChannels);
+
+    SaveSpy.mockRestore();
   });
 });

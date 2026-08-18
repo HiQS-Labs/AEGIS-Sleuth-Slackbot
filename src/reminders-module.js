@@ -1401,7 +1401,6 @@ class RemindersModule {
     clearTimeout(this.#ReminderTimerID);
     this.#StopDailyDigestScheduler();
     await this.#SaveRemindersAsync();
-    await this.#ChannelSettings.SaveEnabledChannelsAsync();
 
     // save the reminder counter state to disk.
     await this.#SaveReminderCounterAsync();
