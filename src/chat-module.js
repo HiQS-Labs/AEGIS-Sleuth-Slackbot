@@ -1143,7 +1143,8 @@ class ChatModule {
       ArgSlackApp,
       ArgEventInfo,
       CommandTextWithoutMention,
-      !!CommandTextWithoutMention
+      !!CommandTextWithoutMention,
+      true // GH-91: this path reaches #CommandRouter.RouteAsync below, so it can serve the fall-through.
     );
     if(AttachmentResult.Handled) return true;
     const FileWasLoaded = AttachmentResult.TextFileWasStored;
@@ -2704,11 +2705,16 @@ class ChatModule {
    * @param {string} ArgText Message text with the bot mention stripped.
    * @param {boolean} ArgSuppressConfirmation Suppress the "I've loaded…" post when question text
    *   accompanies the upload (same-turn context contamination fix).
+   * @param {boolean} [ArgAllowCommandFallthrough] When true, an `unsupported` attachment whose text
+   *   matches a registered command route is handed BACK to the caller instead of being rejected, so
+   *   the caller can route it (GH-91). Only the app_mention path sets this, because it is the only
+   *   caller that reaches `#CommandRouter.RouteAsync`; the message path would fall through to an AI
+   *   answer instead, which is not what "route the command" means.
    * @returns {Promise<{ Handled: boolean, TextFileWasStored: boolean }>}
    *   `Handled` means the event is fully dealt with and the caller must stop. `TextFileWasStored`
    *   means a text file became thread context memory and the caller may continue to an AI answer.
    */
-  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation) {
+  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation, ArgAllowCommandFallthrough = false) {
     const Intent = ResolveAttachmentIntent(ArgEventInfo.files, ArgText);
 
     if(Intent.Kind === 'none')
@@ -2730,6 +2736,24 @@ class ChatModule {
           this.#ExtractListItemsFromImageAsync(ArgScanSlackApp, ArgScanEvent, 'Extract all text from this image.', Intent.File),
       });
       return { Handled: true, TextFileWasStored: false };
+    }
+
+    // GH-91: `unsupported` means the RESOLVER did not recognise the phrasing — not that the user
+    // asked for nothing. Before this, an explicit command plus an image was the one case that could
+    // never work: this returned Handled:true, the caller returned at the `if(AttachmentResult.Handled)`
+    // line, and `#CommandRouter.RouteAsync` below it was unreachable. So `@Sleuth scan image for text`
+    // with an image attached — the exact situation that command exists for — got the text-files-only
+    // rejection. Hand the event back when a registered route matches, and let the router serve it.
+    //
+    // Scoped to 'unsupported' on purpose: a 'text' attachment is genuine context-memory input and
+    // must keep being ingested even when the text also looks like a command.
+    if(Intent.Kind === 'unsupported'
+      && ArgAllowCommandFallthrough
+      && this.#CommandRouter?.MatchRouteName(ArgText, ArgEventInfo)) {
+      ArgSlackApp.Logger.info(
+        `[attachment] unsupported attachment but '${this.#CommandRouter.MatchRouteName(ArgText, ArgEventInfo)}' matches — deferring to the command router`
+      );
+      return { Handled: false, TextFileWasStored: false };
     }
 
     // 'text' and 'unsupported' are both owned by the context-memory ingest, which already posts

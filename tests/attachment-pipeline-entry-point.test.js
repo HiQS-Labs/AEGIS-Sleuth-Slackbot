@@ -266,6 +266,44 @@ describe('GH-62: Slack attachment handling entry points', () => {
       expect(AllText).toContain('2 item(s)');
     });
 
+    test('GH-91: a command the resolver misses + an image reaches the router, not the rejection', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
+
+      // `convert text into slack list` is the case that still needs this: GH-74 taught the resolver
+      // the `scan`/`ocr` phrasings, but this one still resolves to 'unsupported' while a registered
+      // route exists for it. Without the fall-through the rejection posts and the router never runs.
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} convert text into slack list`,
+        files: [PngAttachment],
+      });
+
+      expect(WasHandled).toBe(true);
+      const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
+      expect(AllText).not.toContain('I can only read text-based files as context');
+    });
+
+    test('GH-91: an image with NO matching command still gets the existing rejection', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
+
+      // The short-circuit is NARROWED, not removed — this must not become a silent drop.
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} here is a picture of my cat`,
+        files: [PngAttachment],
+      });
+
+      const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
+      expect(AllText).toContain('I can only read text-based files as context');
+      expect(CreateListFromExtractedItemsAsync).not.toHaveBeenCalled();
+    });
+
     test('scan-only wording reaches the text arm: text posted, NO list created', async () => {
       const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
       const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();
