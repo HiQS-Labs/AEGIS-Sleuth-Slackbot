@@ -48,7 +48,7 @@ up front, rather than leaving you watching an empty thread for half a minute.
   behavior.
 - **Dropped the duplicate confirmation.** `#MaterializeListFromItemsAsync` also posted its own
   confirmation, so every success announced the same list twice — and the second was the worse one:
-  it named the list by raw ID (`Created list "F0BQS451B0D"`) and wrote its permalink as
+  it named the list by raw ID (`Created list "<list-id>"`) and wrote its permalink as
   `<a|${Permalink}>`, which is `<url|text>` reversed and therefore rendered as literal text rather
   than a link. It is now a **fallback**: `CreateListFromExtractedItemsAsync` returns `Announced`,
   and ChatModule posts only when that is false. Deleting it outright would have turned the two cases
