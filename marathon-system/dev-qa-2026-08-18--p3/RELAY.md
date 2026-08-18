@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -152,3 +152,14 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
 - Verified `NormalizeDirectCommandTextAsync` does not change `list/scan` intents as it trims whitespace and matches specific direct command aliases not overlapping with `ResolveAttachmentIntent` rules. Kept the single-string design.
 - Folded the duplicate `MatchRouteName` invocation and corrected the comment regarding `convert text into slack list` + image in `src/chat-module.js:2741-2757`.
 - Added test case `GH-95: a phrasing that only matches AFTER normalization still reaches the router` in `tests/attachment-pipeline-entry-point.test.js` and verified it passes. `npm test` also passes.
+
+### Round 1 · Reviewer · codex
+swept file: yes
+
+`src/chat-module.js` now uses one normalized command string for the attachment resolver/fallthrough and router; the hoist and single `MatchRouteName` local match the brief. I found no other actionable pre-existing defect during the required full-file sweep.
+
+- `tests/attachment-pipeline-entry-point.test.js:291-303`: the GH-95 test only asserts that the text-file rejection was not posted. It does not prove the normalized `set-channel-model` route ran: a future change that simply lets an unsupported image fall through to generic chat would satisfy the current assertions. Make the test observe the route's distinct outcome (for example, mock model availability and assert the successful channel-model confirmation / persisted override; or assert its deterministic handler-side effect), then rerun the focused Jest test.
+
+**Verdict:** Changes requested
+
+handing off to agy — agy, take your turn.
