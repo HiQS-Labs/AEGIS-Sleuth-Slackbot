@@ -119,7 +119,7 @@ describe('GH-62: Slack attachment handling entry points', () => {
 
     test('GH-83: the list is announced exactly once, in-thread, after an in-progress ack', async () => {
       const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
-      const { RemindersModule, CreateListFromExtractedItemsAsync } = MakeRemindersModuleWithLists();
+      const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();
       // Mirror the real ListsModule once it has posted the list card itself.
       CreateListFromExtractedItemsAsync.mockResolvedValue({
         ok: true,
@@ -128,7 +128,7 @@ describe('GH-62: Slack attachment handling entry points', () => {
         ItemCount: 2,
         Announced: true,
       });
-      new ChatModule(SlackApp, {}, RemindersModule, null, null);
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
 
       await SlackApp.SimulateAppMentionAsync({
         channel: 'C_OCR',
@@ -154,8 +154,8 @@ describe('GH-62: Slack attachment handling entry points', () => {
 
     test('GH-83: a failed in-progress ack does not abort the extraction it only narrates', async () => {
       const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
-      const { RemindersModule, CreateListFromExtractedItemsAsync } = MakeRemindersModuleWithLists();
-      new ChatModule(SlackApp, {}, RemindersModule, null, null);
+      const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
 
       // Fail ONLY the ack; every later post must still go through, or this would assert that a
       // broken ack breaks everything rather than that it breaks nothing.
@@ -180,7 +180,7 @@ describe('GH-62: Slack attachment handling entry points', () => {
 
     test('GH-83: the fallback names the list even when no permalink came back', async () => {
       const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
-      const { RemindersModule, CreateListFromExtractedItemsAsync } = MakeRemindersModuleWithLists();
+      const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();
       CreateListFromExtractedItemsAsync.mockResolvedValue({
         ok: true,
         ListId: 'L123',
@@ -188,7 +188,7 @@ describe('GH-62: Slack attachment handling entry points', () => {
         ItemCount: 2,
         Announced: false,
       });
-      new ChatModule(SlackApp, {}, RemindersModule, null, null);
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
 
       await SlackApp.SimulateAppMentionAsync({
         channel: 'C_OCR',
@@ -261,7 +261,9 @@ describe('GH-62: Slack attachment handling entry points', () => {
       // …and the text-files-only rejection is gone.
       const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
       expect(AllText).not.toContain('I can only read text-based files as context');
-      expect(AllText).toContain('Created list');
+      // GH-83 rewrote this confirmation; assert reachability, not the retired sentence.
+      expect(AllText).toContain('https://slack.com/lists/L123');
+      expect(AllText).toContain('2 item(s)');
     });
 
     test('scan-only wording reaches the text arm: text posted, NO list created', async () => {
