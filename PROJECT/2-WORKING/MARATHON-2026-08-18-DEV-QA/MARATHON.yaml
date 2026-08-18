@@ -61,7 +61,7 @@ phases:
     name: "GH-96 — route the three bypassing error posts through BuildErrorReportAsync"
     reviewer: codex
     brief: PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/briefs/p4-gh96-diagnostics-bypasses.md
-    artifact: src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js
+    artifact: src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js,tests/attachment-pipeline-entry-point.test.js
     turn_timeout_s: 1200
     depends_on: p3
     max_review_rounds: 3
