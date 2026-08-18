@@ -1,5 +1,5 @@
 # Marathon Phase p1
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
@@ -137,6 +137,17 @@ No additional pre-existing defects found during the full-file sweep. Phase-scope
 ### Round 2 · Builder · agy
 - Updated the GH-94 failing-today regression test to use a past anchor (now 14:30, anchor 14:00) so that it properly tests the rollover logic and fails under the old jitter-before-rollover ordering.
 - Updated the GH-87 property test to use `night` instead of `midnight` so that the anchor boundary is recognized as a fuzzy trigger by `ApplyPresentationJitter` and exercises the expected local-day clamp.
+
+### Round 2 · Reviewer · codex
+swept file: yes
+
+**Verdict:** Approved
+
+- Confirmed the reordered call applies jitter only after rollover and the too-soon adjustment, while preserving the existing local-day and not-before scheduling safeguards.
+- The GH-94 regression now uses a past 14:00 anchor at a mocked 14:30 local time and both jitter extremes; it distinguishes the old split-day behavior from the corrected tomorrow-only result and verifies `wasAdjustedForward`.
+- The GH-87 property sweep now includes a recognized fuzzy `night` anchor at 00:15 and exercises both future and past reference times across every discrete jitter value.
+- No additional pre-existing defects found during the full-file sweep of `src/reminders-ai-pipeline.js` and `tests/reminders-ai-pipeline.test.js`.
+- Verified: `npx jest reminders-ai-pipeline --forceExit` completed successfully.
 
 ---
 
