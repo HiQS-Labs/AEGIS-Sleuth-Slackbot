@@ -33,6 +33,23 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.306 - 2026-08-18
+When I confirm a reminder, I now show you the same thing I'll remind you about later. If your
+request had a condition attached — "if the PR looks good, then merge" — that condition used to
+show up in the reminder I sent you later, but not in the card I posted when you asked. So the
+confirmation looked like I'd dropped half your request when I hadn't.
+
+**Technical:** GH-106 — the acknowledgement card now renders the subordinate context line.
+- `#ComposeFeedbackMessageText` in `src/reminders-module.js` built each bullet from
+  `#SelectReminderTaskText` alone, so the candidate's `context` field never reached the card. The
+  delivered reminder body already appended it via `#SelectReminderContextLine`; the ack card is now
+  composed the same way, from the same helper — not by teaching the card to special-case `context`.
+- The suppression rules are unchanged and come along for free: synthesis-off, ungrounded, and
+  restates-the-task all still render nothing, because they live in the shared selector.
+- Worth naming, because it cost real debugging time: this produced **false negatives about model
+  quality**. It was reported as "the synthesis is still not good" when the synthesis was correct —
+  it had captured the condition. Judging output from a lossy view blames the model for the renderer.
+
 ## 1.4.305 - 2026-08-18
 I've been updated so that reminders phrased with a fuzzy time no longer land on the wrong day, and when something fails I'll now give you the diagnostic details in every case, not just some.
 

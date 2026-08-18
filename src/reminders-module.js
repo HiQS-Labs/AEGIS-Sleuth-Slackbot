@@ -2381,8 +2381,15 @@ class RemindersModule {
       // bullet with its name (GH-395). No confident match → bullets are left unprefixed.
       const ClientName = ResolveClientNameForReminder(CurrentReminder, this.#SlackApp.WorkspaceInfo?.WORKSPACE_NAME);
 
+      // GH-106: the context line renders here too. This confirmation card and the delivered reminder
+      // body (#1799-1805) are two views of ONE extraction, and only the delivered body showed the
+      // subordinate context. So a correctly synthesized reminder — one that captured the precondition
+      // the requester asked for — read as lossy in the only view posted at schedule time, and the
+      // model got blamed for a renderer gap. Same helper, same shape as the delivered body: the
+      // client prefix belongs to the bullet only, and the context stays on its own indented line.
       for(const CurrentGptReminder of CurrentGptReminders)
-        FeedbackMessage += `\n• ${ApplyClientPrefix(this.#SelectReminderTaskText(CurrentGptReminder, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText), ClientName)}`;
+        FeedbackMessage += `\n• ${ApplyClientPrefix(this.#SelectReminderTaskText(CurrentGptReminder, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText), ClientName)}`
+          + this.#SelectReminderContextLine(CurrentGptReminder, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
     }
 
     // return the composed feedback message.

@@ -866,6 +866,104 @@ describe('RemindersModule integration via MockSlackApp', () => {
     });
   });
 
+  describe('GH-106 — the acknowledgement card renders the context line', () => {
+    // The confirmation card and the delivered reminder body are two views of ONE extraction. Only
+    // the delivered body rendered the subordinate context, so a reminder that correctly captured a
+    // precondition looked lossy in the view posted at schedule time — and the model, not the
+    // renderer, got blamed for it. Both cases below drive the REAL end-to-end path and read the
+    // card back off the wire, because the defect lived in the renderer, not in the selection rule.
+    const ProductionMessageText =
+      "Hi <@U_MIKE> if Vishal's Woo Fast Search changes PR look good, "
+      + 'please run the merge, deploy, and test on Bloomz for tonight, please.';
+
+    /**
+     * Drive one message through scheduling and hand back the acknowledgement card.
+     * @param {string} ArgWorkspaceSlug Workspace name, so each case gets its own runtime files.
+     * @param {string} ArgContext The analyzer's `context` field for the single candidate.
+     * @returns {Promise<string>} The text of the "…has been scheduled" card.
+     */
+    async function ScheduleAndReadAckCardAsync(ArgWorkspaceSlug, ArgContext) {
+      const WorkspaceInfo = MakeWorkspaceInfo(ArgWorkspaceSlug);
+      const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+
+      const MockProcess = jest.fn().mockImplementation(async (ArgMessageText) => {
+        if(ArgMessageText.includes('BASE DATE:'))
+          return { year: 2030, month: 5, day: 7, hour: 20, minute: 56, second: 0, rationale: 'tonight.' };
+
+        return {
+          recommendation: 'schedule',
+          rationale: 'mock analysis carrying a precondition in context',
+          reminders: [{
+            actionable_language: 'please run the merge, deploy, and test on Bloomz for tonight',
+            scheduling_trigger: 'tonight',
+            reminder_message: "Run the merge, deploy, and test Vishal's Woo Fast Search changes on Bloomz",
+            context: ArgContext,
+          }],
+        };
+      });
+
+      MockWorkspaceAI.mockImplementation(() => ({
+        ProcessMessageWithJsonResponseAsync: MockProcess,
+        ProcessMessageWithTextResponseAsync: jest.fn().mockResolvedValue('mock text response'),
+        get ComplexModelName() { return 'gpt-4o'; },
+        get DefaultModelName() { return 'gpt-4o-mini'; },
+        set DefaultModelName(_) {},
+      }));
+
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo,
+        ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' },
+      });
+      const Reminders = new RemindersModule(SlackApp);
+
+      const PriorSynthesisFlag = process.env.REMINDER_TEXT_SYNTHESIS;
+      // synthesis ON for both segments: with it OFF the bullet IS the whole verbatim message and the
+      // context line is suppressed on purpose, so the defect would be invisible either way.
+      process.env.REMINDER_TEXT_SYNTHESIS = 'true';
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await fs.writeFile(RuntimePaths.enabledChannelsFilePath, JSON.stringify(['C_ENABLED']), 'utf8');
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+
+        await SlackApp.SimulateMessageAsync({
+          channel: 'C_ENABLED',
+          user: 'U_SENDER',
+          text: ProductionMessageText,
+        });
+
+        const AckCard = SlackApp.SentMessages.find(ArgMessage => /Slack reminder.*been scheduled/.test(ArgMessage.text));
+        expect(AckCard).toBeDefined();
+        return AckCard.text;
+      } finally {
+        if(PriorSynthesisFlag === undefined) delete process.env.REMINDER_TEXT_SYNTHESIS;
+        else process.env.REMINDER_TEXT_SYNTHESIS = PriorSynthesisFlag;
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    }
+
+    test('a non-empty context reaches the ack card, on its own indented italic line', async () => {
+      const AckText = await ScheduleAndReadAckCardAsync(
+        'gh106_ack_context', "conditional on Vishal's Woo Fast Search PR changes looking good",
+      );
+
+      // the precondition — the whole reason the task is not simply "merge it" — is present.
+      expect(AckText).toContain('conditional on');
+      // and it renders SUBORDINATELY, matching the delivered body: indented, italic, never fused
+      // into the bullet itself.
+      expect(AckText).toMatch(/\n• [^\n]*\n {2}_conditional on [^\n]*_/);
+    });
+
+    test('an empty context leaves the ack card exactly as it was — no stray italics', async () => {
+      const AckText = await ScheduleAndReadAckCardAsync('gh106_ack_no_context', '');
+
+      expect(AckText).toContain("Run the merge, deploy, and test Vishal's Woo Fast Search changes on Bloomz");
+      // no empty italic run, and no indented continuation line of any kind.
+      expect(AckText).not.toMatch(/\n {2}_/);
+      expect(AckText).not.toContain('__');
+    });
+  });
+
   describe('search reminders', () => {
     test('search reminders prompts for keywords when query text is missing', async () => {
       const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
