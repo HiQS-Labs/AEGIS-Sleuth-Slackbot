@@ -1,5 +1,5 @@
 # Marathon Phase p4
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P4-TURN-2 builder=agy reviewer=codex round-cap=7 -->
@@ -155,3 +155,15 @@ swept file: yes
 
 - **Test Fix:** Modified the Site 3 test in `tests/attachment-pipeline-entry-point.test.js` to locate the specific message containing `*Diagnostics:*` and asserted its `threadTs` property matches the expected thread timestamp, rather than just asserting that *some* message in the pipeline was threaded.
 - **Mutation Verification:** Verified the new assertion by temporarily mutating `src/chat-module.js` (changing `ReplyTS` to `null` in the Site 3 fallback). The test correctly failed with `Expected: "1700000000.000200", Received: null`.
+
+### Round 4 · Reviewer · codex
+
+swept file: yes
+
+- Re-reviewed the complete requested production and test surfaces: `src/chat-commands/convert-to-list-command.js`, `src/chat-module.js`, `tests/convert-to-list-command.test.js`, and `tests/attachment-pipeline-entry-point.test.js`. No pre-existing defects were found in the swept files.
+- The prior Site 3 test gap is fixed: it now locates the message containing `*Diagnostics:*` and asserts that exact post is a reply to `1700000000.000200`. The stated `ReplyTS → null` mutation would fail precisely on that assertion.
+- All three requested posts use `BuildErrorReportAsync`; Sites 2 and 3 retain their established thread timestamp, and Site 1 keeps the permanent-provider versus transient user messaging split while appending the same baseline in the thread.
+
+**Verdict:** Approved
+
+relay closed, no further turn needed
