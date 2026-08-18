@@ -2293,6 +2293,15 @@ class ChatModule {
         return true;
       }
 
+      if(Result.reason === 'no-repo') {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.item.channel,
+          ReplyTS,
+          'cannot file a GitHub issue: `SLEUTH_ISSUE_REPO` is not configured.'
+        );
+        return true;
+      }
+
       if(Result.reason === 'no-pat') {
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.item.channel,

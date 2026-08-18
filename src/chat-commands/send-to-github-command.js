@@ -123,6 +123,15 @@ async function HandleSendToGithubCommandAsync(ArgSlackApp, ArgEventInfo, ArgTitl
       return;
     }
 
+    if(Result.reason === 'no-repo') {
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel,
+        ArgEventInfo.ts,
+        'cannot file a GitHub issue: `SLEUTH_ISSUE_REPO` is not configured.'
+      );
+      return;
+    }
+
     if(Result.reason === 'no-pat') {
       await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,

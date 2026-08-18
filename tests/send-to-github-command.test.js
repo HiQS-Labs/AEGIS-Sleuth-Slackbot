@@ -28,15 +28,22 @@ const SAMPLE_RECORD = {
 };
 
 let SavedFetch;
+let SavedEnvRepo;
 
 beforeEach(() => {
   SavedFetch = global.fetch;
+  SavedEnvRepo = process.env.SLEUTH_ISSUE_REPO;
+  process.env.SLEUTH_ISSUE_REPO = 'HiQS-Suite/AEGIS-Sleuth-Slackbot';
   CaptureThreadAsync.mockReset();
   CaptureThreadAsync.mockResolvedValue(SAMPLE_RECORD);
 });
 
 afterEach(() => {
   global.fetch = SavedFetch;
+  if(SavedEnvRepo !== undefined)
+    process.env.SLEUTH_ISSUE_REPO = SavedEnvRepo;
+  else
+    delete process.env.SLEUTH_ISSUE_REPO;
   jest.restoreAllMocks();
 });
 
@@ -68,9 +75,9 @@ function MakeEnv({
   return { SlackApp, EventInfo };
 }
 
-function StubGithubCreate({ Status = 201, Number = 341, HtmlUrl = 'https://github.com/NeochromeTeam/sleuth-app/issues/341' } = {}) {
+function StubGithubCreate({ Status = 201, Number = 341, HtmlUrl = 'https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/341' } = {}) {
   global.fetch = jest.fn(async (url, options) => {
-    expect(String(url)).toBe(`https://api.github.com/repos/${ISSUE_REPO}/issues`);
+    expect(String(url)).toBe('https://api.github.com/repos/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues');
     expect(options.method).toBe('POST');
     expect(options.headers.Authorization).toBe('Bearer ghp_test');
     if(Status === 201) {
@@ -168,6 +175,21 @@ describe('HandleSendToGithubCommandAsync', () => {
     );
   });
 
+  test('rejects when SLEUTH_ISSUE_REPO is missing', async () => {
+    delete process.env.SLEUTH_ISSUE_REPO;
+    const { SlackApp, EventInfo } = MakeEnv();
+    global.fetch = jest.fn();
+
+    await HandleSendToGithubCommandAsync(SlackApp, EventInfo, '');
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      EventInfo.channel,
+      EventInfo.ts,
+      expect.stringMatching(/SLEUTH_ISSUE_REPO/i)
+    );
+  });
+
   test('rejects when GITHUB_PAT is missing', async () => {
     const { SlackApp, EventInfo } = MakeEnv({ HasPat: false });
     global.fetch = jest.fn();
@@ -197,7 +219,7 @@ describe('HandleSendToGithubCommandAsync', () => {
     expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
       EventInfo.channel,
       EventInfo.ts,
-      'Filed GitHub issue #341: https://github.com/NeochromeTeam/sleuth-app/issues/341'
+      'Filed GitHub issue #341: https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/341'
     );
   });
 
