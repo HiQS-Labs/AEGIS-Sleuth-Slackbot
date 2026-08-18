@@ -1,5 +1,5 @@
 # Marathon Phase p3
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=7 -->
@@ -166,3 +166,12 @@ handing off to agy — agy, take your turn.
 
 ### Round 2 · Builder · agy
 - Updated the GH-95 test in `tests/attachment-pipeline-entry-point.test.js` to observe the route's deterministic handler-side effect (`sorry, only workspace admins or owners can change the channel model`). This proves the normalized `set-channel-model` route actually ran. Re-ran `npm test` and `npx jest attachment-pipeline-entry-point` and they passed.
+
+### Round 2 · Reviewer · codex
+swept file: yes
+
+Reviewed the complete `src/chat-module.js` and `tests/attachment-pipeline-entry-point.test.js` files. The app-mention path now normalizes once before attachment dispatch, supplies that same command text to the unsupported-attachment fallthrough and the router, and logs the locally captured route match without a second `MatchRouteName` call. The focused `npx jest attachment-pipeline-entry-point --forceExit` check passed.
+
+The GH-95 test now proves the normalized `set-channel-model` route executed by asserting its route-specific non-admin response, while retaining the assertion that the attachment rejection was not posted. The existing supported-image path still short-circuits before command routing. I found no actionable pre-existing defects in either swept file.
+
+**Verdict:** Approved
