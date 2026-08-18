@@ -33,6 +33,15 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.302 - 2026-08-18
+Your per-channel reminder settings are now protected against being overwritten on service restarts, and production deployments now dynamically discover the active application directory directly from systemd.
+
+**Technical:** GH-86 Phase 2 + Phase 3 — deploy script target derivation and elimination of shutdown memory-over-disk state flush.
+
+- **Derived active application directory in `scripts/deploy.sh`.** `scripts/deploy.sh` now derives its target application directory from `systemctl show sleuth-app -p WorkingDirectory --value`, falling back to `SLEUTH_APP_DIR` and failing loudly if neither resolves, preventing deployments to stale directory trees.
+- **Removed memory-over-disk shutdown write in `RemindersModule.StopAsync()`.** Removed the unconditional `SaveEnabledChannelsAsync()` call during shutdown, relying on eager per-action persistence and eliminating the risk of overwriting persisted disk state on restart.
+- **Pinned with unit and integration tests.** Added unit tests in `tests/deploy-script.test.js` and an FSM invariant test in `tests/reminders-fsm-invariants.test.js` asserting that channel state on disk is preserved across clean shutdowns.
+
 ## 1.4.301 - 2026-08-18
 When you run diagnostics, ask for reminder triage, or hit an unexpected error, I'll now show you a consistent diagnostic snapshot with version details, channel auto-scheduling status, connection health, and active AI model settings.
 
