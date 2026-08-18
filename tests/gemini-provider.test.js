@@ -7,6 +7,8 @@
 // cannot leak into ai-providers.test.js (which mocks the Anthropic SDK instead). The
 // per-test save/restore below is a second layer of protection.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const GeminiProvider = require('../src/ai-providers/gemini-provider');
 
 describe('GeminiProvider (raw fetch transport)', () => {
@@ -155,6 +157,73 @@ describe('GeminiProvider (raw fetch transport)', () => {
         },
         required: ['ok'],
       });
+    });
+
+    test('collapses JSON Schema union types into a scalar type plus nullable', async () => {
+      FetchMock.mockResolvedValue(FakeResponse({
+        json: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"ok":true}' }] } }] },
+      }));
+      const Provider = new GeminiProvider(WorkspaceInfo, MakeStats());
+      const Envelope = {
+        schema: {
+          type: 'object',
+          properties: {
+            marker: { type: ['string', 'integer'], description: 'kept' },
+            amount: { type: ['string', 'null'] },
+            plain: { type: 'string' },
+          },
+        },
+      };
+
+      await Provider.ProcessMessageWithJsonResponseAsync('q', 'sys', Envelope, 'gemini-2.5-flash');
+
+      const Body = JSON.parse(FetchMock.mock.calls[0][1].body);
+      expect(Body.generationConfig.responseSchema.properties).toEqual({
+        // First non-null member wins; no `nullable` when "null" was absent.
+        marker: { type: 'string', description: 'kept' },
+        amount: { type: 'string', nullable: true },
+        plain: { type: 'string' },
+      });
+    });
+
+    test('the shipped OCR schema reaches Gemini with no array-valued type (GH-81 regression)', async () => {
+      // The real payload, not a fixture: a union type in this file 400s every OCR request with
+      // "Proto field is not repeating, cannot start list", which surfaced in Slack only as the
+      // generic "Image analysis failed — please try again later."
+      FetchMock.mockResolvedValue(FakeResponse({
+        json: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"title":"t","items":[]}' }] } }] },
+      }));
+      const OcrSchema = JSON.parse(fs.readFileSync(
+        path.join(__dirname, '..', 'data', 'static', 'ai', 'ocr-list-extraction-schema.json'),
+        'utf8'
+      ));
+      const Provider = new GeminiProvider(WorkspaceInfo, MakeStats());
+
+      await Provider.ProcessMultimodalMessageWithJsonResponseAsync(
+        'Extract all list items from this image.',
+        'sys',
+        OcrSchema,
+        { Base64: 'AAAA', Mimetype: 'image/png' },
+        'gemini-2.5-flash'
+      );
+
+      const Body = JSON.parse(FetchMock.mock.calls[0][1].body);
+      const OffendingPaths = [];
+      (function Walk(ArgNode, ArgPath) {
+        if(Array.isArray(ArgNode)) return ArgNode.forEach((ArgItem, ArgIndex) => Walk(ArgItem, `${ArgPath}[${ArgIndex}]`));
+        if(!ArgNode || typeof ArgNode !== 'object') return;
+        for(const [Key, Value] of Object.entries(ArgNode)) {
+          if(Key === 'type' && Array.isArray(Value)) OffendingPaths.push(`${ArgPath}.type`);
+          Walk(Value, `${ArgPath}.${Key}`);
+        }
+      })(Body.generationConfig.responseSchema, 'responseSchema');
+
+      expect(OffendingPaths).toEqual([]);
+      // The union members actually present in the shipped file must survive as nullable.
+      const ItemProps = Body.generationConfig.responseSchema.properties.items.items.properties;
+      expect(ItemProps.item_number).toMatchObject({ type: 'string' });
+      expect(ItemProps.amount).toMatchObject({ type: 'string', nullable: true });
+      expect(ItemProps.notes).toMatchObject({ type: 'string', nullable: true });
     });
 
     test('throws when the model returns text that is not valid JSON', async () => {

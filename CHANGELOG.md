@@ -33,6 +33,35 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.296 - 2026-08-18
+Reading text out of an image works again. Every time you uploaded a picture and asked me to make a
+list from it, I told you "Image analysis failed — please try again later" — and no amount of trying
+again was ever going to help, because the request I sent to the vision model was malformed before it
+left the building. It had been broken for every image, on every workspace.
+
+**Technical:** GH-81. `data/static/ai/ocr-list-extraction-schema.json` declares three JSON Schema
+union types (`item_number: ["string","integer"]`, `amount` and `notes: ["string","null"]`). Gemini's
+`generationConfig.responseSchema` accepts only an OpenAPI 3.0 subset, where `type` is a scalar enum
+and nullability is the separate `nullable` flag — so a union reaches the API as a repeated value in a
+non-repeating proto field and every `generateContent` call 400s with *"Unknown name \"type\" at
+'generation_config.response_schema.properties[1].value.items.properties[0].value': Proto field is not
+repeating, cannot start list."* That path is exactly `properties.items.items.properties.item_number`.
+
+Fixed in `GeminiProvider.#SanitizeSchemaForGemini` rather than in the schema file. The sanitizer
+already existed to translate the stored OpenAI-flavored schemas into Gemini's subset (it strips
+`additionalProperties` and `$schema`); it simply had no case for unions. Fixing it there covers the
+second call site (`ProcessMessageWithJsonResponseAsync`) and any future union-typed schema, whereas
+editing the one JSON file would have left both exposed. First non-`null` member becomes the scalar
+`type`; the presence of `"null"` sets `nullable: true`.
+
+Verified by live A/B against `gemini-2.5-flash` with the production workspace key — identical prompt
+and image, current schema `HTTP 400`, fixed schema `HTTP 200` returning valid JSON. Two tests added
+to `tests/gemini-provider.test.js`, both mutation-checked (reverting the fix fails them, and the
+failure names all three offending fields). The regression pin loads the **real shipped schema file**
+and asserts no array-valued `type` survives sanitization; `tests/gemini-ocr-slack-list.test.js` mocks
+the provider, so nothing previously asserted on the bytes actually sent to Google — which is why this
+shipped.
+
 ## 1.4.295 - 2026-08-17
 Nothing changes for you — this one fixes the offline test harness engineers use to check my reminder
 wording before it reaches you. It was quietly testing a different setup than the one you actually
