@@ -134,27 +134,58 @@ function SelectContextMemoryFile(ArgFiles) {
 }
 
 /**
- * Detect a list-creation / OCR intent in the text accompanying an attachment (GH-58, GH-62).
- * Lives here rather than in ChatModule so that attachment classification and the intent that
- * selects a handler are decided in ONE place — the split between them is what made the OCR
- * feature unreachable (GH-62). GH-64 extends this with catalog-driven aliases.
- * @param {string} ArgText Message text with the bot mention already stripped.
- * @returns {boolean}
+ * Normalize attachment-accompanying text for intent matching: smart quotes to ASCII, any
+ * whitespace run to a single space, trimmed, lowercased.
+ * @param {string} ArgText Raw message text.
+ * @returns {string}
  */
-function HasListCreationIntent(ArgText) {
-  if(typeof ArgText !== 'string') return false;
-  const NormalizedText = ArgText
+function NormalizeAttachmentText(ArgText) {
+  return String(ArgText)
     .replace(/[“”]/g, '"')
     .replace(/[’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+/**
+ * Detect a list-creation intent in the text accompanying an attachment (GH-58, GH-62).
+ * Lives here rather than in ChatModule so that attachment classification and the intent that
+ * selects a handler are decided in ONE place — the split between them is what made the OCR
+ * feature unreachable (GH-62). GH-64 extends this with catalog-driven aliases; GH-73 widens the
+ * grammar to survive modifier words ("make a TODO list", "build a checklist") that the original
+ * verb+article+list sequence missed in production.
+ * @param {string} ArgText Message text with the bot mention already stripped.
+ * @returns {boolean}
+ */
+function HasListCreationIntent(ArgText) {
+  if(typeof ArgText !== 'string') return false;
+  const NormalizedText = NormalizeAttachmentText(ArgText);
   if(NormalizedText.length === 0) return false;
 
-  return /\b(create|extract|convert|make|build|generate)\s+(a\s+)?list\b/i.test(NormalizedText)
+  // 0-2 modifier words ("a todo list", "a to-do list", "a task checklist") are allowed between the
+  // article and the list noun — requiring "list" immediately after the article is the exact gap
+  // that mis-routed "make a todo list for by OCRing the attached image" (GH-73).
+  return /\b(create|extract|convert|make|build|generate)\s+(a\s+|an\s+)?([a-z-]+\s+){0,2}(list|checklist)\b/i.test(NormalizedText)
     || /ocr\s+(a\s+)?list/i.test(NormalizedText)
     || /extract.*items?\s*(from|of)/i.test(NormalizedText)
     || /list\s*(out|up|format)/i.test(NormalizedText);
+}
+
+/**
+ * Detect a scan-only intent — the user wants the text OUT of an image, not a Slack List built
+ * from it (GH-73). Distinguished from `HasListCreationIntent` because the two select different
+ * actions downstream: a match here must stop after extraction and post the text, never
+ * materialize a list.
+ * @param {string} ArgText Message text with the bot mention already stripped.
+ * @returns {boolean}
+ */
+function HasImageTextExtractionIntent(ArgText) {
+  if(typeof ArgText !== 'string') return false;
+  const NormalizedText = NormalizeAttachmentText(ArgText);
+  if(NormalizedText.length === 0) return false;
+
+  return /\b(ocr|scan|read)\b.*\b(image|picture|photo|screenshot)s?\b/i.test(NormalizedText);
 }
 
 /**
@@ -168,14 +199,16 @@ function HasListCreationIntent(ArgText) {
  * Resolution order is deliberate:
  * - A text-readable attachment always wins. Text context memory is the older, broader capability,
  *   and a user attaching a document plus an image most likely wants the document read.
- * - An image only routes to OCR when the accompanying text carries a list/OCR intent. An image
- *   with no such intent stays 'unsupported' so the existing "I can only read text files" guidance
- *   still fires — silently ignoring an attachment is the failure mode this whole module exists to
- *   prevent.
+ * - An image only routes to an OCR action when the accompanying text carries a list or scan
+ *   intent. An image with no such intent stays 'unsupported' so the existing "I can only read
+ *   text files" guidance still fires — silently ignoring an attachment is the failure mode this
+ *   whole module exists to prevent.
+ * - Between the two image arms, the list intent wins: "make a todo list by OCRing the attached
+ *   image" carries both signals and the user wants the list (GH-73).
  *
  * @param {SlackFileInfo[]|undefined} ArgFiles Attachments from the Slack event payload.
  * @param {string} [ArgText] Message text with the bot mention stripped.
- * @returns {{ Kind: 'none'|'text'|'image-ocr'|'unsupported', File: SlackFileInfo|null }}
+ * @returns {{ Kind: 'none'|'text'|'image-list'|'image-text'|'unsupported', File: SlackFileInfo|null }}
  */
 function ResolveAttachmentIntent(ArgFiles, ArgText) {
   if(!Array.isArray(ArgFiles) || ArgFiles.length === 0)
@@ -186,7 +219,9 @@ function ResolveAttachmentIntent(ArgFiles, ArgText) {
 
   const ImageFile = SelectImageAttachment(ArgFiles);
   if(ImageFile && HasListCreationIntent(ArgText))
-    return { Kind: 'image-ocr', File: ImageFile };
+    return { Kind: 'image-list', File: ImageFile };
+  if(ImageFile && HasImageTextExtractionIntent(ArgText))
+    return { Kind: 'image-text', File: ImageFile };
 
   return { Kind: 'unsupported', File: ArgFiles[0] };
 }
@@ -237,6 +272,7 @@ module.exports = {
   SelectContextMemoryFile,
   SelectImageAttachment,
   HasListCreationIntent,
+  HasImageTextExtractionIntent,
   ResolveAttachmentIntent,
   LooksLikeHtmlErrorPage,
 };
