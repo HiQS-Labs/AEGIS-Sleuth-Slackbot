@@ -53,6 +53,13 @@ class GeminiProvider {
    * `additionalProperties` (and may carry `$schema`) — passing those through makes
    * generateContent fail with a 400. OpenAI and Anthropic tolerate the same keys, so the
    * sanitization lives here rather than in the shared schema files.
+   *
+   * It also collapses JSON Schema union types (`"type": ["string", "null"]`). OpenAPI 3.0 has
+   * no union type — `type` is a scalar enum and nullability is a separate `nullable` flag — so
+   * a union reaches the API as a repeated value in a non-repeating proto field and 400s with
+   * `Proto field is not repeating, cannot start list`. That is what broke image OCR in
+   * production on 1.4.295: `ocr-list-extraction-schema.json` declares three union-typed fields,
+   * so every OCR request failed and the user saw only "Image analysis failed".
    * @param {any} ArgSchema
    * @returns {any}
    */
@@ -65,6 +72,14 @@ class GeminiProvider {
     const Sanitized = {};
     for(const [Key, Value] of Object.entries(ArgSchema)) {
       if(Key === 'additionalProperties' || Key === '$schema') continue;
+      if(Key === 'type' && Array.isArray(Value)) {
+        // Take the first non-null member as the scalar type; "null" becomes `nullable: true`.
+        // Ordering in the source schemas is meaningful — the intended type is written first.
+        const ConcreteTypes = Value.filter((ArgType) => ArgType !== 'null');
+        Sanitized.type = ConcreteTypes[0] ?? 'string';
+        if(ConcreteTypes.length !== Value.length) Sanitized.nullable = true;
+        continue;
+      }
       Sanitized[Key] = GeminiProvider.#SanitizeSchemaForGemini(Value);
     }
     return Sanitized;
