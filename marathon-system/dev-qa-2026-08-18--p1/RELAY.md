@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -123,6 +123,16 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
   - Asserted `wasAdjustedForward` remains `true` only when the underlying anchor legitimately rolls over.
   - Updated the GH-87 property test to use a `00:15` local anchor and multiple offsets (`CurrentOffsets`) to test both future and past anchors natively.
   - Added `Math.random` mocking for the GH-87 `tonight` test to guarantee deterministic behavior.
+
+### Round 1 · Reviewer · codex
+swept file: yes
+
+**Verdict:** Changes requested
+
+- The required failing-today regression is not covered. The two-extremes test uses a future 14:30 anchor at a 14:00 `now`, so the old jitter-before-rollover order passes both draws. The past-anchor test uses only the positive draw. Add one test with `now` at 14:30 and an anchor at 14:00, run both `Math.random()` extremes, and assert both results are on the same (tomorrow) local calendar day and retain `wasAdjustedForward: true`; it must fail under the old ordering.
+- The new 00:15 GH-87 property case is labeled `midnight`, but `ApplyPresentationJitter` does not recognize `midnight` as a fuzzy trigger, so every draw returns the anchor and never tests boundary jitter. Use a recognized fuzzy phrase for that 00:15 anchor (or separately assert that `midnight` intentionally does not jitter) so the property exercises the intended local-day clamp.
+
+No additional pre-existing defects found during the full-file sweep. Phase-scoped test command completed successfully: `npx jest reminders-ai-pipeline --forceExit`.
 
 ---
 
