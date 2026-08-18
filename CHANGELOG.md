@@ -33,6 +33,27 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.307 - 2026-08-18
+No change to how I behave — this one is for whoever deploys me. The deploy script now says which
+version is on the server and how far behind the latest it is, before it changes anything.
+
+**Technical:** GH-111 — `scripts/deploy.sh` reports deploy drift before touching the service.
+- Prints the deployed sha and branch, the remote `main` sha, and the commit gap. Resolved against
+  `FETCH_HEAD` rather than `origin/main` on purpose, so it works on a host whose fetch refspec was
+  never repaired.
+- Informational only: missing git, a non-checkout tree (the DeployHQ artifact-upload case), an
+  unreachable remote, and a credential prompt all degrade to a skip line and `return 0`. A deploy
+  must never abort because it could not reach the network.
+- The check requires the app directory to BE the repo root. `git rev-parse --git-dir` walks upward,
+  so a deployed tree sitting inside an unrelated checkout would otherwise report that outer repo's
+  drift — a confidently wrong answer, which is worse than none. Caught by the new test whose mock
+  app directory lives inside this repository.
+- Background: production could not answer "am I running current main?" at all. Its fetch refspec
+  had been narrowed to `development`, a branch that host is not on, and `main` had no upstream, so
+  `git status` printed a clean tree at any drift. Paired with a manual production trigger, `main`
+  could sit undeployed with every check an operator would run reporting success. The host config
+  was corrected separately; this makes the gap visible on every deploy rather than on request.
+
 ## 1.4.306 - 2026-08-18
 When I confirm a reminder, I now show you the same thing I'll remind you about later. If your
 request had a condition attached — "if the PR looks good, then merge" — that condition used to

@@ -102,4 +102,86 @@ EOF
 
     expect(Output).toContain(`[deploy] target app directory: ${MockAppDir}`);
   });
+
+  describe('GH-111 drift pre-flight', () => {
+    // Production could not report that it was behind: its fetch refspec was narrowed to a branch it
+    // was not on, and `main` had no upstream, so `git status` looked clean at any drift. These cover
+    // the reporting itself AND the two ways it must degrade — because the one thing worse than no
+    // drift line is a drift line that can abort a deploy.
+    const FakeBinDir = path.join(TestDir, 'fake-bin');
+
+    /** Put a stub systemctl + npm on PATH so the script runs to completion without a real service. */
+    function InstallFakeBinaries() {
+      execSync(`
+        mkdir -p "${FakeBinDir}"
+        printf '#!/bin/bash\\nexit 0\\n' > "${FakeBinDir}/systemctl"
+        printf '#!/bin/bash\\nexit 0\\n' > "${FakeBinDir}/npm"
+        chmod +x "${FakeBinDir}/systemctl" "${FakeBinDir}/npm"
+      `);
+    }
+
+    /**
+     * Build a real checkout at MockAppDir wired to a local bare "origin" — no network involved.
+     * @param {number} ArgCommitsAhead How many commits origin/main has that the checkout does not.
+     */
+    function BuildCheckoutBehindOriginBy(ArgCommitsAhead) {
+      const OriginDir = path.join(TestDir, 'origin.git');
+      const Git = `git -C "${MockAppDir}" -c user.email=t@t -c user.name=t -c commit.gpgsign=false`;
+      execSync(`
+        git init --quiet --bare -b main "${OriginDir}"
+        git init --quiet -b main "${MockAppDir}"
+        ${Git} add -A && ${Git} commit --quiet -m base
+        ${Git} remote add origin "${OriginDir}"
+        ${Git} push --quiet origin main
+      `);
+      if(ArgCommitsAhead > 0) {
+        // build the commits, publish them all, THEN rewind the checkout — so origin/main ends up
+        // exactly ArgCommitsAhead ahead. Pushing and rewinding one at a time does not: every
+        // iteration after the first re-commits onto the rewound base, and the checkout finishes
+        // one behind no matter how many rounds ran.
+        for(let Index = 0; Index < ArgCommitsAhead; Index++)
+          execSync(`${Git} commit --quiet --allow-empty -m "remote-${Index}"`);
+        execSync(`${Git} push --quiet origin main`);
+        execSync(`${Git} reset --quiet --hard HEAD~${ArgCommitsAhead}`);
+      }
+    }
+
+    function RunDeploy() {
+      return execSync(
+        `PATH="${FakeBinDir}:$PATH" SLEUTH_APP_DIR="${MockAppDir}" bash "${DeployScriptPath}"`,
+        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+    }
+
+    it('skips cleanly, and still deploys, when the app directory is not a git checkout', () => {
+      // This is the DeployHQ case: an artifact upload, not a clone. It must not abort the deploy.
+      InstallFakeBinaries();
+      const Output = RunDeploy();
+
+      expect(Output).toContain('[deploy] drift: skipped');
+      expect(Output).toContain('is not a git checkout');
+      expect(Output).toContain('[deploy] done');
+    });
+
+    it('reports no drift when the checkout already matches origin/main', () => {
+      InstallFakeBinaries();
+      BuildCheckoutBehindOriginBy(0);
+      const Output = RunDeploy();
+
+      expect(Output).toMatch(/\[deploy\] deployed: [0-9a-f]{7,} \(branch main\)/);
+      expect(Output).toContain('[deploy] drift: none');
+      expect(Output).toContain('[deploy] done');
+    });
+
+    it('reports the exact commit count when the checkout is behind origin/main', () => {
+      InstallFakeBinaries();
+      BuildCheckoutBehindOriginBy(3);
+      const Output = RunDeploy();
+
+      // the count is the whole point — an off-by-one here is indistinguishable from "current".
+      expect(Output).toContain('[deploy] drift: 3 commit(s) behind origin/main');
+      expect(Output).toMatch(/\[deploy\] origin\/main: [0-9a-f]{7,}/);
+      expect(Output).toContain('[deploy] done');
+    });
+  });
 });
