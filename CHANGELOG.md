@@ -33,6 +33,39 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.297 - 2026-08-18
+Making a list from an image reads better now. The list I build lands as a reply in the thread you
+asked in, instead of appearing on its own in the channel; you get one confirmation instead of two
+(the second one used to show a raw ID and a link that didn't work); and I tell you I'm working on it
+up front, rather than leaving you watching an empty thread for half a minute.
+
+**Technical:** GH-83, presentation only — no change to extraction, list schema, or item content.
+
+- **Threaded the list card.** `#CreateListWithOcrSchemaAsync` posted its announcement with
+  `ThreadTS = null`, putting `📋 New OCR list created` in the channel root while the request that
+  produced it was a thread reply. `CreateListFromExtractedItemsAsync` now takes an optional
+  `ThreadTS` and passes it down; callers with no originating thread keep the old channel-root
+  behavior.
+- **Dropped the duplicate confirmation.** `#MaterializeListFromItemsAsync` also posted its own
+  confirmation, so every success announced the same list twice — and the second was the worse one:
+  it named the list by raw ID (`Created list "F0BQS451B0D"`) and wrote its permalink as
+  `<a|${Permalink}>`, which is `<url|text>` reversed and therefore rendered as literal text rather
+  than a link. It is now a **fallback**: `CreateListFromExtractedItemsAsync` returns `Announced`,
+  and ChatModule posts only when that is false. Deleting it outright would have turned the two cases
+  where the announcement is skipped — no permalink, or channel read access denied — into silent
+  successes; this way the list is announced exactly once in every case.
+- **Added an in-progress ack.** Vision OCR takes 10-30s on a full-page screenshot, during which the
+  thread showed nothing and a slow run was indistinguishable from a dropped one. Posted after the
+  image downloads rather than on entry, so a fetch failure never leaves a promise the next message
+  contradicts, and best-effort — an ack that fails must not abort the extraction it is only
+  narrating.
+
+Pinned by a new test in `tests/attachment-pipeline-entry-point.test.js` asserting the thread is
+handed to ListsModule, every posted message belongs to that thread, and exactly one message is sent
+when ListsModule has already announced. Mutation-checked both ways: dropping the `ThreadTS`
+pass-through and making the fallback unconditional each fail it. The pre-existing assertion on the
+old wording was rewritten to check the permalink and item count instead of a literal sentence.
+
 ## 1.4.296 - 2026-08-18
 Reading text out of an image works again. Every time you uploaded a picture and asked me to make a
 list from it, I told you "Image analysis failed — please try again later" — and no amount of trying
