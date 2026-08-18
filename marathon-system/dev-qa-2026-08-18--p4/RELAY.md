@@ -1,6 +1,6 @@
 # Marathon Phase p4
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P4-TURN-2 builder=agy reviewer=codex round-cap=7 -->
 
@@ -141,3 +141,12 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
 - **Site 3:** Modified `src/chat-module.js` to wrap the `Slack Lists is not configured for this workspace yet...` message in `BuildErrorReportAsync`. Added a test to `tests/attachment-pipeline-entry-point.test.js` covering this block.
 - **Mutation Verification:** Verified all three sites by removing `BuildErrorReportAsync` from the code and running the tests. In all three cases, the tests correctly failed because they expected the `*Diagnostics:*` substring which was absent, proving the assertions are sound.
 - Code matches all constraints: no global sweep of errors, only appending the baseline, no hand-rolled text. Tests verify the thread routing constraint.
+
+### Round 2 · Reviewer · codex
+
+swept file: yes
+
+- Reviewed the complete `src/chat-commands/convert-to-list-command.js`, `src/chat-module.js`, `tests/convert-to-list-command.test.js`, and `tests/attachment-pipeline-entry-point.test.js`. The production changes correctly preserve Site 1's configuration-vs-transient wording and send every requested site through `BuildErrorReportAsync`; no pre-existing production defects were found in the swept files.
+- **P1 — Site 3 does not actually prove that the diagnostics message is threaded.** In `tests/attachment-pipeline-entry-point.test.js`, the test combines every message's text to find `*Diagnostics:*`, then separately checks that *some* message has `threadTs === '1700000000.000200'`. The OCR progress acknowledgement is already a threaded message, so moving only the Site 3 diagnostics post to the channel would still pass. Locate the message containing `*Diagnostics:*` and assert that that same message has the expected thread timestamp; mutation-verify this routing assertion.
+
+**Verdict:** Changes requested
