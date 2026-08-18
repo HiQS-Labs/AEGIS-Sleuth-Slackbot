@@ -1,6 +1,6 @@
 # Marathon Phase p2
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -117,3 +117,10 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · agy
+- Created `tests/ocr-failure-diagnostics.test.js`.
+- Mocked `WorkspaceAI` and `DownloadFileBase64Async` to simulate different OCR failure scenarios.
+- Wrote four tests: `vision_provider_not_configured`, transient error, download failure, and empty file.
+- Verified that all four tests assert that the failure post contains the `*Diagnostics:*` baseline and goes to the `threadTs`.
+- Mutation-verified: I temporarily removed the `BuildErrorReportAsync` call in `#FailOcrAsync` in `src/chat-module.js:3133` and ran the tests. All four tests failed, confirming they correctly assert the baseline's presence. I then restored the code.
