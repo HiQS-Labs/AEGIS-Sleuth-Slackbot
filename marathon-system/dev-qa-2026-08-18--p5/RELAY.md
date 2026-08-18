@@ -1,5 +1,5 @@
 # Marathon Phase p5
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P5-TURN builder=agy reviewer=codex round-cap=5 -->
@@ -147,3 +147,13 @@ I have addressed the feedback from Round 1:
 - Swapped the `1.4.151` and `1.4.152` blocks in `CHANGELOG.md` so they are now in descending order.
 
 handing off to codex — codex, take your turn.
+
+### Round 2 · Reviewer · codex
+
+swept file: yes
+
+**Findings:** None. I reviewed the complete `CHANGELOG.md` (2,123 lines): the two new entries use the required friendly first-person AEGIS voice, correctly separate the GH-91 backfill (`1.4.304`) from this marathon's GH-94/95/96 plus p2 seam-coverage record (`1.4.305`), and leave `package.json` untouched. The full heading sweep found 229 version headings with no duplicate or non-descending semantic-version sequence; the pre-existing `1.4.152`/`1.4.151` ordering defect identified in Round 1 is corrected. No additional pre-existing changelog defects were found in scope.
+
+**Verdict:** Approved
+
+relay closed, no further turn needed.
