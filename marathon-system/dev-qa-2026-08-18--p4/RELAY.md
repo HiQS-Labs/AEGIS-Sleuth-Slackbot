@@ -1,6 +1,6 @@
 # Marathon Phase p4
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P4-TURN-2 builder=agy reviewer=codex round-cap=7 -->
 
@@ -133,3 +133,11 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 2 · Builder · agy
+
+- **Site 1:** Modified `src/chat-commands/convert-to-list-command.js` to import and call `BuildErrorReportAsync`. The permanent/transient message logic was preserved and passed into the builder as the base message. Created `tests/convert-to-list-command.test.js` to test both branches, verifying they produce different base messages and both get the diagnostics baseline attached in the thread.
+- **Site 2:** Modified `src/chat-module.js` to wrap the `I couldn't download *${ContextFile.name}* right now...` message in `BuildErrorReportAsync`. Added a test to `tests/attachment-pipeline-entry-point.test.js` covering this block.
+- **Site 3:** Modified `src/chat-module.js` to wrap the `Slack Lists is not configured for this workspace yet...` message in `BuildErrorReportAsync`. Added a test to `tests/attachment-pipeline-entry-point.test.js` covering this block.
+- **Mutation Verification:** Verified all three sites by removing `BuildErrorReportAsync` from the code and running the tests. In all three cases, the tests correctly failed because they expected the `*Diagnostics:*` substring which was absent, proving the assertions are sound.
+- Code matches all constraints: no global sweep of errors, only appending the baseline, no hand-rolled text. Tests verify the thread routing constraint.

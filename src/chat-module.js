@@ -2837,7 +2837,11 @@ class ChatModule {
       await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
-        `I couldn't download *${ContextFile.name}* right now (Slack file access failed). Please try uploading it again.`
+        await BuildErrorReportAsync(
+          ArgSlackApp,
+          ArgEventInfo.channel,
+          `I couldn't download *${ContextFile.name}* right now (Slack file access failed). Please try uploading it again.`
+        )
       );
       return { FoundContextFile: true, FileWasStored: false };
     }
@@ -3172,7 +3176,11 @@ class ChatModule {
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
-          'Slack Lists is not configured for this workspace yet. The items have been extracted but the list could not be created.'
+          await BuildErrorReportAsync(
+            ArgSlackApp,
+            ArgEventInfo.channel,
+            'Slack Lists is not configured for this workspace yet. The items have been extracted but the list could not be created.'
+          )
         );
         // Still post the extracted items summary so the user sees what was parsed.
         await this.#PostExtractedItemsSummaryAsync(ArgSlackApp, ArgEventInfo.channel, ReplyTS, ListTitle, ExtractedItems);

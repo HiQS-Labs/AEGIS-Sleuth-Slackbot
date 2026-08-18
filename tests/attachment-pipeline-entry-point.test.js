@@ -402,6 +402,50 @@ describe('GH-62: Slack attachment handling entry points', () => {
       expect(SlackApp.GetFileContentAsync).toHaveBeenCalled();
       expect(CreateListFromExtractedItemsAsync).not.toHaveBeenCalled();
     });
+
+    test('GH-96: context-memory download failure routes through BuildErrorReportAsync (Site 2)', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      SlackApp.GetFileContentAsync.mockRejectedValue(new Error('simulated download error'));
+      const { ListsModule } = MakeListsModuleStub();
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_TEXT',
+        user: 'U_TEST',
+        thread_ts: '1700000000.000100',
+        text: `${SlackApp.AppMentionString} read this`,
+        files: [MarkdownAttachment],
+      });
+
+      const AllMessages = SlackApp.SentMessages;
+      const Text = AllMessages.map(m => m.text).join('\n');
+      expect(Text).toContain('*Diagnostics:*');
+      expect(Text).toContain("I couldn't download *notes.md* right now");
+      // Thread reply verification
+      expect(AllMessages[0].threadTs).toBe('1700000000.000100');
+    });
+  });
+
+  describe('GH-96: Site 3 coverage for Lists integration', () => {
+    test('missing Lists module routes through BuildErrorReportAsync (Site 3)', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      new ChatModule(SlackApp, {}, {}, null, null, null);
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} create a list`,
+        files: [PngAttachment],
+        ts: '1700000000.000200',
+      });
+
+      const AllMessages = SlackApp.SentMessages;
+      const Text = AllMessages.map(m => m.text).join('\n');
+      expect(Text).toContain('*Diagnostics:*');
+      expect(Text).toContain('Slack Lists is not configured for this workspace yet');
+      // Thread reply verification
+      expect(AllMessages.some(m => m.threadTs === '1700000000.000200')).toBe(true);
+    });
   });
 
   describe('ResolveAttachmentIntent — the single classification seam', () => {
