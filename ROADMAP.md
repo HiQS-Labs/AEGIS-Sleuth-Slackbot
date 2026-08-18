@@ -164,6 +164,38 @@ goal: >
 
 ### Queue / parked intake
 
+- **Runtime state is bound to the install directory (GH-86)** — `Workspaces.GetRuntimeDirPath()`
+  falls back to `__dirname/../data/runtime`, so moving the install moves the whole runtime tree.
+  Production has two of them and they disagree: `/root/sleuth-app-v3` (live) holds 11 enabled
+  channels, the dead `/root/sleuth-app` holds 10 from 2026-08-11. Presents to a user as "the
+  reminders toggle reset itself after a deploy" — deploys were **ruled out** (`data/runtime/` is
+  gitignored and untracked; the 1.4.298 restart loaded and saved 10 unchanged). `scripts/deploy.sh`
+  defaults `APP_DIR` to the dead directory. Second, latent: `StopAsync()` writes in-memory state over
+  disk with no floor. Fix is mostly ops — pin `SLEUTH_DATA_DIR` (the lever GH-60 already added)
+  outside any install dir. See `PROJECT/1-INBOX/GH-86-RUNTIME-STATE-LOCATION.md`.
+
+- **"for tonight" schedules for tomorrow night (GH-87)** — `tonight` anchors to 9 PM, then ±45min
+  presentation jitter can move it before "now", and the past-handler rolls a past date forward a
+  full 24 hours (`ShouldKeepSameDayWhenPast` only matches `this morning`). A message sent within 45
+  minutes *before* its anchor has ~coin-flip odds of a day's deferral — worst exactly where the
+  phrase is most urgent. Jitter is a presentation device and must never change the calendar day.
+  See `PROJECT/1-INBOX/GH-87-TONIGHT-JITTER-DAY-ROLL.md`.
+
+- **Unify diagnostics under one system (GH-88)** — four independent builders (the `diagnostics`
+  command, reminder triage, ad-hoc error strings, the startup summary) share no baseline, format, or
+  routing. `diagnostics` receives the channel and never reports whether reminders are enabled in it,
+  so the command named *diagnostics* omits the usual answer to "why did nothing happen". Proposal is
+  one module, a 5-line baseline on every surface **including errors** (per-channel reminders-enabled
+  and the *resolved* runtime path both in it), plus a contextual section per caller. See
+  `PROJECT/1-INBOX/GH-88-UNIFIED-DIAGNOSTICS.md`.
+
+- **Bug reporting 404s (GH-89)** — `SLEUTH_ISSUE_REPO` is set nowhere on production, so
+  `ISSUE_REPO` is `''` and the filer POSTs to `https://api.github.com/repos//issues`. The empty
+  default is deliberate and right (a vendor default would file users' reports into someone else's
+  tracker); the defect is not distinguishing *unset* from *failed*. Guard before the request, name
+  the repo in genuine failures, and point production at `HiQS-Suite/AEGIS-Sleuth-Slackbot`. See
+  `PROJECT/1-INBOX/GH-89-ISSUE-REPO-CONFIG.md`.
+
 - **CI deadlock + lost verified-secret scanning (GH-15)** — merging GH-14 (DeployHQ adoption) deleted
   `.github/workflows/ci.yml`, the sole producer of the `test` status context that `main`'s branch
   protection still requires, so every PR is permanently `BLOCKED` and needs a manual protection lift.
