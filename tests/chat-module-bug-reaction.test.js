@@ -315,4 +315,34 @@ describe(':bug: reaction — admin GitHub bug-report filing', () => {
     expect(WasHandled).toBe(false);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  test('reports PAT scope error and diagnostics on GitHub 403', async () => {
+    const SlackApp = BuildSlackApp();
+    StubGithubCreate({ Status: 403 });
+    const Module = new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    await Module.StartAsync();
+
+    await SlackApp.SimulateReactionAddedAsync({
+      reaction: 'bug', user: ADMIN_USER_ID, item: { channel: CHANNEL, ts: MESSAGE_TS },
+    });
+
+    expect(SlackApp.SentMessages[0].text).toContain('issues:write');
+    expect(SlackApp.SentMessages[0].text).toContain('• Attempted repo: `HiQS-Suite/AEGIS-Sleuth-Slackbot`');
+    expect(SlackApp.SentMessages[0].text).toContain('*Diagnostics:*');
+  });
+
+  test('reports generic error and diagnostics on GitHub 404/422', async () => {
+    const SlackApp = BuildSlackApp();
+    StubGithubCreate({ Status: 404 });
+    const Module = new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    await Module.StartAsync();
+
+    await SlackApp.SimulateReactionAddedAsync({
+      reaction: 'bug', user: ADMIN_USER_ID, item: { channel: CHANNEL, ts: MESSAGE_TS },
+    });
+
+    expect(SlackApp.SentMessages[0].text).toContain('GitHub returned 404');
+    expect(SlackApp.SentMessages[0].text).toContain('• Attempted repo: `HiQS-Suite/AEGIS-Sleuth-Slackbot`');
+    expect(SlackApp.SentMessages[0].text).toContain('*Diagnostics:*');
+  });
 });

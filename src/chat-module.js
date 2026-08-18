@@ -18,6 +18,7 @@ const {
 const { CommandRouter } = require('./chat-command-router');
 const { RegisterCatalogRegexAliases } = require('./catalog-regex-aliases');
 const { CommandCatalogPath } = require('./command-catalog');
+const { BuildErrorReportAsync } = require('./diagnostics-report');
 const {
   SelectContextMemoryFile,
   IsBinaryMediaFile,
@@ -2312,38 +2313,45 @@ class ChatModule {
       }
 
       if(Result.reason === 'forbidden') {
-        await ArgSlackApp.PostMessageTextAsync(
+        const ErrorText = await BuildErrorReportAsync(
+          ArgSlackApp,
           ArgEventInfo.item.channel,
-          ReplyTS,
-          "couldn't file the GitHub issue: `GITHUB_PAT` lacks permission (filing issues requires `issues:write` scope)."
+          "couldn't file the GitHub issue: `GITHUB_PAT` lacks permission (filing issues requires `issues:write` scope).",
+          Result.repo ? [`• Attempted repo: \`${Result.repo}\``] : []
         );
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.item.channel, ReplyTS, ErrorText);
         return true;
       }
 
       if(Result.reason === 'github-error') {
         ArgSlackApp.Logger.warn(`[bug-reaction] GitHub API returned ${Result.status} for ${Result.apiUrl}`);
-        await ArgSlackApp.PostMessageTextAsync(
+        const ErrorText = await BuildErrorReportAsync(
+          ArgSlackApp,
           ArgEventInfo.item.channel,
-          ReplyTS,
-          `couldn't file the GitHub issue (GitHub returned ${Result.status}). Check the logs.`
+          `couldn't file the GitHub issue (GitHub returned ${Result.status}). Check the logs.`,
+          Result.repo ? [`• Attempted repo: \`${Result.repo}\``] : []
         );
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.item.channel, ReplyTS, ErrorText);
         return true;
       }
 
       ArgSlackApp.Logger.error('[bug-reaction] failed:', Result.error);
-      await ArgSlackApp.PostMessageTextAsync(
+      const FailureText = await BuildErrorReportAsync(
+        ArgSlackApp,
         ArgEventInfo.item.channel,
-        ReplyTS,
-        "Sorry - couldn't file the GitHub issue. Check the logs."
+        "Sorry - couldn't file the GitHub issue. Check the logs.",
+        Result.repo ? [`• Attempted repo: \`${Result.repo}\``] : []
       );
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.item.channel, ReplyTS, FailureText);
       return true;
     } catch(error) {
       ArgSlackApp.Logger.error('[bug-reaction] failed:', error);
-      await ArgSlackApp.PostMessageTextAsync(
+      const CatchErrorText = await BuildErrorReportAsync(
+        ArgSlackApp,
         ArgEventInfo.item.channel,
-        ReplyTS,
         "Sorry - couldn't file the GitHub issue. Check the logs."
       );
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.item.channel, ReplyTS, CatchErrorText);
       return true;
     }
   }
@@ -3035,12 +3043,22 @@ class ChatModule {
         // "try again later" invites a retry that can never succeed and hides the real fix.
         const IsConfigurationFailure = ocrError
           && (ocrError.code === 'vision_provider_not_configured' || ocrError.code === 'provider_not_configured');
+        const ContextLines = [
+          '• AI Provider: Google Gemini',
+          `• Model: \`${this.#WorkspaceAI?.DefaultModelName || 'unknown'}\``,
+        ];
+        const FullErrorMsg = await BuildErrorReportAsync(
+          ArgSlackApp,
+          ArgEventInfo.channel,
+          IsConfigurationFailure
+            ? "Image OCR needs a Gemini model, which isn't configured for this workspace. Ask a workspace admin to add a Gemini API key."
+            : 'Image analysis failed — please try again later.',
+          ContextLines
+        );
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
-          IsConfigurationFailure
-            ? "Image OCR needs a Gemini model, which isn't configured for this workspace. Ask a workspace admin to add a Gemini API key."
-            : 'Image analysis failed — please try again later.'
+          FullErrorMsg
         );
         return { ok: false };
       }
@@ -3063,10 +3081,15 @@ class ChatModule {
       };
     } catch(unexpectedError) {
       ArgSlackApp.Logger.error('[ocr-list] unexpected failure during extraction:', unexpectedError);
+      const FullErrorMsg = await BuildErrorReportAsync(
+        ArgSlackApp,
+        ArgEventInfo.channel,
+        'Something went wrong while reading that image.'
+      );
       await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyTS,
-        'Something went wrong while reading that image.'
+        FullErrorMsg
       );
       return { ok: false };
     }
@@ -3119,20 +3142,30 @@ class ChatModule {
         });
       } catch(listError) {
         ArgSlackApp.Logger.error('[ocr-list] failed to create Slack List:', listError);
+        const FullErrorMsg = await BuildErrorReportAsync(
+          ArgSlackApp,
+          ArgEventInfo.channel,
+          'Failed to create the Slack List. Check the logs for details.'
+        );
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
-          'Failed to create the Slack List. Check the logs for details.'
+          FullErrorMsg
         );
         return true;
       }
 
       if(!ListResult || !ListResult.ok) {
         ArgSlackApp.Logger.warn(`[ocr-list] create-list returned ok:false — ${ListResult?.error || 'unknown error'}`);
+        const FullErrorMsg = await BuildErrorReportAsync(
+          ArgSlackApp,
+          ArgEventInfo.channel,
+          'List creation failed: ' + (ListResult?.error || 'unknown error.')
+        );
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
-          'List creation failed: ' + (ListResult?.error || 'unknown error.')
+          FullErrorMsg
         );
         return true;
       }
@@ -3160,10 +3193,15 @@ class ChatModule {
       return true;
     } catch(error) {
       ArgSlackApp.Logger.error('[ocr-list] unexpected error:', error);
+      const FullErrorMsg = await BuildErrorReportAsync(
+        ArgSlackApp,
+        ArgEventInfo.channel,
+        'An unexpected error occurred during image processing.'
+      );
       await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyTS,
-        'An unexpected error occurred during image processing.'
+        FullErrorMsg
       );
       return true;
     }
