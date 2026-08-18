@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -114,6 +114,15 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
    "handing off to codex — codex, take your turn." A turn that ends without that line
    leaves a human guessing whether the relay is waiting on them or has stalled. Do this EVERY round,
    not just the first. ALSO, you MUST update the `NEXT:` line at the top of this file to exactly: `NEXT: codex (Reviewer)`
+
+### Round 1 · Builder · agy
+- Moved the `ApplyPresentationJitter` block to the end of `ExtractDateWithGptAsync` so it runs after past-rollover and too-soon pushes.
+- Modified `ApplyPresentationJitter` call to pass `FutureDateThatIsNotTooSoon` instead of `CurrentUtcDate` to preserve the `too-soon` scheduling invariant when negative jitter is applied.
+- Updated `tests/reminders-ai-pipeline.test.js`:
+  - Added the "failing-today test" validating that `this afternoon` on the same day works regardless of jitter extreme.
+  - Asserted `wasAdjustedForward` remains `true` only when the underlying anchor legitimately rolls over.
+  - Updated the GH-87 property test to use a `00:15` local anchor and multiple offsets (`CurrentOffsets`) to test both future and past anchors natively.
+  - Added `Math.random` mocking for the GH-87 `tonight` test to guarantee deterministic behavior.
 
 ---
 
