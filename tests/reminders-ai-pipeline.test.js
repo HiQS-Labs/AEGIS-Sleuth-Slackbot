@@ -642,16 +642,16 @@ describe('RemindersAIPipeline', () => {
     });
 
     it('applies presentation jitter without altering the local calendar day (GH-94)', async () => {
-      // Mock 'now' to 14:00 local (e.g. UTC-7: 21:00 UTC)
+      // Mock 'now' to 14:30 local (e.g. UTC-7: 21:30 UTC)
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-08-18T14:00:00-07:00'));
+      jest.setSystemTime(new Date('2026-08-18T14:30:00-07:00'));
       
       const AnchorResponse = {
         year: 2026,
         month: 8,
         day: 18,
-        hour: 14, // 14:30 local -> in the future relative to 14:00
-        minute: 30,
+        hour: 14, // 14:00 local -> in the past relative to 14:30
+        minute: 0,
         second: 0,
         rationale: 'afternoon anchor'
       };
@@ -671,12 +671,12 @@ describe('RemindersAIPipeline', () => {
       const DayMinus = new Date(ResultMinus45.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
       const DayPlus = new Date(ResultPlus45.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
       
-      expect(DayMinus).toBe(18);
-      expect(DayPlus).toBe(18);
+      expect(DayMinus).toBe(19);
+      expect(DayPlus).toBe(19);
       
-      // both should not be adjusted forward (because they are evaluated as future before jitter)
-      expect(ResultMinus45.wasAdjustedForward).toBe(false);
-      expect(ResultPlus45.wasAdjustedForward).toBe(false);
+      // both should be adjusted forward because they are evaluated as past before jitter
+      expect(ResultMinus45.wasAdjustedForward).toBe(true);
+      expect(ResultPlus45.wasAdjustedForward).toBe(true);
       
       jest.useRealTimers();
       jest.restoreAllMocks();
@@ -712,7 +712,7 @@ describe('RemindersAIPipeline', () => {
 
     it('property test: across full jitter range, no fuzzy anchor changes calendar day relative to anchor (GH-87)', () => {
       const Anchors = [
-        { phrase: 'midnight', hour: 0, minute: 15 },
+        { phrase: 'night', hour: 0, minute: 15 },
         { phrase: 'morning', hour: 8 },
         { phrase: 'noon', hour: 12 },
         { phrase: 'afternoon', hour: 14 },

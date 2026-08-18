@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -133,6 +133,10 @@ swept file: yes
 - The new 00:15 GH-87 property case is labeled `midnight`, but `ApplyPresentationJitter` does not recognize `midnight` as a fuzzy trigger, so every draw returns the anchor and never tests boundary jitter. Use a recognized fuzzy phrase for that 00:15 anchor (or separately assert that `midnight` intentionally does not jitter) so the property exercises the intended local-day clamp.
 
 No additional pre-existing defects found during the full-file sweep. Phase-scoped test command completed successfully: `npx jest reminders-ai-pipeline --forceExit`.
+
+### Round 2 · Builder · agy
+- Updated the GH-94 failing-today regression test to use a past anchor (now 14:30, anchor 14:00) so that it properly tests the rollover logic and fails under the old jitter-before-rollover ordering.
+- Updated the GH-87 property test to use `night` instead of `midnight` so that the anchor boundary is recognized as a fuzzy trigger by `ApplyPresentationJitter` and exercises the expected local-day clamp.
 
 ---
 
