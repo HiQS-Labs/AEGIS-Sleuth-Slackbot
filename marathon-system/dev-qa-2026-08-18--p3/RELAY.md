@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -146,3 +146,9 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · agy
+- Hoisted `NormalizeDirectCommandTextAsync` above `#HandleAttachmentAsync` in `src/chat-module.js` and passed `NormalizedCommandText` to both the attachment handler and `ArgSuppressConfirmation`.
+- Verified `NormalizeDirectCommandTextAsync` does not change `list/scan` intents as it trims whitespace and matches specific direct command aliases not overlapping with `ResolveAttachmentIntent` rules. Kept the single-string design.
+- Folded the duplicate `MatchRouteName` invocation and corrected the comment regarding `convert text into slack list` + image in `src/chat-module.js:2741-2757`.
+- Added test case `GH-95: a phrasing that only matches AFTER normalization still reaches the router` in `tests/attachment-pipeline-entry-point.test.js` and verified it passes. `npm test` also passes.

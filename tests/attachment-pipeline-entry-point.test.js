@@ -286,6 +286,23 @@ describe('GH-62: Slack attachment handling entry points', () => {
       expect(AllText).not.toContain('I can only read text-based files as context');
     });
 
+    test('GH-95: a phrasing that only matches AFTER normalization still reaches the router', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      const { ListsModule } = MakeListsModuleStub();
+      new ChatModule(SlackApp, {}, {}, null, null, ListsModule);
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} set channel model: 'gpt 4o mini'`,
+        files: [PngAttachment],
+      });
+
+      expect(WasHandled).toBe(true);
+      const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
+      expect(AllText).not.toContain('I can only read text-based files as context');
+    });
+
     test('GH-91: an image with NO matching command still gets the existing rejection', async () => {
       const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
       const { ListsModule, CreateListFromExtractedItemsAsync } = MakeListsModuleStub();

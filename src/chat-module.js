@@ -1134,6 +1134,9 @@ class ChatModule {
     // computed before the file check so we can suppress the confirmation when question text is present.
     const CommandTextWithoutMention = ArgEventInfo.text.replace(ArgSlackApp.AppMentionString, '').trim();
 
+    const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(CommandTextWithoutMention);
+    const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
+
     // check for an uploaded text file (Markdown, snippet, log, CSV, code, etc.) and store it as
     // thread context memory before any other handling. Suppress the "I've loaded…" confirmation
     // post when the user also asked a question — the AI's attribution footer signals which file was
@@ -1142,8 +1145,8 @@ class ChatModule {
     const AttachmentResult = await this.#HandleAttachmentAsync(
       ArgSlackApp,
       ArgEventInfo,
-      CommandTextWithoutMention,
-      !!CommandTextWithoutMention,
+      NormalizedCommandText,
+      !!NormalizedCommandText,
       true // GH-91: this path reaches #CommandRouter.RouteAsync below, so it can serve the fall-through.
     );
     if(AttachmentResult.Handled) return true;
@@ -1151,13 +1154,11 @@ class ChatModule {
 
     if(FileWasLoaded) {
       // if the message contained only the file with no question, the confirmation is sufficient.
-      if(!CommandTextWithoutMention) return true;
+      if(!NormalizedCommandText) return true;
       // question text is present alongside the upload — skip command routing and fall through
       // to generate an AI answer grounded in the just-loaded context memory.
     } else {
       // no attachment took ownership — run the normal command routing pipeline.
-      const NormalizedCommandTextResult = await NormalizeDirectCommandTextAsync(CommandTextWithoutMention);
-      const NormalizedCommandText = NormalizedCommandTextResult.NormalizedText;
 
       // GH-397 router mode: when armed, Gemini Flash Lite either shadows the resolver (logs a corpus
       // record, ZERO authority) or, in `active`, takes over resolution above a confidence floor.
@@ -2741,19 +2742,20 @@ class ChatModule {
     // GH-91: `unsupported` means the RESOLVER did not recognise the phrasing — not that the user
     // asked for nothing. Before this, an explicit command plus an image was the one case that could
     // never work: this returned Handled:true, the caller returned at the `if(AttachmentResult.Handled)`
-    // line, and `#CommandRouter.RouteAsync` below it was unreachable. So `@Sleuth scan image for text`
+    // line, and `#CommandRouter.RouteAsync` below it was unreachable. So `@Sleuth convert text into slack list`
     // with an image attached — the exact situation that command exists for — got the text-files-only
     // rejection. Hand the event back when a registered route matches, and let the router serve it.
     //
     // Scoped to 'unsupported' on purpose: a 'text' attachment is genuine context-memory input and
     // must keep being ingested even when the text also looks like a command.
-    if(Intent.Kind === 'unsupported'
-      && ArgAllowCommandFallthrough
-      && this.#CommandRouter?.MatchRouteName(ArgText, ArgEventInfo)) {
-      ArgSlackApp.Logger.info(
-        `[attachment] unsupported attachment but '${this.#CommandRouter.MatchRouteName(ArgText, ArgEventInfo)}' matches — deferring to the command router`
-      );
-      return { Handled: false, TextFileWasStored: false };
+    if(Intent.Kind === 'unsupported' && ArgAllowCommandFallthrough) {
+      const MatchedRoute = this.#CommandRouter?.MatchRouteName(ArgText, ArgEventInfo);
+      if(MatchedRoute) {
+        ArgSlackApp.Logger.info(
+          `[attachment] unsupported attachment but '${MatchedRoute}' matches — deferring to the command router`
+        );
+        return { Handled: false, TextFileWasStored: false };
+      }
     }
 
     // 'text' and 'unsupported' are both owned by the context-memory ingest, which already posts
