@@ -33,6 +33,15 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.300 - 2026-08-18
+When you ask for a reminder "tonight" or "this evening", I'll now always schedule it for tonight rather than accidentally rolling it over to tomorrow if a slight random timing adjustment pushes it before right now.
+
+**Technical:** GH-87 — presentation jitter invariants and evening intent handling in reminder date extraction.
+
+- **Enforced presentation jitter invariants via `RemindersAIPipeline.ApplyPresentationJitter`.** Jitter is clamped so that an anchor at or after the current time is never pushed into the past, and jitter adjustments can never alter the local calendar day relative to the anchor.
+- **Extended same-day past-date intent.** Expanded `ShouldKeepSameDayWhenPast` from `\bthis morning\b` to include `tonight`, `later tonight`, `night`, and `evening` so late evening requests schedule soon via the `SecondsForTooSoon` buffer instead of rolling forward 24 hours.
+- **Pinned with deterministic and property tests.** Added unit and property tests in `tests/reminders-ai-pipeline.test.js` validating that across all 91 jitter offsets and fuzzy keywords, calendar day changes are impossible.
+
 ## 1.4.299 - 2026-08-18
 If bug reporting isn't set up yet for your workspace, I'll now let you know directly instead of running into a confusing 404 error when trying to open a GitHub issue.
 
