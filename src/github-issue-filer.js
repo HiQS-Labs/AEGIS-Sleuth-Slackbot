@@ -24,7 +24,7 @@ const ISSUE_REPO = process.env.SLEUTH_ISSUE_REPO || '';
  * @property {string} apiUrl
  * @property {number} [number] Issue number — present when `ok` is true.
  * @property {string} [htmlUrl] Issue URL — present when `ok` is true.
- * @property {'no-pat'|'forbidden'|'github-error'|'request-failed'} [reason] Present when `ok` is false.
+ * @property {'no-pat'|'no-repo'|'forbidden'|'github-error'|'request-failed'} [reason] Present when `ok` is false.
  * @property {number} [status] HTTP status — present when `reason` is 'forbidden' or 'github-error'.
  * @property {Error} [error] Present when `reason` is 'request-failed'.
  */
@@ -39,9 +39,14 @@ const ISSUE_REPO = process.env.SLEUTH_ISSUE_REPO || '';
  * @returns {Promise<FileGithubIssueResult>}
  */
 async function FileGithubIssueAsync(ArgWorkspaceInfo, ArgTitle, ArgBody, ArgOptions = {}) {
+  const ConfiguredRepo = (typeof process.env.SLEUTH_ISSUE_REPO === 'string' && process.env.SLEUTH_ISSUE_REPO.trim())
+    || ISSUE_REPO;
   const Repo = typeof ArgOptions.Repo === 'string' && ArgOptions.Repo.trim()
     ? ArgOptions.Repo.trim()
-    : ISSUE_REPO;
+    : ConfiguredRepo;
+  if(!Repo)
+    return { ok: false, repo: '', apiUrl: '', reason: 'no-repo' };
+
   const ApiUrl = `https://api.github.com/repos/${Repo}/issues`;
   const Pat = typeof ArgWorkspaceInfo?.GITHUB_PAT === 'string'
     ? ArgWorkspaceInfo.GITHUB_PAT.trim()

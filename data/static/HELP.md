@@ -31,7 +31,10 @@ Use exact commands when you know what you want. If you do not, ask `@Sleuth AI h
 - `@Sleuth AI notion search release notes` — Search the connected Notion workspace.
 - `@Sleuth AI view stratalist jinhui2026` — Fetch a public Stratalist list and show it in Slack without creating reminders.
 - `@Sleuth AI refresh clients` — Re-read the operator-managed Clients Slack List into the Sleuth client lookup so reminder client-name inference picks up new clients and aliases without a code deploy.
+- `@Sleuth AI scan image for text` — Read the text out of an uploaded image using Vision OCR and post it back, without creating anything.
+- `@Sleuth AI convert text into slack list` — Turn text — pasted, quoted, or already scanned out of an image — into an interactive Slack List.
 - `@Sleuth AI ask-reminders what's open for Client A?` — Query live open reminders and completion history to answer free-form questions about task state.
+- `@Sleuth AI make a list from this image` — Turn an attached image into an interactive Slack List in one step — Vision OCR extraction plus list creation.
 
 *Models & Workspace*
 - `@Sleuth AI show-channel-model` — Show this channel's override and effective chat model.

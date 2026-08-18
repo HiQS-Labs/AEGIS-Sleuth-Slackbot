@@ -723,6 +723,75 @@ class RemindersAIPipeline {
   }
 
   /**
+   * Apply presentation jitter (±45 min) to fuzzy time-of-day anchors without explicit clock times.
+   * INVARIANT: Jitter is a presentation device and must NEVER change the calendar day relative to
+   * the un-jittered anchor, and must never push a future anchor into the past.
+   * @param {Date} ArgAnchorDate Extracted UTC anchor date.
+   * @param {string} ArgSchedulingTrigger Trigger phrase.
+   * @param {Date} ArgCurrentUtcDate Current UTC timestamp.
+   * @param {number} [ArgMainTimeZoneOffsetInMinutes=0] Time zone offset in minutes.
+   * @returns {Date} Jittered or clamped Date object.
+   */
+  static ApplyPresentationJitter(ArgAnchorDate, ArgSchedulingTrigger, ArgCurrentUtcDate, ArgMainTimeZoneOffsetInMinutes = 0) {
+    const TriggerNoonFree = (ArgSchedulingTrigger || '').replace(/\b12\s+noon\b/gi, 'noon');
+    const HasExplicitClockTime = (
+      /\d{1,2}:\d{2}/.test(TriggerNoonFree) ||
+      /\d{1,2}(:\d{2})?\s*(am|pm)/i.test(TriggerNoonFree) ||
+      /\b\d{3,4}\s*hrs?\b/i.test(TriggerNoonFree) ||
+      /\b(at|by|before|until)\s+\d{1,2}\b/i.test(TriggerNoonFree) ||
+      /\b(morning|afternoon|noon|evening|night|tonight|later tonight|late afternoon)\s+\d{1,2}\b/i.test(TriggerNoonFree)
+    );
+
+    if (HasExplicitClockTime || !/\b(morning|afternoon|noon|12 noon|evening|night|tonight|later tonight|late afternoon)\b/i.test(ArgSchedulingTrigger)) {
+      return ArgAnchorDate;
+    }
+
+    const JitterMinutes = Math.floor(Math.random() * 91) - 45;
+    const JitteredDate = new Date(ArgAnchorDate.getTime() + (JitterMinutes * 60 * 1000));
+
+    // Invariant 1: If un-jittered anchor was at or after now, jitter must not push it before now.
+    if(ArgAnchorDate.getTime() >= ArgCurrentUtcDate.getTime() && JitteredDate.getTime() < ArgCurrentUtcDate.getTime()) {
+      JitteredDate.setTime(ArgCurrentUtcDate.getTime());
+    }
+
+    // Invariant 2: Jitter must never change the calendar day in the workspace's local timezone.
+    const LocalAnchorMs = ArgAnchorDate.getTime() + (ArgMainTimeZoneOffsetInMinutes * 60 * 1000);
+    const LocalAnchorDate = new Date(LocalAnchorMs);
+    const LocalJitteredMs = JitteredDate.getTime() + (ArgMainTimeZoneOffsetInMinutes * 60 * 1000);
+    const LocalJitteredDate = new Date(LocalJitteredMs);
+
+    if(
+      LocalJitteredDate.getUTCFullYear() !== LocalAnchorDate.getUTCFullYear() ||
+      LocalJitteredDate.getUTCMonth() !== LocalAnchorDate.getUTCMonth() ||
+      LocalJitteredDate.getUTCDate() !== LocalAnchorDate.getUTCDate()
+    ) {
+      if(LocalJitteredMs < LocalAnchorMs) {
+        const StartOfLocalDayMs = Date.UTC(
+          LocalAnchorDate.getUTCFullYear(),
+          LocalAnchorDate.getUTCMonth(),
+          LocalAnchorDate.getUTCDate(),
+          0, 0, 0, 0
+        );
+        JitteredDate.setTime(StartOfLocalDayMs - (ArgMainTimeZoneOffsetInMinutes * 60 * 1000));
+      } else {
+        const EndOfLocalDayMs = Date.UTC(
+          LocalAnchorDate.getUTCFullYear(),
+          LocalAnchorDate.getUTCMonth(),
+          LocalAnchorDate.getUTCDate(),
+          23, 59, 59, 999
+        );
+        JitteredDate.setTime(EndOfLocalDayMs - (ArgMainTimeZoneOffsetInMinutes * 60 * 1000));
+      }
+
+      if(ArgAnchorDate.getTime() >= ArgCurrentUtcDate.getTime() && JitteredDate.getTime() < ArgCurrentUtcDate.getTime()) {
+        JitteredDate.setTime(ArgCurrentUtcDate.getTime());
+      }
+    }
+
+    return JitteredDate;
+  }
+
+  /**
    * Build deterministic fallback reminder for direct requests that include time triggers.
    * @param {string} ArgMessageText Original message text.
    * @returns {GptReminderResponse|null}
@@ -826,38 +895,18 @@ class RemindersAIPipeline {
     // construct a UTC date object from the extracted date components. NOTE: months are zero-based in JavaScript so we
     // subtract 1 from the month component to get the correct month value. We use Date.UTC() to ensure the date components
     // are interpreted as UTC values and not local time values.
-    const ExtractedDate = new Date(Date.UTC(
+    const AnchorDate = new Date(Date.UTC(
       GptExtractionResult.year, GptExtractionResult.month - 1, GptExtractionResult.day,
       GptExtractionResult.hour, GptExtractionResult.minute, GptExtractionResult.second
     ));
 
-    // convert the extracted date back to UTC to ensure consistency with the rest of the app. NOTE: we subtract the
-    // time zone offset in minutes to get the correct UTC date; if the offset was ahead of UTC this shifts the date
-    // back to UTC, and if the offset was behind UTC (i.e. negative) this shifts the date forward to UTC. The native
-    // behaviour of the setUTCMinutes() method is quite handy here since it automatically adjusts the date if the
-    // minutes value is out of range (e.g. setting minutes to -30 will adjust the date to the previous hour and set
-    // the minutes to 30).
-    ExtractedDate.setUTCMinutes(ExtractedDate.getUTCMinutes() - MainTimeZoneOffsetInMinutes);
+    // convert the extracted anchor date back to UTC to ensure consistency with the rest of the app.
+    AnchorDate.setUTCMinutes(AnchorDate.getUTCMinutes() - MainTimeZoneOffsetInMinutes);
 
-    // apply random jitter (±45 min) when the trigger is a fuzzy time-of-day keyword with no specific clock time.
-    // Strip "12 noon" first so its digit doesn't block jitter for that anchor phrase.
-    // Explicit clock forms that DO block jitter: HH:MM, digit+AM/PM, military time, preposition+bare-hour,
-    // or a keyword immediately followed by a bare hour (e.g. "morning 8", "tonight 9"). Calendar-only digits
-    // like ordinals ("the 18th"), slash-dates ("6/20"), or month-day pairs are ignored by these patterns.
-    const TriggerNoonFree = ArgSchedulingTrigger.replace(/\b12\s+noon\b/gi, 'noon');
-    const HasExplicitClockTime = (
-      /\d{1,2}:\d{2}/.test(TriggerNoonFree) ||
-      /\d{1,2}(:\d{2})?\s*(am|pm)/i.test(TriggerNoonFree) ||
-      /\b\d{3,4}\s*hrs?\b/i.test(TriggerNoonFree) ||
-      /\b(at|by|before|until)\s+\d{1,2}\b/i.test(TriggerNoonFree) ||
-      /\b(morning|afternoon|noon|evening|night|tonight|later tonight|late afternoon)\s+\d{1,2}\b/i.test(TriggerNoonFree)
-    );
-    if (!HasExplicitClockTime && /\b(morning|afternoon|noon|12 noon|evening|night|tonight|later tonight|late afternoon)\b/i.test(ArgSchedulingTrigger)) {
-      ExtractedDate.setUTCMinutes(ExtractedDate.getUTCMinutes() + Math.floor(Math.random() * 91) - 45);
-    }
+    let ExtractedDate = new Date(AnchorDate.getTime());
 
-    // when users explicitly say "this morning", favor immediate same-day handling over next-day rollover.
-    const ShouldKeepSameDayWhenPast = /\bthis morning\b/i.test(ArgSchedulingTrigger);
+    // when users explicitly say "this morning" or evening keywords ("tonight", "later tonight", "night", "evening"), favor immediate same-day handling over next-day rollover.
+    const ShouldKeepSameDayWhenPast = /\b(this morning|tonight|later tonight|night|evening)\b/i.test(ArgSchedulingTrigger);
 
     // check if the extracted date is in the past and needs to be pushed forward.
     let wasAdjustedForward = false;
@@ -884,6 +933,15 @@ class RemindersAIPipeline {
       ExtractedDate.setUTCSeconds(ExtractedDate.getUTCSeconds() + SecondsForTooSoon);
       this.#SlackApp.Logger.info(`date is too soon, pushing out by ${SecondsForTooSoon} seconds`);
     }
+
+    // apply random presentation jitter (±45 min) when the trigger is a fuzzy time-of-day keyword,
+    // ensuring jitter never alters the calendar day relative to the anchor or pushes a future anchor into the past.
+    ExtractedDate = RemindersAIPipeline.ApplyPresentationJitter(
+      ExtractedDate,
+      ArgSchedulingTrigger,
+      FutureDateThatIsNotTooSoon,
+      MainTimeZoneOffsetInMinutes
+    );
 
     // return the extracted date and the scheduling trigger used for extraction.
     return { success: true, date: ExtractedDate, phrase: ArgSchedulingTrigger, wasAdjustedForward };

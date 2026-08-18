@@ -31,6 +31,34 @@ goal: >
 
 ### In progress
 
+- **OCR follow-ups: intent grammar, resolver action split, catalog entry, wiring cleanups
+  (GH-73/74/75/76)** — branch `gh-73-ocr-followups`. The GH-58 OCR feature, repaired in 1.4.293
+  (#62/63/64), still mis-routed the production request "make a todo list for by OCRing the
+  attached image" to the text-files-only rejection: `HasListCreationIntent` required `list`
+  immediately after verb+article, so the modifier "todo" broke every alternation. One branch closes
+  all four graded follow-ups: widen the grammar and split the resolver result into `image-list`
+  vs `image-text` so scan-only requests stop after extraction (#73, Codex-refined), add an explicit
+  `make-list-from-image` catalog entry + route instead of mirroring phrases into mismatched
+  entries (#74), constructor-inject ListsModule into ChatModule (#75), and deduplicate the seven
+  OCR failure-post blocks into a posting-only helper (#76). →
+  [PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md](PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md)
+
+- **The 2026-08-18 `development` QA fixes (GH-94, GH-95, GH-96)** — **planned; plan built,
+  preflighted ready, dry-run clean, not fired.** An independent GLM 5.3 review of `development` at
+  `11d9e4e` surfaced one blocking defect and two coverage gaps. GH-94: presentation jitter runs
+  before the past-date rollover, so an anchor within 45 minutes of "now" fires today or tomorrow
+  depending on `Math.random()` — a residual of #87 that #87's own invariants cannot observe. GH-95:
+  the #91 command-router fallthrough matches raw text while the router routes normalized text, so a
+  normalization-dependent command plus an attachment is still unreachable. GH-96: three user-facing
+  error posts never call `BuildErrorReportAsync`, so #88's "one system" is not yet true. Two
+  unticketed phases ride along — coverage for the #76/#88 merge seam (untested today: reverting
+  `#FailOcrAsync` to a bare post leaves the suite green) and the missing #91 CHANGELOG entry. Five
+  phases, `agy` reviewing, `codex` building. →
+  [PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml](PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml),
+  [PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md](PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md),
+  [PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md](PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md),
+  [PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md](PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md)
+
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed
@@ -163,6 +191,38 @@ goal: >
 - **"Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362)** — a 6-lane marathon that ends the "compute → render → discard" pattern: stamp client/project identity at creation + operator-defaults config (**#361 A**), `ask-reminders` over live authoritative data (**#361 B**), whole-thread multi-task inference (**#360**), durable deterministic-first project map (**#361 C**), deterministic proactive digest signals (**#362 P1**), then **p6 — an end-to-end net-improvement acceptance test** (`tests/marathon-360-361-362-e2e.test.js`) proving p1-p5 actually connect (data one phase persists is data a later phase reads), not just that each ships in isolation. Cross-model consult (Codex + agy) adjudicated + folded in. Ordered dependency chain, not a concurrency wave. **SHIPPED + merged to main 2026-07-13 (`marathon.complete`, v1.4.212 line); docs closed out to `3-COMPLETED` 2026-07-14.** All 6 lanes green incl. p6 e2e. **Caveat:** only GH-362 **Phase 1** shipped; GH-362 Phases 2 & 3 deferred → **GH-366** (in progress, `feat/gh-366-proactive-phases-2-3`). → [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md)
 
 ### Queue / parked intake
+
+- **Runtime state is bound to the install directory (GH-86)** — `Workspaces.GetRuntimeDirPath()`
+  falls back to `__dirname/../data/runtime`, so moving the install moves the whole runtime tree.
+  Production has two of them and they disagree: `/root/sleuth-app-v3` (live) holds 11 enabled
+  channels, the dead `/root/sleuth-app` holds 10 from 2026-08-11. Presents to a user as "the
+  reminders toggle reset itself after a deploy" — deploys were **ruled out** (`data/runtime/` is
+  gitignored and untracked; the 1.4.298 restart loaded and saved 10 unchanged). `scripts/deploy.sh`
+  defaults `APP_DIR` to the dead directory. Second, latent: `StopAsync()` writes in-memory state over
+  disk with no floor. Fix is mostly ops — pin `SLEUTH_DATA_DIR` (the lever GH-60 already added)
+  outside any install dir. See `PROJECT/1-INBOX/GH-86-RUNTIME-STATE-LOCATION.md`.
+
+- **"for tonight" schedules for tomorrow night (GH-87)** — `tonight` anchors to 9 PM, then ±45min
+  presentation jitter can move it before "now", and the past-handler rolls a past date forward a
+  full 24 hours (`ShouldKeepSameDayWhenPast` only matches `this morning`). A message sent within 45
+  minutes *before* its anchor has ~coin-flip odds of a day's deferral — worst exactly where the
+  phrase is most urgent. Jitter is a presentation device and must never change the calendar day.
+  See `PROJECT/1-INBOX/GH-87-TONIGHT-JITTER-DAY-ROLL.md`.
+
+- **Unify diagnostics under one system (GH-88)** — four independent builders (the `diagnostics`
+  command, reminder triage, ad-hoc error strings, the startup summary) share no baseline, format, or
+  routing. `diagnostics` receives the channel and never reports whether reminders are enabled in it,
+  so the command named *diagnostics* omits the usual answer to "why did nothing happen". Proposal is
+  one module, a 5-line baseline on every surface **including errors** (per-channel reminders-enabled
+  and the *resolved* runtime path both in it), plus a contextual section per caller. See
+  `PROJECT/1-INBOX/GH-88-UNIFIED-DIAGNOSTICS.md`.
+
+- **Bug reporting 404s (GH-89)** — `SLEUTH_ISSUE_REPO` is set nowhere on production, so
+  `ISSUE_REPO` is `''` and the filer POSTs to `https://api.github.com/repos//issues`. The empty
+  default is deliberate and right (a vendor default would file users' reports into someone else's
+  tracker); the defect is not distinguishing *unset* from *failed*. Guard before the request, name
+  the repo in genuine failures, and point production at `HiQS-Suite/AEGIS-Sleuth-Slackbot`. See
+  `PROJECT/1-INBOX/GH-89-ISSUE-REPO-CONFIG.md`.
 
 - **CI deadlock + lost verified-secret scanning (GH-15)** — merging GH-14 (DeployHQ adoption) deleted
   `.github/workflows/ci.yml`, the sole producer of the `test` status context that `main`'s branch

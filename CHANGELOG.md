@@ -33,6 +33,110 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.305 - 2026-08-18
+I've been updated so that reminders phrased with a fuzzy time no longer land on the wrong day, and when something fails I'll now give you the diagnostic details in every case, not just some.
+
+**Technical:** GH-94, GH-95, GH-96, and p2 seam coverage — four phases from the dev QA marathon.
+- **GH-94:** Apply jitter after the past-date rollover in `src/reminders-ai-pipeline.js`.
+- **GH-95:** Use one normalized command string for both the fallthrough and the router in `src/chat-module.js`.
+- **GH-96:** Route the three bypassing error posts through `BuildErrorReportAsync` in `src/chat-commands/convert-to-list-command.js` and `src/chat-module.js`.
+- **Seam coverage:** Added `tests/ocr-failure-diagnostics.test.js` to cover the GH-76/GH-88 merge seam, ensuring OCR failures always carry the diagnostics baseline.
+
+## 1.4.304 - 2026-08-18
+I've been updated so that commands sent with an image attached now work the same as without one.
+
+**Technical:** GH-91 — added command-router fallthrough for an explicit command carrying an image.
+
+## 1.4.303 - 2026-08-18
+I got the message about the photo list. When you said "make a todo list for by OCRing the attached
+image," I was listening for "make a list" exactly — that extra word "todo" made me give you my
+text-files-only speech instead of reading the image. I now understand todo/task/checklist lists,
+and when you only want the text OUT of an image ("read the text in this screenshot") I'll post the
+text without building a list you didn't ask for. "Make a list from this image" is also a real
+command now, so it shows up in help and the commands list.
+
+**Technical:** GH-73, GH-74, GH-75, GH-76 — the four graded follow-ups to the GH-58 OCR feature,
+shipped in one branch.
+- **GH-73 — intent grammar + action split.** `HasListCreationIntent` (`src/context-file-classifier.js`)
+  required `list` immediately after verb+article, so the modifier "todo" broke every alternation and
+  `ResolveAttachmentIntent` returned `unsupported` → the text-files-only rejection. The verb arm now
+  accepts 0–2 modifier words and `checklist`. New `HasImageTextExtractionIntent` adds a scan-only
+  arm, and the resolver's single `image-ocr` kind is split into `image-list` (extract + materialize)
+  vs `image-text` (extract + post text, never create a list) — routing a scan-only request through
+  the old kind would have materialized a list the user didn't ask for. List intent wins when a
+  message carries both signals. `#HandleAttachmentAsync` dispatches the two arms; `image-text`
+  reuses `HandleScanImageCommandAsync`'s posting shape so both entry points render identically.
+- **GH-74 — explicit catalog entry + route.** The image→List capability was invisible to
+  `rmm`/help/commands (the GH-64 entries cover text-only scan and text-source conversion).
+  Registered `make list from image` in `#RegisterCommandRoutes` (canonical closure pattern) and
+  added the `make-list-from-image` catalog entry; the two sibling entries' disambiguation notes now
+  point at it. Per the Codex refinement, no image-list phrasings were mirrored into
+  `scan-image-for-text` or `convert-text-into-slack-list` — their declared behaviors differ.
+- **GH-75 — direct ListsModule injection.** `#MaterializeListFromItemsAsync` reached ListsModule
+  via `#RemindersModule?.ListsModule`; now injected as a nullable 6th constructor arg in
+  `src/app.js` (ListsModule is already constructed before ChatModule). Availability guard and its
+  user-facing fallback unchanged.
+- **GH-76 — failure-post dedup.** New `#FailOcrAsync` centralizes only posting + returning
+  `{ ok: false }`; each of the extraction failure sites keeps its own log level, diagnostic, and
+  error object, and the GH-63 permanent-vs-transient message choice stays at the site that knows
+  the error code. No catch boundary in the helper.
+- **Tests.** `tests/attachment-pipeline-entry-point.test.js` grows 17→20 tests: e2e tests assert BOTH the
+  selected branch and its side effect (list created for the todo wording; NO list for the scan
+  wording), unit tables cover the production sentence, modifiers, and the scan arm. Mutation-
+  verified both ways: reintroducing the narrow grammar turns exactly the six new grammar tests red
+  (14 pre-existing stay green); disabling the scan arm turns exactly the three scan tests red.
+  `scripts/attachment-pipeline-e2e.js` updated for the renamed kinds and the injected ListsModule
+  (23/23). Help regenerated (`data/static/HELP.md`). `validate:commands` remains red on
+  `ask-self` — pre-existing on `development` (#39 class), verified identical on the untouched tree.
+- **PR-78 review — the drift boundary is now an invariant, not an assertion.** New guard in
+  `tests/ocr-provider-pin-and-commands.test.js` runs every `Alias` + `IntentPhrase` of the three
+  OCR catalog entries through `ResolveAttachmentIntent` with an image attached: each phrase must
+  resolve to an OCR arm or sit on an explicit `RmmOnly` allowlist (5 phrases, pinned to
+  `unsupported` so a grammar change forces a conscious removal), and an anti-rot check fails naming
+  any allowlist entry that no longer exists verbatim. Mutation-verified both ways. Writing the
+  guard surfaced the real answer to the reviewer's question about `convert-text-into-slack-list`:
+  its 3 generic list phrasings DO resolve to `image-list` with an image attached (intended — the
+  image is the only attachment, so a list from it is the right guess) while its 7 text-specific
+  ones stay `unsupported`; both halves are now pinned per-phrase, and the entry's
+  `DisambiguationNotes` state the boundary.
+
+## 1.4.302 - 2026-08-18
+Your per-channel reminder settings are now protected against being overwritten on service restarts, and production deployments now dynamically discover the active application directory directly from systemd.
+
+**Technical:** GH-86 Phase 2 + Phase 3 — deploy script target derivation and elimination of shutdown memory-over-disk state flush.
+
+- **Derived active application directory in `scripts/deploy.sh`.** `scripts/deploy.sh` now derives its target application directory from `systemctl show sleuth-app -p WorkingDirectory --value`, falling back to `SLEUTH_APP_DIR` and failing loudly if neither resolves, preventing deployments to stale directory trees.
+- **Removed memory-over-disk shutdown write in `RemindersModule.StopAsync()`.** Removed the unconditional `SaveEnabledChannelsAsync()` call during shutdown, relying on eager per-action persistence and eliminating the risk of overwriting persisted disk state on restart.
+- **Pinned with unit and integration tests.** Added unit tests in `tests/deploy-script.test.js` and an FSM invariant test in `tests/reminders-fsm-invariants.test.js` asserting that channel state on disk is preserved across clean shutdowns.
+
+## 1.4.301 - 2026-08-18
+When you run diagnostics, ask for reminder triage, or hit an unexpected error, I'll now show you a consistent diagnostic snapshot with version details, channel auto-scheduling status, connection health, and active AI model settings.
+
+**Technical:** GH-88 (Phase 1–3) and GH-89 Phase 2 — unified diagnostics report baseline and error routing.
+
+- **Extracted shared diagnostics baseline in `src/diagnostics-report.js`.** Built a resilient 5-line diagnostic baseline (version & branch & workspace, per-channel reminders enabled state & target channel, cached Slack API connectivity, runtime data dir path & writability, and configured AI providers & active model).
+- **Migrated `run-diagnostics` command and reminder triage.** Replaced duplicated reporting in `src/chat-commands/run-diagnostics-command.js` and `src/reminders-module.js` triage handler with the shared baseline, preserving triage AI analysis and extended probes.
+- **Routed error replies through `BuildErrorReportAsync` and named target repos on failure.** Error replies in GitHub issue filing, Vision OCR, and Slack List materialization now present the error summary with the diagnostic baseline attached beneath, naming the attempted repository on genuine GitHub failures (GH-89 Phase 2).
+- **Pinned with comprehensive tests.** Added unit tests in `tests/diagnostics-report.test.js` and `tests/run-diagnostics-command.test.js`, asserting identical baseline output between user-triggered and error-triggered surfaces, and updated `tests/send-to-github-command.test.js` and `tests/chat-module-bug-reaction.test.js`.
+
+## 1.4.300 - 2026-08-18
+When you ask for a reminder "tonight" or "this evening", I'll now always schedule it for tonight rather than accidentally rolling it over to tomorrow if a slight random timing adjustment pushes it before right now.
+
+**Technical:** GH-87 — presentation jitter invariants and evening intent handling in reminder date extraction.
+
+- **Enforced presentation jitter invariants via `RemindersAIPipeline.ApplyPresentationJitter`.** Jitter is clamped so that an anchor at or after the current time is never pushed into the past, and jitter adjustments can never alter the local calendar day relative to the anchor.
+- **Extended same-day past-date intent.** Expanded `ShouldKeepSameDayWhenPast` from `\bthis morning\b` to include `tonight`, `later tonight`, `night`, and `evening` so late evening requests schedule soon via the `SecondsForTooSoon` buffer instead of rolling forward 24 hours.
+- **Pinned with deterministic and property tests.** Added unit and property tests in `tests/reminders-ai-pipeline.test.js` validating that across all 91 jitter offsets and fuzzy keywords, calendar day changes are impossible.
+
+## 1.4.299 - 2026-08-18
+If bug reporting isn't set up yet for your workspace, I'll now let you know directly instead of running into a confusing 404 error when trying to open a GitHub issue.
+
+**Technical:** GH-89 Phase 1 — unconfigured bug reporting guard in `FileGithubIssueAsync`.
+
+- **Returned early with `reason: 'no-repo'` when `Repo` is empty.** `src/github-issue-filer.js` now validates that a target repository is configured before evaluating `GITHUB_PAT` or making network requests, avoiding invalid `https://api.github.com/repos//issues` calls.
+- **Routed `'no-repo'` across all bug reporting entrypoints.** `src/chat-commands/send-to-github-command.js` and `src/chat-module.js` (`:bug:` reaction handler) now inform the user that `SLEUTH_ISSUE_REPO` is not configured.
+- **Pinned with unit and integration tests.** Added unit tests in `tests/github-issue-filer.test.js` and updated `tests/send-to-github-command.test.js` and `tests/chat-module-bug-reaction.test.js` asserting `fetch` is never called when `SLEUTH_ISSUE_REPO` is unset.
+
 ## 1.4.298 - 2026-08-18
 Nothing you'll see — this is a review pass over the last two image-OCR changes that found one more
 way I could have got a list wrong, and closed it before you ever hit it.
@@ -1591,17 +1695,17 @@ I've been updated so the `models` command now shows my **First Responder** mode 
 - Extended `HandleShowMeCommandAsync` to attempt enrichment when both `GITHUB_PAT` and a mapped GitHub username are available. If enrichment succeeds, a `GitHub activity (last 7 days)` section is appended to the AI prompt listing open PRs, review-requested PRs, and repos pushed to. Falls back silently to Phase 1 behavior (reminder-only prompt) when either credential is absent, the user is unmapped, or the fetch fails. All fetch errors are logged as warnings, not errors, and never surface to the user.
 - Expanded `tests/show-me-command.test.js` from 51 to 61 tests: `HandleShowMeCommandAsync — GitHub activity enrichment` (6 tests covering no-map, no-PAT, unmapped user, successful enrichment, all-null response, and fetch-throw fallback) and `FetchUserGitHubActivityAsync` unit tests (4 tests covering all-fail null return, partial success, cutoff date filtering, and repo deduplication).
 
-## 1.4.151 - 2026-06-01
-- Added `@Sleuth show-me @user` — a new chat command that pulls all open reminders assigned to a tagged Slack user and asks `WorkspaceAI` to rank the top three priorities for today. Ranking prompt prefers `overdue > GitHub-linked + due > due today > scheduled soon > snoozed`, with a one-sentence rationale per item. Accepts both the shorthand `show-me <@user>` and the longhand `show-me what tasks <@user> should work on today`. No admin gate — any workspace member can query any user; no credentials are exposed.
-- Handler lives in `src/chat-commands/show-me-command.js`. Reads reminders via the existing `RemindersModule.GetAllReminders()` filtered to `AssigneeID === targetUserId` and the active-state set (`scheduled`, `due`, `overdue`, `snoozed`) — no new persistence or indexes. `AssigneeID` already defaults to the sender at creation time, so self-assigned and explicitly delegated reminders are both covered without the broader noise of `GetRemindersInvolvingUserID`. Posts a loading message before the AI call; falls back gracefully with a user-facing error reply if the AI call throws.
-- Route registered in `src/chat-module.js` `#RegisterCommandRoutes()` using pattern `/^show-me\s+(?:what\s+tasks?\s+)?(<@[UW][^>]+>)(?:\s+.*)?$/i`. Sits above the `run daily digest` route; resolves cleanly against the existing `show-channel-model` route with no overlap.
-- Added `tests/show-me-command.test.js` (23 tests): routing pattern positive and negative cases; guard cases for null `RemindersModule` and unparseable mentions; empty-result path (no reminders, terminal-state reminders, reminders for a different user — all skip the AI); AI ranking path (correct user filter, GitHub URLs in prompt, today's date in prompt, loading message precedes AI call, AI response is the final post); AI failure path (graceful error reply, no re-throw).
-
 ## 1.4.152 - 2026-06-01
 - Added two natural-language alias routes for `show-me`, both delegating to the same `HandleShowMeCommandAsync` handler with no changes to the handler itself.
 - Self-referential alias: `what are my tasks?` / `what's my tasks` / `what is my task` / `show me my tasks` / `what should I work on today` / `what should I do today` / `what should I focus on today`. The route synthesises `<@{caller.user}>` as the target mention so users can ask about their own queue without knowing the `show-me @user` syntax.
 - Third-person alias: `what are @user tasks` / `what are @user's tasks` / `what is @user's task` / `show me @user's tasks` / `what should @user work on today` / `what should @user do today` / `what should @user focus on today`. Captures the `<@UID>` mention across three pattern alternations; the handler receives whichever group matched via `ArgM1 || ArgM2 || ArgM3`.
 - Expanded `tests/show-me-command.test.js` from 23 to 51 tests: added `"my tasks" self-referential routing pattern` (9 positive, 4 negative, 1 handler integration) and `"what are @user tasks" third-person routing pattern` (9 positive, 4 negative, 1 handler integration) suites.
+
+## 1.4.151 - 2026-06-01
+- Added `@Sleuth show-me @user` — a new chat command that pulls all open reminders assigned to a tagged Slack user and asks `WorkspaceAI` to rank the top three priorities for today. Ranking prompt prefers `overdue > GitHub-linked + due > due today > scheduled soon > snoozed`, with a one-sentence rationale per item. Accepts both the shorthand `show-me <@user>` and the longhand `show-me what tasks <@user> should work on today`. No admin gate — any workspace member can query any user; no credentials are exposed.
+- Handler lives in `src/chat-commands/show-me-command.js`. Reads reminders via the existing `RemindersModule.GetAllReminders()` filtered to `AssigneeID === targetUserId` and the active-state set (`scheduled`, `due`, `overdue`, `snoozed`) — no new persistence or indexes. `AssigneeID` already defaults to the sender at creation time, so self-assigned and explicitly delegated reminders are both covered without the broader noise of `GetRemindersInvolvingUserID`. Posts a loading message before the AI call; falls back gracefully with a user-facing error reply if the AI call throws.
+- Route registered in `src/chat-module.js` `#RegisterCommandRoutes()` using pattern `/^show-me\s+(?:what\s+tasks?\s+)?(<@[UW][^>]+>)(?:\s+.*)?$/i`. Sits above the `run daily digest` route; resolves cleanly against the existing `show-channel-model` route with no overlap.
+- Added `tests/show-me-command.test.js` (23 tests): routing pattern positive and negative cases; guard cases for null `RemindersModule` and unparseable mentions; empty-result path (no reminders, terminal-state reminders, reminders for a different user — all skip the AI); AI ranking path (correct user filter, GitHub URLs in prompt, today's date in prompt, loading message precedes AI call, AI response is the final post); AI failure path (graceful error reply, no re-throw).
 
 ## 1.4.150 - 2026-05-29
 - Fixed a false-positive past-time warning in the manual `:alarm_clock:` reminder flow. When the reaction had to synthesize a fallback schedule because the source message contained no explicit date/time, Sleuth could still inherit a `wasAdjustedForward` flag from the fallback extraction and tell the user their requested time was in the past even though they never requested one. Synthetic `:alarm_clock:` fallbacks now suppress that warning while keeping the existing warning for real user-authored past-time phrases.

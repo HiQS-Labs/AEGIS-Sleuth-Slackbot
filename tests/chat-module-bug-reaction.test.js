@@ -62,9 +62,9 @@ async function ReadBugReportsAsync() {
   }
 }
 
-function StubGithubCreate({ Status = 201, Number = 999, HtmlUrl = 'https://github.com/NeochromeTeam/sleuth-app/issues/999' } = {}) {
+function StubGithubCreate({ Status = 201, Number = 999, HtmlUrl = 'https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/999' } = {}) {
   global.fetch = jest.fn(async (url, options) => {
-    expect(String(url)).toBe(`https://api.github.com/repos/${ISSUE_REPO}/issues`);
+    expect(String(url)).toBe('https://api.github.com/repos/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues');
     expect(options.method).toBe('POST');
     if(Status === 201) {
       return { status: 201, json: async () => ({ number: Number, html_url: HtmlUrl }) };
@@ -89,15 +89,25 @@ function BuildSlackApp({ MessageUser = BOT_USER_ID, WorkspaceInfo = TestWorkspac
 
 describe(':bug: reaction — admin GitHub bug-report filing', () => {
   const SavedFetch = global.fetch;
+  let SavedEnvRepo;
+
+  beforeEach(() => {
+    SavedEnvRepo = process.env.SLEUTH_ISSUE_REPO;
+    process.env.SLEUTH_ISSUE_REPO = 'HiQS-Suite/AEGIS-Sleuth-Slackbot';
+  });
 
   afterEach(async () => {
     global.fetch = SavedFetch;
+    if(SavedEnvRepo !== undefined)
+      process.env.SLEUTH_ISSUE_REPO = SavedEnvRepo;
+    else
+      delete process.env.SLEUTH_ISSUE_REPO;
     await fs.rm(BugReportsFilePath, { force: true });
   });
 
   test('admin reacting on a Sleuth-authored message files a GitHub issue and confirms in-thread', async () => {
     const SlackApp = BuildSlackApp();
-    StubGithubCreate({ Number: 1234, HtmlUrl: 'https://github.com/NeochromeTeam/sleuth-app/issues/1234' });
+    StubGithubCreate({ Number: 1234, HtmlUrl: 'https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/1234' });
     const Module = new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
     await Module.StartAsync();
 
@@ -114,7 +124,7 @@ describe(':bug: reaction — admin GitHub bug-report filing', () => {
     expect(Payload.body).toContain('Sleuth reply text here');
     expect(SlackApp.SentMessages).toHaveLength(1);
     expect(SlackApp.SentMessages[0].text).toBe(
-      "You've reported an issue with Sleuth - bug filed under GH 1234 (https://github.com/NeochromeTeam/sleuth-app/issues/1234). We'll review and resolve ASAP."
+      "You've reported an issue with Sleuth - bug filed under GH 1234 (https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/1234). We'll review and resolve ASAP."
     );
 
     const Entries = await ReadBugReportsAsync();
@@ -261,6 +271,22 @@ describe(':bug: reaction — admin GitHub bug-report filing', () => {
     expect(await ReadBugReportsAsync()).toHaveLength(1);
   });
 
+  test('missing SLEUTH_ISSUE_REPO reports a clear error and files no issue', async () => {
+    delete process.env.SLEUTH_ISSUE_REPO;
+    const SlackApp = BuildSlackApp();
+    global.fetch = jest.fn();
+    const Module = new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    await Module.StartAsync();
+
+    await SlackApp.SimulateReactionAddedAsync({
+      reaction: 'bug', user: ADMIN_USER_ID, item: { channel: CHANNEL, ts: MESSAGE_TS },
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(SlackApp.SentMessages[0].text).toContain('SLEUTH_ISSUE_REPO` is not configured');
+    expect(await ReadBugReportsAsync()).toHaveLength(0);
+  });
+
   test('missing GITHUB_PAT reports a clear error and files no issue', async () => {
     const SlackApp = BuildSlackApp({ WorkspaceInfo: { ...TestWorkspaceInfo, GITHUB_PAT: undefined } });
     StubGithubCreate();
@@ -288,5 +314,35 @@ describe(':bug: reaction — admin GitHub bug-report filing', () => {
 
     expect(WasHandled).toBe(false);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('reports PAT scope error and diagnostics on GitHub 403', async () => {
+    const SlackApp = BuildSlackApp();
+    StubGithubCreate({ Status: 403 });
+    const Module = new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    await Module.StartAsync();
+
+    await SlackApp.SimulateReactionAddedAsync({
+      reaction: 'bug', user: ADMIN_USER_ID, item: { channel: CHANNEL, ts: MESSAGE_TS },
+    });
+
+    expect(SlackApp.SentMessages[0].text).toContain('issues:write');
+    expect(SlackApp.SentMessages[0].text).toContain('• Attempted repo: `HiQS-Suite/AEGIS-Sleuth-Slackbot`');
+    expect(SlackApp.SentMessages[0].text).toContain('*Diagnostics:*');
+  });
+
+  test('reports generic error and diagnostics on GitHub 404/422', async () => {
+    const SlackApp = BuildSlackApp();
+    StubGithubCreate({ Status: 404 });
+    const Module = new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    await Module.StartAsync();
+
+    await SlackApp.SimulateReactionAddedAsync({
+      reaction: 'bug', user: ADMIN_USER_ID, item: { channel: CHANNEL, ts: MESSAGE_TS },
+    });
+
+    expect(SlackApp.SentMessages[0].text).toContain('GitHub returned 404');
+    expect(SlackApp.SentMessages[0].text).toContain('• Attempted repo: `HiQS-Suite/AEGIS-Sleuth-Slackbot`');
+    expect(SlackApp.SentMessages[0].text).toContain('*Diagnostics:*');
   });
 });

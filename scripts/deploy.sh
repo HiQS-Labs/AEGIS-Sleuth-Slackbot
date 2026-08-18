@@ -3,7 +3,18 @@
 # Does not touch data/runtime/, .env.runtime, or workspace JSON.
 set -euo pipefail
 
-APP_DIR="${SLEUTH_APP_DIR:-/root/sleuth-app}"
+# Derive APP_DIR from the running systemd unit WorkingDirectory, falling back to $SLEUTH_APP_DIR.
+SYSTEMD_APP_DIR=""
+if command -v systemctl >/dev/null 2>&1; then
+  SYSTEMD_APP_DIR="$(systemctl show sleuth-app -p WorkingDirectory --value 2>/dev/null || true)"
+fi
+
+APP_DIR="${SYSTEMD_APP_DIR:-${SLEUTH_APP_DIR:-}}"
+
+if [[ -z "$APP_DIR" ]]; then
+  echo "error: app directory could not be resolved from systemd (sleuth-app WorkingDirectory) or SLEUTH_APP_DIR" >&2
+  exit 1
+fi
 
 if [[ ! -d "$APP_DIR" ]]; then
   echo "error: app directory not found: $APP_DIR" >&2
@@ -15,6 +26,7 @@ if [[ ! -f "$APP_DIR/src/app.js" ]]; then
   exit 1
 fi
 
+echo "[deploy] target app directory: $APP_DIR"
 echo "[deploy] stopping sleuth-app"
 systemctl stop sleuth-app || true
 

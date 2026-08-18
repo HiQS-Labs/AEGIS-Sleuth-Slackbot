@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
+const DateUtils = require('../src/date-utils');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 describe('RemindersAIPipeline', () => {
@@ -577,6 +578,190 @@ describe('RemindersAIPipeline', () => {
       expect(ExactResult.date.getUTCMinutes()).toBe(0);
 
       jest.restoreAllMocks();
+    });
+
+    it('schedules "for tonight" sent at 20:57 for today even with a forced negative jitter draw (GH-87)', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-08-18T20:57:00-07:00'));
+      // Math.random() = 0 yields maximum negative jitter (-45 min)
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+
+      const AnchorResponse = {
+        year: 2026,
+        month: 8,
+        day: 18,
+        hour: 21,
+        minute: 0,
+        second: 0,
+        rationale: 'tonight anchor at 9 PM'
+      };
+
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue(AnchorResponse);
+      const Result = await Pipeline.ExtractDateWithGptAsync('for tonight, can you review this PR');
+
+      expect(Result.success).toBe(true);
+      expect(Result.wasAdjustedForward).toBe(false);
+
+      const MainTzOffset = DateUtils.GetTimeZoneOffsetInMinutes(SlackApp.WorkspaceInfo.MAIN_TIMEZONE);
+      const LocalScheduledDay = new Date(Result.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
+      expect(LocalScheduledDay).toBe(18);
+      expect(Result.date.getTime()).toBeGreaterThanOrEqual(new Date().getTime());
+
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    it('schedules "tonight" sent at 23:00 soon rather than the next night (GH-87)', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-08-18T23:00:00-07:00'));
+
+      const AnchorResponse = {
+        year: 2026,
+        month: 8,
+        day: 18,
+        hour: 21,
+        minute: 0,
+        second: 0,
+        rationale: 'tonight anchor at 9 PM'
+      };
+
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue(AnchorResponse);
+      const Result = await Pipeline.ExtractDateWithGptAsync('tonight');
+
+      expect(Result.success).toBe(true);
+      expect(Result.wasAdjustedForward).toBe(false);
+
+      const MainTzOffset = DateUtils.GetTimeZoneOffsetInMinutes(SlackApp.WorkspaceInfo.MAIN_TIMEZONE);
+      const LocalScheduledDay = new Date(Result.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
+      expect(LocalScheduledDay).toBe(18);
+      expect(Result.date.getTime()).toBe(new Date().getTime() + 20000);
+
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    it('applies presentation jitter without altering the local calendar day (GH-94)', async () => {
+      // Mock 'now' to 14:30 local (e.g. UTC-7: 21:30 UTC)
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-08-18T14:30:00-07:00'));
+      
+      const AnchorResponse = {
+        year: 2026,
+        month: 8,
+        day: 18,
+        hour: 14, // 14:00 local -> in the past relative to 14:30
+        minute: 0,
+        second: 0,
+        rationale: 'afternoon anchor'
+      };
+
+      // -45 min draw
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue(AnchorResponse);
+      const ResultMinus45 = await Pipeline.ExtractDateWithGptAsync('afternoon');
+      
+      // +45 min draw
+      jest.spyOn(Math, 'random').mockReturnValue(0.999);
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue(AnchorResponse);
+      const ResultPlus45 = await Pipeline.ExtractDateWithGptAsync('afternoon');
+      
+      const MainTzOffset = DateUtils.GetTimeZoneOffsetInMinutes(SlackApp.WorkspaceInfo.MAIN_TIMEZONE);
+      
+      const DayMinus = new Date(ResultMinus45.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
+      const DayPlus = new Date(ResultPlus45.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
+      
+      expect(DayMinus).toBe(19);
+      expect(DayPlus).toBe(19);
+      
+      // both should be adjusted forward because they are evaluated as past before jitter
+      expect(ResultMinus45.wasAdjustedForward).toBe(true);
+      expect(ResultPlus45.wasAdjustedForward).toBe(true);
+      
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    it('returns wasAdjustedForward true only when actually rolling over (GH-94)', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-08-18T15:00:00-07:00')); // 'now' is 15:00 local
+      
+      const AnchorResponse = {
+        year: 2026,
+        month: 8,
+        day: 18,
+        hour: 14, // 14:30 local -> in the past relative to 15:00
+        minute: 30,
+        second: 0,
+        rationale: 'afternoon anchor'
+      };
+
+      jest.spyOn(Math, 'random').mockReturnValue(0.999); // +45 min -> 15:15, which is > 15:00 (now)
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue(AnchorResponse);
+      const Result = await Pipeline.ExtractDateWithGptAsync('afternoon');
+      
+      const MainTzOffset = DateUtils.GetTimeZoneOffsetInMinutes(SlackApp.WorkspaceInfo.MAIN_TIMEZONE);
+      const Day = new Date(Result.date.getTime() + (MainTzOffset * 60 * 1000)).getUTCDate();
+      
+      expect(Result.wasAdjustedForward).toBe(true);
+      expect(Day).toBe(19); // Because it rolled over
+
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    it('property test: across full jitter range, no fuzzy anchor changes calendar day relative to anchor (GH-87)', () => {
+      const Anchors = [
+        { phrase: 'night', hour: 0, minute: 15 },
+        { phrase: 'morning', hour: 8 },
+        { phrase: 'noon', hour: 12 },
+        { phrase: 'afternoon', hour: 14 },
+        { phrase: 'late afternoon', hour: 17 },
+        { phrase: 'evening', hour: 18 },
+        { phrase: 'tonight', hour: 21 },
+        { phrase: 'later tonight', hour: 22 },
+      ];
+
+      const Timezones = [-480, -420, 0, 60, 330, 540]; // UTC-8, UTC-7, UTC, UTC+1, UTC+5.5, UTC+9
+      const CurrentOffsets = [-5 * 60 * 1000, 5 * 60 * 1000]; // 5 min before (future), 5 min after (past)
+
+      for(const TzOffset of Timezones) {
+        for(const Anchor of Anchors) {
+          for(const CurrentOffset of CurrentOffsets) {
+            const AnchorUtc = new Date(Date.UTC(2026, 7, 18, Anchor.hour, Anchor.minute || 0, 0));
+            // Convert from local anchor to UTC
+            AnchorUtc.setUTCMinutes(AnchorUtc.getUTCMinutes() - TzOffset);
+
+            const CurrentUtc = new Date(AnchorUtc.getTime() + CurrentOffset);
+
+            // Test across all 91 discrete jitter outcomes (-45 to +45)
+            for(let JitterStep = 0; JitterStep <= 90; JitterStep++) {
+              const RandomVal = JitterStep / 90.999;
+              jest.spyOn(Math, 'random').mockReturnValue(RandomVal);
+
+              const Jittered = RemindersAIPipeline.ApplyPresentationJitter(
+                AnchorUtc,
+                Anchor.phrase,
+                CurrentUtc,
+                TzOffset
+              );
+
+              // Local calendar day of anchor vs jittered
+              const LocalAnchorDay = new Date(AnchorUtc.getTime() + (TzOffset * 60 * 1000)).getUTCDate();
+              const LocalJitteredDay = new Date(Jittered.getTime() + (TzOffset * 60 * 1000)).getUTCDate();
+
+              expect(LocalJitteredDay).toBe(LocalAnchorDay);
+              
+              // Invariant 1: if anchor is at or after now, jitter must not push it before now.
+              if (AnchorUtc.getTime() >= CurrentUtc.getTime()) {
+                expect(Jittered.getTime()).toBeGreaterThanOrEqual(CurrentUtc.getTime());
+              }
+
+              jest.restoreAllMocks();
+            }
+          }
+        }
+      }
     });
   });
 

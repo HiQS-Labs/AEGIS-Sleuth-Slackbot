@@ -1,5 +1,7 @@
 'use strict';
 
+const { BuildErrorReportAsync } = require('../diagnostics-report');
+
 const UsageText = 'Usage: `@Sleuth AI convert text into slack list` with the text in your message, '
   + 'or in the thread after uploading a file or scanning an image.';
 
@@ -54,12 +56,13 @@ async function HandleConvertToListCommandAsync(ArgSlackApp, ArgEventInfo, ArgSou
     // succeed.
     const IsConfigurationFailure = extractError
       && (extractError.code === 'vision_provider_not_configured' || extractError.code === 'provider_not_configured');
+    const UserMessage = IsConfigurationFailure
+      ? "Converting text into a list needs an AI model that isn't configured for this workspace. Ask a workspace admin to check the API keys."
+      : 'I could not read that text into a list — please try again later.';
     await ArgSlackApp.PostMessageTextAsync(
       ArgEventInfo.channel,
       ReplyTS,
-      IsConfigurationFailure
-        ? "Converting text into a list needs an AI model that isn't configured for this workspace. Ask a workspace admin to check the API keys."
-        : 'I could not read that text into a list — please try again later.'
+      await BuildErrorReportAsync(ArgSlackApp, ArgEventInfo.channel, UserMessage)
     );
     return;
   }
