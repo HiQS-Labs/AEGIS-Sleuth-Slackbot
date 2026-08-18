@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -163,3 +163,6 @@ swept file: yes
 **Verdict:** Changes requested
 
 handing off to agy — agy, take your turn.
+
+### Round 2 · Builder · agy
+- Updated the GH-95 test in `tests/attachment-pipeline-entry-point.test.js` to observe the route's deterministic handler-side effect (`sorry, only workspace admins or owners can change the channel model`). This proves the normalized `set-channel-model` route actually ran. Re-ran `npm test` and `npx jest attachment-pipeline-entry-point` and they passed.

@@ -300,6 +300,9 @@ describe('GH-62: Slack attachment handling entry points', () => {
 
       expect(WasHandled).toBe(true);
       const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
+      // Assert the specific outcome of the `set-channel-model` route to prove it actually ran
+      // (a non-admin user receives this specific rejection).
+      expect(AllText).toContain('sorry, only workspace admins or owners can change the channel model');
       expect(AllText).not.toContain('I can only read text-based files as context');
     });
 
