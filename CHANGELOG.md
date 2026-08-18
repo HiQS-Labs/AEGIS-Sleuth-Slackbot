@@ -33,6 +33,39 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.298 - 2026-08-18
+Nothing you'll see — this is a review pass over the last two image-OCR changes that found one more
+way I could have got a list wrong, and closed it before you ever hit it.
+
+**Technical:** outcome of an automated relay review (agy, GH-81 + GH-83, code and tests weighted
+equally). Both Blockers and both Shoulds accepted; one Pass verified rather than credited.
+
+- **Fixed a real defect the review did not raise, found by probing the one it did.** The GH-81 union
+  collapse assigned `nullable` *inside* the key loop, so a schema declaring both
+  `"type": ["string","null"]` and a sibling `"nullable": false` emitted `nullable: false` whenever
+  `type` was iterated first — silently dropping the null the union declared, in the very code added
+  to fix a silently-dropped type. The flag is now applied after the loop so it survives regardless
+  of key order.
+- **Pinned the `Announced` contract against the real `ListsModule`.** Its four branches were
+  previously asserted only against a jest mock written by the same author as the implementation —
+  the same shape as the gap that let GH-81 ship, where a mocked provider meant nothing checked the
+  bytes sent to Google. Four tests now cover: `ThreadTS` forwarded, omitted `ThreadTS` still posting
+  at the channel root, and `Announced: false` reached via both a denied channel grant and a missing
+  permalink.
+- **Pinned the union-collapse rule per case**, including the degenerate ones — `["integer","string"]`
+  narrows to the first member, `[]` falls back to `string`, `["null"]` yields a concrete type plus
+  the flag. The reviewer asked for a warning log instead; declined, because the AI providers carry
+  no logging seam at all and adding one to a transport class for a single warning is the wrong
+  trade. A pinned test is what actually makes the narrowing visible to a schema author.
+- **Covered the ack guard and the permalink-less fallback.** The ack's `try/catch` is the only thing
+  stopping a transient Slack failure from aborting a 10-30s extraction; removing it now fails a test.
+  The fallback assertion checks that the list *title* appears and the raw list ID does not.
+
+Suite 1992 → 1999. Coverage on the lines these changes touch: `chat-module` 4/4, `lists-module` 6/6,
+`gemini-provider` 22/23 (the miss is a pre-existing defensive throw). PDDA error baseline unchanged
+at 19; `REMINDER-EXTRACTION-BATTERY-CORPUS.md` archived to `3-COMPLETED` per
+`pdda-check-issue-doc-sync` (issue #43 closed), dropping its warnings 29 → 28.
+
 ## 1.4.297 - 2026-08-18
 Making a list from an image reads better now. The list I build lands as a reply in the thread you
 asked in, instead of appearing on its own in the channel; you get one confirmation instead of two

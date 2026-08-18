@@ -70,18 +70,26 @@ class GeminiProvider {
       return ArgSchema;
     /** @type {Record<string, any>} */
     const Sanitized = {};
+    let NullableFromUnion = false;
     for(const [Key, Value] of Object.entries(ArgSchema)) {
       if(Key === 'additionalProperties' || Key === '$schema') continue;
       if(Key === 'type' && Array.isArray(Value)) {
-        // Take the first non-null member as the scalar type; "null" becomes `nullable: true`.
-        // Ordering in the source schemas is meaningful — the intended type is written first.
+        // Take the first non-null member as the scalar type. Ordering in the source schemas is
+        // meaningful — the intended type is written first — so a multi-concrete union like
+        // ["string","integer"] deliberately narrows to "string" rather than failing. This is a
+        // lossy but deterministic rule; `tests/gemini-provider.test.js` pins each case so a schema
+        // author sees the narrowing rather than discovering it from a model's output.
         const ConcreteTypes = Value.filter((ArgType) => ArgType !== 'null');
         Sanitized.type = ConcreteTypes[0] ?? 'string';
-        if(ConcreteTypes.length !== Value.length) Sanitized.nullable = true;
+        if(ConcreteTypes.length !== Value.length) NullableFromUnion = true;
         continue;
       }
       Sanitized[Key] = GeminiProvider.#SanitizeSchemaForGemini(Value);
     }
+    // Applied AFTER the loop, so it survives a sibling `nullable` key regardless of key order. A
+    // schema carrying both `"type": ["string","null"]` and `"nullable": false` previously emitted
+    // `nullable: false` whenever `type` was iterated first, dropping the null the union declared.
+    if(NullableFromUnion) Sanitized.nullable = true;
     return Sanitized;
   }
 

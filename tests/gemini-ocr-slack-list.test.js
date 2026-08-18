@@ -386,6 +386,11 @@ describe('GH-58: Gemini Vision OCR and Slack List Creation Pipeline', () => {
       const Available = ArgOptions.Available !== false;
       const FailCreate = ArgOptions.FailCreate === true;
       const FailItemIndex = ArgOptions.FailItemIndex ?? -1;
+      // GH-83: the two ways the announcement is skipped, so `Announced: false` is reachable in a
+      // test rather than only in production. `FailChannelAccess` denies ONLY the channel grant
+      // (the user grant must still succeed, or list creation aborts by design).
+      const FailChannelAccess = ArgOptions.FailChannelAccess === true;
+      const NoPermalink = ArgOptions.NoPermalink === true;
 
       const ApiCalls = [];
       let ItemCallCount = 0;
@@ -406,6 +411,7 @@ describe('GH-58: Gemini Vision OCR and Slack List Creation Pipeline', () => {
 
         if(ArgMethod === 'slackLists.access.set') {
           if(!Available) throw new Error('not_allowed');
+          if(FailChannelAccess && Array.isArray(ArgParams?.channel_ids)) throw new Error('channel_not_found');
           return { ok: true };
         }
 
@@ -461,7 +467,9 @@ describe('GH-58: Gemini Vision OCR and Slack List Creation Pipeline', () => {
         client: {
           apiCall: ApiCallMock,
           auth: {
-            test: jest.fn(async () => ({ ok: true, team_id: 'T123', url: 'https://test.slack.com/' })),
+            test: NoPermalink
+              ? jest.fn(async () => ({ ok: true }))
+              : jest.fn(async () => ({ ok: true, team_id: 'T123', url: 'https://test.slack.com/' })),
           },
           conversations: {
             info: jest.fn(async () => ({ ok: true, channel: { id: 'C123', name: 'reminders' } })),
@@ -471,7 +479,11 @@ describe('GH-58: Gemini Vision OCR and Slack List Creation Pipeline', () => {
           client: {
             apiCall: ApiCallMock,
             auth: {
-              test: jest.fn(async () => ({ ok: true, team_id: 'T123', url: 'https://test.slack.com/' })),
+              // Must mirror the `client.auth.test` stub above — ListsModule resolves its Slack
+              // client through BoltApp, so stubbing only the other one leaves NoPermalink inert.
+              test: NoPermalink
+                ? jest.fn(async () => ({ ok: true }))
+                : jest.fn(async () => ({ ok: true, team_id: 'T123', url: 'https://test.slack.com/' })),
             },
             conversations: {
               info: jest.fn(async () => ({ ok: true, channel: { id: 'C123', name: 'reminders' } })),
@@ -493,6 +505,94 @@ describe('GH-58: Gemini Vision OCR and Slack List Creation Pipeline', () => {
 
       return { ModuleInstance, MockSlackApp, MockLogger, ApiCallMock, ApiCalls };
     }
+
+    // GH-83 contract tests. ChatModule's own suite replaces ListsModule with a jest mock, so
+    // nothing there can catch the two halves disagreeing — which is exactly how GH-81 shipped
+    // (a mocked provider meant no test asserted on what was really sent). These exercise the REAL
+    // ListsModule so the `Announced` flag and the `ThreadTS` pass-through are pinned at the source.
+    describe('GH-83: announcement threading and the Announced contract', () => {
+      test('ThreadTS is forwarded to the announcement, and Announced comes back true', async () => {
+        const { ModuleInstance, MockSlackApp } = await CreateListsHarnessAsync({ Available: true });
+
+        const Result = await ModuleInstance.CreateListFromExtractedItemsAsync({
+          ListTitle: 'Threaded List',
+          Items: [{ item_number: 1, text: 'Item 1' }],
+          ChannelID: 'C123',
+          UserID: 'U123',
+          ThreadTS: '999.888',
+        });
+
+        expect(Result.ok).toBe(true);
+        expect(Result.Announced).toBe(true);
+
+        const Announcement = MockSlackApp.PostMessageTextAsync.mock.calls
+          .find((ArgCall) => String(ArgCall[2]).includes('New OCR list created'));
+        expect(Announcement).toBeDefined();
+        // [channel, threadTs, text] — the thread is the second positional argument.
+        expect(Announcement[1]).toBe('999.888');
+      });
+
+      test('omitting ThreadTS keeps the pre-GH-83 channel-root behavior', async () => {
+        const { ModuleInstance, MockSlackApp } = await CreateListsHarnessAsync({ Available: true });
+
+        const Result = await ModuleInstance.CreateListFromExtractedItemsAsync({
+          ListTitle: 'Rootless List',
+          Items: [{ item_number: 1, text: 'Item 1' }],
+          ChannelID: 'C123',
+          UserID: 'U123',
+        });
+
+        expect(Result.Announced).toBe(true);
+        const Announcement = MockSlackApp.PostMessageTextAsync.mock.calls
+          .find((ArgCall) => String(ArgCall[2]).includes('New OCR list created'));
+        expect(Announcement[1]).toBeNull();
+      });
+
+      test('Announced is false when the channel read grant is denied — the caller must speak', async () => {
+        const { ModuleInstance, MockSlackApp } = await CreateListsHarnessAsync({
+          Available: true,
+          FailChannelAccess: true,
+        });
+
+        const Result = await ModuleInstance.CreateListFromExtractedItemsAsync({
+          ListTitle: 'Ungranted List',
+          Items: [{ item_number: 1, text: 'Item 1' }],
+          ChannelID: 'C123',
+          UserID: 'U123',
+          ThreadTS: '999.888',
+        });
+
+        // The list still exists — only the announcement was suppressed. Reporting ok:true with
+        // Announced:false is what makes ChatModule's fallback fire instead of a silent success.
+        expect(Result.ok).toBe(true);
+        expect(Result.Announced).toBe(false);
+        const Announcement = MockSlackApp.PostMessageTextAsync.mock.calls
+          .find((ArgCall) => String(ArgCall[2]).includes('New OCR list created'));
+        expect(Announcement).toBeUndefined();
+      });
+
+      test('Announced is false when no permalink can be built', async () => {
+        const { ModuleInstance, MockSlackApp } = await CreateListsHarnessAsync({
+          Available: true,
+          NoPermalink: true,
+        });
+
+        const Result = await ModuleInstance.CreateListFromExtractedItemsAsync({
+          ListTitle: 'Linkless List',
+          Items: [{ item_number: 1, text: 'Item 1' }],
+          ChannelID: 'C123',
+          UserID: 'U123',
+          ThreadTS: '999.888',
+        });
+
+        expect(Result.ok).toBe(true);
+        expect(Result.Permalink).toBeNull();
+        expect(Result.Announced).toBe(false);
+        const Announcement = MockSlackApp.PostMessageTextAsync.mock.calls
+          .find((ArgCall) => String(ArgCall[2]).includes('New OCR list created'));
+        expect(Announcement).toBeUndefined();
+      });
+    });
 
     test('returns error when Lists is not available', async () => {
       const { ModuleInstance } = await CreateListsHarnessAsync({ Available: false });

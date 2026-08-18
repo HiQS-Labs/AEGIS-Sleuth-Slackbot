@@ -186,6 +186,40 @@ describe('GeminiProvider (raw fetch transport)', () => {
       });
     });
 
+    test('union collapse is lossy but deterministic, and the null member always wins', async () => {
+      FetchMock.mockResolvedValue(FakeResponse({
+        json: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"ok":true}' }] } }] },
+      }));
+      const Provider = new GeminiProvider(WorkspaceInfo, MakeStats());
+      const Envelope = {
+        schema: {
+          type: 'object',
+          properties: {
+            // Multi-concrete union: narrows to the FIRST member, dropping "string". Pinned so the
+            // narrowing is visible to whoever writes the schema, not discovered from model output.
+            narrowed: { type: ['integer', 'string'] },
+            // Degenerate: no concrete member to pick. Falls back to "string" rather than emitting
+            // an invalid empty type.
+            degenerate: { type: [] },
+            // "null" alone still yields a concrete type plus the flag.
+            onlyNull: { type: ['null'] },
+            // The ordering trap: a sibling `nullable: false` must NOT beat the union's null.
+            contradicted: { type: ['string', 'null'], nullable: false },
+          },
+        },
+      };
+
+      await Provider.ProcessMessageWithJsonResponseAsync('q', 'sys', Envelope, 'gemini-2.5-flash');
+
+      const Body = JSON.parse(FetchMock.mock.calls[0][1].body);
+      expect(Body.generationConfig.responseSchema.properties).toEqual({
+        narrowed: { type: 'integer' },
+        degenerate: { type: 'string' },
+        onlyNull: { type: 'string', nullable: true },
+        contradicted: { type: 'string', nullable: true },
+      });
+    });
+
     test('the shipped OCR schema reaches Gemini with no array-valued type (GH-81 regression)', async () => {
       // The real payload, not a fixture: a union type in this file 400s every OCR request with
       // "Proto field is not repeating, cannot start list", which surfaced in Slack only as the
