@@ -1,6 +1,6 @@
 # Marathon Phase p4
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P4-TURN-2 builder=agy reviewer=codex round-cap=7 -->
 
@@ -150,3 +150,8 @@ swept file: yes
 - **P1 — Site 3 does not actually prove that the diagnostics message is threaded.** In `tests/attachment-pipeline-entry-point.test.js`, the test combines every message's text to find `*Diagnostics:*`, then separately checks that *some* message has `threadTs === '1700000000.000200'`. The OCR progress acknowledgement is already a threaded message, so moving only the Site 3 diagnostics post to the channel would still pass. Locate the message containing `*Diagnostics:*` and assert that that same message has the expected thread timestamp; mutation-verify this routing assertion.
 
 **Verdict:** Changes requested
+
+### Round 3 · Builder · agy
+
+- **Test Fix:** Modified the Site 3 test in `tests/attachment-pipeline-entry-point.test.js` to locate the specific message containing `*Diagnostics:*` and asserted its `threadTs` property matches the expected thread timestamp, rather than just asserting that *some* message in the pipeline was threaded.
+- **Mutation Verification:** Verified the new assertion by temporarily mutating `src/chat-module.js` (changing `ReplyTS` to `null` in the Site 3 fallback). The test correctly failed with `Expected: "1700000000.000200", Received: null`.

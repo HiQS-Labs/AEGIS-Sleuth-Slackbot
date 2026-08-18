@@ -444,7 +444,9 @@ describe('GH-62: Slack attachment handling entry points', () => {
       expect(Text).toContain('*Diagnostics:*');
       expect(Text).toContain('Slack Lists is not configured for this workspace yet');
       // Thread reply verification
-      expect(AllMessages.some(m => m.threadTs === '1700000000.000200')).toBe(true);
+      const DiagnosticsMessage = AllMessages.find(m => m.text && m.text.includes('*Diagnostics:*'));
+      expect(DiagnosticsMessage).toBeDefined();
+      expect(DiagnosticsMessage.threadTs).toBe('1700000000.000200');
     });
   });
 
