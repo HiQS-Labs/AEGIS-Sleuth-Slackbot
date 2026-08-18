@@ -1,5 +1,5 @@
 # Marathon Phase p2
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=5 -->
@@ -124,3 +124,10 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
 - Wrote four tests: `vision_provider_not_configured`, transient error, download failure, and empty file.
 - Verified that all four tests assert that the failure post contains the `*Diagnostics:*` baseline and goes to the `threadTs`.
 - Mutation-verified: I temporarily removed the `BuildErrorReportAsync` call in `#FailOcrAsync` in `src/chat-module.js:3133` and ran the tests. All four tests failed, confirming they correctly assert the baseline's presence. I then restored the code.
+
+### Round 1 · Reviewer · codex
+swept file: yes
+
+Reviewed the complete `tests/ocr-failure-diagnostics.test.js`; no pre-existing defects found in the swept file. The four public-entry-point cases cover the configured-provider and transient OCR branches plus the requested download and empty-file call sites. Each identifies the diagnostics-bearing failure post, checks its originating thread timestamp, and pins the branch-specific user wording. The diagnostics-only selection means the documented `#FailOcrAsync` mutation yields no matching post, so every test fails as reported.
+
+**Verdict:** Approved
