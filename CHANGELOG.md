@@ -33,6 +33,15 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.299 - 2026-08-18
+If bug reporting isn't set up yet for your workspace, I'll now let you know directly instead of running into a confusing 404 error when trying to open a GitHub issue.
+
+**Technical:** GH-89 Phase 1 — unconfigured bug reporting guard in `FileGithubIssueAsync`.
+
+- **Returned early with `reason: 'no-repo'` when `Repo` is empty.** `src/github-issue-filer.js` now validates that a target repository is configured before evaluating `GITHUB_PAT` or making network requests, avoiding invalid `https://api.github.com/repos//issues` calls.
+- **Routed `'no-repo'` across all bug reporting entrypoints.** `src/chat-commands/send-to-github-command.js` and `src/chat-module.js` (`:bug:` reaction handler) now inform the user that `SLEUTH_ISSUE_REPO` is not configured.
+- **Pinned with unit and integration tests.** Added unit tests in `tests/github-issue-filer.test.js` and updated `tests/send-to-github-command.test.js` and `tests/chat-module-bug-reaction.test.js` asserting `fetch` is never called when `SLEUTH_ISSUE_REPO` is unset.
+
 ## 1.4.298 - 2026-08-18
 Nothing you'll see — this is a review pass over the last two image-OCR changes that found one more
 way I could have got a list wrong, and closed it before you ever hit it.
