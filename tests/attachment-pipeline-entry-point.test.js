@@ -107,9 +107,99 @@ describe('GH-62: Slack attachment handling entry points', () => {
       expect(CreateArgs.ChannelID).toBe('C_OCR');
 
       const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
-      expect(AllText).toContain('Created list');
+      // Assert the user learns the list exists and can reach it — not the exact sentence, which
+      // GH-83 rewrote. This stub reports no `Announced`, so ChatModule's fallback is what posts.
+      expect(AllText).toContain('https://slack.com/lists/L123');
+      expect(AllText).toContain('2 item(s)');
       // The exact regression: this rejection is what users actually received in 1.4.292.
       expect(AllText).not.toContain('I can only read text-based files as context');
+    });
+
+    test('GH-83: the list is announced exactly once, in-thread, after an in-progress ack', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      const { RemindersModule, CreateListFromExtractedItemsAsync } = MakeRemindersModuleWithLists();
+      // Mirror the real ListsModule once it has posted the list card itself.
+      CreateListFromExtractedItemsAsync.mockResolvedValue({
+        ok: true,
+        ListId: 'L123',
+        Permalink: 'https://slack.com/lists/L123',
+        ItemCount: 2,
+        Announced: true,
+      });
+      new ChatModule(SlackApp, {}, RemindersModule, null, null);
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} create a list`,
+        files: [PngAttachment],
+        ts: '111.222',
+      });
+
+      // The originating thread is handed to ListsModule so the card lands as a reply, not in the
+      // channel root — the whole point of the change.
+      expect(CreateListFromExtractedItemsAsync.mock.calls[0][0].ThreadTS).toBe('111.222');
+
+      // Every message ChatModule posts belongs to that thread.
+      for(const Message of SlackApp.SentMessages) expect(Message.threadTs).toBe('111.222');
+
+      // The ack fires, and ChatModule adds NO second confirmation once ListsModule announced.
+      const Texts = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text);
+      expect(Texts).toHaveLength(1);
+      expect(Texts[0]).toContain('Reading your image');
+      expect(Texts.join('\n')).not.toContain('✅');
+    });
+
+    test('GH-83: a failed in-progress ack does not abort the extraction it only narrates', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      const { RemindersModule, CreateListFromExtractedItemsAsync } = MakeRemindersModuleWithLists();
+      new ChatModule(SlackApp, {}, RemindersModule, null, null);
+
+      // Fail ONLY the ack; every later post must still go through, or this would assert that a
+      // broken ack breaks everything rather than that it breaks nothing.
+      const RealPost = SlackApp.PostMessageTextAsync.bind(SlackApp);
+      SlackApp.PostMessageTextAsync = jest.fn(async (ArgChannel, ArgThread, ArgText, ArgMeta) => {
+        if(String(ArgText).includes('Reading your image')) throw new Error('rate_limited');
+        return RealPost(ArgChannel, ArgThread, ArgText, ArgMeta);
+      });
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} create a list`,
+        files: [PngAttachment],
+      });
+
+      expect(WasHandled).toBe(true);
+      expect(CreateListFromExtractedItemsAsync).toHaveBeenCalledTimes(1);
+      const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
+      expect(AllText).toContain('https://slack.com/lists/L123');
+    });
+
+    test('GH-83: the fallback names the list even when no permalink came back', async () => {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      const { RemindersModule, CreateListFromExtractedItemsAsync } = MakeRemindersModuleWithLists();
+      CreateListFromExtractedItemsAsync.mockResolvedValue({
+        ok: true,
+        ListId: 'L123',
+        Permalink: null,
+        ItemCount: 2,
+        Announced: false,
+      });
+      new ChatModule(SlackApp, {}, RemindersModule, null, null);
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_OCR',
+        user: 'U_TEST',
+        text: `${SlackApp.AppMentionString} create a list`,
+        files: [PngAttachment],
+      });
+
+      const AllText = SlackApp.SentMessages.map((ArgMessage) => ArgMessage.text).join('\n');
+      // The title, not the raw list ID — the exact wording defect GH-83 removed.
+      expect(AllText).toContain('Safety Inspection Findings');
+      expect(AllText).toContain('permalink unavailable');
+      expect(AllText).not.toContain('L123');
     });
 
     test('the image is downloaded as base64, not fetched as text', async () => {

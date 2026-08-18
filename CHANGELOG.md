@@ -33,6 +33,101 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.298 - 2026-08-18
+Nothing you'll see — this is a review pass over the last two image-OCR changes that found one more
+way I could have got a list wrong, and closed it before you ever hit it.
+
+**Technical:** outcome of an automated relay review (agy, GH-81 + GH-83, code and tests weighted
+equally). Both Blockers and both Shoulds accepted; one Pass verified rather than credited.
+
+- **Fixed a real defect the review did not raise, found by probing the one it did.** The GH-81 union
+  collapse assigned `nullable` *inside* the key loop, so a schema declaring both
+  `"type": ["string","null"]` and a sibling `"nullable": false` emitted `nullable: false` whenever
+  `type` was iterated first — silently dropping the null the union declared, in the very code added
+  to fix a silently-dropped type. The flag is now applied after the loop so it survives regardless
+  of key order.
+- **Pinned the `Announced` contract against the real `ListsModule`.** Its four branches were
+  previously asserted only against a jest mock written by the same author as the implementation —
+  the same shape as the gap that let GH-81 ship, where a mocked provider meant nothing checked the
+  bytes sent to Google. Four tests now cover: `ThreadTS` forwarded, omitted `ThreadTS` still posting
+  at the channel root, and `Announced: false` reached via both a denied channel grant and a missing
+  permalink.
+- **Pinned the union-collapse rule per case**, including the degenerate ones — `["integer","string"]`
+  narrows to the first member, `[]` falls back to `string`, `["null"]` yields a concrete type plus
+  the flag. The reviewer asked for a warning log instead; declined, because the AI providers carry
+  no logging seam at all and adding one to a transport class for a single warning is the wrong
+  trade. A pinned test is what actually makes the narrowing visible to a schema author.
+- **Covered the ack guard and the permalink-less fallback.** The ack's `try/catch` is the only thing
+  stopping a transient Slack failure from aborting a 10-30s extraction; removing it now fails a test.
+  The fallback assertion checks that the list *title* appears and the raw list ID does not.
+
+Suite 1992 → 1999. Coverage on the lines these changes touch: `chat-module` 4/4, `lists-module` 6/6,
+`gemini-provider` 22/23 (the miss is a pre-existing defensive throw). PDDA error baseline unchanged
+at 19; `REMINDER-EXTRACTION-BATTERY-CORPUS.md` archived to `3-COMPLETED` per
+`pdda-check-issue-doc-sync` (issue #43 closed), dropping its warnings 29 → 28.
+
+## 1.4.297 - 2026-08-18
+Making a list from an image reads better now. The list I build lands as a reply in the thread you
+asked in, instead of appearing on its own in the channel; you get one confirmation instead of two
+(the second one used to show a raw ID and a link that didn't work); and I tell you I'm working on it
+up front, rather than leaving you watching an empty thread for half a minute.
+
+**Technical:** GH-83, presentation only — no change to extraction, list schema, or item content.
+
+- **Threaded the list card.** `#CreateListWithOcrSchemaAsync` posted its announcement with
+  `ThreadTS = null`, putting `📋 New OCR list created` in the channel root while the request that
+  produced it was a thread reply. `CreateListFromExtractedItemsAsync` now takes an optional
+  `ThreadTS` and passes it down; callers with no originating thread keep the old channel-root
+  behavior.
+- **Dropped the duplicate confirmation.** `#MaterializeListFromItemsAsync` also posted its own
+  confirmation, so every success announced the same list twice — and the second was the worse one:
+  it named the list by raw ID (`Created list "<list-id>"`) and wrote its permalink as
+  `<a|${Permalink}>`, which is `<url|text>` reversed and therefore rendered as literal text rather
+  than a link. It is now a **fallback**: `CreateListFromExtractedItemsAsync` returns `Announced`,
+  and ChatModule posts only when that is false. Deleting it outright would have turned the two cases
+  where the announcement is skipped — no permalink, or channel read access denied — into silent
+  successes; this way the list is announced exactly once in every case.
+- **Added an in-progress ack.** Vision OCR takes 10-30s on a full-page screenshot, during which the
+  thread showed nothing and a slow run was indistinguishable from a dropped one. Posted after the
+  image downloads rather than on entry, so a fetch failure never leaves a promise the next message
+  contradicts, and best-effort — an ack that fails must not abort the extraction it is only
+  narrating.
+
+Pinned by a new test in `tests/attachment-pipeline-entry-point.test.js` asserting the thread is
+handed to ListsModule, every posted message belongs to that thread, and exactly one message is sent
+when ListsModule has already announced. Mutation-checked both ways: dropping the `ThreadTS`
+pass-through and making the fallback unconditional each fail it. The pre-existing assertion on the
+old wording was rewritten to check the permalink and item count instead of a literal sentence.
+
+## 1.4.296 - 2026-08-18
+Reading text out of an image works again. Every time you uploaded a picture and asked me to make a
+list from it, I told you "Image analysis failed — please try again later" — and no amount of trying
+again was ever going to help, because the request I sent to the vision model was malformed before it
+left the building. It had been broken for every image, on every workspace.
+
+**Technical:** GH-81. `data/static/ai/ocr-list-extraction-schema.json` declares three JSON Schema
+union types (`item_number: ["string","integer"]`, `amount` and `notes: ["string","null"]`). Gemini's
+`generationConfig.responseSchema` accepts only an OpenAPI 3.0 subset, where `type` is a scalar enum
+and nullability is the separate `nullable` flag — so a union reaches the API as a repeated value in a
+non-repeating proto field and every `generateContent` call 400s with *"Unknown name \"type\" at
+'generation_config.response_schema.properties[1].value.items.properties[0].value': Proto field is not
+repeating, cannot start list."* That path is exactly `properties.items.items.properties.item_number`.
+
+Fixed in `GeminiProvider.#SanitizeSchemaForGemini` rather than in the schema file. The sanitizer
+already existed to translate the stored OpenAI-flavored schemas into Gemini's subset (it strips
+`additionalProperties` and `$schema`); it simply had no case for unions. Fixing it there covers the
+second call site (`ProcessMessageWithJsonResponseAsync`) and any future union-typed schema, whereas
+editing the one JSON file would have left both exposed. First non-`null` member becomes the scalar
+`type`; the presence of `"null"` sets `nullable: true`.
+
+Verified by live A/B against `gemini-2.5-flash` with the production workspace key — identical prompt
+and image, current schema `HTTP 400`, fixed schema `HTTP 200` returning valid JSON. Two tests added
+to `tests/gemini-provider.test.js`, both mutation-checked (reverting the fix fails them, and the
+failure names all three offending fields). The regression pin loads the **real shipped schema file**
+and asserts no array-valued `type` survives sanitization; `tests/gemini-ocr-slack-list.test.js` mocks
+the provider, so nothing previously asserted on the bytes actually sent to Google — which is why this
+shipped.
+
 ## 1.4.295 - 2026-08-17
 Nothing changes for you — this one fixes the offline test harness engineers use to check my reminder
 wording before it reaches you. It was quietly testing a different setup than the one you actually

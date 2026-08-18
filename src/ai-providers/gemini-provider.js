@@ -53,6 +53,13 @@ class GeminiProvider {
    * `additionalProperties` (and may carry `$schema`) — passing those through makes
    * generateContent fail with a 400. OpenAI and Anthropic tolerate the same keys, so the
    * sanitization lives here rather than in the shared schema files.
+   *
+   * It also collapses JSON Schema union types (`"type": ["string", "null"]`). OpenAPI 3.0 has
+   * no union type — `type` is a scalar enum and nullability is a separate `nullable` flag — so
+   * a union reaches the API as a repeated value in a non-repeating proto field and 400s with
+   * `Proto field is not repeating, cannot start list`. That is what broke image OCR in
+   * production on 1.4.295: `ocr-list-extraction-schema.json` declares three union-typed fields,
+   * so every OCR request failed and the user saw only "Image analysis failed".
    * @param {any} ArgSchema
    * @returns {any}
    */
@@ -63,10 +70,26 @@ class GeminiProvider {
       return ArgSchema;
     /** @type {Record<string, any>} */
     const Sanitized = {};
+    let NullableFromUnion = false;
     for(const [Key, Value] of Object.entries(ArgSchema)) {
       if(Key === 'additionalProperties' || Key === '$schema') continue;
+      if(Key === 'type' && Array.isArray(Value)) {
+        // Take the first non-null member as the scalar type. Ordering in the source schemas is
+        // meaningful — the intended type is written first — so a multi-concrete union like
+        // ["string","integer"] deliberately narrows to "string" rather than failing. This is a
+        // lossy but deterministic rule; `tests/gemini-provider.test.js` pins each case so a schema
+        // author sees the narrowing rather than discovering it from a model's output.
+        const ConcreteTypes = Value.filter((ArgType) => ArgType !== 'null');
+        Sanitized.type = ConcreteTypes[0] ?? 'string';
+        if(ConcreteTypes.length !== Value.length) NullableFromUnion = true;
+        continue;
+      }
       Sanitized[Key] = GeminiProvider.#SanitizeSchemaForGemini(Value);
     }
+    // Applied AFTER the loop, so it survives a sibling `nullable` key regardless of key order. A
+    // schema carrying both `"type": ["string","null"]` and `"nullable": false` previously emitted
+    // `nullable: false` whenever `type` was iterated first, dropping the null the union declared.
+    if(NullableFromUnion) Sanitized.nullable = true;
     return Sanitized;
   }
 

@@ -202,6 +202,34 @@ goal: >
 
 ### Completed
 
+- **Image OCR was 400ing on every request (GH-81)** — **merged to `development` 2026-08-18 via PR
+  [#82](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/82); CI green; issue
+  [#81](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/81) closed.** Every image OCR
+  request failed with a Gemini 400 — deterministically, on every workspace, both servers — and the
+  user saw only "Image analysis failed — please try again later", which invited a retry that could
+  never succeed. `ocr-list-extraction-schema.json` declares three JSON Schema **union types**;
+  Gemini's `responseSchema` takes an OpenAPI 3.0 subset where `type` is a scalar and nullability is a
+  separate `nullable` flag, so each union arrived as a repeated value in a non-repeating proto field.
+  Fixed in `GeminiProvider.#SanitizeSchemaForGemini` rather than the schema file, so the second call
+  site and any future union-typed schema are covered. **Why it shipped:** the existing OCR tests mock
+  the provider, so nothing asserted on the bytes actually sent to Google — the regression pin now
+  loads the real shipped schema file instead of a fixture. Verified by live A/B against
+  `gemini-2.5-flash` (current schema HTTP 400, fixed HTTP 200). Shipped as 1.4.296.
+
+- **OCR list UX: thread, duplicate, and the silent wait (GH-83)** — **merged to `development`
+  2026-08-18 via PR [#84](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/84); CI green;
+  issue [#83](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/83) closed.** Three
+  presentation defects visible in the first successful run after GH-81 unblocked the feature. The
+  list card posted to the **channel root** while the request that produced it was a thread reply;
+  every success announced the same list **twice**, the second by raw list ID with a permalink written
+  as `<a|url>` (Slack mrkdwn reversed, so it rendered as literal text); and the 10-30s Vision call
+  showed **nothing**, making a slow run indistinguishable from a dropped one. ListsModule now takes
+  an optional `ThreadTS`; the duplicate is gated on a new `Announced` flag rather than deleted, so
+  the two cases where the announcement is skipped (no permalink, channel read access denied) stay
+  announced instead of becoming silent successes; and the ack posts after the image downloads, so a
+  fetch failure never leaves a promise the next message contradicts. Extraction, list schema, and
+  item content unchanged. Shipped as 1.4.297.
+
 - **Unify Slack attachment handling (GH-62)** — **merged to `development` 2026-08-17 via PR
   [#65](https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/pull/65); CI green; issue
   [#62](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/62) closed.** GH-58's Vision OCR
