@@ -102,10 +102,10 @@ Last recorded reason (`marathon-system/dev-qa-2026-08-18--p4/ESCALATION.md`): `c
 You are the BUILDER for this phase. Read the phase brief above and implement it.
 1. Implement the brief by creating/editing the artifact file(s): src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js,tests/attachment-pipeline-entry-point.test.js
 2. Append a build block to this relay file: `### Round N · Builder · agy` summarizing what you did (files touched, key decisions).
-3. Use this exact tick binary (run it from any directory): /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick
-   - /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick claim MARATHON-P4-TURN-2 --agent agy --paths "marathon-system/dev-qa-2026-08-18--p4/RELAY.md,src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js,tests/attachment-pipeline-entry-point.test.js"
-   - /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick ping MARATHON-P4-TURN-2 --agent agy
-   - /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick release MARATHON-P4-TURN-2 --agent agy --to codex
+3. Use this exact tick binary (run it from any directory): .xyz/bin/tick
+   - .xyz/bin/tick claim MARATHON-P4-TURN-2 --agent agy --paths "marathon-system/dev-qa-2026-08-18--p4/RELAY.md,src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js,tests/attachment-pipeline-entry-point.test.js"
+   - .xyz/bin/tick ping MARATHON-P4-TURN-2 --agent agy
+   - .xyz/bin/tick release MARATHON-P4-TURN-2 --agent agy --to codex
 4. Edit ONLY these paths: marathon-system/dev-qa-2026-08-18--p4/RELAY.md and src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js,tests/attachment-pipeline-entry-point.test.js. Do NOT run git. Do NOT touch any other file — the harness commits for you.
 5. HAND OFF EXPLICITLY (GH-268): after releasing the token, end your turn by naming who acts next —
    "handing off to codex — codex, take your turn." A turn that ends without that line
@@ -118,9 +118,9 @@ You are the BUILDER for this phase. Read the phase brief above and implement it.
 
 You are the REVIEWER for this phase. Read the latest builder block above AND review the artifact file(s) on disk: src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js,tests/attachment-pipeline-entry-point.test.js. REVIEW THE WHOLE FILE, NOT JUST THE DIFF (GH-268): a beta test had this loop reach 'Approved' in two rounds while an independent audit of the same branch found 20 issues (1 critical, 4 high) — every one of them in the pre-existing code the change sat on, which nobody had read. Pre-existing defects in a file you are touching are IN SCOPE; say so explicitly if you find none. DECLARE IT: your review block MUST contain a literal 'swept file: yes' or 'swept file: no' line — without it a reviewer that skipped the sweep is indistinguishable in the transcript from one that did it and found nothing, which is exactly how those 20 issues stayed invisible.
 1. Append a review block: `### Round N · Reviewer · codex` followed by your assessment.
-2. If changes needed: add `**Verdict:** Changes requested`, update the `NEXT:` line to exactly `NEXT: agy (Builder)`, then: /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick release MARATHON-P4-TURN-2 --agent codex --to agy
-3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick done MARATHON-P4-TURN-2 --agent codex
-4. Use this exact tick binary (run it from any directory) for all token operations: /Users/noelsaw/Documents/GH Repos/aegis-sleuth-slack-bot/.xyz/bin/tick
+2. If changes needed: add `**Verdict:** Changes requested`, update the `NEXT:` line to exactly `NEXT: agy (Builder)`, then: .xyz/bin/tick release MARATHON-P4-TURN-2 --agent codex --to agy
+3. If satisfied: add `**Verdict:** Approved`, set `STATUS: Approved`, then: .xyz/bin/tick done MARATHON-P4-TURN-2 --agent codex
+4. Use this exact tick binary (run it from any directory) for all token operations: .xyz/bin/tick
    Edit ONLY marathon-system/dev-qa-2026-08-18--p4/RELAY.md (your review block + STATUS). Do NOT edit the artifact yourself — request changes instead. Do NOT run git.
 4b. TO VERIFY A FINDING, WRITE PROBE FILES OUTSIDE THE REPO — under $TMPDIR, never inside the
    working tree. Creating even one scratch file in the repo is an off-lane write: containment
