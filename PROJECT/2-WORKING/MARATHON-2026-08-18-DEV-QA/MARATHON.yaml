@@ -3,7 +3,12 @@
 # Fire with:
 #   .xyz/relay-automation/marathon.sh \
 #     --plan PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml \
+#     --builder agy \
 #     --pre-advance-cmd "npm test"
+#
+# Builder is agy (--builder agy), reviewer is codex on every phase. Both are cost-blind
+# subscription-billed turn-takers; neither bills per call against the Anthropic API. Builder and
+# reviewer must be DIFFERENT agent ids — a dry run halts at the first phase where they collide.
 #
 # The --pre-advance-cmd is REQUIRED: this repo has no root-level validate.sh, so the default gate
 # would fail fast. `npm test` is the real gate (jest, then node:test) and is green on 11d9e4e, so
@@ -30,7 +35,7 @@ name: dev-qa-2026-08-18
 phases:
   - id: p1
     name: "GH-94 — apply jitter after the past-date rollover"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/briefs/p1-gh94-jitter-ordering.md
     artifact: src/reminders-ai-pipeline.js,tests/reminders-ai-pipeline.test.js
     turn_timeout_s: 1200
@@ -38,7 +43,7 @@ phases:
 
   - id: p2
     name: "Cover the GH-76/GH-88 merge seam: OCR failures must carry the diagnostics baseline"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/briefs/p2-ocr-seam-coverage.md
     artifact: tests/ocr-failure-diagnostics.test.js
     turn_timeout_s: 900
@@ -46,7 +51,7 @@ phases:
 
   - id: p3
     name: "GH-95 — one normalized command string for both the fallthrough and the router"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/briefs/p3-gh95-normalization.md
     artifact: src/chat-module.js,tests/attachment-pipeline-entry-point.test.js
     turn_timeout_s: 1200
@@ -54,7 +59,7 @@ phases:
 
   - id: p4
     name: "GH-96 — route the three bypassing error posts through BuildErrorReportAsync"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/briefs/p4-gh96-diagnostics-bypasses.md
     artifact: src/chat-commands/convert-to-list-command.js,src/chat-module.js,tests/convert-to-list-command.test.js
     turn_timeout_s: 1200
@@ -63,7 +68,7 @@ phases:
 
   - id: p5
     name: "CHANGELOG — backfill GH-91 and record GH-94/95/96 plus the seam coverage"
-    reviewer: agy
+    reviewer: codex
     brief: PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/briefs/p5-changelog.md
     artifact: CHANGELOG.md
     turn_timeout_s: 900
