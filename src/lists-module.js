@@ -2909,15 +2909,19 @@ class ListsModule {
    * Builds a list schema (Item Number, Item / Task, Amount / Fine, Notes, Status), creates the list
    * in Slack with channel read access, adds one row per extracted item, and returns the result.
    * Intended to be called from ChatModule after Gemini Vision OCR extracts structured items from an image.
-   * @param {{ ListTitle: string, Items: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }>, ChannelID: string, UserID: string }} ArgOptions
-   * @returns {Promise<{ ok: boolean, ListId?: string, Permalink?: string|null, ItemCount?: number, error?: string }>}
+   * @param {{ ListTitle: string, Items: Array<{ item_number?: any, text: string, amount?: string|null, notes?: string|null }>, ChannelID: string, UserID: string, ThreadTS?: string|null }} ArgOptions
+   *   `ThreadTS` threads the "new list created" announcement as a reply; omit it to post at the
+   *   channel root (the pre-GH-83 behavior, still used by callers with no originating thread).
+   * @returns {Promise<{ ok: boolean, ListId?: string, Permalink?: string|null, ItemCount?: number, error?: string, Announced?: boolean }>}
+   *   `Announced` is true when this call already told the user about the list, so the caller can
+   *   skip its own confirmation instead of duplicating it.
    */
   async CreateListFromExtractedItemsAsync(ArgOptions) {
     if(!this.#ListsAvailable || !this.#SlackClient) {
       return { ok: false, error: 'Slack Lists is not available in this workspace.' };
     }
 
-    const { ListTitle, Items, ChannelID, UserID } = ArgOptions || {};
+    const { ListTitle, Items, ChannelID, UserID, ThreadTS } = ArgOptions || {};
     if(!ListTitle || typeof ListTitle !== 'string' || ListTitle.trim().length === 0) {
       return { ok: false, error: 'ListTitle is required.' };
     }
@@ -2937,6 +2941,7 @@ class ListsModule {
         UserWriteAccessID: UserID,
         ChannelReadAccessID: ChannelID,
         PostAnnouncementChannelID: ChannelID,
+        AnnouncementThreadTS: typeof ThreadTS === 'string' && ThreadTS.length > 0 ? ThreadTS : null,
       });
 
       if(!CreatedList.ListId) {
@@ -2967,24 +2972,31 @@ class ListsModule {
         ListId: CreatedList.ListId,
         Permalink: CreatedList.Permalink,
         ItemCount: AddedCount,
+        // GH-83: the caller posts its own confirmation ONLY when this came back false, so success
+        // is always announced exactly once — never twice, never silently.
+        Announced: CreatedList.Announced === true,
       };
     } catch(error) {
       this.#SlackApp.Logger.error('Error creating OCR list:', error);
-      return { ok: false, error: error.message || String(error), Permalink: null, ItemCount: 0 };
+      return { ok: false, error: error.message || String(error), Permalink: null, ItemCount: 0, Announced: false };
     }
   }
 
   /**
    * Create a Slack List with the OCR-specific schema (Item Number, Item/Task, Amount/Fine, Notes, Status).
    * @param {string} ArgListName List title.
-   * @param {{UserWriteAccessID?: string|null, ChannelReadAccessID?: string|null, PostAnnouncementChannelID?: string|null}} [ArgAccessOptions]
-   * @returns {Promise<{ ListId: string, ListSchema: Object<string, string>, Permalink: string|null }>}
+   * @param {{UserWriteAccessID?: string|null, ChannelReadAccessID?: string|null, PostAnnouncementChannelID?: string|null, AnnouncementThreadTS?: string|null}} [ArgAccessOptions]
+   * @returns {Promise<{ ListId: string, ListSchema: Object<string, string>, Permalink: string|null, Announced: boolean }>}
    */
   async #CreateListWithOcrSchemaAsync(ArgListName, ArgAccessOptions = {}) {
     try {
       const ChannelReadAccessID = ArgAccessOptions.ChannelReadAccessID ?? null;
       const UserWriteAccessID = ArgAccessOptions.UserWriteAccessID ?? null;
       const PostAnnouncementChannelID = ArgAccessOptions.PostAnnouncementChannelID ?? null;
+      // GH-83: null posts to the channel root. The image routes pass the originating thread so the
+      // list lands as a reply to the upload instead of detaching into the channel.
+      const AnnouncementThreadTS = ArgAccessOptions.AnnouncementThreadTS ?? null;
+      let Announced = false;
 
       this.#SlackApp.Logger.info(`Calling lists.create API with OCR schema name: ${ArgListName}`);
 
@@ -3013,9 +3025,10 @@ class ListsModule {
           if(ListPermalink) {
             await this.#SlackApp.PostMessageTextAsync(
               PostAnnouncementChannelID,
-              null,
+              AnnouncementThreadTS,
               `📋 New OCR list created: <${ListPermalink}|${ArgListName}>\nItems extracted from uploaded image.`
             );
+            Announced = true;
           } else {
             this.#SlackApp.Logger.warn(`Could not determine permalink for new OCR list ${ListId}`);
           }
@@ -3032,7 +3045,7 @@ class ListsModule {
         this.#SlackApp.Logger.warn(`Created OCR list ${ListId}, but channel ${ChannelReadAccessID || '-'} could not be granted read access.`);
       }
 
-      return { ListId, ListSchema, Permalink: ListPermalink };
+      return { ListId, ListSchema, Permalink: ListPermalink, Announced };
     } catch(error) {
       this.#SlackApp.Logger.error('Error creating OCR list:', error);
       throw error;

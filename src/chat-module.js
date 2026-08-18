@@ -2964,6 +2964,20 @@ class ChatModule {
         `[ocr-list] downloaded image ${ImageSelection.name} (${ImageSelection.mimetype}, ${(DownloadResult.Base64 || '').length} base64 chars)`
       );
 
+      // GH-83: Vision OCR takes 10-30s, during which the thread showed nothing at all and the user
+      // could not tell a slow run from a dropped one. Posted AFTER the download rather than on entry
+      // so a fetch failure never leaves a promise the next message contradicts. Best-effort: an ack
+      // that fails must not abort the extraction it is only narrating.
+      try {
+        await ArgSlackApp.PostMessageTextAsync(
+          ArgEventInfo.channel,
+          ReplyTS,
+          '🔍 Reading your image — this usually takes 10-30 seconds.'
+        );
+      } catch(ackError) {
+        ArgSlackApp.Logger.warn(`[ocr-list] could not post the in-progress ack: ${ackError.message}`);
+      }
+
       // Step 2: load OCR instructions + schema from disk.
       let InstructionsText;
       let SchemaObject;
@@ -3092,6 +3106,7 @@ class ChatModule {
           Items: ExtractedItems,
           ChannelID: ArgEventInfo.channel,
           UserID: ArgEventInfo.user,
+          ThreadTS: ReplyTS,
         });
       } catch(listError) {
         ArgSlackApp.Logger.error('[ocr-list] failed to create Slack List:', listError);
@@ -3113,19 +3128,20 @@ class ChatModule {
         return true;
       }
 
-      // Step 5: success — post confirmation with permalink.
+      // Step 5: success. ListsModule already posted "📋 New OCR list created: <link|title>" into
+      // this thread, which renders the list card — so this is a FALLBACK, not the normal path
+      // (GH-83). It previously always fired, giving the user two confirmations for one list: a
+      // linked one from ListsModule in the channel and a raw-list-ID one here in the thread, whose
+      // `<a|url>` was reversed mrkdwn that rendered as literal text. Announce only what the other
+      // path could not.
       const ItemCount = ListResult.ItemCount ?? ExtractedItems.length;
-      if(ListResult.Permalink) {
+      if(!ListResult.Announced) {
         await ArgSlackApp.PostMessageTextAsync(
           ArgEventInfo.channel,
           ReplyTS,
-          `✅ Created list "${ListResult.ListId}" with ${ItemCount} item(s).\n<a|${ListResult.Permalink}>`
-        );
-      } else {
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel,
-          ReplyTS,
-          `✅ Created list with ${ItemCount} item(s) (permalink unavailable).`
+          ListResult.Permalink
+            ? `✅ Created <${ListResult.Permalink}|${ListTitle}> with ${ItemCount} item(s).`
+            : `✅ Created "${ListTitle}" with ${ItemCount} item(s) (permalink unavailable).`
         );
       }
 
