@@ -34,7 +34,7 @@
 -->
 
 ## 1.4.305 - 2026-08-18
-Reminders phrased with a fuzzy time no longer land on the wrong day, and when something fails you now get the diagnostic details in every case, not just some.
+I've been updated so that reminders phrased with a fuzzy time no longer land on the wrong day, and when something fails I'll now give you the diagnostic details in every case, not just some.
 
 **Technical:** GH-94, GH-95, GH-96, and p2 seam coverage — four phases from the dev QA marathon.
 - **GH-94:** Apply jitter after the past-date rollover in `src/reminders-ai-pipeline.js`.
@@ -43,7 +43,7 @@ Reminders phrased with a fuzzy time no longer land on the wrong day, and when so
 - **Seam coverage:** Added `tests/ocr-failure-diagnostics.test.js` to cover the GH-76/GH-88 merge seam, ensuring OCR failures always carry the diagnostics baseline.
 
 ## 1.4.304 - 2026-08-18
-Commands sent with an image attached now work the same as without one.
+I've been updated so that commands sent with an image attached now work the same as without one.
 
 **Technical:** GH-91 — added command-router fallthrough for an explicit command carrying an image.
 
@@ -1695,17 +1695,17 @@ I've been updated so the `models` command now shows my **First Responder** mode 
 - Extended `HandleShowMeCommandAsync` to attempt enrichment when both `GITHUB_PAT` and a mapped GitHub username are available. If enrichment succeeds, a `GitHub activity (last 7 days)` section is appended to the AI prompt listing open PRs, review-requested PRs, and repos pushed to. Falls back silently to Phase 1 behavior (reminder-only prompt) when either credential is absent, the user is unmapped, or the fetch fails. All fetch errors are logged as warnings, not errors, and never surface to the user.
 - Expanded `tests/show-me-command.test.js` from 51 to 61 tests: `HandleShowMeCommandAsync — GitHub activity enrichment` (6 tests covering no-map, no-PAT, unmapped user, successful enrichment, all-null response, and fetch-throw fallback) and `FetchUserGitHubActivityAsync` unit tests (4 tests covering all-fail null return, partial success, cutoff date filtering, and repo deduplication).
 
-## 1.4.151 - 2026-06-01
-- Added `@Sleuth show-me @user` — a new chat command that pulls all open reminders assigned to a tagged Slack user and asks `WorkspaceAI` to rank the top three priorities for today. Ranking prompt prefers `overdue > GitHub-linked + due > due today > scheduled soon > snoozed`, with a one-sentence rationale per item. Accepts both the shorthand `show-me <@user>` and the longhand `show-me what tasks <@user> should work on today`. No admin gate — any workspace member can query any user; no credentials are exposed.
-- Handler lives in `src/chat-commands/show-me-command.js`. Reads reminders via the existing `RemindersModule.GetAllReminders()` filtered to `AssigneeID === targetUserId` and the active-state set (`scheduled`, `due`, `overdue`, `snoozed`) — no new persistence or indexes. `AssigneeID` already defaults to the sender at creation time, so self-assigned and explicitly delegated reminders are both covered without the broader noise of `GetRemindersInvolvingUserID`. Posts a loading message before the AI call; falls back gracefully with a user-facing error reply if the AI call throws.
-- Route registered in `src/chat-module.js` `#RegisterCommandRoutes()` using pattern `/^show-me\s+(?:what\s+tasks?\s+)?(<@[UW][^>]+>)(?:\s+.*)?$/i`. Sits above the `run daily digest` route; resolves cleanly against the existing `show-channel-model` route with no overlap.
-- Added `tests/show-me-command.test.js` (23 tests): routing pattern positive and negative cases; guard cases for null `RemindersModule` and unparseable mentions; empty-result path (no reminders, terminal-state reminders, reminders for a different user — all skip the AI); AI ranking path (correct user filter, GitHub URLs in prompt, today's date in prompt, loading message precedes AI call, AI response is the final post); AI failure path (graceful error reply, no re-throw).
-
 ## 1.4.152 - 2026-06-01
 - Added two natural-language alias routes for `show-me`, both delegating to the same `HandleShowMeCommandAsync` handler with no changes to the handler itself.
 - Self-referential alias: `what are my tasks?` / `what's my tasks` / `what is my task` / `show me my tasks` / `what should I work on today` / `what should I do today` / `what should I focus on today`. The route synthesises `<@{caller.user}>` as the target mention so users can ask about their own queue without knowing the `show-me @user` syntax.
 - Third-person alias: `what are @user tasks` / `what are @user's tasks` / `what is @user's task` / `show me @user's tasks` / `what should @user work on today` / `what should @user do today` / `what should @user focus on today`. Captures the `<@UID>` mention across three pattern alternations; the handler receives whichever group matched via `ArgM1 || ArgM2 || ArgM3`.
 - Expanded `tests/show-me-command.test.js` from 23 to 51 tests: added `"my tasks" self-referential routing pattern` (9 positive, 4 negative, 1 handler integration) and `"what are @user tasks" third-person routing pattern` (9 positive, 4 negative, 1 handler integration) suites.
+
+## 1.4.151 - 2026-06-01
+- Added `@Sleuth show-me @user` — a new chat command that pulls all open reminders assigned to a tagged Slack user and asks `WorkspaceAI` to rank the top three priorities for today. Ranking prompt prefers `overdue > GitHub-linked + due > due today > scheduled soon > snoozed`, with a one-sentence rationale per item. Accepts both the shorthand `show-me <@user>` and the longhand `show-me what tasks <@user> should work on today`. No admin gate — any workspace member can query any user; no credentials are exposed.
+- Handler lives in `src/chat-commands/show-me-command.js`. Reads reminders via the existing `RemindersModule.GetAllReminders()` filtered to `AssigneeID === targetUserId` and the active-state set (`scheduled`, `due`, `overdue`, `snoozed`) — no new persistence or indexes. `AssigneeID` already defaults to the sender at creation time, so self-assigned and explicitly delegated reminders are both covered without the broader noise of `GetRemindersInvolvingUserID`. Posts a loading message before the AI call; falls back gracefully with a user-facing error reply if the AI call throws.
+- Route registered in `src/chat-module.js` `#RegisterCommandRoutes()` using pattern `/^show-me\s+(?:what\s+tasks?\s+)?(<@[UW][^>]+>)(?:\s+.*)?$/i`. Sits above the `run daily digest` route; resolves cleanly against the existing `show-channel-model` route with no overlap.
+- Added `tests/show-me-command.test.js` (23 tests): routing pattern positive and negative cases; guard cases for null `RemindersModule` and unparseable mentions; empty-result path (no reminders, terminal-state reminders, reminders for a different user — all skip the AI); AI ranking path (correct user filter, GitHub URLs in prompt, today's date in prompt, loading message precedes AI call, AI response is the final post); AI failure path (graceful error reply, no re-throw).
 
 ## 1.4.150 - 2026-05-29
 - Fixed a false-positive past-time warning in the manual `:alarm_clock:` reminder flow. When the reaction had to synthesize a fallback schedule because the source message contained no explicit date/time, Sleuth could still inherit a `wasAdjustedForward` flag from the fallback extraction and tell the user their requested time was in the past even though they never requested one. Synthetic `:alarm_clock:` fallbacks now suppress that warning while keeping the existing warning for real user-authored past-time phrases.

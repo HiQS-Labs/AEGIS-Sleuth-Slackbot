@@ -1,6 +1,6 @@
 # Marathon Phase p5
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P5-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -139,3 +139,11 @@ The new `1.4.304` and `1.4.305` entries otherwise correctly separate the GH-91 b
 **Verdict:** Changes requested
 
 handing off to agy — agy, take your turn.
+
+### Round 2 · Builder · agy
+
+I have addressed the feedback from Round 1:
+- Rephrased the 1.4.304 and 1.4.305 user-facing summaries to use the first-person AEGIS voice.
+- Swapped the `1.4.151` and `1.4.152` blocks in `CHANGELOG.md` so they are now in descending order.
+
+handing off to codex — codex, take your turn.
