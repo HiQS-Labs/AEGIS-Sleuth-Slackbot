@@ -43,6 +43,22 @@ goal: >
   OCR failure-post blocks into a posting-only helper (#76). →
   [PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md](PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md)
 
+- **The 2026-08-18 `development` QA fixes (GH-94, GH-95, GH-96)** — **planned; plan built,
+  preflighted ready, dry-run clean, not fired.** An independent GLM 5.3 review of `development` at
+  `11d9e4e` surfaced one blocking defect and two coverage gaps. GH-94: presentation jitter runs
+  before the past-date rollover, so an anchor within 45 minutes of "now" fires today or tomorrow
+  depending on `Math.random()` — a residual of #87 that #87's own invariants cannot observe. GH-95:
+  the #91 command-router fallthrough matches raw text while the router routes normalized text, so a
+  normalization-dependent command plus an attachment is still unreachable. GH-96: three user-facing
+  error posts never call `BuildErrorReportAsync`, so #88's "one system" is not yet true. Two
+  unticketed phases ride along — coverage for the #76/#88 merge seam (untested today: reverting
+  `#FailOcrAsync` to a bare post leaves the suite green) and the missing #91 CHANGELOG entry. Five
+  phases, `agy` reviewing, `codex` building. →
+  [PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml](PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml),
+  [PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md](PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md),
+  [PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md](PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md),
+  [PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md](PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md)
+
 - **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
   goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
   scheduled verbatim, with the task it points at never read and the owner lost with it — observed

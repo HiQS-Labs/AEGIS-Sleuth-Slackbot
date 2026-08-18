@@ -903,14 +903,7 @@ class RemindersAIPipeline {
     // convert the extracted anchor date back to UTC to ensure consistency with the rest of the app.
     AnchorDate.setUTCMinutes(AnchorDate.getUTCMinutes() - MainTimeZoneOffsetInMinutes);
 
-    // apply random presentation jitter (±45 min) when the trigger is a fuzzy time-of-day keyword,
-    // ensuring jitter never alters the calendar day relative to the anchor or pushes a future anchor into the past.
-    const ExtractedDate = RemindersAIPipeline.ApplyPresentationJitter(
-      AnchorDate,
-      ArgSchedulingTrigger,
-      CurrentUtcDate,
-      MainTimeZoneOffsetInMinutes
-    );
+    let ExtractedDate = new Date(AnchorDate.getTime());
 
     // when users explicitly say "this morning" or evening keywords ("tonight", "later tonight", "night", "evening"), favor immediate same-day handling over next-day rollover.
     const ShouldKeepSameDayWhenPast = /\b(this morning|tonight|later tonight|night|evening)\b/i.test(ArgSchedulingTrigger);
@@ -940,6 +933,15 @@ class RemindersAIPipeline {
       ExtractedDate.setUTCSeconds(ExtractedDate.getUTCSeconds() + SecondsForTooSoon);
       this.#SlackApp.Logger.info(`date is too soon, pushing out by ${SecondsForTooSoon} seconds`);
     }
+
+    // apply random presentation jitter (±45 min) when the trigger is a fuzzy time-of-day keyword,
+    // ensuring jitter never alters the calendar day relative to the anchor or pushes a future anchor into the past.
+    ExtractedDate = RemindersAIPipeline.ApplyPresentationJitter(
+      ExtractedDate,
+      ArgSchedulingTrigger,
+      FutureDateThatIsNotTooSoon,
+      MainTimeZoneOffsetInMinutes
+    );
 
     // return the extracted date and the scheduling trigger used for extraction.
     return { success: true, date: ExtractedDate, phrase: ArgSchedulingTrigger, wasAdjustedForward };
