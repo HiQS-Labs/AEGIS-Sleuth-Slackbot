@@ -33,6 +33,16 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.301 - 2026-08-18
+When you run diagnostics, ask for reminder triage, or hit an unexpected error, I'll now show you a consistent diagnostic snapshot with version details, channel auto-scheduling status, connection health, and active AI model settings.
+
+**Technical:** GH-88 (Phase 1–3) and GH-89 Phase 2 — unified diagnostics report baseline and error routing.
+
+- **Extracted shared diagnostics baseline in `src/diagnostics-report.js`.** Built a resilient 5-line diagnostic baseline (version & branch & workspace, per-channel reminders enabled state & target channel, cached Slack API connectivity, runtime data dir path & writability, and configured AI providers & active model).
+- **Migrated `run-diagnostics` command and reminder triage.** Replaced duplicated reporting in `src/chat-commands/run-diagnostics-command.js` and `src/reminders-module.js` triage handler with the shared baseline, preserving triage AI analysis and extended probes.
+- **Routed error replies through `BuildErrorReportAsync` and named target repos on failure.** Error replies in GitHub issue filing, Vision OCR, and Slack List materialization now present the error summary with the diagnostic baseline attached beneath, naming the attempted repository on genuine GitHub failures (GH-89 Phase 2).
+- **Pinned with comprehensive tests.** Added unit tests in `tests/diagnostics-report.test.js` and `tests/run-diagnostics-command.test.js`, asserting identical baseline output between user-triggered and error-triggered surfaces, and updated `tests/send-to-github-command.test.js` and `tests/chat-module-bug-reaction.test.js`.
+
 ## 1.4.300 - 2026-08-18
 When you ask for a reminder "tonight" or "this evening", I'll now always schedule it for tonight rather than accidentally rolling it over to tomorrow if a slight random timing adjustment pushes it before right now.
 

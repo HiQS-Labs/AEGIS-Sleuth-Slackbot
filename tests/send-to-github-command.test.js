@@ -244,6 +244,16 @@ describe('HandleSendToGithubCommandAsync', () => {
       EventInfo.ts,
       expect.stringMatching(/issues:write/i)
     );
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      EventInfo.channel,
+      EventInfo.ts,
+      expect.stringMatching(/• Attempted repo: `HiQS-Suite\/AEGIS-Sleuth-Slackbot`/i)
+    );
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      EventInfo.channel,
+      EventInfo.ts,
+      expect.stringMatching(/\*Diagnostics:\*/i)
+    );
   });
 
   test('reports generic error on other GitHub failures', async () => {
@@ -256,6 +266,16 @@ describe('HandleSendToGithubCommandAsync', () => {
       EventInfo.channel,
       EventInfo.ts,
       expect.stringMatching(/GitHub returned 422/i)
+    );
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      EventInfo.channel,
+      EventInfo.ts,
+      expect.stringMatching(/• Attempted repo: `HiQS-Suite\/AEGIS-Sleuth-Slackbot`/i)
+    );
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      EventInfo.channel,
+      EventInfo.ts,
+      expect.stringMatching(/\*Diagnostics:\*/i)
     );
   });
 });

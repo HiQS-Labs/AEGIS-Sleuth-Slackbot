@@ -2,6 +2,7 @@
 
 const { CaptureThreadAsync } = require('../thread-memory');
 const { FileGithubIssueAsync, ISSUE_REPO } = require('../github-issue-filer');
+const { BuildErrorReportAsync } = require('../diagnostics-report');
 
 /**
  * Build the GitHub issue body from a captured thread record.
@@ -142,37 +143,44 @@ async function HandleSendToGithubCommandAsync(ArgSlackApp, ArgEventInfo, ArgTitl
     }
 
     if(Result.reason === 'forbidden') {
-      await ArgSlackApp.PostMessageTextAsync(
+      const ErrorText = await BuildErrorReportAsync(
+        ArgSlackApp,
         ArgEventInfo.channel,
-        ArgEventInfo.ts,
-        "couldn't file the GitHub issue: `GITHUB_PAT` lacks permission (filing issues requires `issues:write` scope)."
+        "couldn't file the GitHub issue: `GITHUB_PAT` lacks permission (filing issues requires `issues:write` scope).",
+        Result.repo ? [`• Attempted repo: \`${Result.repo}\``] : []
       );
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ErrorText);
       return;
     }
 
     if(Result.reason === 'github-error') {
       ArgSlackApp.Logger.warn(`[send-to-github] GitHub API returned ${Result.status} for ${Result.apiUrl}`);
-      await ArgSlackApp.PostMessageTextAsync(
+      const ErrorText = await BuildErrorReportAsync(
+        ArgSlackApp,
         ArgEventInfo.channel,
-        ArgEventInfo.ts,
-        `couldn't file the GitHub issue (GitHub returned ${Result.status}). Check the logs.`
+        `couldn't file the GitHub issue (GitHub returned ${Result.status}). Check the logs.`,
+        Result.repo ? [`• Attempted repo: \`${Result.repo}\``] : []
       );
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ErrorText);
       return;
     }
 
     ArgSlackApp.Logger.error('[send-to-github] failed:', Result.error);
-    await ArgSlackApp.PostMessageTextAsync(
+    const FailureText = await BuildErrorReportAsync(
+      ArgSlackApp,
       ArgEventInfo.channel,
-      ArgEventInfo.ts,
-      "Sorry — couldn't file the GitHub issue. Check the logs."
+      "Sorry — couldn't file the GitHub issue. Check the logs.",
+      Result.repo ? [`• Attempted repo: \`${Result.repo}\``] : []
     );
+    await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, FailureText);
   } catch(error) {
     ArgSlackApp.Logger.error('[send-to-github] failed:', error);
-    await ArgSlackApp.PostMessageTextAsync(
+    const CatchErrorText = await BuildErrorReportAsync(
+      ArgSlackApp,
       ArgEventInfo.channel,
-      ArgEventInfo.ts,
       "Sorry — couldn't file the GitHub issue. Check the logs."
     );
+    await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, CatchErrorText);
   }
 }
 

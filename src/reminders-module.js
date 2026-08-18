@@ -31,6 +31,7 @@ const { createEventStore, CURRENT_SCHEMA_VERSION } = require('./event-store');
 const { createLedgerCoverage } = require('./ledger-coverage');
 const { createDecisionCorpusStore } = require('./decision-corpus-store');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
+const { CollectDiagnosticsBaselineAsync, FormatDiagnosticsBaselineLines } = require('./diagnostics-report');
 
 // add typedefs for OpenAI-defined types (just import them from workspace-ai.js to avoid duplication).
 /**
@@ -1418,6 +1419,15 @@ class RemindersModule {
   }
 
   /**
+   * Check if auto-scheduling is enabled for a given channel.
+   * @param {string} ArgChannelID Channel ID to check.
+   * @returns {boolean}
+   */
+  AreRemindersEnabledForChannel(ArgChannelID) {
+    return this.#ChannelSettings ? this.#ChannelSettings.AreRemindersEnabledForChannel(ArgChannelID) : false;
+  }
+
+  /**
    * Handle Slack message event and return true on success.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
@@ -2056,23 +2066,17 @@ class RemindersModule {
       return true;
     }
 
-    // resolve channel status so the user can see whether auto-scheduling is actually enabled here.
-    const AutoSchedulingEnabled = this.#ChannelSettings
-      ? this.#ChannelSettings.AreRemindersEnabledForChannel(ArgChannelID)
-      : false;
-    const ReminderTargetChannelID = await this.#GetReminderChannelIdAsync('');
-    const IsReminderTargetChannel = ReminderTargetChannelID === ArgChannelID;
-    const ConfiguredTargetChannelName = this.#SlackApp.WorkspaceInfo.REMINDER_CHANNEL_NAME || '(not configured)';
-
     const TriageResult = await this.#AIPipeline.GetReminderTriageAsync(OriginalText);
+    const BaselineFacts = await CollectDiagnosticsBaselineAsync(this.#SlackApp, ArgChannelID, {
+      RemindersModule: this,
+    });
     const FeedbackLines = [
       `:wrench: Reminder triage requested by <@${ArgReactingUserID}>.`,
-      '*Channel status:*',
-      `• Auto-scheduling in this channel: *${AutoSchedulingEnabled ? 'enabled' : 'disabled'}*`,
-      `• Reminder target channel: #${SlackFormatUtils.SanitizeForInlineSlack(ConfiguredTargetChannelName)}${IsReminderTargetChannel ? ' _(this channel)_' : ''}`,
+      '*Diagnostics:*',
+      ...FormatDiagnosticsBaselineLines(BaselineFacts),
     ];
 
-    if(!AutoSchedulingEnabled) {
+    if(!BaselineFacts.AutoSchedulingEnabled) {
       FeedbackLines.push('• :information_source: Auto-scheduling is disabled here — messages in this channel will not be analyzed. Channel creator can enable with `@Sleuth AI enable reminders`.');
     }
 
