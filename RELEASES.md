@@ -6,6 +6,16 @@ target release names/dates; it is not a history of what shipped (that's CHANGELO
 learned belong there at ship time, not duplicated here). Contract lives in PROJECT/PDDA.md ->
 "RELEASES.md — release ledger". Add new fields only when a real need shows up.
 
+**Versions are RECORDED, never RESERVED (recalibrated 2026-08-17).** `Release:` reads `TBD` until a
+release's last issue closes, then records the version where that actually happened. The `Iterations:`
+band field is retired on live blocks and must not be re-added: it predicted which theme the next N
+version slots would belong to, and across 1.4.278–1.4.295 — eighteen consecutive slots — it was wrong
+every time, because this team ships whatever is urgent and deploys ad-hoc rather than by release. Two
+of the three banded releases had their bands pass entirely into history with zero issues shipped. The
+"Band corrected" and "Sequencing deviation" notes below are the overhead that field produced; they are
+kept as history, not as a pattern to continue. A release closes when its issues close. The version
+number is a monotonic counter of CHANGELOG headings and belongs to no one.
+
 <!--test-->
 Codename: "Test"
 Release:
@@ -16,7 +26,7 @@ Deadline: July 25, 2026
 Description: FTest
 <!--test-->
 
-Release: 1.5.0
+Release: TBD
 Status: Draft
 Codename: "Confluence"
 Milestone: One extraction path. Delete intent-selector grammars; keep verifiers.
@@ -33,8 +43,10 @@ License file: No
 Description: Deliberately short — see #80 and #79. This file's own history is the reason: the
   "Ledger" block above had to be corrected for describing declined work as pending, so the
   narrative lives on the issues where it can be closed, not here where it goes stale.
-  Minor bump because the user-visible default changes for everyone (verbatim display is deleted,
-  not retuned); 1.5.0 was left FREE by the Ledger block. Knock to 1.4.296 if that reads too big.
+  Version DELIBERATELY unassigned per the recording rule at the top of this file. A minor bump is
+  likely earned — the user-visible default changes for everyone (verbatim display is deleted, not
+  retuned) — and 1.5.0 was left FREE by the Ledger block. Decide that when it ships, not now:
+  1.5.0 has already been burned once as a reservation that was never consumed.
 
 Codename: "Silverlining"
 Release: TBD
@@ -95,15 +107,16 @@ Description: CORRECTED 2026-08-14. P3 Event-Sourced Core is COMPLETE — Phase 5
   cited here previously no longer existed, which was the drift signal)
   Marathon: PROJECT/3-COMPLETED/P3-EVENT-SOURCED-CORE/MARATHON.yaml
 
-Release: 1.4.278
-Iterations: 1.4.278-1.4.279
+Release: TBD
+Band retired: 2026-08-17. Was 1.4.278-1.4.279 (itself a correction from 1.4.270-1.4.279). Both
+  slots passed into history with ZERO Roundup issues shipped; see the versioning rule at the top.
 Band corrected: 2026-08-14. Originally reserved 1.4.270-1.4.279, but EIGHT of those ten
   slots were spent on unrelated work before any Roundup issue shipped — 1.4.270 on the P3
   close-out, then .271 GH-37, .272 the public-reference sanitize, .273 GH-44, .274 GH-43,
   .275 GH-48, .276 GH-50, .277 GH-51. ZERO Roundup issues have shipped. The band now states
   the two slots that actually remain rather than implying ten. Four issues in two versions
   is fine: a single version routinely carries several (1.4.274 carried all four GH-43 phases).
-Status: Draft
+Status: Open — 0 of 4 issues shipped as of 2026-08-17 (#25, #26, #39, #41 all open)
 Codename: "Roundup"
 Milestone: Every open bug closed — correctness first, then the tooling that hides bugs
 Target Date:
@@ -158,9 +171,10 @@ Description: Clear the open-issue board of the tooling that hides bugs. RECONCIL
   Sequencing note: Roundup ships FIRST (1.4.278-279), before Grounding (1.4.280) and Antecedent
     (1.4.290). Deliberate — GH-39 and GH-41 are the checks that would otherwise let a defect in
     those two releases pass unnoticed. Fix the instruments before running the experiments.
-Release: 1.4.280
-Iterations: 1.4.280-1.4.289
-Status: Draft
+Release: TBD
+Band retired: 2026-08-17. Was 1.4.280-1.4.289; the band passed entirely with #51 still open.
+Status: Blocked — #51 needs the GH-50 corpus, which needs a retention policy that is
+  UNOWNED AND UNFILED (stated in this block's own Description). That policy is the real blocker.
 Codename: "Grounding"
 Milestone: Every scheduled message yields a real quoted task span, not an empty one
 Target Date:
@@ -195,8 +209,8 @@ Description: High-value correctness goal, and the unfinished half of the complex
   production traffic with the before/after recorded.
   Plan: PROJECT/2-WORKING/ (to be written when the corpus is armed)
 
-Release: 1.4.290
-Iterations: 1.4.290-1.4.299
+Release: TBD
+Band retired: 2026-08-17. Was 1.4.290-1.4.299; 1.4.291-1.4.296 went to unrelated work.
 Status: In Progress — code merged at 1.4.290 with the channel half default-OFF; the release closes
   when the flag is armed and the milestone is observed in production, not on merge.
 Sequencing deviation: 2026-08-14. Roundup's note below says Roundup ships FIRST. It did not — GH-55
