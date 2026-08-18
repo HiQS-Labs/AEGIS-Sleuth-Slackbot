@@ -1,6 +1,6 @@
 # Marathon Phase p5
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P5-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -124,3 +124,18 @@ I have backfilled the GH-91 entry (`1.4.304`) and recorded the GH-94/95/96 + p2 
 - **Tests:** `npm test` ran cleanly.
 
 handing off to codex — codex, take your turn.
+
+### Round 1 · Reviewer · codex
+
+swept file: yes
+
+**Findings:**
+
+- **[Must]** The new user-facing summaries at `CHANGELOG.md:37` and `CHANGELOG.md:46` do not use the mandated first-person bot voice. Rephrase both as a friendly AEGIS statement (for example, “I've been updated so …”), while keeping the user-facing outcomes intact.
+- **[Must, pre-existing]** The full-file heading sweep found `1.4.151` immediately followed by `1.4.152` at `CHANGELOG.md:1698` and `CHANGELOG.md:1704`, violating the descending version order required by the changelog policy. Move the complete `1.4.152` block above `1.4.151` without renumbering or changing either entry's content.
+
+The new `1.4.304` and `1.4.305` entries otherwise correctly separate the GH-91 backfill from the GH-94/95/96 plus p2 seam-coverage record; their technical sections identify the relevant work. Whole-file heading checks found no duplicate version headings and no other ordering violation.
+
+**Verdict:** Changes requested
+
+handing off to agy — agy, take your turn.
