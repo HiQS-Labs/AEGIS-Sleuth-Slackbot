@@ -1,6 +1,6 @@
 # Marathon Phase p5
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P5-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -113,4 +113,14 @@ You are the REVIEWER for this phase. Read the latest builder block above AND rev
 5. HAND OFF EXPLICITLY (GH-268): end your turn by naming who acts next — "handing off to agy —
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
-   Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+   the Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · agy
+
+I have backfilled the GH-91 entry (`1.4.304`) and recorded the GH-94/95/96 + p2 seam coverage work (`1.4.305`) as two separate version blocks at the top of `CHANGELOG.md`. 
+
+- **Files touched:** `CHANGELOG.md`
+- **Key decisions:** Divided the requested updates into two separate version blocks (`1.4.304` for the GH-91 backfill, `1.4.305` for the marathon fixes) to accurately reflect the two distinct jobs in the brief. Verified formatting against the pre-existing entries.
+- **Tests:** `npm test` ran cleanly.
+
+handing off to codex — codex, take your turn.

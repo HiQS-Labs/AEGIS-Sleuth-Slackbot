@@ -33,6 +33,20 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.305 - 2026-08-18
+Reminders phrased with a fuzzy time no longer land on the wrong day, and when something fails you now get the diagnostic details in every case, not just some.
+
+**Technical:** GH-94, GH-95, GH-96, and p2 seam coverage — four phases from the dev QA marathon.
+- **GH-94:** Apply jitter after the past-date rollover in `src/reminders-ai-pipeline.js`.
+- **GH-95:** Use one normalized command string for both the fallthrough and the router in `src/chat-module.js`.
+- **GH-96:** Route the three bypassing error posts through `BuildErrorReportAsync` in `src/chat-commands/convert-to-list-command.js` and `src/chat-module.js`.
+- **Seam coverage:** Added `tests/ocr-failure-diagnostics.test.js` to cover the GH-76/GH-88 merge seam, ensuring OCR failures always carry the diagnostics baseline.
+
+## 1.4.304 - 2026-08-18
+Commands sent with an image attached now work the same as without one.
+
+**Technical:** GH-91 — added command-router fallthrough for an explicit command carrying an image.
+
 ## 1.4.303 - 2026-08-18
 I got the message about the photo list. When you said "make a todo list for by OCRing the attached
 image," I was listening for "make a list" exactly — that extra word "todo" made me give you my
