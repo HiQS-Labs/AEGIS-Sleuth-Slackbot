@@ -1563,6 +1563,19 @@ class SlackApp {
         if(await handler(this, AppMentionInfo)) break;
       } catch(error) {
         this.#SlackLogger.error("Error in app_mention handler:", error);
+        // GH-113: a handler failure previously left the user with silence in Slack (e.g. an OpenAI
+        // insufficient_quota error). Route it through the unified error report so they see *something*.
+        try {
+          const { BuildErrorReportAsync } = require('./diagnostics-report');
+          const ErrorText = await BuildErrorReportAsync(
+            this,
+            AppMentionInfo.channel,
+            `sorry, something went wrong handling that: ${error && error.message ? error.message : error}`
+          );
+          await this.PostMessageTextAsync(AppMentionInfo.channel, AppMentionInfo.ts, ErrorText);
+        } catch(reportError) {
+          this.#SlackLogger.error("Error building/posting unified error report for app_mention handler failure:", reportError);
+        }
       }
     }
   }
