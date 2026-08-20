@@ -696,6 +696,86 @@ describe('RemindersModule integration via MockSlackApp', () => {
         jest.useRealTimers();
       }
     });
+
+    test('GH-114: alarm clock force-schedule falls back to "tomorrow morning" when the analyzer finds real candidates but no explicit time', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('manual_force_no_time_candidates');
+      const MessageTS = '1773990000.000323';
+      const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
+        if(ArgMessageText.includes('INPUT PHRASE: tomorrow morning')) {
+          return {
+            year: 2026,
+            month: 5,
+            day: 7,
+            hour: 8,
+            minute: 0,
+            second: 0,
+            rationale: 'Fallback trigger resolved to tomorrow morning.',
+          };
+        }
+
+        // the empty-trigger extraction call (the bug: this used to be a silent dead end).
+        if(ArgMessageText.includes('BASE DATE:')) {
+          return { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0, rationale: 'INPUT PHRASE is empty.' };
+        }
+
+        // the analyzer: real actionable content, but no time expression anywhere in the message.
+        return {
+          recommendation: 'schedule',
+          rationale: 'mock analysis',
+          reminders: [{
+            actionable_language: 'Add thumbnails of what was uploaded',
+            scheduling_trigger: '',
+            reminder_message: 'Add thumbnails of what was uploaded',
+          }],
+        };
+      });
+
+      MockWorkspaceAI.mockImplementation(() => ({
+        ProcessMessageWithJsonResponseAsync: MockProcess,
+        ProcessMessageWithTextResponseAsync: jest.fn().mockResolvedValue('mock text response'),
+        get ComplexModelName() { return 'gpt-4o'; },
+        get DefaultModelName() { return 'gpt-4o-mini'; },
+        set DefaultModelName(_) {},
+      }));
+
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo,
+        ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' },
+        ThreadMessagesById: {
+          [`C_CLIENT:${MessageTS}`]: [{
+            user: 'U_CLIENT',
+            text: 'three things for LTVera:\n1. Add thumbnails of what was uploaded',
+            ts: MessageTS,
+            bot_id: undefined,
+            reactions: [],
+          }],
+        },
+      });
+      const Reminders = new RemindersModule(SlackApp);
+
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+
+        const WasHandled = await SlackApp.SimulateReactionAddedAsync({
+          user: 'U_OPERATOR',
+          reaction: 'alarm_clock',
+          item: {
+            channel: 'C_CLIENT',
+            ts: MessageTS,
+          },
+        });
+
+        // before the GH-114 fix, this returned false with no Slack reply at all — the reaction
+        // silently no-op'd because the empty-trigger group was dropped instead of falling back.
+        expect(WasHandled).toBe(true);
+        expect(SlackApp.SentMessages.length).toBeGreaterThan(0);
+        expect(SlackApp.SentMessages[0].text).toContain('Add thumbnails of what was uploaded');
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
   });
 
   describe('thread reminder command', () => {

@@ -1,0 +1,152 @@
+{
+  "repo_label": "Aegis Sleuth Slack Bot",
+  "repo_kind": "js-node-project",
+  "db_filename": "aegis-sleuth-slack-bot.sqlite",
+  "system_instructions_path": "${ASK_SELF_DIR}/ask_self_system_instructions.json",
+  "env_file_path": "temp/ask-self-rag.env",
+  "ingest_command": "python3 ask_self/ask_self_ingest.py --harness-config ask_self/ask_self_harness.json --mode all",
+  "tenancy_env_var": "AEGIS_SLEUTH_SELF_ASK_TEAM_ID",
+  "embedding": {
+    "provider": "gemini",
+    "model": "gemini-embedding-001",
+    "dim": 768,
+    "_dim_note": "gemini-embedding-001 natively outputs 3072 dims. ask-self sends outputDimensionality=dim so the API truncates. 768 is a good default (~4x smaller index). Only raise to 3072 if full precision is needed.",
+    "requests_per_minute": 2400,
+    "tokens_per_minute": 800000
+  },
+  "shared_index": {
+    "enabled": false
+  },
+  "github": {
+    "owner": "HiQS-Suite",
+    "repo": "AEGIS-Sleuth-Slackbot",
+    "default_fetch_limit": 200,
+    "token_env_vars": ["GITHUB_TOKEN"]
+  },
+  "docs": {
+    "extensions": [".md", ".mdx", ".txt"],
+    "include_patterns": [
+      "^[^/]+\\.md$",
+      "^docs/.+\\.(?:md|mdx|txt)$",
+      "^PROJECT/.+\\.(?:md|mdx|txt)$",
+      "^\\.github/.+\\.md$"
+    ],
+    "exclude_patterns": [
+      "^\\.git/",
+      "^node_modules/",
+      "^temp/",
+      "^scratch/",
+      "^\\.venv/",
+      "^dist/",
+      "^build/",
+      "^coverage/",
+      "^marathon-system/",
+      "^relay-system/",
+      "^phases/",
+      "^\\.tick/",
+      "^\\.xyz/",
+      "^\\.codebase-memory/",
+      "^\\.aider/",
+      "^PARKED/",
+      "^SHAKEDOWN/",
+      "^public/",
+      "(?i)^ASK_SELF\\.md$",
+      "(?i)^ARCHITECTURE-BAK\\.md$",
+      "^ask_self/"
+    ]
+  },
+  "source": {
+    "extensions": [".js", ".mjs", ".cjs", ".sql"],
+    "include_patterns": [
+      "^[^/]+\\.(?:js|mjs|cjs)$",
+      "^(?:src|scripts|tools|utils|mcp|config|deploy)/.+\\.(?:js|mjs|cjs)$",
+      "^tests?/.+\\.(?:js|mjs|cjs)$",
+      "^__tests__/.+\\.(?:js|mjs|cjs)$"
+    ],
+    "exclude_patterns": [
+      "^\\.git/",
+      "^node_modules/",
+      "^temp/",
+      "^scratch/",
+      "^\\.venv/",
+      "^dist/",
+      "^build/",
+      "^coverage/",
+      "^marathon-system/",
+      "^relay-system/",
+      "^phases/",
+      "^\\.tick/",
+      "^\\.xyz/",
+      "^\\.codebase-memory/",
+      "^\\.aider/",
+      "^ask_self/",
+      "\\.d\\.ts$",
+      "\\.min\\.(?:js|mjs|cjs)$",
+      "(?:^|/)vendor/",
+      "(?:^|/)__mocks__/",
+      "(?:^|/)__snapshots__/",
+      "(?:^|/)__fixtures__/"
+    ]
+  },
+  "classification_rules": [
+    {
+      "pattern": "(?i)(?:^|/)changelog\\.md$",
+      "source": "changelog",
+      "priority": 5,
+      "chunker": "changelog"
+    },
+    {
+      "pattern": "(?i)^releases?\\.md$|^roadmap\\.md$|strategy|product.*brief|roadmap",
+      "source": "strategy",
+      "priority": 5,
+      "chunker": "text"
+    },
+    {
+      "pattern": "(?i)^(?:AGENTS|ARCHITECTURE|ARCHITECTURE-DECISIONS|CLAUDE|CONTRIBUTING|SECURITY|FRONTDOOR|README|GUIDING-PRINCIPLES)[^/]*\\.md$",
+      "source": "policy",
+      "priority": 5,
+      "chunker": "text"
+    },
+    {
+      "pattern": "(?:^|/)(?:tests?|__tests__)/|\\.(?:test|spec)\\.(?:js|mjs|cjs)$",
+      "source": "test",
+      "priority": 1,
+      "chunker": "javascript"
+    },
+    {
+      "pattern": "^src/.+\\.(?:js|mjs|cjs)$",
+      "source": "module",
+      "priority": 3,
+      "chunker": "javascript"
+    },
+    {
+      "pattern": "^(?:scripts|tools|utils|mcp|config|deploy)/.+\\.(?:js|mjs|cjs)$",
+      "source": "script",
+      "priority": 2,
+      "chunker": "javascript"
+    },
+    {
+      "pattern": "^[^/]+\\.(?:js|mjs|cjs)$",
+      "source": "script",
+      "priority": 2,
+      "chunker": "javascript"
+    },
+    {
+      "pattern": "\\.sql$",
+      "source": "sql",
+      "priority": 3,
+      "chunker": "line"
+    },
+    {
+      "pattern": "\\.mdx?$",
+      "source": "doc",
+      "priority": 2,
+      "chunker": "text"
+    }
+  ],
+  "default_classification": {
+    "source": "doc",
+    "priority": 1,
+    "chunker": "text"
+  }
+}
