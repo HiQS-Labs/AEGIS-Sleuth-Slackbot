@@ -94,7 +94,6 @@ const { NormalizeDirectCommandTextAsync } = require('./command-intent-resolver')
 // always reads the current property off this object rather than a value captured at require time.
 const CommandIntentResolver = require('./command-intent-resolver');
 
-const MaxJestFailureLines = 3;
 const MaxWebSearchSources = 5;
 
 // Provisional score floor pending Phase 0 counter data.
@@ -236,93 +235,6 @@ class ChatModule {
    * @type {CommandRouter}
    */
   #CommandRouter;
-
-  /**
-   * Extract concise Jest summary details from raw process output.
-   * @param {string} ArgOutputText Combined stdout/stderr text.
-   * @returns {{ TestSuitesLine: string|null, TestsLine: string|null, TimeLine: string|null, TopFailures: string[] }}
-   */
-  static ExtractJestOutputSummary(ArgOutputText) {
-    const Lines = (ArgOutputText || '').split(/\r?\n/);
-    let TestSuitesLine = null;
-    let TestsLine = null;
-    let TimeLine = null;
-    /** @type {string[]} */
-    const TopFailures = [];
-
-    for(const CurrentLine of Lines) {
-      const TrimmedLine = CurrentLine.trim();
-      if(!TrimmedLine) continue;
-
-      if(!TestSuitesLine && /^Test Suites:/i.test(TrimmedLine))
-        TestSuitesLine = TrimmedLine.replace(/\s+/g, ' ');
-
-      if(!TestsLine && /^Tests:/i.test(TrimmedLine))
-        TestsLine = TrimmedLine.replace(/\s+/g, ' ');
-
-      if(!TimeLine && /^Time:/i.test(TrimmedLine))
-        TimeLine = TrimmedLine.replace(/\s+/g, ' ');
-
-      if(/^●\s+/.test(TrimmedLine)) {
-        const FailureText = TrimmedLine.replace(/^●\s+/, '').trim();
-        if(FailureText && !TopFailures.includes(FailureText))
-          TopFailures.push(FailureText);
-      }
-    }
-
-    return { TestSuitesLine, TestsLine, TimeLine, TopFailures };
-  }
-
-  /**
-   * Format duration in human-readable minutes and seconds.
-   * @param {number} ArgDurationMs Duration in milliseconds.
-   * @returns {string}
-   */
-  static FormatDuration(ArgDurationMs) {
-    const TotalSeconds = Math.max(0, Math.round(ArgDurationMs / 1000));
-    const Minutes = Math.floor(TotalSeconds / 60);
-    const Seconds = TotalSeconds % 60;
-
-    if(Minutes <= 0) return `${Seconds}s`;
-
-    return `${Minutes}m ${Seconds}s`;
-  }
-
-  /**
-   * Build Slack-safe summary text for a completed Jest run.
-   * @param {number|null} ArgExitCode Exit code from the Jest process.
-   * @param {number} ArgDurationMs Run duration in milliseconds.
-   * @param {string} ArgStdoutText Captured stdout text.
-   * @param {string} ArgStderrText Captured stderr text.
-   * @param {boolean} ArgTimedOut Whether the process timed out and was stopped.
-   * @returns {string}
-   */
-  static BuildJestResultMessage(ArgExitCode, ArgDurationMs, ArgStdoutText, ArgStderrText, ArgTimedOut) {
-    const CombinedOutputText = [ArgStdoutText || '', ArgStderrText || ''].filter(Boolean).join('\n');
-    const Summary = ChatModule.ExtractJestOutputSummary(CombinedOutputText);
-    /** @type {string[]} */
-    const Lines = [];
-
-    if(ArgTimedOut) Lines.push(`Jest suite timed out after ${ChatModule.FormatDuration(ArgDurationMs)} and was stopped.`);
-    else if(ArgExitCode === 0) Lines.push('Jest suite passed.');
-    else Lines.push('Jest suite failed.');
-
-    if(ArgExitCode !== null) Lines.push(`Exit code: ${ArgExitCode}.`);
-
-    Lines.push(`Duration: ${ChatModule.FormatDuration(ArgDurationMs)}.`);
-
-    if(Summary.TestSuitesLine) Lines.push(Summary.TestSuitesLine);
-    if(Summary.TestsLine) Lines.push(Summary.TestsLine);
-    if(!ArgTimedOut && Summary.TimeLine) Lines.push(Summary.TimeLine);
-
-    if((ArgTimedOut || ArgExitCode !== 0) && Summary.TopFailures.length > 0) {
-      Lines.push('Top failures:');
-      for(const FailureText of Summary.TopFailures.slice(0, MaxJestFailureLines))
-        Lines.push(`- ${FailureText}`);
-    }
-
-    return Lines.join('\n');
-  }
 
   /**
    * Initialize a new instance of the ChatModule with the given Slack app and workspace stats.
