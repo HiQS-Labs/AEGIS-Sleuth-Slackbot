@@ -69,13 +69,12 @@ if [[ " $* " != *" --mode "* ]]; then
   BASE_ARGS+=(--mode all)
 fi
 
-# GH-119: this repo's harness uses embedding.provider="qwen-local" as a generic
-# sentence-transformers loader for BAAI/bge-small-en-v1.5 -- not actually Qwen. That path is
-# gated off by default in the external ask-self repo, so opt in explicitly, and force off the
-# Apple-Silicon auto-route to qwen-mlx (which IS Qwen/MLX-specific and cannot load a BGE
-# checkpoint). Harmless no-ops if a future harness switches back to a cloud provider.
-export ASK_SELF_ENABLE_QWEN=1
-export ASK_SELF_NO_AUTO_MLX=1
+# GH-123: this repo's harness uses embedding.provider="cloudflare-workers-ai" (Cloudflare
+# Workers AI-hosted BAAI/bge-small-en-v1.5). Requires CLOUDFLARE_ACCOUNT_ID and
+# CLOUDFLARE_API_TOKEN already exported in the environment before running this script -- neither
+# is resolved here, since this wrapper is meant to stay a verbatim, machine-agnostic copy (no
+# baked-in secrets-file paths). See GH-119 for the prior local-BGE provider ("qwen-local") this
+# replaced, and GH-121 for the Cloudflare cost research that motivated the move.
 
 cd "$REPO_ROOT"
 exec "$PYTHON_BIN" "$ENTRYPOINT" "${BASE_ARGS[@]}" "$@"

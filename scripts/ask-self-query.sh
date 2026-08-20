@@ -68,10 +68,9 @@ else
   PYTHON_BIN="python3"
 fi
 
-# GH-119: see ask-self-ingest.sh -- same BGE-via-qwen-local opt-in, needed at query time too
-# since queries embed the question text with the same provider the index was built with.
-export ASK_SELF_ENABLE_QWEN=1
-export ASK_SELF_NO_AUTO_MLX=1
+# GH-123: see ask-self-ingest.sh -- CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must already
+# be exported before running this script, needed at query time too since queries embed the
+# question text with the same provider the index was built with.
 
 cd "$REPO_ROOT"
 exec "$PYTHON_BIN" "$ENTRYPOINT" \

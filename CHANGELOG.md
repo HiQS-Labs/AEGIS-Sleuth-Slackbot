@@ -33,6 +33,34 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.310 - 2026-08-20
+No change to how I behave in Slack — this moves where my own `ask-self` dev-tool index computes
+its embeddings, not what it knows.
+
+**Technical:** GH-123 — this repo's local `ask-self` index moved from local BGE (`qwen-local`,
+GH-119) to Cloudflare Workers AI-hosted BGE (`cloudflare-workers-ai`).
+- Same model (`BAAI/bge-small-en-v1.5`), same 384 dimensions — only where it runs changed.
+  Motivated by GH-121's cost research (Cloudflare Workers AI stays $0/mo at realistic query
+  volumes) and its finding that self-hosting BGE via PyTorch doesn't fit small VMs — Cloudflare
+  removes that constraint since there's no local process to host.
+- Upstream (external `ask-self` repo, not this repo): added a `cloudflare-workers-ai` branch to
+  `embed_one()`/`embed_query()`, calling Cloudflare's REST endpoint with `Authorization: Bearer`
+  auth. `resolve_embedding_provider()` and `embed_batch()` needed no changes — a non-Qwen provider
+  string already passes straight through their existing generic paths.
+- This repo: `ask_self/ask_self_harness.json`'s `embedding.provider` field flipped; the
+  now-unnecessary `ASK_SELF_ENABLE_QWEN`/`ASK_SELF_NO_AUTO_MLX` exports removed from
+  `scripts/ask-self-{ingest,query}.sh` (those were only needed for the local-Qwen-loader path).
+- Forced a clean re-embed rather than trusting the drift auto-detector: both the sqlite index's
+  model/dim check and the embed cache key on `(content_sha, model, dim)`, never `provider` — since
+  this migration keeps model/dim identical, neither would have caught a stale local vector being
+  silently reused. Verified end-to-end: 8,324 chunks re-embedded via Cloudflare (0 failures,
+  ~458s — network-bound, consistent with per-request calls vs. the prior ~27s local run), and a
+  smoke-test query returned a correct, citation-backed answer.
+- Also landed in this pass (pending from GH-121, uncommitted until now): the chunk-size fix itself
+  in the external `ask-self` repo — `CHUNK_TARGET_CHARS`/`CODE_CHUNK_TARGET_CHARS`/
+  `LINE_CHUNK_TARGET_CHARS` lowered to fit BGE-small's 512-token window, and `chunk_changelog`
+  given the length bound it never had. Full before/after chunk-token-distribution data: GH-121.
+
 ## 1.4.308 - 2026-08-19
 No change to how I behave in Slack — this fixes how my own `ask-self` dev-tool index sees this
 repo's code and docs.
