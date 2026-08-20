@@ -33,6 +33,30 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.311 - 2026-08-20
+No change to how I behave in Slack — this is test results only. I measured my own search against
+plain keyword search and lost, which is worth knowing before anyone spends money on a bigger model.
+
+**Technical:** GH-126 — added a BM25/FTS5 keyword baseline and source-verified ground truth to the
+GH-125 embedding comparison. Methodology agreed with a rebalanceOS maintainer in agent2agent #321287.
+- Scored on "did the lane surface the correct source document," verified by reading the actual repo
+  files rather than trusting either LLM grader. Gemini 9/9 in top-8, BM25 6/9, BGE-small 3/9.
+- **Plain SQLite full-text search beats the BGE-small vector lane** on this corpus (6/9 vs 3/9).
+  Reproduces rebalanceOS's equivalent finding on their own corpus.
+- Root cause of BGE's weakness is a **CHANGELOG.md attraction**, not dimension count: 32% of every
+  chunk BGE retrieves is CHANGELOG.md (vs. 19.6% of the corpus) and it is the rank-1 hit on 7/10
+  questions. A `PRIORITY_BOOST` mis-scaling hypothesis was tested and refuted; the mechanism behind
+  the attraction is not established.
+- GH-125's one confirmed hallucination (Q8) is now shown to be a **retrieval failure, not model
+  capacity**: BGE never retrieved `ARCHITECTURE.md` at all, while BM25 finds it at rank 5. Hybrid
+  lexical+vector fusion would have prevented it; a bigger embedder would not.
+- Q1 ("10 most recent changes") is **invalid as a retrieval test** — `src/rag/index.js:295-297`
+  injects the recent CHANGELOG into synthesis context for every query regardless of retrieval.
+- Consequence: the proposed `bge-base-en-v1.5` (768-dim) retest is **not** the indicated next step.
+  Hybrid retrieval and de-weighting redundant changelog chunks are.
+- No production code changed. `src/rag/` is untouched; GH-125's "do not migrate" verdict stands and
+  is now better supported.
+
 ## 1.4.310 - 2026-08-20
 No change to how I behave in Slack — this moves where my own `ask-self` dev-tool index computes
 its embeddings, not what it knows.
