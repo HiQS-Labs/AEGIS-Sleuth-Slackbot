@@ -28,6 +28,24 @@ This file provides canonical guidance to AI agents working in this repository.
 - Follow `docs/coding-conventions.md` conventions.
 - Log intentional architecture violations in `CHANGELOG.md` with `#lessonslearned`.
 
+## 0.0) Code Intelligence (ask-self)
+
+This repo has a local, repo-grounded RAG index of its own code and docs, queryable via
+[ask-self](https://github.com/Hypercart-Dev-Tools/ask-self). This is a **separate system** from
+Sleuth's own production RAG (`src/rag/`, the Slack `ask-self` command) — do not conflate the two.
+
+- Query: `./scripts/ask-self-query.sh "your question here"`
+- Refresh the index: `./scripts/ask-self-ingest.sh` (or `/reingest` in Claude Code)
+- Use it: at session start for orientation, when working in an unfamiliar subsystem, when the user
+  refers to "that helper" / "the auth flow" without naming it, or for cross-file behavior questions.
+  Before grep-spelunking or asking the user to re-explain repo context, query ask-self first.
+- Don't use it: trivial single-file reads, tight edit-test loops, or questions about current
+  uncommitted state — the index reflects the last ingest, not the working tree.
+- Placement: local-only (`temp/rag/`, gitignored). Each developer runs ingest once before
+  querying — this repo is **public**, so the index is intentionally never committed (it would
+  re-expose anything already scrubbed for the public release). See `ask_self/ask_self_harness.json`.
+- Override the external ask-self checkout location with `ASK_SELF_PATH` if needed.
+
 ## 0) How To Use This Doc
 
 - Treat each section as a pass/fail checklist.
