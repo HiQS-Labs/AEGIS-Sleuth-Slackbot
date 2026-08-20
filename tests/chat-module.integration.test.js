@@ -511,7 +511,7 @@ describe('ChatModule integration via MockSlackApp', () => {
   });
 
   describe('remote test-suite prevention', () => {
-    test('admin test-suite question does not start a Jest process', async () => {
+    test('admin run-tests command posts a unified error report without starting a Jest process', async () => {
       const SpawnSpy = jest.spyOn(require('child_process'), 'spawn');
       const SlackApp = new MockSlackApp({ AdminUsers: ['U_ADMIN'], WorkspaceInfo: TestWorkspaceInfo });
       new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
@@ -519,14 +519,13 @@ describe('ChatModule integration via MockSlackApp', () => {
       const WasHandled = await SlackApp.SimulateAppMentionAsync({
         channel: 'C_GENERAL',
         user: 'U_ADMIN',
-        text: [
-          SlackApp.AppMentionString,
-          'ask-self including citations in code, check if there are there really 1,900 tests in your code repo test suite.',
-        ].join(' '),
+        text: [SlackApp.AppMentionString, 'run-tests'].join(' '),
       });
 
       expect(WasHandled).toBe(true);
-      expect(SlackApp.SentMessages).toHaveLength(0);
+      expect(SlackApp.SentMessages).toHaveLength(1);
+      expect(SlackApp.SentMessages[0].text).toContain('Sorry, we cannot run the test suite.');
+      expect(SlackApp.SentMessages[0].text).toContain('*Diagnostics:*');
       expect(SpawnSpy).not.toHaveBeenCalled();
       SpawnSpy.mockRestore();
     });

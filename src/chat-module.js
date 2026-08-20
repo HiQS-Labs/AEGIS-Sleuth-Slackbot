@@ -66,6 +66,7 @@ const HandleChangelogCommandAsync = require('./chat-commands/changelog-command')
 const HandleCommandsListAsync = require('./chat-commands/commands-list-command');
 const HandleRunDiagnosticsCommandAsync = require('./chat-commands/run-diagnostics-command');
 const HandleShowRebalanceRemindersCommandAsync = require('./chat-commands/show-rebalance-reminders-command');
+const HandleTestSuiteUnavailableCommandAsync = require('./chat-commands/test-suite-unavailable-command');
 const HandleCodeTaskCommandAsync = require('./chat-commands/code-task-command');
 const HandleModelsCommandAsync = require('./chat-commands/models-command');
 const HandleLiveModelCatalogQuestionAsync = require('./chat-commands/live-model-catalog-question');
@@ -563,6 +564,12 @@ class ChatModule {
       Pattern: /^restart\b/i,
       Route: 'restart',
       Handle: (ArgEventInfo) => HandleRestartCommandAsync(this.#SlackApp, ArgEventInfo),
+    });
+
+    Router.Register({
+      Pattern: /^run-tests\b/i,
+      Route: 'run-tests-unavailable',
+      Handle: (ArgEventInfo) => HandleTestSuiteUnavailableCommandAsync(this.#SlackApp, ArgEventInfo),
     });
 
     Router.Register({
