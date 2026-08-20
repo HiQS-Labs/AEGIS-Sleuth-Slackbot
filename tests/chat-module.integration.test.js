@@ -180,7 +180,7 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(WasHandled).toBe(true);
       expect(SlackApp.SentMessages).toHaveLength(1);
       expect(SlackApp.SentMessages[0].text).toContain('*Sleuth AI — Command Reference*');
-      expect(SlackApp.SentMessages[0].text).toContain(`\`${SlackApp.AppMentionString} run-tests\``);
+      expect(SlackApp.SentMessages[0].text).not.toContain('run-tests');
     });
 
     test('non-admin user is rejected from the commands list', async () => {
@@ -510,22 +510,25 @@ describe('ChatModule integration via MockSlackApp', () => {
     });
   });
 
-  describe('run-tests command', () => {
-    test('non-admin user is rejected from running the Jest suite', async () => {
-      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+  describe('remote test-suite prevention', () => {
+    test('admin test-suite question does not start a Jest process', async () => {
+      const SpawnSpy = jest.spyOn(require('child_process'), 'spawn');
+      const SlackApp = new MockSlackApp({ AdminUsers: ['U_ADMIN'], WorkspaceInfo: TestWorkspaceInfo });
       new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
 
       const WasHandled = await SlackApp.SimulateAppMentionAsync({
         channel: 'C_GENERAL',
-        user: 'U_REGULAR',
-        text: `${SlackApp.AppMentionString} run-tests`,
+        user: 'U_ADMIN',
+        text: [
+          SlackApp.AppMentionString,
+          'ask-self including citations in code, check if there are there really 1,900 tests in your code repo test suite.',
+        ].join(' '),
       });
 
       expect(WasHandled).toBe(true);
-      expect(SlackApp.SentMessages).toHaveLength(1);
-      expect(SlackApp.SentMessages[0].text).toContain(
-        'sorry, only workspace admins or owners can run the Jest suite.'
-      );
+      expect(SlackApp.SentMessages).toHaveLength(0);
+      expect(SpawnSpy).not.toHaveBeenCalled();
+      SpawnSpy.mockRestore();
     });
   });
 

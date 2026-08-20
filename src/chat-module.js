@@ -66,7 +66,6 @@ const HandleChangelogCommandAsync = require('./chat-commands/changelog-command')
 const HandleCommandsListAsync = require('./chat-commands/commands-list-command');
 const HandleRunDiagnosticsCommandAsync = require('./chat-commands/run-diagnostics-command');
 const HandleShowRebalanceRemindersCommandAsync = require('./chat-commands/show-rebalance-reminders-command');
-const HandleRunTestsCommandAsync = require('./chat-commands/run-tests-command');
 const HandleCodeTaskCommandAsync = require('./chat-commands/code-task-command');
 const HandleModelsCommandAsync = require('./chat-commands/models-command');
 const HandleLiveModelCatalogQuestionAsync = require('./chat-commands/live-model-catalog-question');
@@ -215,12 +214,6 @@ class ChatModule {
    * @type {Map<string, DeterministicResponseEntry>|null}
    */
   #DeterministicResponsesByPhrase = null;
-
-  /**
-   * Active background Jest run promise for this workspace, or null when idle.
-   * @type {Promise<void>|null}
-   */
-  #ActiveJestRunPromise = null;
 
   /**
    * In-memory store of uploaded MD file context keyed by "channelID:threadTS".
@@ -658,22 +651,6 @@ class ChatModule {
       Pattern: /^restart\b/i,
       Route: 'restart',
       Handle: (ArgEventInfo) => HandleRestartCommandAsync(this.#SlackApp, ArgEventInfo),
-    });
-
-    Router.Register({
-      Pattern: /^run-tests\b/i,
-      Route: 'run-tests',
-      Handle: (ArgEventInfo) => HandleRunTestsCommandAsync(
-        this.#SlackApp,
-        ArgEventInfo,
-        {
-          IsActive: () => this.#ActiveJestRunPromise !== null,
-          TrackRun: (ArgPromise) => {
-            this.#ActiveJestRunPromise = ArgPromise.finally(() => { this.#ActiveJestRunPromise = null; });
-          },
-        },
-        ChatModule.BuildJestResultMessage
-      ),
     });
 
     Router.Register({
