@@ -33,6 +33,7 @@ Slack workspaces. It is multi-tenant, self-hosted, and stores its data on disk y
 - [Running as a service](#running-as-a-service)
 - [Configuration reference](#configuration-reference)
 - [Development](#development)
+- [Code intelligence (ask-self)](#code-intelligence-ask-self)
 - [Security](#security)
 - [Documentation map](#documentation-map)
 - [License](#license)
@@ -311,6 +312,25 @@ an afternoon.
 
 It exits non-zero on any finding, and exits `2` — never `0` — if it cannot verify its own tooling,
 so a broken scanner can't be mistaken for a clean tree.
+
+## Code intelligence (ask-self)
+
+This repo can be queried with [ask-self](https://github.com/Hypercart-Dev-Tools/ask-self), a
+repo-grounded RAG tool — separate from Sleuth's own production RAG (`src/rag/`, the Slack
+`ask-self` command) and unrelated to it.
+
+```bash
+./scripts/ask-self-ingest.sh          # build/refresh the local index (once per session)
+./scripts/ask-self-query.sh "how does reminder ownership get resolved?"
+```
+
+- Credentials: a Gemini API key (`GOOGLE_API_KEY`, or resolved via Google Secret Manager — see
+  [`ask_self/ask_self_harness.json`](ask_self/ask_self_harness.json)). Override the external
+  ask-self checkout location with `ASK_SELF_PATH` if it isn't at a default location.
+- Index placement: **local-only** — the index lives under `temp/rag/` and is gitignored. This repo
+  is public, so the index is deliberately never committed; a committed embedding index would
+  re-expose anything already scrubbed for the public release.
+- The index reflects the last ingest, not uncommitted changes — re-run ingest after a pull.
 
 ## Security
 
