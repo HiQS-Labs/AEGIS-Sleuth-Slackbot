@@ -1771,12 +1771,31 @@ class RemindersModule {
       ArgSlackApp.Logger.info(`\nscheduling ${CurrentReminders.length} reminders for trigger: "${CurrentTrigger}"`);
 
       // extract the date from the trigger.
-      const ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync(CurrentTrigger);
+      let ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync(CurrentTrigger);
+
+      // GH-114: force-schedule (the :alarm_clock: reaction) is meant to create a reminder
+      // unconditionally, but the whole-message "tomorrow morning" fallback above only fires when
+      // the analyzer found ZERO candidates. When it finds real candidates with no explicit time
+      // (empty trigger), this per-group extraction fails and the group was silently dropped —
+      // no reminder, no error, no reply. Retry this group with the same literal fallback trigger
+      // instead of giving up, so force-schedule still produces something when the analyzer had
+      // real content to work with.
+      let UsedFallbackTriggerForGroup = false;
+      if(ArgForceSchedule && (!ExtractionResult.success || !ExtractionResult.date)) {
+        UsedFallbackTriggerForGroup = true;
+        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync('tomorrow morning');
+      }
 
       // skip this trigger if no date was extracted.
       if(!ExtractionResult.success || !ExtractionResult.date) {
         ArgSlackApp.Logger.info("failed to extract date from trigger:", CurrentTrigger);
         continue;
+      }
+
+      if(UsedFallbackTriggerForGroup) {
+        ArgSlackApp.Logger.info(
+          `force-schedule: no time found in trigger "${CurrentTrigger}", falling back to "tomorrow morning"`
+        );
       }
 
       // log the extraction result to help with debugging.
