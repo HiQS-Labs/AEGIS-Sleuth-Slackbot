@@ -33,7 +33,16 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 1.4.311 - 2026-08-20
+## 1.4.312 - 2026-08-21
+`ask-code ltvera` no longer disappears when I deploy. Real project endpoints now live in a runtime overlay that a git pull cannot overwrite.
+
+**Technical:** GH-211 / LTVera-Pandas#212 — `ask-code` loaded only the tracked `config/remote-rag-projects.json` template (`client-b`). A deploy restored that template and wiped a hand-edited `ltvera` entry while leaving `LTVERA_RAG_SECRET` in env.
+- `loadProjects()` now merges `data/runtime/remote-rag-projects.overlay.json` (override with `REMOTE_RAG_PROJECTS_OVERLAY`). Overlay keys win. That directory is what `scripts/deploy.sh` already promises not to touch.
+- Tracked file stays the public template. Example overlay: `config/remote-rag-projects.overlay.json.example` (`ltvera` → `https://app.ltvera.com/rag-agent/query`, `secretEnvVar: LTVERA_RAG_SECRET`).
+- POST/bearer protocol, 90s timeout, and unknown-slug / unreachable error copy are unchanged.
+- Tests: `tests/ask-code-registry.test.js`.
+
+
 No change to how I behave in Slack — this is test results only. I measured my own search against
 plain keyword search and lost, which is worth knowing before anyone spends money on a bigger model.
 
