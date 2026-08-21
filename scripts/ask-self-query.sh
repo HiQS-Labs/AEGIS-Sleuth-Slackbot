@@ -68,9 +68,19 @@ else
   PYTHON_BIN="python3"
 fi
 
-# GH-123: see ask-self-ingest.sh -- CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must already
-# be exported before running this script, needed at query time too since queries embed the
-# question text with the same provider the index was built with.
+# Embedding providers: see the table in ask-self-ingest.sh. CLOUDFLARE_ACCOUNT_ID and
+# CLOUDFLARE_API_TOKEN must already be exported before running this script -- needed at query time
+# too, since queries embed the question text with the same provider the index was built with.
+#
+# SYNTHESIS is configured separately, via a "synthesis" block in ask_self_harness.json. Omit the
+# block to use the default (gemini, needs GOOGLE_API_KEY). Supported: gemini (default),
+# cloudflare-workers-ai, ollama, openai_compatible. Setting synthesis.provider to
+# cloudflare-workers-ai gives a fully Gemini-free pipeline when paired with a Cloudflare or local
+# embedding provider -- verified working with GOOGLE_API_KEY unset. See GH-127.
+#
+# Cross-provider note: querying an index with a different provider than built it does work (same
+# model, same 384 dims), but the two BGE implementations agree only to ~0.95 cosine, so rankings
+# shift. Prefer matching the query provider to the ingest provider.
 
 cd "$REPO_ROOT"
 exec "$PYTHON_BIN" "$ENTRYPOINT" \
