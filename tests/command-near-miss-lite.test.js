@@ -109,6 +109,25 @@ describe('Command Near-Miss 2-lite', () => {
     expect(SuggestionMessages[0].text).toMatch(/Did you mean the `models` command\? Try `.*`\./);
   });
 
+  test('flag ON + high score but tied with runner-up (GH-133) -> falls through, no suggestion', async () => {
+    // "what time is it" scores 5 (at NEAR_MISS_SCORE_FLOOR) but ties three-way with
+    // convert-text-into-slack-list, generate-user-list, and model-switch-default (verified
+    // empirically) — the exact false-positive shape the margin check exists to catch.
+    process.env.COMMAND_NEAR_MISS_LITE = 'on';
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+
+    await SlackApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1700000006.000001',
+      text: '<@UBOT123> what time is it',
+    });
+
+    const SuggestionMessage = SlackApp.SentMessages.find((M) => M.text.includes('Did you mean the'));
+    expect(SuggestionMessage).toBeUndefined();
+  });
+
   test('flag ON + below-floor conversational message -> falls through, no suggestion', async () => {
     process.env.COMMAND_NEAR_MISS_LITE = 'on';
 

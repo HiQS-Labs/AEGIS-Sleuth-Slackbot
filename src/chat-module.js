@@ -90,17 +90,40 @@ const HandleShowMeProjectsCommandAsync = require('./chat-commands/show-me-projec
 const HandleRefreshClientsCommandAsync = require('./chat-commands/refresh-clients-command');
 const HandleRecallCommandAsync = require('./chat-commands/recall-command');
 const { FileGithubIssueAsync } = require('./github-issue-filer');
-const {
-  NormalizeDirectCommandTextAsync,
-  ResolveRmmIntentAsync,
-  RetrieveScoredCandidates,
-} = require('./command-intent-resolver');
+const { NormalizeDirectCommandTextAsync } = require('./command-intent-resolver');
+// kept as a module reference (not destructured) so tests can `jest.spyOn` these two — chat-module.js
+// always reads the current property off this object rather than a value captured at require time.
+const CommandIntentResolver = require('./command-intent-resolver');
 
 const MaxJestFailureLines = 3;
 const MaxWebSearchSources = 5;
 
 // Provisional score floor pending Phase 0 counter data.
 const NEAR_MISS_SCORE_FLOOR = 5;
+
+// Phase 2-full (LLM escalation): minimum deterministic score to bother escalating at all. Empirically
+// (see PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md), plain conversational phrases routinely
+// score 2-3 against SOME catalog entry purely from common-word substring overlap across ~40 entries'
+// free-text fields — a score alone is not a reliable "worth an AI opinion" signal at low values.
+const NEAR_MISS_LLM_SIGNAL_FLOOR = 3;
+
+// Shared by both near-miss tiers (2-lite and 2-full): minimum margin between the top and
+// second-place scored candidates. A genuine near-miss (e.g. "command" for the `commands` entry)
+// has one clear top candidate; noise from common-word overlap tends to tie or nearly tie across
+// several unrelated entries (e.g. "what time is it" ties three ways at score 5) — a coarse but
+// effective filter, found empirically while building GH-132's Phase 2-full escalation tier and
+// applied retroactively here (GH-133).
+const NEAR_MISS_MARGIN_FLOOR = 2;
+
+// Phase 2-full (LLM escalation): hard wall-clock cap on the resolver call. Without this, a
+// never-settling ResolveRmmIntentAsync promise would stall #OnAppMentionAsync indefinitely — the
+// generic-chat fallthrough would never run for that message. Purely a safety bound; not tuned
+// against real latency data.
+const NEAR_MISS_LLM_TIMEOUT_MS = 8000;
+
+// Phase 2-full (LLM escalation): minimum RmmResolutionResult.Confidence to act on. Below this, treat
+// as low confidence and fall through to generic chat rather than nagging on genuine conversation.
+const NEAR_MISS_LLM_CONFIDENCE_FLOOR = 0.6;
 
 /**
  * Configuration for deterministic responses.
@@ -354,7 +377,7 @@ class ChatModule {
       // snapshot into the resolver when ROUTER_SNAPSHOT_ENABLED is on. The rmm / rmm ifl / help closures
       // deliberately keep the plain signature so they stay snapshot-free (byte-identical context).
       ResolveIntentAsync: (ArgText, ArgOptions) =>
-        ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, this.#WithRouterSnapshotOptions(ArgOptions)),
+        CommandIntentResolver.ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, this.#WithRouterSnapshotOptions(ArgOptions)),
     });
 
     // build the command router after all dependencies are in place — handler closures reach
@@ -399,7 +422,7 @@ class ChatModule {
         ArgEventInfo,
         {
           QueryText: ArgQueryText.trim(),
-          ResolveIntentAsync: (ArgText, ArgOptions) => ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
+          ResolveIntentAsync: (ArgText, ArgOptions) => CommandIntentResolver.ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
           BuildChannelModelStatus: (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
         }
       ),
@@ -490,7 +513,7 @@ class ChatModule {
         ArgRequestText.trim(),
         true,
         {
-          ResolveIntentAsync: (ArgText, ArgOptions) => ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
+          ResolveIntentAsync: (ArgText, ArgOptions) => CommandIntentResolver.ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
           ExecuteCanonicalCommandAsync: (ArgCanonicalCommand) => this.#CommandRouter.RouteAsync(ArgCanonicalCommand, ArgEventInfo),
           BuildChannelModelStatus: (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
         }
@@ -507,7 +530,7 @@ class ChatModule {
         ArgRequestText.trim(),
         false,
         {
-          ResolveIntentAsync: (ArgText, ArgOptions) => ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
+          ResolveIntentAsync: (ArgText, ArgOptions) => CommandIntentResolver.ResolveRmmIntentAsync(this.#WorkspaceAI, ArgText, ArgOptions),
           ExecuteCanonicalCommandAsync: (ArgCanonicalCommand) => this.#CommandRouter.RouteAsync(ArgCanonicalCommand, ArgEventInfo),
           BuildChannelModelStatus: (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
         }
@@ -1064,14 +1087,14 @@ class ChatModule {
    * score (no raw message text) so unmatched mentions can later be bucketed into "wrong syntax for a real
    * command" (high score) vs genuine chat (~0) — the input that decides whether the AI recovery tier is
    * worth building. Temporary measurement scaffolding; remove once the dead-end rate is known. See
-   * PROJECT/1-INBOX/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 0).
+   * PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 0).
    * @param {SlackApp} ArgSlackApp
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
    * @param {string} ArgNormalizedText Mention-stripped, normalized command text (the scored signal).
    * @returns {Promise<void>}
    */
   async #EmitNearMissProbeAsync(ArgSlackApp, ArgEventInfo, ArgNormalizedText) {
-    const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
+    const ScoredCandidates = await CommandIntentResolver.RetrieveScoredCandidates(ArgNormalizedText);
     const TopCandidate = ScoredCandidates[0];
     const TopScore = TopCandidate ? TopCandidate.Score : 0;
     ArgSlackApp.Logger.info('near-miss probe (unmatched mention fell through to chat):', {
@@ -1102,19 +1125,135 @@ class ChatModule {
     if(!IsEnabled)
       return false;
 
-    const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
-    const TopCandidate = ScoredCandidates[0];
-    if(!TopCandidate)
+    try {
+      const ScoredCandidates = await CommandIntentResolver.RetrieveScoredCandidates(ArgNormalizedText);
+      const TopCandidate = ScoredCandidates[0];
+      if(!TopCandidate)
+        return false;
+
+      // require a clear top pick — a tie or near-tie with the runner-up is the signature of
+      // common-word noise, not a genuine near-miss (GH-133; see NEAR_MISS_MARGIN_FLOOR above).
+      const SecondCandidate = ScoredCandidates[1];
+      const SecondScore = SecondCandidate ? SecondCandidate.Score : 0;
+      if(TopCandidate.Score - SecondScore < NEAR_MISS_MARGIN_FLOOR)
+        return false;
+
+      if(TopCandidate.Score >= NEAR_MISS_SCORE_FLOOR) {
+        const SuggestionSyntax = (TopCandidate.Entry.SyntaxExamples?.[0] || '').replace(/@Sleuth AI/g, ArgSlackApp.AppMentionString);
+        const ResponseMessage = `Did you mean the \`${TopCandidate.Entry.Id}\` command? Try \`${SuggestionSyntax}\`.`;
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ResponseMessage);
+        return true;
+      }
+
+      return false;
+    } catch(Error) {
+      // GH-132 round 3: a catalog/scoring failure must fail OPEN — never block generic chat.
+      ArgSlackApp.Logger.warn(`near-miss deterministic scoring failed: ${Error && Error.message ? Error.message : Error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Phase 2-full near-miss AI escalation. Runs only after the deterministic tier
+   * (#TryHandleNearMissCommandAsync) has declined — i.e. some lexical signal exists but it is below
+   * NEAR_MISS_SCORE_FLOOR — and escalates to the existing RMM resolver (ResolveRmmIntentAsync) for a
+   * confidence-tiered suggestion. Still suggest-only: never calls ExecuteCanonicalCommandAsync. Falls
+   * through to generic chat on low confidence, no signal, or any resolver error — a resolver outage
+   * can never break the mention-handling hot path. See
+   * PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 2-full).
+   * @param {SlackApp} ArgSlackApp
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
+   * @param {string} ArgNormalizedText Mention-stripped, normalized command text (the scored signal).
+   * @returns {Promise<boolean>}
+   */
+  async #TryHandleNearMissAiEscalationAsync(ArgSlackApp, ArgEventInfo, ArgNormalizedText) {
+    const EventInfoAny = /** @type {any} */ (ArgEventInfo);
+    if(EventInfoAny.bot_id || (EventInfoAny.user && EventInfoAny.user === ArgSlackApp.BotUserID))
       return false;
 
-    if(TopCandidate.Score >= NEAR_MISS_SCORE_FLOOR) {
-      const SuggestionSyntax = (TopCandidate.Entry.SyntaxExamples?.[0] || '').replace(/@Sleuth AI/g, ArgSlackApp.AppMentionString);
-      const ResponseMessage = `Did you mean the \`${TopCandidate.Entry.Id}\` command? Try \`${SuggestionSyntax}\`.`;
-      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ResponseMessage);
-      return true;
-    }
+    const RawFlag = (process.env.COMMAND_NEAR_MISS_LLM || '').trim().toLowerCase();
+    const IsEnabled = RawFlag === 'on' || RawFlag === 'true' || RawFlag === '1' || RawFlag === 'yes' || RawFlag === 'enabled';
+    if(!IsEnabled)
+      return false;
 
-    return false;
+    try {
+      const ScoredCandidates = await CommandIntentResolver.RetrieveScoredCandidates(ArgNormalizedText);
+      const TopCandidate = ScoredCandidates[0];
+      const TopScore = TopCandidate ? TopCandidate.Score : 0;
+      // a score below the signal floor is ordinary conversation (never spend a model call); a score
+      // already at or above the deterministic floor would have been handled by
+      // #TryHandleNearMissCommandAsync already.
+      if(TopScore < NEAR_MISS_LLM_SIGNAL_FLOOR || TopScore >= NEAR_MISS_SCORE_FLOOR)
+        return false;
+
+      // require a clear top pick — a tie or near-tie with the runner-up is the signature of
+      // common-word noise, not a genuine near-miss (see NEAR_MISS_MARGIN_FLOOR above).
+      const SecondCandidate = ScoredCandidates[1];
+      const SecondScore = SecondCandidate ? SecondCandidate.Score : 0;
+      if(TopScore - SecondScore < NEAR_MISS_MARGIN_FLOOR)
+        return false;
+
+      let TimeoutHandle;
+      const TimeoutPromise = new Promise((ArgResolve) => {
+        TimeoutHandle = setTimeout(() => ArgResolve(null), NEAR_MISS_LLM_TIMEOUT_MS);
+      });
+      let Resolution;
+      try {
+        Resolution = await Promise.race([
+          CommandIntentResolver.ResolveRmmIntentAsync(this.#WorkspaceAI, ArgNormalizedText, {
+            ChannelID: ArgEventInfo.channel,
+            RequestMode: 'suggest',
+          }),
+          TimeoutPromise,
+        ]);
+      } finally {
+        // clear on every path — fulfillment AND rejection — so a rejected resolver call never
+        // leaves a live timer behind (GH-132 round 3).
+        clearTimeout(TimeoutHandle);
+      }
+
+      if(!Resolution) {
+        ArgSlackApp.Logger.warn(`near-miss AI escalation timed out after ${NEAR_MISS_LLM_TIMEOUT_MS}ms`);
+        return false;
+      }
+      if(Resolution.NeedsClarification || (!Resolution.CanonicalCommand && !Resolution.SyntaxTemplate) || !Resolution.CatalogEntry)
+        return false;
+      if(!Number.isFinite(Resolution.Confidence) || Resolution.Confidence < NEAR_MISS_LLM_CONFIDENCE_FLOOR || Resolution.Confidence > 1)
+        return false;
+
+      const PermissionLine = Resolution.CatalogEntry.Permission === 'admin'
+        ? '_Requires workspace admin or owner access._'
+        : '_Available to any workspace user._';
+
+      // discovery path — resolver picked an intent but the user did not supply the argument.
+      if(!Resolution.CanonicalCommand && Resolution.SyntaxTemplate) {
+        const TemplateCommand = `${ArgSlackApp.AppMentionString} ${Resolution.SyntaxTemplate}`;
+        const Lines = [
+          `Did you mean the \`${Resolution.CatalogEntry.Id}\` command? Try \`${TemplateCommand}\`.`,
+          PermissionLine,
+          'Replace the bracketed placeholders with your values, then send the command.',
+        ];
+        if(Resolution.Rationale) Lines.push(`_Why:_ ${Resolution.Rationale}`);
+        Lines.push(`_Confidence:_ ${Math.round(Resolution.Confidence * 100)}%`);
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, Lines.join('\n'));
+        return true;
+      }
+
+      const ExactCommand = `${ArgSlackApp.AppMentionString} ${Resolution.CanonicalCommand}`;
+      const Lines = [
+        `Did you mean the \`${Resolution.CatalogEntry.Id}\` command? Try \`${ExactCommand}\`.`,
+        PermissionLine,
+      ];
+      if(Resolution.Rationale) Lines.push(`_Why:_ ${Resolution.Rationale}`);
+      Lines.push(`_Confidence:_ ${Math.round(Resolution.Confidence * 100)}%`);
+      if(Resolution.CatalogEntry.CanExecuteWithIfl)
+        Lines.push(`To run it for you next time: \`${ArgSlackApp.AppMentionString} rmm ifl ${ArgNormalizedText}\``);
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, Lines.join('\n'));
+      return true;
+    } catch(Error) {
+      ArgSlackApp.Logger.warn(`near-miss AI escalation failed: ${Error && Error.message ? Error.message : Error}`);
+      return false;
+    }
   }
 
   /**
@@ -1221,14 +1360,19 @@ class ChatModule {
         return true;
       }
 
-      // Phase 0 near-miss probe: every deterministic route + web-search auto-route declined, so this
-      // mention is about to fall through to generic AI chat — exactly the dead-end we want to measure.
-      // Fire-and-forget; the .catch keeps a probe failure from ever affecting the chat fallthrough.
-      this.#EmitNearMissProbeAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText)
-        .catch((Error) => ArgSlackApp.Logger.warn(`near-miss probe failed: ${Error && Error.message ? Error.message : Error}`));
-
       if(await this.#TryHandleNearMissCommandAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
         return true;
+
+      if(await this.#TryHandleNearMissAiEscalationAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
+        return true;
+
+      // Phase 0 near-miss probe: every deterministic route, web-search auto-route, AND both
+      // near-miss suggestion tiers declined, so this mention is genuinely about to fall through to
+      // generic AI chat — exactly the dead-end we want to measure. Moved here (GH-132 round 3) so a
+      // successful "did you mean?" suggestion is never mislabeled as a chat fallthrough. Fire-and-
+      // forget; the .catch keeps a probe failure from ever affecting the chat fallthrough.
+      this.#EmitNearMissProbeAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText)
+        .catch((Error) => ArgSlackApp.Logger.warn(`near-miss probe failed: ${Error && Error.message ? Error.message : Error}`));
     }
 
     // gather thread context. For a root message that just had a file loaded, use event.ts as the
