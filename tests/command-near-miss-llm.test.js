@@ -105,7 +105,7 @@ describe('Command Near-Miss Phase 2-full (LLM escalation)', () => {
     new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
 
     // "command" (singular) scores 3 against the "commands" catalog entry — below
-    // NEAR_MISS_SCORE_FLOOR (5) but above the LLM signal floor (2).
+    // NEAR_MISS_SCORE_FLOOR (5) but above the LLM signal floor (3).
     await SlackApp.SimulateAppMentionAsync({
       channel: 'C_TEST',
       ts: '1800000001.000001',
@@ -199,5 +199,124 @@ describe('Command Near-Miss Phase 2-full (LLM escalation)', () => {
     expect(mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
     const SuggestionMessage = SlackApp.SentMessages.find((M) => M.text.includes('Did you mean the'));
     expect(SuggestionMessage).toBeUndefined();
+  });
+
+  test('flag ON + resolver rejects -> falls through to generic chat, no crash, no suggestion', async () => {
+    process.env.COMMAND_NEAR_MISS_LLM = 'on';
+    process.env.COMMAND_NEAR_MISS_LITE = 'off';
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockRejectedValueOnce(
+      new Error('mock resolver network failure')
+    );
+
+    const WasHandled = await SlackApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1800000006.000001',
+      text: '<@UBOT123> command',
+    });
+
+    expect(WasHandled).toBe(true);
+    const SuggestionMessage = SlackApp.SentMessages.find((M) => M.text.includes('Did you mean the'));
+    expect(SuggestionMessage).toBeUndefined();
+    // proves genuine fallthrough occurred, not a swallowed/silent no-op.
+    expect(mockWorkspaceAIInstances[0].ProcessMessageWithTextResponseAsync).toHaveBeenCalled();
+  });
+
+  test('flag ON + resolver never settles -> times out and falls through to generic chat', async () => {
+    process.env.COMMAND_NEAR_MISS_LLM = 'on';
+    process.env.COMMAND_NEAR_MISS_LITE = 'off';
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockImplementationOnce(
+      () => new Promise(() => {}) // never resolves — exercises NEAR_MISS_LLM_TIMEOUT_MS (8000ms)
+    );
+
+    const WasHandled = await SlackApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1800000007.000001',
+      text: '<@UBOT123> command',
+    });
+
+    expect(WasHandled).toBe(true);
+    const SuggestionMessage = SlackApp.SentMessages.find((M) => M.text.includes('Did you mean the'));
+    expect(SuggestionMessage).toBeUndefined();
+    expect(mockWorkspaceAIInstances[0].ProcessMessageWithTextResponseAsync).toHaveBeenCalled();
+  }, 15000);
+
+  test('flag ON + resolver needs clarification (in-range score) -> falls through, no suggestion', async () => {
+    process.env.COMMAND_NEAR_MISS_LLM = 'on';
+    process.env.COMMAND_NEAR_MISS_LITE = 'off';
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(
+      BuildLlmResponse({ intent_id: 'clarify', needs_clarification: true, confidence: 0.9 })
+    );
+
+    await SlackApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1800000008.000001',
+      text: '<@UBOT123> command',
+    });
+
+    const SuggestionMessage = SlackApp.SentMessages.find((M) => M.text.includes('Did you mean the'));
+    expect(SuggestionMessage).toBeUndefined();
+  });
+
+  test('flag ON + discovery path (SyntaxTemplate, no CanonicalCommand) -> renders placeholder syntax', async () => {
+    process.env.COMMAND_NEAR_MISS_LLM = 'on';
+    process.env.COMMAND_NEAR_MISS_LITE = 'off';
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    // "model-switch-default" requires a model argument the resolver did not extract — an intent
+    // match with no runnable canonical command produces a syntax-template suggestion, not a bare
+    // command (same intent used by rmm-help-regression.test.js's discovery-path coverage).
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(
+      BuildLlmResponse({ intent_id: 'model-switch-default', confidence: 0.9, default_model_name: '' })
+    );
+
+    const WasHandled = await SlackApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1800000009.000001',
+      text: '<@UBOT123> command',
+    });
+
+    expect(WasHandled).toBe(true);
+    const SuggestionMessages = SlackApp.SentMessages.filter((M) => M.text.includes('Did you mean the'));
+    expect(SuggestionMessages.length).toBe(1);
+    expect(SuggestionMessages[0].text).toContain('Replace the bracketed placeholders with your values');
+  });
+
+  test('confidence boundary: exactly 0.6 is accepted, 0.59 is rejected', async () => {
+    process.env.COMMAND_NEAR_MISS_LLM = 'on';
+    process.env.COMMAND_NEAR_MISS_LITE = 'off';
+
+    const AcceptedApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(AcceptedApp, EmptyWorkspaceStats, null, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(
+      BuildLlmResponse({ intent_id: 'commands', confidence: 0.6 })
+    );
+    await AcceptedApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1800000010.000001',
+      text: '<@UBOT123> command',
+    });
+    expect(AcceptedApp.SentMessages.some((M) => M.text.includes('Did you mean the'))).toBe(true);
+
+    const RejectedApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(RejectedApp, EmptyWorkspaceStats, null, null, null);
+    mockWorkspaceAIInstances[1].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(
+      BuildLlmResponse({ intent_id: 'commands', confidence: 0.59 })
+    );
+    await RejectedApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1800000011.000001',
+      text: '<@UBOT123> command',
+    });
+    expect(RejectedApp.SentMessages.some((M) => M.text.includes('Did you mean the'))).toBe(false);
   });
 });

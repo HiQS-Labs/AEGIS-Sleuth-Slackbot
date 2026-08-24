@@ -108,11 +108,19 @@ const NEAR_MISS_SCORE_FLOOR = 5;
 // free-text fields — a score alone is not a reliable "worth an AI opinion" signal at low values.
 const NEAR_MISS_LLM_SIGNAL_FLOOR = 3;
 
-// Phase 2-full (LLM escalation): minimum margin between the top and second-place scored candidates.
-// A genuine near-miss (e.g. "command" for the `commands` entry) has one clear top candidate; noise
-// from common-word overlap tends to tie or nearly tie across several unrelated entries. Requiring a
-// clear leader is a coarse but effective filter for the low-score band this tier operates in.
-const NEAR_MISS_LLM_MARGIN_FLOOR = 2;
+// Shared by both near-miss tiers (2-lite and 2-full): minimum margin between the top and
+// second-place scored candidates. A genuine near-miss (e.g. "command" for the `commands` entry)
+// has one clear top candidate; noise from common-word overlap tends to tie or nearly tie across
+// several unrelated entries (e.g. "what time is it" ties three ways at score 5) — a coarse but
+// effective filter, found empirically while building GH-132's Phase 2-full escalation tier and
+// applied retroactively here (GH-133).
+const NEAR_MISS_MARGIN_FLOOR = 2;
+
+// Phase 2-full (LLM escalation): hard wall-clock cap on the resolver call. Without this, a
+// never-settling ResolveRmmIntentAsync promise would stall #OnAppMentionAsync indefinitely — the
+// generic-chat fallthrough would never run for that message. Purely a safety bound; not tuned
+// against real latency data.
+const NEAR_MISS_LLM_TIMEOUT_MS = 8000;
 
 // Phase 2-full (LLM escalation): minimum RmmResolutionResult.Confidence to act on. Below this, treat
 // as low confidence and fall through to generic chat rather than nagging on genuine conversation.
@@ -1123,6 +1131,13 @@ class ChatModule {
     if(!TopCandidate)
       return false;
 
+    // require a clear top pick — a tie or near-tie with the runner-up is the signature of
+    // common-word noise, not a genuine near-miss (GH-133; see NEAR_MISS_MARGIN_FLOOR above).
+    const SecondCandidate = ScoredCandidates[1];
+    const SecondScore = SecondCandidate ? SecondCandidate.Score : 0;
+    if(TopCandidate.Score - SecondScore < NEAR_MISS_MARGIN_FLOOR)
+      return false;
+
     if(TopCandidate.Score >= NEAR_MISS_SCORE_FLOOR) {
       const SuggestionSyntax = (TopCandidate.Entry.SyntaxExamples?.[0] || '').replace(/@Sleuth AI/g, ArgSlackApp.AppMentionString);
       const ResponseMessage = `Did you mean the \`${TopCandidate.Entry.Id}\` command? Try \`${SuggestionSyntax}\`.`;
@@ -1156,31 +1171,43 @@ class ChatModule {
     if(!IsEnabled)
       return false;
 
-    const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
-    const TopCandidate = ScoredCandidates[0];
-    const TopScore = TopCandidate ? TopCandidate.Score : 0;
-    // a score below the signal floor is ordinary conversation (never spend a model call); a score
-    // already at or above the deterministic floor would have been handled by
-    // #TryHandleNearMissCommandAsync already.
-    if(TopScore < NEAR_MISS_LLM_SIGNAL_FLOOR || TopScore >= NEAR_MISS_SCORE_FLOOR)
-      return false;
-
-    // require a clear top pick — a tie or near-tie with the runner-up is the signature of
-    // common-word noise, not a genuine near-miss (see NEAR_MISS_LLM_MARGIN_FLOOR above).
-    const SecondCandidate = ScoredCandidates[1];
-    const SecondScore = SecondCandidate ? SecondCandidate.Score : 0;
-    if(TopScore - SecondScore < NEAR_MISS_LLM_MARGIN_FLOOR)
-      return false;
-
     try {
-      const Resolution = await ResolveRmmIntentAsync(this.#WorkspaceAI, ArgNormalizedText, {
-        ChannelID: ArgEventInfo.channel,
-        RequestMode: 'suggest',
-      });
+      const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
+      const TopCandidate = ScoredCandidates[0];
+      const TopScore = TopCandidate ? TopCandidate.Score : 0;
+      // a score below the signal floor is ordinary conversation (never spend a model call); a score
+      // already at or above the deterministic floor would have been handled by
+      // #TryHandleNearMissCommandAsync already.
+      if(TopScore < NEAR_MISS_LLM_SIGNAL_FLOOR || TopScore >= NEAR_MISS_SCORE_FLOOR)
+        return false;
 
+      // require a clear top pick — a tie or near-tie with the runner-up is the signature of
+      // common-word noise, not a genuine near-miss (see NEAR_MISS_MARGIN_FLOOR above).
+      const SecondCandidate = ScoredCandidates[1];
+      const SecondScore = SecondCandidate ? SecondCandidate.Score : 0;
+      if(TopScore - SecondScore < NEAR_MISS_MARGIN_FLOOR)
+        return false;
+
+      let TimeoutHandle;
+      const TimeoutPromise = new Promise((ArgResolve) => {
+        TimeoutHandle = setTimeout(() => ArgResolve(null), NEAR_MISS_LLM_TIMEOUT_MS);
+      });
+      const Resolution = await Promise.race([
+        ResolveRmmIntentAsync(this.#WorkspaceAI, ArgNormalizedText, {
+          ChannelID: ArgEventInfo.channel,
+          RequestMode: 'suggest',
+        }),
+        TimeoutPromise,
+      ]);
+      clearTimeout(TimeoutHandle);
+
+      if(!Resolution) {
+        ArgSlackApp.Logger.warn(`near-miss AI escalation timed out after ${NEAR_MISS_LLM_TIMEOUT_MS}ms`);
+        return false;
+      }
       if(Resolution.NeedsClarification || (!Resolution.CanonicalCommand && !Resolution.SyntaxTemplate) || !Resolution.CatalogEntry)
         return false;
-      if(Resolution.Confidence < NEAR_MISS_LLM_CONFIDENCE_FLOOR)
+      if(!Number.isFinite(Resolution.Confidence) || Resolution.Confidence < NEAR_MISS_LLM_CONFIDENCE_FLOOR || Resolution.Confidence > 1)
         return false;
 
       const PermissionLine = Resolution.CatalogEntry.Permission === 'admin'
