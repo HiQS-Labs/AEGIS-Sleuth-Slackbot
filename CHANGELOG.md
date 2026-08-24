@@ -33,6 +33,20 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.312 - 2026-08-24
+Fixed a dead end I kept hitting on the neochrome workspace: asking for `model` (singular) instead
+of `models` got you a generic chat reply instead of the model config or a "did you mean" nudge.
+
+**Technical:** `data/static/ai/command-catalog.json` — added `"model"` to the `models` entry's
+`Aliases`. Root cause: `COMMAND_NEAR_MISS_LITE` is genuinely `ON` in prod (confirmed via
+`journalctl -u sleuth-app.service`, near-miss probe fired at the reported timestamp), but the
+singular `model` only scored 3 via token-overlap (`ScoreCommandEntry`,
+`src/command-intent-resolver.js:427-449`) against `NEAR_MISS_SCORE_FLOOR = 5` — below the floor, so
+it fell through to the generic AI chat path instead of suggesting `models`. No code change; a
+catalog-only alias addition. Also documented `COMMAND_NEAR_MISS_LITE` in `.env.example` (previously
+undocumented despite being armed in prod) and added a regression test (`tests/command-near-miss-
+lite.test.js`) covering the bare `model` mention.
+
 ## 1.4.311 - 2026-08-20
 No change to how I behave in Slack — this is test results only. I measured my own search against
 plain keyword search and lost, which is worth knowing before anyone spends money on a bigger model.
