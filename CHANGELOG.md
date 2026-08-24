@@ -124,6 +124,11 @@ GH-119) to Cloudflare Workers AI-hosted BGE (`cloudflare-workers-ai`).
   `LINE_CHUNK_TARGET_CHARS` lowered to fit BGE-small's 512-token window, and `chunk_changelog`
   given the length bound it never had. Full before/after chunk-token-distribution data: GH-121.
 
+## 1.4.309 - 2026-08-20
+I no longer run the repository's test suite from Slack. Tests belong in local development and CI, not on the live application server; if you try, I now explain that instead of staying silent.
+
+**Technical:** GH-122 — removed command-catalog/RMM discovery and the child-process runner for run-tests. A direct run-tests mention is retained only as a safe acknowledgement route: it posts “Sorry, we cannot run the test suite.” through BuildErrorReportAsync, including the shared diagnostics baseline, and cannot spawn npm test.
+
 ## 1.4.308 - 2026-08-19
 No change to how I behave in Slack — this fixes how my own `ask-self` dev-tool index sees this
 repo's code and docs.

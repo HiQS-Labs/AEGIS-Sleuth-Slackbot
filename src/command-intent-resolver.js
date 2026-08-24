@@ -220,8 +220,6 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
     return 'show-rebalance-reminders';
   case 'show-rebalance-reminders-formatted':
     return 'show-rebalance-reminders-formatted';
-  case 'run-tests':
-    return 'run-tests';
   case 'restart':
     return 'restart';
   case 'run-daily-digest':
@@ -642,7 +640,7 @@ async function ResolveRmmIntentAsync(ArgWorkspaceAI, ArgUserText, ArgOptions = {
  */
 const BuildCanonicalCommandIntentIds = new Set([
   'help-features', 'commands', 'run-diagnostics', 'show-rebalance-reminders',
-  'show-rebalance-reminders-formatted', 'run-tests', 'restart', 'run-daily-digest',
+  'show-rebalance-reminders-formatted', 'restart', 'run-daily-digest',
   'models', 'show-channel-model', 'clear-channel-model', 'web-search', 'gemini-search',
   'notion-search', 'search-reminders', 'search-projects', 'search-reminders-for-user',
   'search-reminders-here', 'search-my-reminders', 'show-reminders', 'show-reminders-for-user',
