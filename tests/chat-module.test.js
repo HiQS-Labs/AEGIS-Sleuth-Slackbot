@@ -2,85 +2,6 @@
 
 const ChatModule = require('../src/chat-module');
 
-describe('ChatModule.ExtractJestOutputSummary', () => {
-  test('extracts summary lines and failure headings from Jest output', () => {
-    const OutputText = [
-      'FAIL tests/chat-module.test.js',
-      '  ● ChatModule › rejects non-admin run-tests command',
-      '  ● ChatModule › reports already running suite',
-      '',
-      'Test Suites: 1 failed, 2 passed, 3 total',
-      'Tests:       2 failed, 77 passed, 79 total',
-      'Time:        2.841 s',
-    ].join('\n');
-
-    const Result = ChatModule.ExtractJestOutputSummary(OutputText);
-
-    expect(Result).toEqual({
-      TestSuitesLine: 'Test Suites: 1 failed, 2 passed, 3 total',
-      TestsLine: 'Tests: 2 failed, 77 passed, 79 total',
-      TimeLine: 'Time: 2.841 s',
-      TopFailures: [
-        'ChatModule › rejects non-admin run-tests command',
-        'ChatModule › reports already running suite',
-      ],
-    });
-  });
-});
-
-describe('ChatModule.BuildJestResultMessage', () => {
-  test('builds a compact success message', () => {
-    const StdoutText = [
-      'PASS tests/chat-module.test.js',
-      'Test Suites: 4 passed, 4 total',
-      'Tests:       79 passed, 79 total',
-      'Time:        3.104 s',
-    ].join('\n');
-
-    const Result = ChatModule.BuildJestResultMessage(0, 161000, StdoutText, '', false);
-
-    expect(Result).toContain('Jest suite passed.');
-    expect(Result).toContain('Exit code: 0.');
-    expect(Result).toContain('Duration: 2m 41s.');
-    expect(Result).toContain('Test Suites: 4 passed, 4 total');
-    expect(Result).toContain('Tests: 79 passed, 79 total');
-  });
-
-  test('builds a failure message with top failures', () => {
-    const CombinedOutputText = [
-      'FAIL tests/chat-module.test.js',
-      '  ● ChatModule › rejects non-admin run-tests command',
-      '  ● ChatModule › reports already running suite',
-      'Test Suites: 1 failed, 3 passed, 4 total',
-      'Tests:       2 failed, 77 passed, 79 total',
-      'Time:        4.201 s',
-    ].join('\n');
-
-    const Result = ChatModule.BuildJestResultMessage(1, 178000, CombinedOutputText, '', false);
-
-    expect(Result).toContain('Jest suite failed.');
-    expect(Result).toContain('Exit code: 1.');
-    expect(Result).toContain('Duration: 2m 58s.');
-    expect(Result).toContain('Top failures:');
-    expect(Result).toContain('- ChatModule › rejects non-admin run-tests command');
-  });
-
-  test('builds a timeout message when the process is stopped', () => {
-    const OutputText = [
-      'FAIL tests/chat-module.test.js',
-      '  ● ChatModule › hangs forever',
-      'Test Suites: 1 failed, 3 total',
-      'Tests:       1 failed, 78 passed, 79 total',
-    ].join('\n');
-
-    const Result = ChatModule.BuildJestResultMessage(null, 300000, OutputText, '', true);
-
-    expect(Result).toContain('Jest suite timed out after 5m 0s and was stopped.');
-    expect(Result).toContain('Duration: 5m 0s.');
-    expect(Result).toContain('Top failures:');
-  });
-});
-
 describe('ChatModule.IsLiveModelCatalogQuestion', () => {
   test('matches natural-language current model availability questions', () => {
     expect(ChatModule.IsLiveModelCatalogQuestion('what are the available ChatGPT models currently?')).toBe(true);
@@ -210,4 +131,3 @@ describe('ChatModule.BuildSafeSlackLinkUrl', () => {
     expect(ChatModule.BuildSafeSlackLinkUrl('https://example.com/a|b>c')).toBe('https://example.com/a%7Cb%3Ec');
   });
 });
-

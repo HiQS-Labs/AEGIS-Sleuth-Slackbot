@@ -156,36 +156,6 @@
     "CommandsListOrder": 26
   },
   {
-    "Id": "run-tests",
-    "Permission": "admin",
-    "Risk": "medium",
-    "CanExecuteWithIfl": false,
-    "Description": "Run the full Jest suite and post the summarized result.",
-    "SyntaxExamples": [
-      "@Sleuth AI run-tests"
-    ],
-    "Aliases": [
-      "run tests",
-      "test suite",
-      "jest"
-    ],
-    "IntentPhrases": [
-      "run the tests",
-      "kick off the test suite",
-      "run jest"
-    ],
-    "ArgumentHints": [],
-    "DisambiguationNotes": [
-      "This is expensive enough that rmm ifl should only suggest it, not auto-run it."
-    ],
-    "RegisteredRoutes": [
-      "run-tests"
-    ],
-    "IncludeInHelp": false,
-    "IncludeInCommandsList": true,
-    "CommandsListOrder": 30
-  },
-  {
     "Id": "code-task",
     "Permission": "admin",
     "Risk": "high",

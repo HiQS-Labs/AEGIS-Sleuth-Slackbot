@@ -35,7 +35,7 @@ async function HandleCodeTaskCommandAsync(ArgSlackApp, ArgEventInfo, ArgDeps) {
   /** @param {string} ArgText */
   const Reply = (ArgText) => ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, ArgText, undefined, AuditTag);
 
-  // admin gate (same as run-tests).
+  // admin gate.
   const HasAccess = await ArgSlackApp.IsAdminOrOwnerAsync(ArgEventInfo.user);
   if(!HasAccess) {
     await Reply('sorry, only workspace admins or owners can dispatch code tasks to Claude Code Cloud.');

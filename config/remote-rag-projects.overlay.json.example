@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy to data/runtime/remote-rag-projects.overlay.json on the Sleuth host (that directory survives deploys). Overlay project keys win over config/remote-rag-projects.json. secretEnvVar is the NAME of an env var, never the secret.",
+  "projects": {
+    "ltvera": {
+      "label": "LTVera",
+      "endpoint": "https://app.ltvera.com/rag-agent/query",
+      "secretEnvVar": "LTVERA_RAG_SECRET",
+      "description": "LTVera-Pandas codebase"
+    }
+  }
+}
