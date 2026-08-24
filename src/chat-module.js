@@ -102,6 +102,22 @@ const MaxWebSearchSources = 5;
 // Provisional score floor pending Phase 0 counter data.
 const NEAR_MISS_SCORE_FLOOR = 5;
 
+// Phase 2-full (LLM escalation): minimum deterministic score to bother escalating at all. Empirically
+// (see PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md), plain conversational phrases routinely
+// score 2-3 against SOME catalog entry purely from common-word substring overlap across ~40 entries'
+// free-text fields — a score alone is not a reliable "worth an AI opinion" signal at low values.
+const NEAR_MISS_LLM_SIGNAL_FLOOR = 3;
+
+// Phase 2-full (LLM escalation): minimum margin between the top and second-place scored candidates.
+// A genuine near-miss (e.g. "command" for the `commands` entry) has one clear top candidate; noise
+// from common-word overlap tends to tie or nearly tie across several unrelated entries. Requiring a
+// clear leader is a coarse but effective filter for the low-score band this tier operates in.
+const NEAR_MISS_LLM_MARGIN_FLOOR = 2;
+
+// Phase 2-full (LLM escalation): minimum RmmResolutionResult.Confidence to act on. Below this, treat
+// as low confidence and fall through to generic chat rather than nagging on genuine conversation.
+const NEAR_MISS_LLM_CONFIDENCE_FLOOR = 0.6;
+
 /**
  * Configuration for deterministic responses.
  * @typedef {Object} DeterministicResponseConfig
@@ -1118,6 +1134,91 @@ class ChatModule {
   }
 
   /**
+   * Phase 2-full near-miss AI escalation. Runs only after the deterministic tier
+   * (#TryHandleNearMissCommandAsync) has declined — i.e. some lexical signal exists but it is below
+   * NEAR_MISS_SCORE_FLOOR — and escalates to the existing RMM resolver (ResolveRmmIntentAsync) for a
+   * confidence-tiered suggestion. Still suggest-only: never calls ExecuteCanonicalCommandAsync. Falls
+   * through to generic chat on low confidence, no signal, or any resolver error — a resolver outage
+   * can never break the mention-handling hot path. See
+   * PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 2-full).
+   * @param {SlackApp} ArgSlackApp
+   * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
+   * @param {string} ArgNormalizedText Mention-stripped, normalized command text (the scored signal).
+   * @returns {Promise<boolean>}
+   */
+  async #TryHandleNearMissAiEscalationAsync(ArgSlackApp, ArgEventInfo, ArgNormalizedText) {
+    const EventInfoAny = /** @type {any} */ (ArgEventInfo);
+    if(EventInfoAny.bot_id || (EventInfoAny.user && EventInfoAny.user === ArgSlackApp.BotUserID))
+      return false;
+
+    const RawFlag = (process.env.COMMAND_NEAR_MISS_LLM || '').trim().toLowerCase();
+    const IsEnabled = RawFlag === 'on' || RawFlag === 'true' || RawFlag === '1' || RawFlag === 'yes' || RawFlag === 'enabled';
+    if(!IsEnabled)
+      return false;
+
+    const ScoredCandidates = await RetrieveScoredCandidates(ArgNormalizedText);
+    const TopCandidate = ScoredCandidates[0];
+    const TopScore = TopCandidate ? TopCandidate.Score : 0;
+    // a score below the signal floor is ordinary conversation (never spend a model call); a score
+    // already at or above the deterministic floor would have been handled by
+    // #TryHandleNearMissCommandAsync already.
+    if(TopScore < NEAR_MISS_LLM_SIGNAL_FLOOR || TopScore >= NEAR_MISS_SCORE_FLOOR)
+      return false;
+
+    // require a clear top pick — a tie or near-tie with the runner-up is the signature of
+    // common-word noise, not a genuine near-miss (see NEAR_MISS_LLM_MARGIN_FLOOR above).
+    const SecondCandidate = ScoredCandidates[1];
+    const SecondScore = SecondCandidate ? SecondCandidate.Score : 0;
+    if(TopScore - SecondScore < NEAR_MISS_LLM_MARGIN_FLOOR)
+      return false;
+
+    try {
+      const Resolution = await ResolveRmmIntentAsync(this.#WorkspaceAI, ArgNormalizedText, {
+        ChannelID: ArgEventInfo.channel,
+        RequestMode: 'suggest',
+      });
+
+      if(Resolution.NeedsClarification || (!Resolution.CanonicalCommand && !Resolution.SyntaxTemplate) || !Resolution.CatalogEntry)
+        return false;
+      if(Resolution.Confidence < NEAR_MISS_LLM_CONFIDENCE_FLOOR)
+        return false;
+
+      const PermissionLine = Resolution.CatalogEntry.Permission === 'admin'
+        ? '_Requires workspace admin or owner access._'
+        : '_Available to any workspace user._';
+
+      // discovery path — resolver picked an intent but the user did not supply the argument.
+      if(!Resolution.CanonicalCommand && Resolution.SyntaxTemplate) {
+        const TemplateCommand = `${ArgSlackApp.AppMentionString} ${Resolution.SyntaxTemplate}`;
+        const Lines = [
+          `Did you mean the \`${Resolution.CatalogEntry.Id}\` command? Try \`${TemplateCommand}\`.`,
+          PermissionLine,
+          'Replace the bracketed placeholders with your values, then send the command.',
+        ];
+        if(Resolution.Rationale) Lines.push(`_Why:_ ${Resolution.Rationale}`);
+        Lines.push(`_Confidence:_ ${Math.round(Resolution.Confidence * 100)}%`);
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, Lines.join('\n'));
+        return true;
+      }
+
+      const ExactCommand = `${ArgSlackApp.AppMentionString} ${Resolution.CanonicalCommand}`;
+      const Lines = [
+        `Did you mean the \`${Resolution.CatalogEntry.Id}\` command? Try \`${ExactCommand}\`.`,
+        PermissionLine,
+      ];
+      if(Resolution.Rationale) Lines.push(`_Why:_ ${Resolution.Rationale}`);
+      Lines.push(`_Confidence:_ ${Math.round(Resolution.Confidence * 100)}%`);
+      if(Resolution.CatalogEntry.CanExecuteWithIfl)
+        Lines.push(`To run it for you next time: \`${ArgSlackApp.AppMentionString} rmm ifl ${ArgNormalizedText}\``);
+      await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.ts, Lines.join('\n'));
+      return true;
+    } catch(Error) {
+      ArgSlackApp.Logger.warn(`near-miss AI escalation failed: ${Error && Error.message ? Error.message : Error}`);
+      return false;
+    }
+  }
+
+  /**
    * Handle Slack app_mention event.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo Event payload.
@@ -1228,6 +1329,9 @@ class ChatModule {
         .catch((Error) => ArgSlackApp.Logger.warn(`near-miss probe failed: ${Error && Error.message ? Error.message : Error}`));
 
       if(await this.#TryHandleNearMissCommandAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
+        return true;
+
+      if(await this.#TryHandleNearMissAiEscalationAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
         return true;
     }
 

@@ -33,6 +33,28 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.313 - 2026-08-24
+I'll now take a smarter guess at what you meant when a typo doesn't match any of my commands
+closely enough for a quick "did you mean" nudge — behind a flag, off by default.
+
+**Technical:** GH-132 — Phase 2-full of the near-miss recovery plan
+(`PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md`). New `#TryHandleNearMissAiEscalationAsync`
+in `src/chat-module.js`, wired right after the existing deterministic near-miss tier
+(`#TryHandleNearMissCommandAsync`) and before the generic chat fallback. When the deterministic
+scorer finds a near-miss below its suggestion floor but above a signal floor, escalates to the
+existing `ResolveRmmIntentAsync` resolver for a confidence-tiered suggestion — suggest-only, never
+auto-runs.
+- Flag: `COMMAND_NEAR_MISS_LLM` (default OFF), documented in `.env.example`.
+- **Empirical finding that shaped the design:** the deterministic scorer's token-substring matching
+  is noisier than assumed — ordinary chat ("sounds good, appreciate it") can score the same as a
+  genuine near-miss. Added a margin-over-runner-up check (`NEAR_MISS_LLM_MARGIN_FLOOR`) so only a
+  clear top candidate escalates; mutation-tested to confirm the check is load-bearing.
+  `tests/command-near-miss-llm.test.js` covers flag-off, high-confidence suggestion, low-confidence
+  fallthrough, below-signal-floor, and the tied-noise case.
+- **Follow-up filed, not fixed here:** the same check found the already-shipped Phase 2-lite tier
+  can score plainly conversational input ("what time is it") at or above its own floor. Tracked
+  separately — Phase 2-full's margin check does not (yet) apply to 2-lite.
+
 ## 1.4.312 - 2026-08-24
 Fixed a dead end I kept hitting on the neochrome workspace: asking for `model` (singular) instead
 of `models` got you a generic chat reply instead of the model config or a "did you mean" nudge.

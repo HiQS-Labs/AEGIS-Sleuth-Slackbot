@@ -2,7 +2,7 @@
 title: Command Near-Miss Recovery — turn "command not found" dead-ends into AI review → synthesis
 date: 2026-06-20
 branch: development
-status: Phase 0 + Phase 1 SHIPPED (1.4.199 / 1.4.200); Phase 2-lite code SHIPPED behind COMMAND_NEAR_MISS_LITE=OFF (2026-06-24, `77a95a7`) — NOT yet flag-flipped, NEAR_MISS_SCORE_FLOOR=5 is provisional pending the real Phase 0 score distribution; Phase 2-full/3/4 gated on the Phase 0 counter (~early July 2026). Codex-reviewed + worth-it re-sequenced.
+status: Phase 0 + Phase 1 SHIPPED (1.4.199 / 1.4.200); Phase 2-lite SHIPPED and flipped ON in prod (2026-07-06). 2026-08-24: a 3rd near-miss (bare `model` mention, neochrome workspace) landed below the deterministic floor and needed a manual catalog alias (GH-132 issue #132, `data/static/ai/command-catalog.json` hotfix, shipped same day). Operator decision: build Phase 2-full now rather than continue waiting on the Phase 0 gate — IN PROGRESS as of 2026-08-24 on `feat/gh-132-near-miss-llm-escalation`. Phase 3/4 remain HELD, out of scope for this pass. Codex-reviewed + worth-it re-sequenced.
 owner: noel
 author: Claude (Opus 4.8, 1M)
 complexity: 3
@@ -196,7 +196,10 @@ with **no** measurable rise in suggestions on truly conversational messages.
 
 ---
 
-## Phase 2-full — LLM escalation (gated: build only if Phase 0 / 2-lite prove it's needed)
+## Phase 2-full — LLM escalation. 🚧 IN PROGRESS (GH-132, `feat/gh-132-near-miss-llm-escalation`, 2026-08-24)
+
+Gate override: shipping this now on operator direction rather than waiting for the Phase 0 counter
+to climb further — see the `status` line above for the incident that triggered it.
 
 **Goal:** handle the near-misses deterministic ranking *can't* — argument extraction, close-call
 disambiguation — by escalating the residual misses to the existing AI engine.
@@ -213,6 +216,30 @@ disambiguation — by escalating the residual misses to the existing AI engine.
 
 **Success metric:** of the misses 2-lite *couldn't* resolve, the share the LLM tier turns into a correct
 runnable suggestion — with no measurable rise in suggestions on truly conversational messages.
+
+### Implementation notes (2026-08-24)
+
+- Shipped as `#TryHandleNearMissAiEscalationAsync` in `chat-module.js`, wired immediately after
+  `#TryHandleNearMissCommandAsync` at the same seam, still before generic chat.
+- **Empirical finding that changed the design:** `ScoreCommandEntry`'s token-substring scoring is
+  noisier than assumed. Measured directly (`RetrieveScoredCandidates`): ordinary chat like *"sounds
+  good, appreciate it"* scores 3 with a 3-way tie for top candidate — same raw score as the genuine
+  `command` → `commands` near-miss (also 3, but with a clear single leader, margin 2). A bare score
+  floor cannot separate real near-misses from common-word noise at this volume.
+- **Mitigation:** in addition to `NEAR_MISS_LLM_SIGNAL_FLOOR` (3) and the existing
+  `NEAR_MISS_SCORE_FLOOR` (5) as the escalation band's bounds, require a **margin** over the
+  runner-up candidate (`NEAR_MISS_LLM_MARGIN_FLOOR = 2`) — a genuine near-miss has one clear top
+  pick; noise ties or nearly ties across several unrelated entries. Coarse but empirically effective
+  on the samples checked; not a proof for all inputs. Mutation-tested (see
+  `tests/command-near-miss-llm.test.js`, "tied with runner-up" case).
+- Confidence gate: `NEAR_MISS_LLM_CONFIDENCE_FLOOR = 0.6` on `RmmResolutionResult.Confidence` (the
+  resolver itself does not threshold this — it's a raw LLM-reported float).
+- **New, separate finding — not fixed here, flagging for later:** the same empirical check found
+  `"what time is it"` scores **5** against `convert-text-into-slack-list`/`generate-user-list`/
+  `model-switch-default` (a 3-way tie) — at or above `NEAR_MISS_SCORE_FLOOR`, meaning the *already
+  shipped* Phase 2-lite tier can misfire a "Did you mean...?" suggestion on plainly conversational
+  input. Phase 2-full's margin check does not apply to 2-lite. Worth a follow-up issue: add the same
+  margin check (or an equivalent) to `#TryHandleNearMissCommandAsync`.
 
 ---
 
