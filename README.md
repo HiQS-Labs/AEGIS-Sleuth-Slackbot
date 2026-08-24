@@ -324,9 +324,13 @@ repo-grounded RAG tool — separate from Sleuth's own production RAG (`src/rag/`
 ./scripts/ask-self-query.sh "how does reminder ownership get resolved?"
 ```
 
-- Credentials: a Gemini API key (`GOOGLE_API_KEY`, or resolved via Google Secret Manager — see
-  [`ask_self/ask_self_harness.json`](ask_self/ask_self_harness.json)). Override the external
-  ask-self checkout location with `ASK_SELF_PATH` if it isn't at a default location.
+- Embeddings: local `BAAI/bge-small-en-v1.5` (via `sentence-transformers`) — no API key, no
+  network call, no cost. See [`ask_self/ask_self_harness.json`](ask_self/ask_self_harness.json)
+  and [GH-118](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/118) /
+  [GH-119](https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/119) for why. Override the
+  external ask-self checkout location with `ASK_SELF_PATH` if it isn't at a default location.
+- Query-answer synthesis (not retrieval) still defaults to Gemini, so a `GOOGLE_API_KEY` is only
+  needed if you want synthesized answers rather than `--retrieval-only` raw chunks.
 - Index placement: **local-only** — the index lives under `temp/rag/` and is gitignored. This repo
   is public, so the index is deliberately never committed; a committed embedding index would
   re-expose anything already scrubbed for the public release.

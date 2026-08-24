@@ -90,6 +90,25 @@ describe('Command Near-Miss 2-lite', () => {
     expect(SuggestionMessages[0].text).toMatch(/Did you mean the `.*` command\? Try `.*`\./);
   });
 
+  test('flag ON + bare "model" (singular typo for "models") -> suggests the models command', async () => {
+    process.env.COMMAND_NEAR_MISS_LITE = 'on';
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+
+    const WasHandled = await SlackApp.SimulateAppMentionAsync({
+      channel: 'C_TEST',
+      ts: '1700000004.000001',
+      text: '<@UBOT123> model',
+    });
+
+    expect(WasHandled).toBe(true);
+
+    const SuggestionMessages = SlackApp.SentMessages.filter((M) => M.text.includes('Did you mean the'));
+    expect(SuggestionMessages.length).toBe(1);
+    expect(SuggestionMessages[0].text).toMatch(/Did you mean the `models` command\? Try `.*`\./);
+  });
+
   test('flag ON + below-floor conversational message -> falls through, no suggestion', async () => {
     process.env.COMMAND_NEAR_MISS_LITE = 'on';
 

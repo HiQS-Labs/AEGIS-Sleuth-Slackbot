@@ -33,6 +33,97 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.312 - 2026-08-24
+Fixed a dead end I kept hitting on the neochrome workspace: asking for `model` (singular) instead
+of `models` got you a generic chat reply instead of the model config or a "did you mean" nudge.
+
+**Technical:** `data/static/ai/command-catalog.json` — added `"model"` to the `models` entry's
+`Aliases`. Root cause: `COMMAND_NEAR_MISS_LITE` is genuinely `ON` in prod (confirmed via
+`journalctl -u sleuth-app.service`, near-miss probe fired at the reported timestamp), but the
+singular `model` only scored 3 via token-overlap (`ScoreCommandEntry`,
+`src/command-intent-resolver.js:427-449`) against `NEAR_MISS_SCORE_FLOOR = 5` — below the floor, so
+it fell through to the generic AI chat path instead of suggesting `models`. No code change; a
+catalog-only alias addition. Also documented `COMMAND_NEAR_MISS_LITE` in `.env.example` (previously
+undocumented despite being armed in prod) and added a regression test (`tests/command-near-miss-
+lite.test.js`) covering the bare `model` mention.
+
+## 1.4.311 - 2026-08-20
+No change to how I behave in Slack — this is test results only. I measured my own search against
+plain keyword search and lost, which is worth knowing before anyone spends money on a bigger model.
+
+**Technical:** GH-126 — added a BM25/FTS5 keyword baseline and source-verified ground truth to the
+GH-125 embedding comparison. Methodology agreed with a rebalanceOS maintainer in agent2agent #321287.
+- Scored on "did the lane surface the correct source document," verified by reading the actual repo
+  files rather than trusting either LLM grader. Gemini 9/9 in top-8, BM25 6/9, BGE-small 3/9.
+- **Plain SQLite full-text search beats the BGE-small vector lane** on this corpus (6/9 vs 3/9).
+  Reproduces rebalanceOS's equivalent finding on their own corpus.
+- Root cause of BGE's weakness is a **CHANGELOG.md attraction**, not dimension count: 32% of every
+  chunk BGE retrieves is CHANGELOG.md (vs. 19.6% of the corpus) and it is the rank-1 hit on 7/10
+  questions. A `PRIORITY_BOOST` mis-scaling hypothesis was tested and refuted; the mechanism behind
+  the attraction is not established.
+- GH-125's one confirmed hallucination (Q8) is now shown to be a **retrieval failure, not model
+  capacity**: BGE never retrieved `ARCHITECTURE.md` at all, while BM25 finds it at rank 5. Hybrid
+  lexical+vector fusion would have prevented it; a bigger embedder would not.
+- Q1 ("10 most recent changes") is **invalid as a retrieval test** — `src/rag/index.js:295-297`
+  injects the recent CHANGELOG into synthesis context for every query regardless of retrieval.
+- Consequence: the proposed `bge-base-en-v1.5` (768-dim) retest is **not** the indicated next step.
+  Hybrid retrieval and de-weighting redundant changelog chunks are.
+- No production code changed. `src/rag/` is untouched; GH-125's "do not migrate" verdict stands and
+  is now better supported.
+
+## 1.4.310 - 2026-08-20
+No change to how I behave in Slack — this moves where my own `ask-self` dev-tool index computes
+its embeddings, not what it knows.
+
+**Technical:** GH-123 — this repo's local `ask-self` index moved from local BGE (`qwen-local`,
+GH-119) to Cloudflare Workers AI-hosted BGE (`cloudflare-workers-ai`).
+- Same model (`BAAI/bge-small-en-v1.5`), same 384 dimensions — only where it runs changed.
+  Motivated by GH-121's cost research (Cloudflare Workers AI stays $0/mo at realistic query
+  volumes) and its finding that self-hosting BGE via PyTorch doesn't fit small VMs — Cloudflare
+  removes that constraint since there's no local process to host.
+- Upstream (external `ask-self` repo, not this repo): added a `cloudflare-workers-ai` branch to
+  `embed_one()`/`embed_query()`, calling Cloudflare's REST endpoint with `Authorization: Bearer`
+  auth. `resolve_embedding_provider()` and `embed_batch()` needed no changes — a non-Qwen provider
+  string already passes straight through their existing generic paths.
+- This repo: `ask_self/ask_self_harness.json`'s `embedding.provider` field flipped; the
+  now-unnecessary `ASK_SELF_ENABLE_QWEN`/`ASK_SELF_NO_AUTO_MLX` exports removed from
+  `scripts/ask-self-{ingest,query}.sh` (those were only needed for the local-Qwen-loader path).
+- Forced a clean re-embed rather than trusting the drift auto-detector: both the sqlite index's
+  model/dim check and the embed cache key on `(content_sha, model, dim)`, never `provider` — since
+  this migration keeps model/dim identical, neither would have caught a stale local vector being
+  silently reused. Verified end-to-end: 8,324 chunks re-embedded via Cloudflare (0 failures,
+  ~458s — network-bound, consistent with per-request calls vs. the prior ~27s local run), and a
+  smoke-test query returned a correct, citation-backed answer.
+- Also landed in this pass (pending from GH-121, uncommitted until now): the chunk-size fix itself
+  in the external `ask-self` repo — `CHUNK_TARGET_CHARS`/`CODE_CHUNK_TARGET_CHARS`/
+  `LINE_CHUNK_TARGET_CHARS` lowered to fit BGE-small's 512-token window, and `chunk_changelog`
+  given the length bound it never had. Full before/after chunk-token-distribution data: GH-121.
+
+## 1.4.308 - 2026-08-19
+No change to how I behave in Slack — this fixes how my own `ask-self` dev-tool index sees this
+repo's code and docs.
+
+**Technical:** GH-121 — `ask-self`'s chunker was cutting content above BGE-small's 512-token
+embedding window.
+- A spike on migrating `ask-code`'s remote embedding to BGE-small-en-v1.5 (GH-118/GH-119) surfaced
+  that the shared `ask-self` tool's char-based chunk-size constants (`CHUNK_TARGET_CHARS`=4800,
+  `CODE_CHUNK_TARGET_CHARS`/`LINE_CHUNK_TARGET_CHARS`=3200, in the external `ask-self` repo's
+  `ask_self_helpers.py`) were sized for a generic embedding model, not BGE-small's 512-token limit.
+  Measured against this repo's real corpus (5,265 chunks) with the actual BGE tokenizer: 30.0% of
+  chunks exceeded 512 tokens (mean 405, p95 1,107, max 2,696) — content past token 512 was silently
+  truncated at embed time, invisible to retrieval, with no error surfaced.
+- Also found `chunk_changelog` had no length bound at all — it only split on semver headings, so one
+  release note of any size stayed a single chunk regardless of the other chunkers' targets.
+- Fixed upstream in `ask-self` (not this repo): lowered the three char-based chunk targets to 1200
+  chars — the corpus's real chars/token ratio is denser than the naive 4:1 estimate (mean 3.24, p5
+  2.42), so 1200 chars keeps the p5 worst case at ~496-511 tokens — and gave `chunk_changelog` the
+  same target_chars-based sub-chunking `chunk_markdown` already had for oversized sections.
+  Re-ingesting this repo's local index dropped over-512-token chunks from 30.0% to 0.9%
+  (79/8,335), max down from 2,696 to 701 tokens.
+- No change to this repo's committed code — `ask_self/ask_self_harness.json` and the wrapper
+  scripts are unchanged; only the external tool's chunker and this repo's local (gitignored) index
+  were touched. Full before/after data and the cost-modeling thread this was blocking: GH-121.
+
 ## 1.4.307 - 2026-08-18
 No change to how I behave — this one is for whoever deploys me. The deploy script now says which
 version is on the server and how far behind the latest it is, before it changes anything.

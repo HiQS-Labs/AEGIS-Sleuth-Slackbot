@@ -69,5 +69,25 @@ if [[ " $* " != *" --mode "* ]]; then
   BASE_ARGS+=(--mode all)
 fi
 
+# Embedding provider is chosen in ask_self/ask_self_harness.json, not here. This wrapper stays a
+# verbatim, machine-agnostic copy: it bakes in no secrets paths and sets no provider env vars, but
+# it does `exec` the entrypoint, so anything you export in your shell reaches it.
+#
+# Supported providers (GH-127 -- all additive, none replaces another):
+#   cloudflare-workers-ai  Cloudflare-hosted BAAI/bge-small-en-v1.5, 384d. THIS REPO'S CURRENT
+#                          SETTING (GH-123). Needs CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN.
+#   gemini                 gemini-embedding-001, 768d. Needs GOOGLE_API_KEY. Still fully supported
+#                          -- GH-123 flipped a config field, it removed no code.
+#   qwen-local             Same BGE-small, run on-device via sentence-transformers (the name is
+#                          historical; it is a generic loader, not Qwen). Needs no credentials, but
+#                          is gated: export ASK_SELF_ENABLE_QWEN=1 before running.
+#   qwen-mlx               As above, Apple Silicon via mlx-embeddings.
+#
+# Caution when switching providers: the embed cache and the index drift check both key on
+# (model, dim) and ignore the provider, so local BGE and Cloudflare BGE collide -- same model name,
+# same 384 dims. Measured cosine similarity between the two is only ~0.95, so a silent cache hit
+# can mix embedding spaces. Delete temp/rag/*.sqlite (index AND __embed_cache) when changing
+# provider until that is fixed. See GH-127.
+
 cd "$REPO_ROOT"
 exec "$PYTHON_BIN" "$ENTRYPOINT" "${BASE_ARGS[@]}" "$@"
