@@ -48,7 +48,7 @@ auto-runs.
 - Flag: `COMMAND_NEAR_MISS_LLM` (default OFF), documented in `.env.example`.
 - **Empirical finding that shaped the design:** the deterministic scorer's token-substring matching
   is noisier than assumed — ordinary chat ("sounds good, appreciate it") can score the same as a
-  genuine near-miss. Added a margin-over-runner-up check (`NEAR_MISS_LLM_MARGIN_FLOOR`) so only a
+  genuine near-miss. Added a margin-over-runner-up check (`NEAR_MISS_MARGIN_FLOOR`) so only a
   clear top candidate escalates; mutation-tested to confirm the check is load-bearing.
   `tests/command-near-miss-llm.test.js` covers flag-off, high-confidence suggestion, low-confidence
   fallthrough, below-signal-floor, and the tied-noise case.

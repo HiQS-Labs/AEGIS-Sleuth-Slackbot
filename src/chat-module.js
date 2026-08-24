@@ -1087,7 +1087,7 @@ class ChatModule {
    * score (no raw message text) so unmatched mentions can later be bucketed into "wrong syntax for a real
    * command" (high score) vs genuine chat (~0) — the input that decides whether the AI recovery tier is
    * worth building. Temporary measurement scaffolding; remove once the dead-end rate is known. See
-   * PROJECT/1-INBOX/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 0).
+   * PROJECT/2-WORKING/COMMAND-NEAR-MISS-AI-FALLBACK.md (Phase 0).
    * @param {SlackApp} ArgSlackApp
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
    * @param {string} ArgNormalizedText Mention-stripped, normalized command text (the scored signal).
