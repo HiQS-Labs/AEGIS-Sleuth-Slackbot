@@ -3,6 +3,11 @@ const path = require('path');
 const SlackFormatUtils = require('../slack-format-utils');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'remote-rag-projects.json');
+// data/runtime/ survives deploys (see scripts/deploy.sh). A tracked config/
+// edit is what wiped the live `ltvera` entry in GH-211.
+const DEFAULT_OVERLAY_PATH = path.join(
+  __dirname, '..', '..', 'data', 'runtime', 'remote-rag-projects.overlay.json'
+);
 const REQUEST_TIMEOUT_MS = 90_000;
 
 /** @type {{ integration_version: string, projects: Record<string, RemoteRagProject> } | null} */
@@ -18,13 +23,51 @@ let _config = null;
  */
 
 /**
+ * Overlay project keys win. Missing overlay is a no-op.
+ * @param {{ integration_version?: string, projects?: Record<string, RemoteRagProject> }} ArgBase
+ * @param {{ integration_version?: string, projects?: Record<string, RemoteRagProject> } | null | undefined} ArgOverlay
+ * @returns {{ integration_version?: string, projects: Record<string, RemoteRagProject> }}
+ */
+function mergeRemoteRagConfig(ArgBase, ArgOverlay) {
+  const BaseProjects = (ArgBase && ArgBase.projects && typeof ArgBase.projects === 'object')
+    ? ArgBase.projects
+    : {};
+  if (!ArgOverlay || typeof ArgOverlay !== 'object') {
+    return { ...ArgBase, projects: { ...BaseProjects } };
+  }
+  const OverlayProjects = (ArgOverlay.projects && typeof ArgOverlay.projects === 'object')
+    ? ArgOverlay.projects
+    : {};
+  return {
+    ...ArgBase,
+    integration_version: ArgOverlay.integration_version || ArgBase.integration_version,
+    projects: { ...BaseProjects, ...OverlayProjects },
+  };
+}
+
+function overlayPath() {
+  return process.env.REMOTE_RAG_PROJECTS_OVERLAY || DEFAULT_OVERLAY_PATH;
+}
+
+/**
  * @returns {Promise<Record<string, RemoteRagProject>>}
  */
 async function loadProjects() {
   if (_config) return _config.projects;
   const raw = await fs.readFile(CONFIG_PATH, 'utf8');
-  _config = JSON.parse(raw);
+  let parsed = JSON.parse(raw);
+  try {
+    const overlayRaw = await fs.readFile(overlayPath(), 'utf8');
+    parsed = mergeRemoteRagConfig(parsed, JSON.parse(overlayRaw));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  _config = parsed;
   return _config.projects;
+}
+
+function resetProjectsCache() {
+  _config = null;
 }
 
 /**
@@ -173,7 +216,7 @@ async function HandleAskCodeCommandAsync(ArgSlackApp, ArgEventInfo, ArgQueryRaw)
   try {
     Projects = await loadProjects();
   } catch (err) {
-    ArgSlackApp.Logger.error('ask-code: failed to load remote-rag-projects.json:', err);
+    ArgSlackApp.Logger.error('ask-code: failed to load remote RAG project registry:', err);
     await ArgSlackApp.PostMessageTextAsync(
       ArgEventInfo.channel,
       ArgEventInfo.ts,
@@ -282,3 +325,6 @@ async function HandleAskCodeCommandAsync(ArgSlackApp, ArgEventInfo, ArgQueryRaw)
 }
 
 module.exports = HandleAskCodeCommandAsync;
+module.exports.mergeRemoteRagConfig = mergeRemoteRagConfig;
+module.exports.loadProjects = loadProjects;
+module.exports.resetProjectsCache = resetProjectsCache;
