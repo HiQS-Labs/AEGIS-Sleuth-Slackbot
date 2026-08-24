@@ -35,6 +35,7 @@ jest.mock('../src/workspace-ai', () => {
 });
 
 const ChatModule = require('../src/chat-module');
+const CommandIntentResolver = require('../src/command-intent-resolver');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
 const EmptyWorkspaceStats = {
@@ -182,7 +183,7 @@ describe('Command Near-Miss Phase 2-full (LLM escalation)', () => {
   test('flag ON + score in range but tied with runner-up (common-word noise) -> never calls the resolver', async () => {
     // "sounds good, appreciate it" scores 3 against multiple unrelated catalog entries with no
     // clear leader (verified empirically) — the exact false-positive shape the margin check exists
-    // to catch. Without NEAR_MISS_LLM_MARGIN_FLOOR this would have escalated to an LLM call on
+    // to catch. Without NEAR_MISS_MARGIN_FLOOR this would have escalated to an LLM call on
     // ordinary chat.
     process.env.COMMAND_NEAR_MISS_LLM = 'on';
     process.env.COMMAND_NEAR_MISS_LITE = 'off';
@@ -318,5 +319,38 @@ describe('Command Near-Miss Phase 2-full (LLM escalation)', () => {
       text: '<@UBOT123> command',
     });
     expect(RejectedApp.SentMessages.some((M) => M.text.includes('Did you mean the'))).toBe(false);
+  });
+
+  test('both flags ON + deterministic scoring rejects -> both tiers fail open, generic chat still runs', async () => {
+    // GH-132 round 3: RetrieveScoredCandidates throwing must not block either near-miss tier NOR
+    // the generic-chat fallthrough. Spy on the shared module reference (chat-module.js reads it via
+    // CommandIntentResolver.RetrieveScoredCandidates rather than a destructured value, specifically
+    // so this is spy-able across the module boundary).
+    process.env.COMMAND_NEAR_MISS_LLM = 'on';
+    process.env.COMMAND_NEAR_MISS_LITE = 'on';
+
+    const ScoringSpy = jest
+      .spyOn(CommandIntentResolver, 'RetrieveScoredCandidates')
+      .mockRejectedValueOnce(new Error('mock catalog read failure'));
+
+    try {
+      const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+      new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_TEST',
+        ts: '1800000012.000001',
+        text: '<@UBOT123> command',
+      });
+
+      expect(WasHandled).toBe(true);
+      expect(SlackApp.SentMessages.some((M) => M.text.includes('Did you mean the'))).toBe(false);
+      expect(mockWorkspaceAIInstances[0].ProcessMessageWithTextResponseAsync).toHaveBeenCalled();
+      // the LLM tier's own RetrieveScoredCandidates call is a second, independent invocation —
+      // confirms 2-lite's rejection didn't somehow short-circuit 2-full from running its own check.
+      expect(ScoringSpy).toHaveBeenCalled();
+    } finally {
+      ScoringSpy.mockRestore();
+    }
   });
 });

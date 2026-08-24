@@ -201,11 +201,20 @@ with **no** measurable rise in suggestions on truly conversational messages.
 Gate override: shipping this now on operator direction rather than waiting for the Phase 0 counter
 to climb further — see the `status` line above for the incident that triggered it.
 
-**Goal:** handle the near-misses deterministic ranking *can't* — argument extraction, close-call
-disambiguation — by escalating the residual misses to the existing AI engine.
+**Goal:** handle the near-misses deterministic ranking *can't* — mainly argument extraction — by
+escalating the residual misses to the existing AI engine.
 
-- When 2-lite has a strong signal but can't build a runnable suggestion (needs arg extraction, or two
-  candidates tie), escalate to `ResolveRmmIntentAsync` (the existing normalize → resolve → synthesize engine),
+> **Scope correction (2026-08-24, round-3 QA):** the original goal listed "close-call
+> disambiguation" (a tie between two candidates escalating to the LLM to pick one) as in scope. The
+> shipped implementation does the opposite — a tie or near-tie is treated as common-word noise and
+> declines outright, on both tiers (see Implementation notes below). That was an evidence-based call
+> from the empirical scoring check, not an oversight, but it does narrow the original goal: this
+> phase now handles "clear-leader near-miss escalation" only. Genuine two-candidate disambiguation
+> is not built and would need a different, evidence-backed signal to tell it apart from noise —
+> tracked as an open question below, not attempted here.
+
+- When 2-lite has a strong signal but can't build a runnable suggestion (needs arg extraction),
+  escalate to `ResolveRmmIntentAsync` (the existing normalize → resolve → synthesize engine),
   still **suggest-only**. The Phase 0 counter + 2-lite's own residual-miss log say whether this increment is
   worth the per-call LLM cost + tuning carrying cost — **don't build it on faith.**
 - **Confidence-tiered synthesis:**
@@ -228,18 +237,36 @@ runnable suggestion — with no measurable rise in suggestions on truly conversa
   floor cannot separate real near-misses from common-word noise at this volume.
 - **Mitigation:** in addition to `NEAR_MISS_LLM_SIGNAL_FLOOR` (3) and the existing
   `NEAR_MISS_SCORE_FLOOR` (5) as the escalation band's bounds, require a **margin** over the
-  runner-up candidate (`NEAR_MISS_LLM_MARGIN_FLOOR = 2`) — a genuine near-miss has one clear top
-  pick; noise ties or nearly ties across several unrelated entries. Coarse but empirically effective
-  on the samples checked; not a proof for all inputs. Mutation-tested (see
-  `tests/command-near-miss-llm.test.js`, "tied with runner-up" case).
+  runner-up candidate (`NEAR_MISS_MARGIN_FLOOR = 2`, shared with 2-lite — see below) — a genuine
+  near-miss has one clear top pick; noise ties or nearly ties across several unrelated entries.
+  Coarse but empirically effective on the samples checked; not a proof for all inputs.
+  Mutation-tested (see `tests/command-near-miss-llm.test.js`, "tied with runner-up" case).
 - Confidence gate: `NEAR_MISS_LLM_CONFIDENCE_FLOOR = 0.6` on `RmmResolutionResult.Confidence` (the
   resolver itself does not threshold this — it's a raw LLM-reported float).
-- **New, separate finding — not fixed here, flagging for later:** the same empirical check found
+- **Fixed here, retroactively (GH-133, round-3 QA):** the same empirical check found
   `"what time is it"` scores **5** against `convert-text-into-slack-list`/`generate-user-list`/
-  `model-switch-default` (a 3-way tie) — at or above `NEAR_MISS_SCORE_FLOOR`, meaning the *already
-  shipped* Phase 2-lite tier can misfire a "Did you mean...?" suggestion on plainly conversational
-  input. Phase 2-full's margin check does not apply to 2-lite. Worth a follow-up issue: add the same
-  margin check (or an equivalent) to `#TryHandleNearMissCommandAsync`.
+  `model-switch-default` (a 3-way tie) — at or above `NEAR_MISS_SCORE_FLOOR`, meaning the
+  *already-shipped* Phase 2-lite tier could misfire a "Did you mean...?" suggestion on plainly
+  conversational input. `NEAR_MISS_MARGIN_FLOOR` is now a single constant shared by both
+  `#TryHandleNearMissCommandAsync` (2-lite) and `#TryHandleNearMissAiEscalationAsync` (2-full) —
+  verified the fix doesn't regress the two live cases it must keep working (`model` → `models`,
+  margin 6; `switch model to gpt-5` → `model-switch-default`, margin 5). Regression test in
+  `tests/command-near-miss-lite.test.js`.
+- **Failure isolation (round-3 QA):** both tiers' scoring calls (`RetrieveScoredCandidates`) and
+  2-full's resolver call now sit inside a `try`/`catch`/`finally` that fails OPEN — any error falls
+  through to generic chat rather than escaping uncaught or leaking the escalation timeout handle.
+  `chat-module.js` now holds `CommandIntentResolver` as a module reference (not destructured) so
+  these calls are `jest.spyOn`-able across the module boundary; covered by
+  `tests/command-near-miss-llm.test.js`'s "both flags ON + deterministic scoring rejects" case.
+- **Probe ordering (round-3 QA):** the Phase 0 near-miss probe was firing *before* either near-miss
+  tier got a chance to suggest, mislabeling every successful suggestion as a "fell through to chat"
+  event and corrupting the Phase 0 metric. Moved to fire only after both tiers decline.
+
+### Open question (not attempted here)
+Genuine two-candidate disambiguation (the original "close-call" goal) needs a signal that can tell
+"two real commands both plausibly match" apart from "several unrelated entries tied on common-word
+noise" — the current margin check cannot distinguish those and intentionally declines both. No such
+signal is designed yet; revisit if real near-miss volume shows genuine ambiguous cases being missed.
 
 ---
 
