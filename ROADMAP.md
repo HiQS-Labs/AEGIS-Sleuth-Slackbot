@@ -1,20 +1,25 @@
 ---
 title: Sleuth Roadmap
-status: Active
+status: Legacy — frozen 2026-08-26 (ROADMAP_SOURCE=releases)
 created: 2026-06-21
 updated: 2026-08-07
 branch: development
 goal: >
-  Lightweight, manually-maintained ledger of Sleuth work — what's in progress, what's next,
-  and what recently shipped. Update it from memory when you start or finish a piece of work.
-  No automated observe/enforce mode; this is a convenience index, kept current by hand.
+  FROZEN. Kept for history and for utils/marathon-plan.sh's still-direct parsing of the Ledger
+  section below (not yet repointed at the DB — see ROUTER.md's "RELEASES DB" section). New
+  intake and current state live in the RELEASES DB: park with
+  `python3 utils/py/releases_app.py roadmap add`, read via ROADMAP-DASHBOARD.md or
+  `releases_app.py roadmap list`. Do not hand-edit this file.
 ---
 
 # Sleuth Roadmap
 
-> **Manual ledger — update from memory whenever you start or finish work.** No automated
-> observe/enforce. Execution detail lives in the linked `PROJECT/**` docs; this file just
-> points at it.
+> **FROZEN — legacy file, do not edit.** Since the `ROADMAP_SOURCE=releases` flip (`.pdda-mode`,
+> 2026-08-26), `releases.db` is the roadmap's source of truth. Read current state at
+> [ROADMAP-DASHBOARD.md](ROADMAP-DASHBOARD.md) or `python3 utils/py/releases_app.py roadmap list`;
+> park new intake with `releases_app.py roadmap add`. See `ROUTER.md` -> "RELEASES DB" for the full
+> contract. This file is kept only because `utils/marathon-plan.sh` still parses its Ledger section
+> directly and has not yet been updated for releases-mode.
 
 ## Now / Next
 
@@ -191,6 +196,12 @@ goal: >
 - **"Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362)** — a 6-lane marathon that ends the "compute → render → discard" pattern: stamp client/project identity at creation + operator-defaults config (**#361 A**), `ask-reminders` over live authoritative data (**#361 B**), whole-thread multi-task inference (**#360**), durable deterministic-first project map (**#361 C**), deterministic proactive digest signals (**#362 P1**), then **p6 — an end-to-end net-improvement acceptance test** (`tests/marathon-360-361-362-e2e.test.js`) proving p1-p5 actually connect (data one phase persists is data a later phase reads), not just that each ships in isolation. Cross-model consult (Codex + agy) adjudicated + folded in. Ordered dependency chain, not a concurrency wave. **SHIPPED + merged to main 2026-07-13 (`marathon.complete`, v1.4.212 line); docs closed out to `3-COMPLETED` 2026-07-14.** All 6 lanes green incl. p6 e2e. **Caveat:** only GH-362 **Phase 1** shipped; GH-362 Phases 2 & 3 deferred → **GH-366** (in progress, `feat/gh-366-proactive-phases-2-3`). → [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md)
 
 ### Queue / parked intake
+
+- **ask-code hands-free thread-sticky routing (GH-137)** (2026-08-25) — `ask-code <slug> <question>`
+  is stateless; every follow-up in a thread requires retyping the slug. Needs a sticky-session store
+  keyed on `channel:thread_ts` with a bounded exit (idle TTL / explicit stop), so a later unrelated
+  reply in the thread can't get silently proxied to a remote RAG endpoint. See
+  `PROJECT/1-INBOX/GH-137-ASK-CODE-HANDS-FREE.md`.
 
 - **Runtime state is bound to the install directory (GH-86)** — `Workspaces.GetRuntimeDirPath()`
   falls back to `__dirname/../data/runtime`, so moving the install moves the whole runtime tree.

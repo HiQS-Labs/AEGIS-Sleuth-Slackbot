@@ -29,9 +29,15 @@ it. `development` is intentionally unprotected: CI runs there but does not block
 - `ARCHITECTURE.md` = living canonical system design; `ARCHITECTURE-DECISIONS.md` = graph-derived
   snapshot of past decisions (regenerated via `codebase-memory-mcp`, not hand-authored — see its file
   header for regen steps)
-- `ROADMAP.md` = manually-maintained ledger of in-progress/next/shipped work — hand-updated (no writer
-  automation), but now read by the marathon scheduling layer, so keep it current when you start or
-  finish work
+- `ROADMAP-DASHBOARD.md` = the generated, read-only view of the roadmap ledger (read this; regenerate
+  with `utils/roadmap-dashboard.sh`)
+- `ROADMAP.md` = LEGACY ledger, frozen since the `ROADMAP_SOURCE=releases` flip (`.pdda-mode`,
+  2026-08-26) — `releases.db` (via `releases.sql`) is the source of truth; write via
+  `python3 utils/py/releases_app.py roadmap add`, never by editing this file. The marathon scheduling
+  layer (`utils/marathon-plan.sh`, vendored via `.xyz/`) still parses this frozen file directly and
+  has not been updated for releases-mode upstream — a known gap (same one XYZ-forge's own GH-243
+  left open for itself); do not rely on a marathon run here picking up anything parked after the flip
+  until that script is updated
 - `CHANGELOG.md` = the end-of-iteration running log (governed by `PROJECT/PDDA.md`)
 - `RELEASES.md` = the forward-looking release-planning ledger (governed by `PROJECT/PDDA.md`)
 - `PROJECT/PDDA.md` = the canonical PDDA contract and automation rules for this repo's docs
@@ -50,9 +56,11 @@ it. `development` is intentionally unprotected: CI runs there but does not block
 3. Read `GUIDING-PRINCIPLES.md` if the task touches doc governance, roadmap hygiene, or the PDDA
    layer itself. -> expect the north star PDDA's checks answer to.
 4. For repo-management, doc-governance, or "what changed recently" tasks, read `CHANGELOG.md` (top
-   entries), `PROJECT/PDDA.md`, and `ROADMAP.md` in that order before going further. -> expect
-   current operational state and the source of truth for lifecycle/enforcement rules; recent work
-   concentrates here, not in `README.md`.
+   entries), `PROJECT/PDDA.md`, and `ROADMAP-DASHBOARD.md` (or `python3 utils/py/releases_app.py
+   roadmap list`) in that order before going further. -> expect current operational state and the
+   source of truth for lifecycle/enforcement rules; recent work concentrates here, not in
+   `README.md`. (`ROADMAP.md` is the frozen legacy file — do not read it for current state or edit
+   it.)
 5. Read `README.md` for the product's purpose and baseline usage. -> expect a short explanation of
    what Sleuth does; this is a conditional background read, not required once step 4 already covers
    the task.
@@ -109,17 +117,39 @@ for each).
 ## Canonical rules
 
 - `AGENTS.md` is Sleuth's canonical behavioral contract — do not duplicate or contradict it here.
-- Do not put phase checklists, build steps, or deep execution notes in `ROADMAP.md`.
-- Every active doc in `PROJECT/2-WORKING/` must be reflected by a pointer in `ROADMAP.md` — or opt
-  out with `roadmap_exempt: true` in its frontmatter. Enforced by `utils/pdda/pdda.sh
-  roadmap-coverage`; governance lives in `PROJECT/PDDA.md`.
+- Do not put phase checklists, build steps, or deep execution notes in the roadmap ledger.
+- Every active doc in `PROJECT/2-WORKING/` must be reflected by a pointer row in the roadmap ledger
+  (the RELEASES DB) — park it with `python3 utils/py/releases_app.py roadmap add`, or opt out with
+  `roadmap_exempt: true` in its frontmatter. (`utils/pdda/pdda.sh roadmap-coverage` still checks the
+  legacy `ROADMAP.md` text, not the DB — repointing it is an open follow-up, same as XYZ-forge's own
+  reference implementation left for itself.) Governance lives in `PROJECT/PDDA.md`.
 - Do not override deterministic PDDA findings with prose.
 - Do not report a win you did not verify with the relevant script or test.
 - Update `CHANGELOG.md` at the end of each iteration; its governance lives in `PROJECT/PDDA.md` — do
   not re-specify CHANGELOG rules in `AGENTS.md` or elsewhere.
 - Generated overlays under `PROJECT/2-WORKING/` (e.g. `MARATHON-PLAN-*.md`, marked `roadmap_exempt:
-  true` in frontmatter) are scheduling aids derived from `ROADMAP.md`, not source-of-truth plans — do
-  not hand-edit them or treat them as canonical.
+  true` in frontmatter) are scheduling aids — historically derived from `ROADMAP.md`, and still are:
+  the marathon scheduler has not been repointed at the DB (see the `ROADMAP.md` entry above). Treat
+  them as a known-stale input until that script is updated, and never hand-edit them or treat them as
+  canonical.
+
+## RELEASES DB — release + roadmap ledgers (GH-32, GH-69, GH-238/243)
+
+`releases.db` (SQLite, committed; `releases.sql` is its git-mergeable dump — CLI is the only writer,
+never hand-edit either file) holds two ledgers via `python3 utils/py/releases_app.py`:
+
+- **Releases** (GH-32, Phase 0 side-by-side): `RELEASES.md` is still the human-edited canonical file;
+  the DB mirrors it via a one-shot `import` and is updated going forward with `add`/`update`/`ship`.
+- **Roadmap** (GH-69 shadow -> GH-238/243 canonical, flipped 2026-08-26 via `.pdda-mode`'s
+  `ROADMAP_SOURCE=releases`): `roadmap_items` IS the ledger. Write with `roadmap add
+  --issue-num N --issue-url U --title T --created YYYY-MM-DD --doc-path P`; read with `roadmap list`
+  (`--json` for machine consumers) or `ROADMAP-DASHBOARD.md`; regenerate the dashboard with
+  `utils/roadmap-dashboard.sh` after any ledger write (`utils/roadmap-dashboard.sh --check` verifies
+  it's in sync). `roadmap sync` mirrors `ROADMAP.md` and is a guarded no-op while the flip marker is
+  present — it would delete `add`-parked rows.
+- A `.githooks/pre-push` guard refuses a push that writes `releases.sql`/`releases.db` without also
+  regenerating `ROADMAP-DASHBOARD.md` (`.githooks/dashboard-staleness-guard.sh`, ported from
+  XYZ-forge GH-243). Bypass, deliberately loud: `git push --no-verify`.
 
 ## Command rails
 
@@ -161,14 +191,18 @@ utils/pdda/pdda.sh help            # list every command
   payload examples, bearer-auth details, or endpoint inventory, start in `src/workspaces.js` and
   `docs/web-api.md` rather than expecting `AGENTS.md` to mirror those lists.
 - If the task is "what changed recently" or a general catch-up, read `CHANGELOG.md`, `git log
-  --oneline -10`, `ROADMAP.md`, the newest `PROJECT/1-INBOX/GH-*.md` captures, and active
-  `PROJECT/2-WORKING` docs — or run `utils/pdda/pdda.sh catchup` (opt-in, needs `PDDA_LLM_BIN`) to get
-  this triaged automatically against `ROUTER.md` itself.
+  --oneline -10`, `ROADMAP-DASHBOARD.md` (or `releases roadmap list`), the newest
+  `PROJECT/1-INBOX/GH-*.md` captures, and active `PROJECT/2-WORKING` docs — or run `utils/pdda/pdda.sh
+  catchup` (opt-in, needs `PDDA_LLM_BIN`) to get this triaged automatically against `ROUTER.md` itself.
 - If the task is about document quality, active-doc lifecycle, roadmap sprawl, or PDDA automation
   policy, start in `PROJECT/PDDA.md`.
-- If the task is about repo-local maintenance state, start in `ROADMAP.md`. Treat any
-  `PROJECT/2-WORKING/MARATHON-PLAN-*.md` as a generated scheduling overlay derived from it — read it
-  after the ledger when batching work, never hand-edit it.
+- If the task is about repo-local maintenance state, start in `ROADMAP-DASHBOARD.md` (or
+  `python3 utils/py/releases_app.py roadmap list`). If the task changes the roadmap ledger, write
+  through the CLI (`roadmap add`) and finish by regenerating the dashboard
+  (`utils/roadmap-dashboard.sh`) — the push gate refuses a ledger write with a stale dashboard. Treat
+  any `PROJECT/2-WORKING/MARATHON-PLAN-*.md` as a generated scheduling overlay — it is still derived
+  from the frozen `ROADMAP.md` text, not the DB (see "RELEASES DB" above) — read it after the ledger
+  when batching work, never hand-edit it.
 - If the task is a repo-level question (architecture, past decisions, how something works), start
   in `ARCHITECTURE.md`, then `CHANGELOG.md` and `PROJECT/`.
 - If the task is about command aliases, `rmm`, help output, or command normalization, start in

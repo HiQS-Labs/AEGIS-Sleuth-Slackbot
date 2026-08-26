@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# pre-push — dashboard-staleness guard for the ROADMAP_SOURCE=releases flip.
+#
+# This repo has no other pre-push gate (only .githooks/pre-commit, the secret scanner). This hook's
+# sole job is dashboard-staleness-guard.sh: refuse a push that writes releases.sql/releases.db
+# without regenerating ROADMAP-DASHBOARD.md alongside it. It self-exits 0 immediately if this repo
+# is not in releases-mode, so it is a no-op until/unless that flip happens.
+#
+# Bypass, deliberately loud: git push --no-verify
+set -uo pipefail
+
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd -- "${HOOK_DIR}/.." && pwd -P)"
+GUARD="${REPO_ROOT}/.githooks/dashboard-staleness-guard.sh"
+
+[ -x "$GUARD" ] || exit 0
+
+# stdin is "<local ref> <local sha> <remote ref> <remote sha>" per ref (git's pre-push contract).
+_args=()
+_saw_line=0
+while read -r _local_ref _local_sha _remote_ref _remote_sha; do
+  [ -n "${_local_ref:-}" ] || continue
+  _saw_line=1
+  _args+=("$_local_sha" "${_remote_sha:-0000000000000000000000000000000000000000}")
+done
+
+# Empty stdin (some callers): nothing to inspect, nothing to gate.
+[ "$_saw_line" -eq 1 ] || exit 0
+
+bash "$GUARD" "$REPO_ROOT" "${_args[@]}"
