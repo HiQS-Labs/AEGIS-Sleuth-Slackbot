@@ -77,7 +77,10 @@ done
 # ---------------------------------------------------------------------------
 [ -x "$GREP" ] || die "$GREP is not executable. Refusing to fall back to \`grep\` (it is shimmed on this machine)."
 [ -x "$SED" ]  || die "$SED is not executable."
-[ -d "${REPO_ROOT}/.git" ] || die "${REPO_ROOT} is not a git repository."
+# .git is a DIRECTORY in a normal clone but a FILE in a linked worktree (git worktree add), so
+# -d answers no for a valid checkout. rev-parse --git-dir resolves for a main checkout, a linked
+# worktree, and a submodule; the fail-closed die is unchanged.
+git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "${REPO_ROOT} is not a git repository."
 cd "$REPO_ROOT" || die "cannot cd to ${REPO_ROOT}"
 
 # Canary self-test: prove grep finds a string we KNOW is present. This is the guard against the
