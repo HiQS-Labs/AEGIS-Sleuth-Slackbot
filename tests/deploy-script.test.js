@@ -127,9 +127,14 @@ EOF
     function BuildCheckoutBehindOriginBy(ArgCommitsAhead) {
       const OriginDir = path.join(TestDir, 'origin.git');
       const Git = `git -C "${MockAppDir}" -c user.email=t@t -c user.name=t -c commit.gpgsign=false`;
+      // `git init -b main` needs git >= 2.28; DeployHQ's build image ships an older git and the
+      // whole suite died in fixture setup there (GH-143 pipeline rebuild). symbolic-ref sets the
+      // unborn branch name on any git version.
       execSync(`
-        git init --quiet --bare -b main "${OriginDir}"
-        git init --quiet -b main "${MockAppDir}"
+        git init --quiet --bare "${OriginDir}"
+        git --git-dir "${OriginDir}" symbolic-ref HEAD refs/heads/main
+        git init --quiet "${MockAppDir}"
+        git -C "${MockAppDir}" symbolic-ref HEAD refs/heads/main
         ${Git} add -A && ${Git} commit --quiet -m base
         ${Git} remote add origin "${OriginDir}"
         ${Git} push --quiet origin main
