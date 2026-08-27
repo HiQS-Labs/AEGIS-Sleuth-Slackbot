@@ -29,3 +29,16 @@
 #
 # Re-review if this file changes materially.
 src/channel-membership-cache.js
+
+# Reviewed 2026-08-27 (claude, operator-approved) — surfaced when the rebuilt DeployHQ build and
+# GitHub Actions both failed on the newly committed SQLite ledger.
+#
+# releases.db is the Product Release System ledger (GH-32). Its FULL content is dumped to
+# releases.sql in the same tree and the SAME commits — and releases.sql, being text, IS scanned by
+# every rule in sanitize-scan.sh. Hand-checked today with `strings releases.db` against every
+# credential shape the scanner knows (xoxb/xapp/xoxp, sk-, ghp_, AKIA, PEM, bearer): 0 matches.
+#
+# The db/sql pair is kept in sync by the releases CLI; a db change without its sql dump in the same
+# commit is the drift to reject in review. Re-review if the ledger ever starts carrying free-text
+# fields that do not round-trip through releases.sql.
+releases.db
