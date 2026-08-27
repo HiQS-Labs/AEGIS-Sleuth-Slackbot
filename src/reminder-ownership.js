@@ -87,6 +87,33 @@ const NegationPattern = /\b(not|never|no longer|cannot|cant|wont|shant|unable|do
 const SecondPersonPattern = /\b(can you|could you|would you|will you|can u|please|pls|kindly|you should|you need to|you both|you all|your turn)\b/i;
 
 /**
+ * Attribution to somebody else — `<@U_ALPHA> said`, `Alpha mentioned`, `they told me`. Any
+ * first-person text after one of these is being REPORTED, not committed to.
+ *
+ * `I said I'll do it` is deliberately unaffected: `I` is a single capital with no lowercase tail,
+ * so neither alternative matches it, and the sentence stays the speaker's own commitment.
+ */
+const ReportedSpeechAttributionPattern =
+  /(^|[\s>(])(<@[^>]+>|\b[A-Z][a-z]+\b|\bthey\b|\bhe\b|\bshe\b)\s+(said|says|saids|mentioned|told|tells|wrote|writes|noted|confirmed|replied|asked)\b/i;
+
+/**
+ * The part of a Slack message the AUTHOR actually wrote — blockquote lines removed.
+ *
+ * Slack renders `> text` as a quotation, and quoting a colleague's commitment is the most natural
+ * way to reply to it ("> @alpha: I'll deploy tomorrow — sounds good"). {@link StripQuotedRegions}
+ * only knows double quotes, so without this the quoted `I'll deploy` reads as the replier's own
+ * commitment and the work is assigned to the wrong person (GH-143, found in cross-model review).
+ * @param {string} ArgText
+ * @returns {string}
+ */
+function StripSlackBlockquotes(ArgText) {
+  return (ArgText || '')
+    .split(/\r?\n/)
+    .filter(ArgLine => !/^\s*&gt;|^\s*>/.test(ArgLine))
+    .join('\n');
+}
+
+/**
  * Detect a leading address block: one or more consecutive mentions at the very start of a message,
  * followed by prose. This is the Slack convention for "FYI, addressed to you" and is a strong signal
  * those people are the AUDIENCE, not the owners.
@@ -296,8 +323,14 @@ function ResolveAssignees(ArgInput) {
   // outranks a span the sender did not write. HasFirstPersonCommitment already strips quoted
   // regions and rejects spans with second-person asks or negation, so a reply that merely reports
   // or declines does not take the work.
-  const LiveReplyText = (ArgInput.LiveReplyText || '').trim();
-  if(LiveReplyText && HasFirstPersonCommitment(LiveReplyText)) {
+  // Only the author's OWN words count. Slack blockquotes and reported speech ("<@alpha> said I'll
+  // deploy") are somebody else's commitment being relayed; treating them as the replier's is the
+  // same mis-assignment this rule exists to prevent, inverted. Conservative by design: when the
+  // reply looks like relaying, fall through to the rules below rather than guessing.
+  const LiveReplyText = StripSlackBlockquotes(ArgInput.LiveReplyText || '').trim();
+  if(LiveReplyText
+    && !ReportedSpeechAttributionPattern.test(LiveReplyText)
+    && HasFirstPersonCommitment(LiveReplyText)) {
     return {
       assigneeIDs: SenderID ? [SenderID] : MentionedIDs,
       notifyIDs: MentionedIDs.filter(ArgID => ArgID !== SenderID),
@@ -450,6 +483,7 @@ module.exports = {
   GroupCandidatesByTrigger,
   FindOwnerDisagreement,
   StripQuotedRegions,
+  StripSlackBlockquotes,
   IsSpanInsideQuotedSpeech,
   DetectLeadingAddressBlock,
   HasFirstPersonCommitment,
