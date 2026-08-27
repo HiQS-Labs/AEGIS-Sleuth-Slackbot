@@ -87,6 +87,33 @@ const NegationPattern = /\b(not|never|no longer|cannot|cant|wont|shant|unable|do
 const SecondPersonPattern = /\b(can you|could you|would you|will you|can u|please|pls|kindly|you should|you need to|you both|you all|your turn)\b/i;
 
 /**
+ * Attribution to somebody else — `<@U_ALPHA> said`, `Alpha mentioned`, `they told me`. Any
+ * first-person text after one of these is being REPORTED, not committed to.
+ *
+ * `I said I'll do it` is deliberately unaffected: `I` is a single capital with no lowercase tail,
+ * so neither alternative matches it, and the sentence stays the speaker's own commitment.
+ */
+const ReportedSpeechAttributionPattern =
+  /(^|[\s>(])(<@[^>]+>|\b[A-Z][a-z]+\b|\bthey\b|\bhe\b|\bshe\b)\s+(said|says|saids|mentioned|told|tells|wrote|writes|noted|confirmed|replied|asked)\b/i;
+
+/**
+ * The part of a Slack message the AUTHOR actually wrote — blockquote lines removed.
+ *
+ * Slack renders `> text` as a quotation, and quoting a colleague's commitment is the most natural
+ * way to reply to it ("> @alpha: I'll deploy tomorrow — sounds good"). {@link StripQuotedRegions}
+ * only knows double quotes, so without this the quoted `I'll deploy` reads as the replier's own
+ * commitment and the work is assigned to the wrong person (GH-143, found in cross-model review).
+ * @param {string} ArgText
+ * @returns {string}
+ */
+function StripSlackBlockquotes(ArgText) {
+  return (ArgText || '')
+    .split(/\r?\n/)
+    .filter(ArgLine => !/^\s*&gt;|^\s*>/.test(ArgLine))
+    .join('\n');
+}
+
+/**
  * Detect a leading address block: one or more consecutive mentions at the very start of a message,
  * followed by prose. This is the Slack convention for "FYI, addressed to you" and is a strong signal
  * those people are the AUDIENCE, not the owners.
@@ -253,14 +280,19 @@ function ConstrainAssigneeToParticipants(ArgProposedID, ArgAllowedIDs, ArgFallba
  * @param {string} [ArgInput.ActionableLanguage] The quoted actionable span driving this reminder.
  * @param {string[]} [ArgInput.MentionedIDs] Human mention IDs already extracted from the source.
  * @param {string} ArgInput.SenderID Original sender.
+ * @param {string} [ArgInput.LiveReplyText] GH-143, enriched thread replies only: the sender's OWN
+ * raw reply, before thread context was prepended. When the analyzer's span quotes an ask out of the
+ * prepended context — written by somebody else, whose "you" refers to the replier — the
+ * second-person rule below would hand the work to the asker. A first-person commitment in the live
+ * reply is the replier taking the work, and it outranks that misread.
  * @param {'speaker'|'mentioned'|'unclear'|null} [ArgInput.AnalyzerOwner] The analyzer's `owner`
  * verdict for this trigger group, when the candidates agree on one. Absent for older responses.
  * @param {string[]} [ArgInput.AnalyzerOwnerMentions] The analyzer's `owner_mentions`, intersected
  * with `MentionedIDs` before use.
  * @returns {{assigneeIDs: string[], notifyIDs: string[], resolvedBy: string}}
- * `resolvedBy` is one of `first-person-commitment` | `second-person-ask` | `analyzer-speaker` |
- * `analyzer-mentioned` | `mentions` | `sender-fallback`, and is surfaced in the `:wrench:` triage so
- * the decision is inspectable.
+ * `resolvedBy` is one of `first-person-commitment` | `live-reply-commitment` | `second-person-ask` |
+ * `analyzer-speaker` | `analyzer-mentioned` | `mentions` | `sender-fallback`, and is surfaced in the
+ * `:wrench:` triage so the decision is inspectable.
  */
 function ResolveAssignees(ArgInput) {
   const MessageText = ArgInput.MessageText || '';
@@ -280,6 +312,29 @@ function ResolveAssignees(ArgInput) {
       // people who were addressed but did not take the work — real interested parties, not owners.
       notifyIDs: MentionedIDs.filter(ArgID => ArgID !== SenderID),
       resolvedBy: 'first-person-commitment',
+    };
+  }
+
+  // 1b. GH-143 — the sender's live reply is itself a first-person commitment. On the enriched
+  // thread path the analyzer reads context + reply as one blob, so its span can quote the ask from
+  // the PREPENDED message ("Could you please file a new GH issue?") — written by someone else, whose
+  // "you" is this sender. Rule 2 below would then assign the work to the asker via the reply's
+  // mention of them ("<@asker> can do, I'll work on it today" → the asker). The reply's own grammar
+  // outranks a span the sender did not write. HasFirstPersonCommitment already strips quoted
+  // regions and rejects spans with second-person asks or negation, so a reply that merely reports
+  // or declines does not take the work.
+  // Only the author's OWN words count. Slack blockquotes and reported speech ("<@alpha> said I'll
+  // deploy") are somebody else's commitment being relayed; treating them as the replier's is the
+  // same mis-assignment this rule exists to prevent, inverted. Conservative by design: when the
+  // reply looks like relaying, fall through to the rules below rather than guessing.
+  const LiveReplyText = StripSlackBlockquotes(ArgInput.LiveReplyText || '').trim();
+  if(LiveReplyText
+    && !ReportedSpeechAttributionPattern.test(LiveReplyText)
+    && HasFirstPersonCommitment(LiveReplyText)) {
+    return {
+      assigneeIDs: SenderID ? [SenderID] : MentionedIDs,
+      notifyIDs: MentionedIDs.filter(ArgID => ArgID !== SenderID),
+      resolvedBy: 'live-reply-commitment',
     };
   }
 
@@ -428,6 +483,7 @@ module.exports = {
   GroupCandidatesByTrigger,
   FindOwnerDisagreement,
   StripQuotedRegions,
+  StripSlackBlockquotes,
   IsSpanInsideQuotedSpeech,
   DetectLeadingAddressBlock,
   HasFirstPersonCommitment,

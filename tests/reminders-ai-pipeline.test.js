@@ -433,6 +433,51 @@ describe('RemindersAIPipeline', () => {
             .toBe(RemindersAIPipeline.DescribeSynthesisRouting(Text, /** @type {any} */ (Reminders)).synthesisOn);
         }
       });
+
+      // GH-143 — enrichment-aware routing. Red before this fix: the production screenshot case
+      // (thread lookback fired, then the short live reply routed Normal → verbatim) had
+      // enrichedContext absent and synthesisOn false.
+      describe('EnrichedContext (GH-143)', () => {
+        it('forces synthesis ON for an enriched short reply that would otherwise stay verbatim', () => {
+          // the exact production shape: 41-char, 1-sentence live reply, enriched from thread.
+          const LiveReply = '<@U_NOEL> can do I will work on it today';
+          const Plain = RemindersAIPipeline.DescribeSynthesisRouting(LiveReply, []);
+          expect(Plain.segment).toBe('normal');
+          expect(Plain.synthesisOn).toBe(false);          // the bug's precondition holds
+          const Enriched = RemindersAIPipeline.DescribeSynthesisRouting(
+            LiveReply, [], { EnrichedContext: true }
+          );
+          expect(Enriched.segment).toBe('normal');        // segment facts unchanged
+          expect(Enriched.synthesisOn).toBe(true);        // routing is not
+          expect(Enriched.enrichedContext).toBe(true);
+          expect(Enriched.routedBy).toBe('enriched_context');
+        });
+
+        it('never defeats the explicit legacy master opt-out', () => {
+          process.env.REMINDER_TEXT_SYNTHESIS = 'off';
+          const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+            'can do I will work on it today', [], { EnrichedContext: true }
+          );
+          expect(Routing.synthesisOn).toBe(false);
+          expect(Routing.routedBy).toBe('master_override');
+          expect(Routing.enrichedContext).toBe(true);     // fact still reported for the log line
+        });
+
+        it('leaves direct (un-enriched) short replies verbatim', () => {
+          const Routing = RemindersAIPipeline.DescribeSynthesisRouting('Ship it today.', []);
+          expect(Routing.synthesisOn).toBe(false);
+          expect(Routing.enrichedContext).toBe(false);
+          expect(Routing.routedBy).toBe('sentence_count');
+        });
+
+        it('reports enriched_context as the router even when the segment would also enable synthesis', () => {
+          const Routing = RemindersAIPipeline.DescribeSynthesisRouting(
+            'One. Two. Three. Four.', [], { EnrichedContext: true }
+          );
+          expect(Routing.synthesisOn).toBe(true);
+          expect(Routing.routedBy).toBe('enriched_context'); // the stronger rule decided
+        });
+      });
     });
 
     describe('IsTextSynthesisEnabled (legacy derived view)', () => {

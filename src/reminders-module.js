@@ -1707,7 +1707,15 @@ class RemindersModule {
       RawDisplaySourceText, AnalysisResult.reminders,
       // the force-schedule branch above sets actionable_language to the whole message, pinning the
       // ratio at 1.0. Reported, never routed on.
-      { SyntheticActionableSpan: UsedSyntheticForceSchedule }
+      // GH-143: an enriched thread reply routes on the SHORT live reply ("can do I'll work on it
+      // today"), which lands in the normal segment where synthesis defaults off — displaying
+      // verbatim the one text that needed thread context to make sense. Enrichment firing is
+      // itself the evidence the raw reply is not self-describing, so it forces synthesis on
+      // (master override still wins inside DescribeSynthesisRouting).
+      {
+        SyntheticActionableSpan: UsedSyntheticForceSchedule,
+        EnrichedContext: ArgUsedEnrichedThreadContext,
+      }
     );
     const SynthesisOn = SynthesisRouting.synthesisOn;
     const DisplayTaskSource = SynthesisRouting.synthesisOn
@@ -1723,6 +1731,7 @@ class RemindersModule {
       ` quote_source=${DisplayQuoteSource} task_source=${DisplayTaskSource}` +
       ` msg_len=${SynthesisRouting.messageLength} sentences=${SynthesisRouting.sentenceCount}` +
       ` segment=${SynthesisRouting.segment} synthesis=${SynthesisRouting.synthesisOn ? 'on' : 'off'}` +
+      ` enrichment=${SynthesisRouting.enrichedContext ? 'on' : 'off'}` +
       ` actionable_span_ratio=${SynthesisRouting.actionableSpanRatio}` +
       ` ratio_usable=${SynthesisRouting.spanRatioUsable ? 'yes' : 'no'} routed_by=${SynthesisRouting.routedBy}`
     );
@@ -1870,6 +1879,9 @@ class RemindersModule {
         ActionableLanguage: GroupActionableLanguage,
         MentionedIDs: ExtractedAssigneeIDs,
         SenderID: ArgUserID,
+        // GH-143: only the enriched path passes the live reply — on direct messages the analyzer's
+        // span IS the sender's own text and rule 1 already covers it.
+        LiveReplyText: ArgUsedEnrichedThreadContext ? (ArgLiveReplyText || '') : '',
         AnalyzerOwner: GroupOwner.owner,
         AnalyzerOwnerMentions: GroupOwner.ownerMentions,
       });

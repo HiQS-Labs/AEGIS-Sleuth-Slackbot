@@ -2523,7 +2523,10 @@ describe('RemindersModule integration via MockSlackApp', () => {
         );
         expect(Persisted).toHaveLength(1);
         expect(Persisted[0].ReminderMessageText).toContain(">I'll handle it tomorrow morning.");
-        expect(Persisted[0].ReminderMessageText).toContain("• I'll handle it tomorrow morning.");
+        // GH-143: enrichment firing forces synthesis ON even for a short (Normal-segment) reply —
+        // the analyzer's context-grounded brief is the bullet, not the verbatim live reply that
+        // needed thread context to make sense in the first place.
+        expect(Persisted[0].ReminderMessageText).toContain('• Handle the deployment pipeline');
         expect(Persisted[0].ReminderMessageText).not.toContain('The deployment pipeline needs to be fixed.');
         expect(
           SlackApp.Logger.InfoMessages.some((ArgMessage) =>
@@ -2536,7 +2539,9 @@ describe('RemindersModule integration via MockSlackApp', () => {
           SlackApp.Logger.InfoMessages.some((ArgMessage) =>
             ArgMessage.includes('reminder display source:') &&
             ArgMessage.includes('quote_source=live_reply') &&
-            ArgMessage.includes('task_source=live_reply_verbatim')
+            ArgMessage.includes('task_source=ai_synthesized_task_title') &&
+            ArgMessage.includes('enrichment=on') &&
+            ArgMessage.includes('routed_by=enriched_context')
           )
         ).toBe(true);
         expect(SlackApp.SentMessages.some((ArgMessage) => ArgMessage.text.includes('Slack reminder has been scheduled'))).toBe(true);

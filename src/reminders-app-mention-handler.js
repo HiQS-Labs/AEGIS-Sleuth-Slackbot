@@ -756,9 +756,14 @@ class RemindersAppMentionHandler {
             if(PrecedingMessage && PrecedingMessage.text && !PrecedingMessage.bot_id) {
               const CombinedText = `${PrecedingMessage.text}\n${ArgEventInfo.text}`;
               ArgSlackApp.Logger.info('semantic gate: resolved "this" from preceding thread message - processing as reminder');
+              // GH-143: this path prepends thread context exactly like the "see above" path, so it
+              // must declare it. Without the live-reply text and the enriched flag it silently
+              // opted out of forced synthesis AND live-reply ownership precedence — the same
+              // defect, one call site over. (Found in cross-model review.)
               const WasScheduled = await this.#TryScheduleRemindersAsync(
                 ArgSlackApp, CombinedText, ArgEventInfo.channel, ArgEventInfo.ts, ArgEventInfo.user,
-                false, ArgEventInfo.thread_ts
+                false, ArgEventInfo.thread_ts, ArgEventInfo.text, true,
+                { SourceTs: PrecedingMessage.ts || null, Path: 'semantic_this' }
               );
               if(WasScheduled) return true;
             } else {

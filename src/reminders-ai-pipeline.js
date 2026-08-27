@@ -605,11 +605,17 @@ class RemindersAIPipeline {
    * @param {string} ArgOriginalText Original Slack message text. Pass it **raw** — newlines intact —
    * so {@link CountSentences} can see line breaks; normalizing first makes the newline rule inert.
    * @param {GptReminderInfo[]} [ArgReminders] Reminder candidates, used for the actionable-span ratio.
-   * @param {{SyntheticActionableSpan?: boolean}} [ArgOptions] `SyntheticActionableSpan` marks a
-   * candidate set whose `actionable_language` was manufactured rather than quoted by the analyzer —
-   * the force-schedule path sets it to the entire message, which pins the ratio at 1.0 and makes it
-   * meaningless. When set, the ratio is reported but never routed on.
-   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, routedBy: 'master_override'|'buried_task_ratio'|'sentence_count' }}
+   * @param {{SyntheticActionableSpan?: boolean, EnrichedContext?: boolean}} [ArgOptions]
+   * `SyntheticActionableSpan` marks a candidate set whose `actionable_language` was manufactured
+   * rather than quoted by the analyzer — the force-schedule path sets it to the entire message,
+   * which pins the ratio at 1.0 and makes it meaningless. When set, the ratio is reported but never
+   * routed on. `EnrichedContext` (GH-143) marks a message whose analysis was grounded in prepended
+   * thread context: enrichment fired precisely because the raw reply was NOT self-describing
+   * ("can do I'll work on it today"), so a verbatim bullet would show the reader the one text that
+   * needed explaining. It forces synthesis ON regardless of segment — only the explicit legacy
+   * master override (`REMINDER_TEXT_SYNTHESIS=off`) beats it, so a deliberate global opt-out is
+   * never silently defeated.
+   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, enrichedContext: boolean, routedBy: 'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count' }}
    */
   static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
     const Original = (ArgOriginalText || '').trim();
@@ -648,14 +654,21 @@ class RemindersAIPipeline {
     const Segment = /** @type {'normal'|'long'} */ (IsBuriedTask ? 'long' : SentenceSegment);
 
     const MasterOverride = RemindersAIPipeline.GetLegacyMasterSynthesisOverride();
+    // GH-143: enrichment beats the per-segment defaults but never the explicit master override —
+    // the segment flags are defaults, the master flag is an operator's deliberate opt-out.
+    const EnrichedContext = ArgOptions?.EnrichedContext === true;
     const SynthesisOn = MasterOverride !== null
       ? MasterOverride
-      : (Segment === 'long'
-        ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
-        : RemindersAIPipeline.IsNormalTextSynthesisEnabled());
+      : EnrichedContext
+        ? true
+        : (Segment === 'long'
+          ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
+          : RemindersAIPipeline.IsNormalTextSynthesisEnabled());
 
-    const RoutedBy = /** @type {'master_override'|'buried_task_ratio'|'sentence_count'} */ (
-      MasterOverride !== null ? 'master_override' : (IsBuriedTask ? 'buried_task_ratio' : 'sentence_count')
+    const RoutedBy = /** @type {'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'} */ (
+      MasterOverride !== null ? 'master_override'
+        : EnrichedContext ? 'enriched_context'
+          : (IsBuriedTask ? 'buried_task_ratio' : 'sentence_count')
     );
 
     return {
@@ -665,6 +678,7 @@ class RemindersAIPipeline {
       messageLength: Original.length,
       actionableSpanRatio: ActionableSpanRatio,
       spanRatioUsable: SpanRatioUsable,
+      enrichedContext: EnrichedContext,
       routedBy: RoutedBy,
     };
   }

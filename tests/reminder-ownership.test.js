@@ -103,6 +103,120 @@ describe('ResolveAssignees', () => {
     expect(Result.notifyIDs).toEqual(['U_ALPHA']);
   });
 
+  // GH-143 — THE SCREENSHOT DEFECT: on the enriched thread path the analyzer's span quoted the ask
+  // out of the PREPENDED context message ("Could you please file a new GH issue?"), written by the
+  // asker, whose "you" meant the replier. Rule 2 then assigned the work back to the asker via the
+  // reply's mention of them. The reply's own first-person grammar must outrank a span the sender
+  // did not write.
+  describe('LiveReplyText (GH-143 enriched thread replies)', () => {
+    test('THE SCREENSHOT DEFECT: a committing reply beats a second-person ask quoted from context', () => {
+      const Result = ResolveAssignees({
+        MessageText: "<@U_NOEL> can do I'll work on it today",
+        // the analyzer, reading context+reply as one blob, quoted the CONTEXT author's ask:
+        ActionableLanguage: 'Could you please file a new GH issue?',
+        MentionedIDs: ['U_NOEL'],
+        SenderID: 'U_SAMUEL',
+        LiveReplyText: "<@U_NOEL> can do I'll work on it today",
+      });
+      expect(Result.assigneeIDs).toEqual(['U_SAMUEL']);
+      expect(Result.resolvedBy).toBe('live-reply-commitment');
+      // the asker was told, not assigned
+      expect(Result.notifyIDs).toEqual(['U_NOEL']);
+    });
+
+    test('a non-committing live reply still lets the second-person ask resolve to mentions', () => {
+      const Result = ResolveAssignees({
+        MessageText: '<@U_NOEL> sounds good, makes sense to me',
+        ActionableLanguage: 'Could you please file a new GH issue?',
+        MentionedIDs: ['U_NOEL'],
+        SenderID: 'U_SAMUEL',
+        LiveReplyText: '<@U_NOEL> sounds good, makes sense to me',
+      });
+      expect(Result.resolvedBy).toBe('second-person-ask');
+      expect(Result.assigneeIDs).toEqual(['U_NOEL']);
+    });
+
+    test('a declining live reply does not take the work (negation guard applies)', () => {
+      const Result = ResolveAssignees({
+        MessageText: "<@U_NOEL> I can't work on it this week",
+        ActionableLanguage: 'Could you please file a new GH issue?',
+        MentionedIDs: ['U_NOEL'],
+        SenderID: 'U_SAMUEL',
+        LiveReplyText: "<@U_NOEL> I can't work on it this week",
+      });
+      expect(Result.resolvedBy).not.toBe('live-reply-commitment');
+    });
+
+    test('rule 1 still wins when the analyzer span is the sender\'s own commitment', () => {
+      const Result = ResolveAssignees({
+        MessageText: "I'll handle it tomorrow morning.",
+        ActionableLanguage: "I'll handle it",
+        MentionedIDs: [],
+        SenderID: 'U_SENDER',
+        LiveReplyText: "I'll handle it tomorrow morning.",
+      });
+      expect(Result.resolvedBy).toBe('first-person-commitment');
+      expect(Result.assigneeIDs).toEqual(['U_SENDER']);
+    });
+
+    // Cross-model review (Codex, 2026-08-27) found the inverse of the original defect: a reply
+    // that RELAYS someone else's commitment was taken as the replier's own. StripQuotedRegions
+    // only knows double quotes, and Slack's `>` blockquote is how people actually quote.
+    test.each([
+      ['a Slack blockquote', '> <@U_ALPHA>: I will deploy it tomorrow'],
+      ['an HTML-escaped blockquote', '&gt; I will deploy it tomorrow'],
+      ['a mention attribution', '<@U_ALPHA> said I will deploy it tomorrow'],
+      ['a name attribution', 'Alpha mentioned I will deploy it tomorrow'],
+      ['a pronoun attribution', 'they told me I will deploy it tomorrow'],
+    ])('does not take ownership from %s — that is somebody else committing', (_Label, ArgLive) => {
+      const Result = ResolveAssignees({
+        MessageText: ArgLive,
+        ActionableLanguage: 'Could you please deploy the hotfix tomorrow?',
+        MentionedIDs: ['U_ALPHA'],
+        SenderID: 'U_SAMUEL',
+        LiveReplyText: ArgLive,
+      });
+      expect(Result.resolvedBy).not.toBe('live-reply-commitment');
+      expect(Result.assigneeIDs).not.toEqual(['U_SAMUEL']);
+    });
+
+    test('quoting someone and then committing yourself still assigns to you', () => {
+      const Live = '> <@U_ALPHA>: should we deploy?\nyes I will deploy it tomorrow';
+      const Result = ResolveAssignees({
+        MessageText: Live,
+        ActionableLanguage: 'Could you please deploy the hotfix tomorrow?',
+        MentionedIDs: ['U_ALPHA'],
+        SenderID: 'U_SAMUEL',
+        LiveReplyText: Live,
+      });
+      expect(Result.resolvedBy).toBe('live-reply-commitment');
+      expect(Result.assigneeIDs).toEqual(['U_SAMUEL']);
+    });
+
+    test('"I said I will…" is the speaker quoting THEMSELVES and still counts', () => {
+      const Live = 'I said I will deploy it tomorrow';
+      const Result = ResolveAssignees({
+        MessageText: Live,
+        ActionableLanguage: 'Could you please deploy the hotfix tomorrow?',
+        MentionedIDs: ['U_ALPHA'],
+        SenderID: 'U_SAMUEL',
+        LiveReplyText: Live,
+      });
+      expect(Result.resolvedBy).toBe('live-reply-commitment');
+    });
+
+    test('absent LiveReplyText (direct, un-enriched messages) changes nothing', () => {
+      const Result = ResolveAssignees({
+        MessageText: '<@U_ALPHA> can you test the release?',
+        ActionableLanguage: 'can you test the release',
+        MentionedIDs: ['U_ALPHA'],
+        SenderID: 'U_SENDER',
+      });
+      expect(Result.resolvedBy).toBe('second-person-ask');
+      expect(Result.assigneeIDs).toEqual(['U_ALPHA']);
+    });
+  });
+
   test('no mentions and a first-person commitment still resolves to the sender', () => {
     const Result = ResolveAssignees({
       MessageText: "I'll deploy the changes tomorrow morning.",
