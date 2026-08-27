@@ -77,7 +77,16 @@ done
 # ---------------------------------------------------------------------------
 [ -x "$GREP" ] || die "$GREP is not executable. Refusing to fall back to \`grep\` (it is shimmed on this machine)."
 [ -x "$SED" ]  || die "$SED is not executable."
-[ -d "${REPO_ROOT}/.git" ] || die "${REPO_ROOT} is not a git repository."
+# .git is a DIRECTORY in a normal clone but a FILE in a linked worktree (git worktree add), so
+# -d answers no for a valid checkout. rev-parse --git-dir resolves for a main checkout, a linked
+# worktree, and a submodule.
+# GH-143: DeployHQ's build server receives a git-LESS export of the tree, so `git ls-files` is
+# impossible there. Falling back to the find-based --all listing keeps the gate fail-closed — it
+# scans a SUPERSET of the tracked files (everything in the export) rather than nothing.
+if ! git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  note "not a git repository — scanning the whole tree (find-based --all listing)"
+  MODE_ALL=1
+fi
 cd "$REPO_ROOT" || die "cannot cd to ${REPO_ROOT}"
 
 # Canary self-test: prove grep finds a string we KNOW is present. This is the guard against the
@@ -114,9 +123,15 @@ note "canary ok (grep literal + regex + xargs -0)"
 # ---------------------------------------------------------------------------
 filelist="${canary_dir}/files.z"
 if [ "$MODE_ALL" -eq 1 ]; then
+  # Strip find's `./` prefix so paths match the same anchors git ls-files paths do — skip_paths
+  # (^node_modules/) and the reviewed-binaries entries are all written repo-relative, and
+  # `./releases.db` silently failing to match `releases.db` re-fails the binary gate (GH-143).
+  # perl -0 processes NUL-terminated records, which this list is.
   find . -type f \
     -not -path './.git/*' -not -path './node_modules/*' -not -path './temp/*' \
-    -not -path './scratch/*' -not -path './.xyz/*' -print0 > "$filelist" 2>/dev/null
+    -not -path './scratch/*' -not -path './.xyz/*' \
+    -not -name '.sanitize-findings.tsv' -print0 2>/dev/null \
+    | perl -0 -pe 's{^\./}{}' > "$filelist"
 else
   git ls-files -z > "$filelist" 2>/dev/null || die "git ls-files failed"
 fi
@@ -328,13 +343,22 @@ done < "$rules"
 #      Unanchored, an entry like `xxx+` drops any real secret that merely CONTAINS "xxx".
 #      Verified: `xoxb-1234567890-9876543210-xxxSECRETxxx` was silently swallowed before this fix.
 findings="${canary_dir}/findings.txt"
+# GH-143: this filter used to run inside awk with dynamic regexes ($5 ~ "^(pat)$"). On mawk —
+# the default awk on Debian-family build images, including DeployHQ's — interval expressions
+# like [0-9]{1,3} are LITERAL braces, so every allow pattern silently failed to match and all
+# 47 placeholder findings (TEST-NET IPs, 127.0.0.1, all-zero Slack ids) leaked through as
+# "secrets". The regex work now runs in $GREP — the tool the canary actually proves — and awk
+# is left with only integer bookkeeping, which every awk dialect agrees on.
 if [ -s "$raw" ]; then
-  awk -F'\t' '
-    NR == FNR { pat[++n] = $0; next }
-    {
-      for (i = 1; i <= n; i++) if ($5 ~ ("^(" pat[i] ")$")) next
-      print
-    }' "$allow" "$raw" > "$findings" 2>/dev/null || : > "$findings"
+  cut -f5 "$raw" > "${canary_dir}/matched-tokens.txt"
+  $SED 's/^/^(/; s/$/)$/' "$allow" > "${canary_dir}/allow-anchored.txt"
+  # line numbers whose matched token is allowlisted; grep exits 1 on zero matches — that's fine.
+  $GREP -nEf "${canary_dir}/allow-anchored.txt" "${canary_dir}/matched-tokens.txt" 2>/dev/null \
+    | cut -d: -f1 > "${canary_dir}/allow-hits.txt" || true
+  awk '
+    NR == FNR { drop[$1] = 1; next }
+    !(FNR in drop)
+  ' "${canary_dir}/allow-hits.txt" "$raw" > "$findings"
 else
   : > "$findings"
 fi
@@ -379,6 +403,12 @@ else
 
     cp "$findings" "${REPO_ROOT}/.sanitize-findings.tsv" 2>/dev/null || true
     printf '\n  Full detail: %s\n\n' "${REPO_ROOT}/.sanitize-findings.tsv"
+    # CI has no shell to open the tsv (DeployHQ build boxes are ephemeral and their log API only
+    # keeps stdout) — print the first findings inline so a red gate is diagnosable from the log.
+    if [ "${CI:-}${DEPLOYHQ:-}" != "" ] || [ ! -t 1 ]; then
+      printf '  First findings (class\tseverity\tfile\tline\tmatch):\n'
+      head -50 "$findings" | $SED 's/^/    /'
+    fi
   fi
 
   # Binaries are reported separately and ALWAYS, including on an otherwise-clean run — they are
