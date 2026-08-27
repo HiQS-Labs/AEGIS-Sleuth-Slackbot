@@ -343,13 +343,22 @@ done < "$rules"
 #      Unanchored, an entry like `xxx+` drops any real secret that merely CONTAINS "xxx".
 #      Verified: `xoxb-1234567890-9876543210-xxxSECRETxxx` was silently swallowed before this fix.
 findings="${canary_dir}/findings.txt"
+# GH-143: this filter used to run inside awk with dynamic regexes ($5 ~ "^(pat)$"). On mawk —
+# the default awk on Debian-family build images, including DeployHQ's — interval expressions
+# like [0-9]{1,3} are LITERAL braces, so every allow pattern silently failed to match and all
+# 47 placeholder findings (TEST-NET IPs, 127.0.0.1, all-zero Slack ids) leaked through as
+# "secrets". The regex work now runs in $GREP — the tool the canary actually proves — and awk
+# is left with only integer bookkeeping, which every awk dialect agrees on.
 if [ -s "$raw" ]; then
-  awk -F'\t' '
-    NR == FNR { pat[++n] = $0; next }
-    {
-      for (i = 1; i <= n; i++) if ($5 ~ ("^(" pat[i] ")$")) next
-      print
-    }' "$allow" "$raw" > "$findings" 2>/dev/null || : > "$findings"
+  cut -f5 "$raw" > "${canary_dir}/matched-tokens.txt"
+  $SED 's/^/^(/; s/$/)$/' "$allow" > "${canary_dir}/allow-anchored.txt"
+  # line numbers whose matched token is allowlisted; grep exits 1 on zero matches — that's fine.
+  $GREP -nEf "${canary_dir}/allow-anchored.txt" "${canary_dir}/matched-tokens.txt" 2>/dev/null \
+    | cut -d: -f1 > "${canary_dir}/allow-hits.txt" || true
+  awk '
+    NR == FNR { drop[$1] = 1; next }
+    !(FNR in drop)
+  ' "${canary_dir}/allow-hits.txt" "$raw" > "$findings"
 else
   : > "$findings"
 fi
