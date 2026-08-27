@@ -3,6 +3,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { execSync } = require('child_process');
+const fsSync = require('fs');
 
 describe('deploy.sh (GH-86 Phase 2)', () => {
   const TestDir = path.join(__dirname, '..', 'temp', 'test-deploy-script');
@@ -135,6 +136,31 @@ EOF
         git --git-dir "${OriginDir}" symbolic-ref HEAD refs/heads/main
         git init --quiet "${MockAppDir}"
         git -C "${MockAppDir}" symbolic-ref HEAD refs/heads/main
+      `);
+
+      // THE GUARD THAT MUST NOT BE REMOVED.
+      //
+      // `git -C <dir>` does not fail when <dir> is not a repository — it walks UP until it finds
+      // one. MockAppDir lives inside this repo, so if the init above silently fails (a sandboxed
+      // shell denying the write, an ancient git rejecting a flag), every `${Git}` below retargets
+      // the REAL repository and `add -A && commit -m base` commits the developer's whole working
+      // tree onto whatever branch they have checked out.
+      //
+      // Not hypothetical: this happened three times on 2026-08-27 — commits authored `t <t@t>`
+      // titled `base`, one of them 58 files, one of them on `main` — and read as a rogue agent
+      // until the committer identity was traced back to this fixture.
+      //
+      // A test that cannot build its fixture must fail, never fall back to mutating the
+      // repository it is being run from.
+      const Toplevel = execSync(`git -C "${MockAppDir}" rev-parse --show-toplevel`, { encoding: 'utf8' }).trim();
+      if(fsSync.realpathSync(Toplevel) !== fsSync.realpathSync(MockAppDir)) {
+        throw new Error(
+          `deploy-script fixture refused to run: ${MockAppDir} is not its own git repository ` +
+          `(git resolved it to ${Toplevel}). Aborting rather than committing to the real repo.`
+        );
+      }
+
+      execSync(`
         ${Git} add -A && ${Git} commit --quiet -m base
         ${Git} remote add origin "${OriginDir}"
         ${Git} push --quiet origin main
