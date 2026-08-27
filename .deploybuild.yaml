@@ -7,10 +7,8 @@
 
 build_languages:
   - name: "node"
-    # 18, matching ci.yml's node-version (18.20.4) — the environment where the full suite is
-    # provably green. Node 20 on the DeployHQ build box failed the suite on all three real gate
-    # runs (~30-57s in, stdout unrecoverable via the API). Bump both together or not at all.
-    version: "18"
+    # 20: the lockfile needs it (node 18 fails npm ci outright — tried 2026-08-27).
+    version: "20"
 
 build_commands:
   - description: "Install dependencies"
@@ -28,7 +26,9 @@ build_commands:
     #    tried and died the same way — one process, nowhere to recycle).
     #  - DeployHQ's log API keeps only step status, not stdout, so a bare failure is undebuggable
     #    from the CLI. On failure, print the log tail so the reason lands in the build output.
-    command: "bash -o pipefail -c 'npx jest --maxWorkers=2 --workerIdleMemoryLimit=800MB --forceExit > jest-build.log 2>&1 || { echo BUILD-GATE jest failed, last 80 lines:; tail -80 jest-build.log; exit 1; }; tail -3 jest-build.log' && npm run --silent test:node"
+    # The tail goes to STDERR: DeployHQ's log API drops build-command stdout but keeps the error
+    # stream, so this is the only way a failure reason reaches `dhq deployments logs`.
+    command: "bash -o pipefail -c 'npx jest --maxWorkers=2 --workerIdleMemoryLimit=800MB --forceExit > jest-build.log 2>&1 || { echo \"BUILD-GATE jest failed, last 60 lines:\" 1>&2; tail -60 jest-build.log 1>&2; exit 1; }; tail -3 jest-build.log' && npm run --silent test:node"
     halt_on_error: true
 
   - description: "Secret and PII scan"
