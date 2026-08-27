@@ -253,14 +253,19 @@ function ConstrainAssigneeToParticipants(ArgProposedID, ArgAllowedIDs, ArgFallba
  * @param {string} [ArgInput.ActionableLanguage] The quoted actionable span driving this reminder.
  * @param {string[]} [ArgInput.MentionedIDs] Human mention IDs already extracted from the source.
  * @param {string} ArgInput.SenderID Original sender.
+ * @param {string} [ArgInput.LiveReplyText] GH-143, enriched thread replies only: the sender's OWN
+ * raw reply, before thread context was prepended. When the analyzer's span quotes an ask out of the
+ * prepended context — written by somebody else, whose "you" refers to the replier — the
+ * second-person rule below would hand the work to the asker. A first-person commitment in the live
+ * reply is the replier taking the work, and it outranks that misread.
  * @param {'speaker'|'mentioned'|'unclear'|null} [ArgInput.AnalyzerOwner] The analyzer's `owner`
  * verdict for this trigger group, when the candidates agree on one. Absent for older responses.
  * @param {string[]} [ArgInput.AnalyzerOwnerMentions] The analyzer's `owner_mentions`, intersected
  * with `MentionedIDs` before use.
  * @returns {{assigneeIDs: string[], notifyIDs: string[], resolvedBy: string}}
- * `resolvedBy` is one of `first-person-commitment` | `second-person-ask` | `analyzer-speaker` |
- * `analyzer-mentioned` | `mentions` | `sender-fallback`, and is surfaced in the `:wrench:` triage so
- * the decision is inspectable.
+ * `resolvedBy` is one of `first-person-commitment` | `live-reply-commitment` | `second-person-ask` |
+ * `analyzer-speaker` | `analyzer-mentioned` | `mentions` | `sender-fallback`, and is surfaced in the
+ * `:wrench:` triage so the decision is inspectable.
  */
 function ResolveAssignees(ArgInput) {
   const MessageText = ArgInput.MessageText || '';
@@ -280,6 +285,23 @@ function ResolveAssignees(ArgInput) {
       // people who were addressed but did not take the work — real interested parties, not owners.
       notifyIDs: MentionedIDs.filter(ArgID => ArgID !== SenderID),
       resolvedBy: 'first-person-commitment',
+    };
+  }
+
+  // 1b. GH-143 — the sender's live reply is itself a first-person commitment. On the enriched
+  // thread path the analyzer reads context + reply as one blob, so its span can quote the ask from
+  // the PREPENDED message ("Could you please file a new GH issue?") — written by someone else, whose
+  // "you" is this sender. Rule 2 below would then assign the work to the asker via the reply's
+  // mention of them ("<@asker> can do, I'll work on it today" → the asker). The reply's own grammar
+  // outranks a span the sender did not write. HasFirstPersonCommitment already strips quoted
+  // regions and rejects spans with second-person asks or negation, so a reply that merely reports
+  // or declines does not take the work.
+  const LiveReplyText = (ArgInput.LiveReplyText || '').trim();
+  if(LiveReplyText && HasFirstPersonCommitment(LiveReplyText)) {
+    return {
+      assigneeIDs: SenderID ? [SenderID] : MentionedIDs,
+      notifyIDs: MentionedIDs.filter(ArgID => ArgID !== SenderID),
+      resolvedBy: 'live-reply-commitment',
     };
   }
 
