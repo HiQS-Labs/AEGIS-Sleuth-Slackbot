@@ -7,7 +7,10 @@
 
 build_languages:
   - name: "node"
-    version: "20"
+    # 18, matching ci.yml's node-version (18.20.4) — the environment where the full suite is
+    # provably green. Node 20 on the DeployHQ build box failed the suite on all three real gate
+    # runs (~30-57s in, stdout unrecoverable via the API). Bump both together or not at all.
+    version: "18"
 
 build_commands:
   - description: "Install dependencies"
