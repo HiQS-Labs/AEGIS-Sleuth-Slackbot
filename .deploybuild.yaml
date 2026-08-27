@@ -19,7 +19,11 @@ build_commands:
     halt_on_error: true
 
   - description: "Test suite"
-    command: "npm test"
+    # --runInBand: the web-api suites are timing-sensitive under parallel workers and flake on the
+    # small build box (2 of the first 3 rebuilt-pipeline deploys died here on tests that pass alone
+    # and pass in most full runs). A deploy gate must be deterministic; serial is slower and never
+    # flakes. GitHub Actions keeps the parallel run, so the race stays visible there. See GH-143.
+    command: "npx jest --runInBand --forceExit && npm run --silent test:node"
     halt_on_error: true
 
   - description: "Secret and PII scan"
