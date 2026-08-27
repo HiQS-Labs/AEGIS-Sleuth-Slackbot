@@ -1,5 +1,7 @@
 'use strict';
 
+const ContextResolution = require('./reminder-context-resolution');
+
 /**
  * Handles emoji reactions that drive user-initiated reminder lifecycle transitions.
  * Manages white_check_mark (complete), alarm_clock (schedule), and wastebasket (delete) reactions.
@@ -24,8 +26,10 @@ class RemindersReactionHandler {
   #DeleteRemindersAsync;
 
   /**
-   * Callback to schedule reminders for a message.
-   * @type {(ArgMessageText: string, ArgChannelID: string, ArgTimestamp: string, ArgUserID: string, ArgForceSchedule: boolean) => Promise<boolean>}
+   * Callback to schedule reminders for a message. The trailing four arguments carry context
+   * resolved by reminder-context-resolution.js (GH-143 Phase 2) — omitted, they default to the
+   * un-enriched behavior this path had before.
+   * @type {(ArgMessageText: string, ArgChannelID: string, ArgTimestamp: string, ArgUserID: string, ArgForceSchedule: boolean, ArgThreadTS?: string|null, ArgLiveReplyText?: string|null, ArgUsedEnrichedThreadContext?: boolean, ArgEnrichment?: {SourceTs: string|null, Path: string}|null) => Promise<boolean>}
    */
   #TryScheduleRemindersAsync;
 
@@ -60,7 +64,7 @@ class RemindersReactionHandler {
    * @param {Object} ArgDependencyBag Dependency bag with callbacks and references.
    * @param {() => Array<any>} ArgDependencyBag.GetPendingReminders Callback to get pending reminders queue.
    * @param {(ArgReminderIDs: string[], ArgReason?: string) => Promise<void>} ArgDependencyBag.DeleteRemindersAsync Callback to delete reminders; ArgReason ('completed'|'canceled'|'dead-letter') drives the Slack List fan-out.
-   * @param {(ArgMessageText: string, ArgChannelID: string, ArgTimestamp: string, ArgUserID: string, ArgForceSchedule: boolean) => Promise<boolean>} ArgDependencyBag.TryScheduleRemindersAsync Callback to schedule reminders.
+   * @param {(ArgMessageText: string, ArgChannelID: string, ArgTimestamp: string, ArgUserID: string, ArgForceSchedule: boolean, ArgThreadTS?: string|null, ArgLiveReplyText?: string|null, ArgUsedEnrichedThreadContext?: boolean, ArgEnrichment?: {SourceTs: string|null, Path: string}|null) => Promise<boolean>} ArgDependencyBag.TryScheduleRemindersAsync Callback to schedule reminders (GH-143: the trailing four carry resolved context).
    * @param {(ArgChannelID: string, ArgTimestamp: string, ArgReactingUserID: string) => Promise<boolean>} [ArgDependencyBag.PostReminderTriageAsync] Callback to post reminder triage diagnostics.
    * @param {((ArgExample: Object) => Promise<void>)|null} [ArgDependencyBag.SaveTrashedExampleAsync] Callback to persist a false-positive training example.
    * @param {(ArgReminder: any, ArgNextState: string, ArgReason: string) => void} ArgDependencyBag.TransitionReminderState FSM state transition callback.
@@ -166,11 +170,43 @@ class RemindersReactionHandler {
       return false; // return false to indicate that the reaction wasn't handled.
     }
 
+    // GH-143 Phase 2: resolve earlier context through the SAME resolver every other entry path
+    // uses. This path had none, which is how the reported case reached the queue verbatim and
+    // wrongly owned: a reaction on "can do, I'll work on it today" carries the whole task in the
+    // message it is replying to. `RequireReference: false` — the human's :alarm_clock: has already
+    // asserted this is a task, so the reference patterns are not an admission gate here.
+    /** @type {import('./reminder-context-resolution').ResolvedContext} */
+    let Context = {
+      enriched: false, text: OriginalMessage.text, liveReplyText: OriginalMessage.text,
+      enrichment: null, prependedCount: 0, decidedBy: 'reaction_resolution_disabled',
+    };
+    if(ContextResolution.IsReactionContextResolutionEnabled()) {
+      Context = await ContextResolution.ResolveContextAsync(
+        this.#SlackApp,
+        {
+          channel: ArgEventInfo.item.channel,
+          ts: ArgEventInfo.item.ts,
+          thread_ts: OriginalMessage.thread_ts ?? null,
+          user: OriginalMessage.user,
+          text: OriginalMessage.text,
+        },
+        { RequireReference: false, PathPrefix: 'alarm_clock_reaction' }
+      );
+    }
+    this.#SlackApp.Logger.info(
+      `reaction schedule: path=alarm_clock enrichment=${Context.decidedBy}` +
+      ` prepended_messages=${Context.prependedCount} antecedent_ts=${Context.enrichment?.SourceTs || 'none'}`
+    );
+
     // attempt to schedule reminders for the message.
     // NOTE: Snooze guard bypass: force scheduling if no scheduling triggers are found in the message.
     return await this.#TryScheduleRemindersAsync(
-      OriginalMessage.text, ArgEventInfo.item.channel, ArgEventInfo.item.ts, OriginalMessage.user,
-      true // force scheduling if no scheduling triggers are found in the message.
+      Context.text, ArgEventInfo.item.channel, ArgEventInfo.item.ts, OriginalMessage.user,
+      true, // force scheduling if no scheduling triggers are found in the message.
+      OriginalMessage.thread_ts ?? null,
+      Context.liveReplyText,
+      Context.enriched,
+      Context.enrichment
     );
   }
 

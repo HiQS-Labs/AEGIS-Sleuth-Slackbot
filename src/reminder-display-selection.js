@@ -133,7 +133,12 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   if(TaskGrounding.UngroundedTerms(Context, GroundingSource).length > 0)
     return { text: '', suppressedBy: 'ungrounded' };
 
-  const Task = SelectTaskText(Candidate, NormalizedOriginal, ArgSynthesisOn).text;
+  // GH-143 Phase 2: pass the analyzed source through. Omitting it made this inner call grade the
+  // title against LESS evidence than the real bullet did, so a title grounded only in prepended
+  // context was rejected here and accepted there — and the context line then duplicated the
+  // bullet it was supposed to explain ("• Fix GH-143" / "_Fix GH-143_"). Found in cross-model
+  // review; reachable for short enriched replies now that they force synthesis.
+  const Task = SelectTaskText(Candidate, NormalizedOriginal, ArgSynthesisOn, ArgAnalyzedSourceText).text;
   if(TaskGrounding.NormalizeForGrounding(Context) === TaskGrounding.NormalizeForGrounding(Task))
     return { text: '', suppressedBy: 'restates-task' };
 

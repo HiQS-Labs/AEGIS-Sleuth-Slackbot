@@ -1,4 +1,5 @@
 'use strict';
+const ContextResolution = require('./reminder-context-resolution');
 
 const {
   BuildCompactTextForReminder,
@@ -115,19 +116,10 @@ const TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE =
  * @returns {boolean}
  */
 function IsObjectPositionPronounReference(ArgText) {
-  const Text = ArgText || '';
-  const PronounMatcher = /\b(it|this|that)\b/gi;
-  let Match;
-  while((Match = PronounMatcher.exec(Text)) !== null) {
-    const Pronoun = Match[1].toLowerCase();
-    const Before = Text.slice(0, Match.index);
-    const After = Text.slice(Match.index + Match[0].length);
-    if(CLAUSE_BOUNDARY_BEFORE_PRONOUN.test(Before)) continue;
-    if(SUBJECT_AUXILIARY_AFTER_PRONOUN.test(After)) continue;
-    if(Pronoun !== 'it' && TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE.test(After)) continue;
-    return true;
-  }
-  return false;
+  // GH-143 Phase 2: the rule itself now lives in reminder-context-resolution.js so every entry
+  // path asks the same question. Kept here as a named re-export because the GH-55 noise corpus
+  // (tests/gh55-antecedent-resolution.test.js) is a fixture against the PRODUCTION rule.
+  return ContextResolution.IsObjectPositionPronounReference(ArgText);
 }
 
 // GH-55 channel-lookback recency window. Named constants with a rationale rather than magic numbers,
@@ -311,17 +303,11 @@ class RemindersAppMentionHandler {
    * @returns {Promise<boolean>} true if a reminder was successfully scheduled with enriched context
    */
   async TryEnrichVagueCompletionFromAboveAsync(ArgSlackApp, ArgEventInfo) {
-    const InThread = Boolean(ArgEventInfo.thread_ts);
-    // GH-55: outside a thread this path is inert unless the channel-lookback kill switch is armed,
-    // so an unset flag leaves AI-call volume byte-identical to before this change.
-    if(!InThread && !RemindersAppMentionHandler.IsChannelAntecedentLookbackEnabled()) return false;
     const Text = ArgEventInfo.text || '';
-    const HasVagueReference =
-      VAGUE_COMPLETION_IN_THREAD_PATTERN.test(Text) ||
-      VAGUE_REFERENCE_IN_THREAD_PATTERN.test(Text) ||
-      ABOVE_REFERENCE_PATTERN.test(Text) ||
-      IsObjectPositionPronounReference(Text);
-    if(!HasVagueReference) return false;
+    // ADMISSION rules stay here — they are this path's own (a scheduling trigger must be present
+    // so a purely informational "see above" never spends a model call). The CONTEXT question is
+    // delegated, so this path and the reaction path cannot disagree about it (GH-143 Phase 2).
+    if(!ContextResolution.NeedsEarlierContext(Text)) return false;
     const TriggerMatch = this.#GetSchedulingTriggerMatch(Text);
     if(!TriggerMatch) return false;
     if(this.#ShouldSuppressHypotheticalSubordinateReply(Text)) {
@@ -331,47 +317,25 @@ class RemindersAppMentionHandler {
       return true;
     }
 
-    let PrecedingMessages = [];
-    try {
-      PrecedingMessages = InThread
-        ? await this.#CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInfo, 3)
-        : await this.#CollectChannelAntecedentCandidatesAsync(ArgSlackApp, ArgEventInfo);
-    } catch(error) {
-      ArgSlackApp.Logger.error('vague reference enrichment: failed to fetch preceding messages:', error);
-      return false;
-    }
+    const Context = await ContextResolution.ResolveContextAsync(ArgSlackApp, ArgEventInfo);
+    if(!Context.enriched) return false;
 
-    if(PrecedingMessages.length === 0) return false;
-
-    const ContextBlock = PrecedingMessages.map((/** @type {any} */ ArgMessage) => ArgMessage.text).join('\n');
-    const EnrichedText = `${ContextBlock}\n${ArgEventInfo.text}`;
-    const ReferenceShape = VAGUE_COMPLETION_IN_THREAD_PATTERN.test(Text)
-      ? 'vague_completion'
-      : VAGUE_REFERENCE_IN_THREAD_PATTERN.test(Text)
-        ? 'vague_reference'
-        : ABOVE_REFERENCE_PATTERN.test(Text)
-          ? 'above_reference'
-          : 'object_position_pronoun';
-    const StructuralPath = `${ReferenceShape}_${InThread ? 'in_thread' : 'in_channel'}`;
-    // The antecedent's ts is what makes a wrong stitch auditable rather than silent — it rides
-    // through to the ReminderCreated ledger payload as `enrichedFrom` (GH-55).
-    const AntecedentTs = PrecedingMessages[PrecedingMessages.length - 1]?.ts || null;
     ArgSlackApp.Logger.info(
-      `reminder path fired: path=${StructuralPath} enrichment=${InThread ? 'thread_context' : 'channel_context'}` +
-      ` temporal_trigger="${TriggerMatch}" prepended_messages=${PrecedingMessages.length}` +
-      ` antecedent_ts=${AntecedentTs || 'none'}`
+      `reminder path fired: path=${Context.enrichment?.Path} enrichment=${Context.decidedBy}` +
+      ` temporal_trigger="${TriggerMatch}" prepended_messages=${Context.prependedCount}` +
+      ` antecedent_ts=${Context.enrichment?.SourceTs || 'none'}`
     );
     return await this.#TryScheduleRemindersAsync(
       ArgSlackApp,
-      EnrichedText,
+      Context.text,
       ArgEventInfo.channel,
       ArgEventInfo.ts,
       ArgEventInfo.user,
       false,
       ArgEventInfo.thread_ts ?? null,
-      ArgEventInfo.text,
+      Context.liveReplyText,
       true,
-      { SourceTs: AntecedentTs, Path: StructuralPath }
+      Context.enrichment
     );
   }
 
@@ -383,8 +347,7 @@ class RemindersAppMentionHandler {
    * @returns {boolean}
    */
   static IsChannelAntecedentLookbackEnabled() {
-    const Raw = (process.env.CHANNEL_ANTECEDENT_LOOKBACK_ENABLED || '').trim().toLowerCase();
-    return Raw === '1' || Raw === 'true' || Raw === 'yes' || Raw === 'on';
+    return ContextResolution.IsChannelAntecedentLookbackEnabled();
   }
 
   /**
@@ -751,23 +714,21 @@ class RemindersAppMentionHandler {
       if(HasDemonstrativeThis && WordCount <= 8 && !HasStrongSchedulingTrigger) {
         if(ArgEventInfo.thread_ts) {
           try {
-            const PrecedingMessage = await this.#FindPrecedingHumanThreadMessageAsync(ArgSlackApp, ArgEventInfo);
+            // GH-143 Phase 2: same resolver as every other path. `this` IS the reference, so the
+            // resolver's own detector is authoritative here rather than a second opinion.
+            const Context = await ContextResolution.ResolveContextAsync(
+              ArgSlackApp, ArgEventInfo, { RequireReference: false, PathPrefix: 'semantic_this' }
+            );
 
-            if(PrecedingMessage && PrecedingMessage.text && !PrecedingMessage.bot_id) {
-              const CombinedText = `${PrecedingMessage.text}\n${ArgEventInfo.text}`;
+            if(Context.enriched) {
               ArgSlackApp.Logger.info('semantic gate: resolved "this" from preceding thread message - processing as reminder');
-              // GH-143: this path prepends thread context exactly like the "see above" path, so it
-              // must declare it. Without the live-reply text and the enriched flag it silently
-              // opted out of forced synthesis AND live-reply ownership precedence — the same
-              // defect, one call site over. (Found in cross-model review.)
               const WasScheduled = await this.#TryScheduleRemindersAsync(
-                ArgSlackApp, CombinedText, ArgEventInfo.channel, ArgEventInfo.ts, ArgEventInfo.user,
-                false, ArgEventInfo.thread_ts, ArgEventInfo.text, true,
-                { SourceTs: PrecedingMessage.ts || null, Path: 'semantic_this' }
+                ArgSlackApp, Context.text, ArgEventInfo.channel, ArgEventInfo.ts, ArgEventInfo.user,
+                false, ArgEventInfo.thread_ts, Context.liveReplyText, true, Context.enrichment
               );
               if(WasScheduled) return true;
             } else {
-              ArgSlackApp.Logger.info('semantic gate: thread context not usable (bot message, empty, or no preceding message) - skipping');
+              ArgSlackApp.Logger.info(`semantic gate: thread context not usable (${Context.decidedBy}) - skipping`);
             }
           } catch(error) {
             ArgSlackApp.Logger.error('semantic gate: failed to fetch thread context:', error);
@@ -885,20 +846,7 @@ class RemindersAppMentionHandler {
    * @returns {Promise<Array<any>>}
    */
   async #CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInfo, ArgMaxCount) {
-    if(!ArgEventInfo.thread_ts) return [];
-
-    const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
-    const CurrentIndex = ThreadMessages.findIndex((/** @type {any} */ ArgMessage) => ArgMessage.ts === ArgEventInfo.ts);
-    if(CurrentIndex <= 0) return [];
-
-    const Collected = [];
-    for(let MessageIndex = CurrentIndex - 1; MessageIndex >= 0 && Collected.length < ArgMaxCount; MessageIndex--) {
-      const CandidateMessage = ThreadMessages[MessageIndex];
-      if(CandidateMessage?.text && !CandidateMessage.bot_id)
-        Collected.push(CandidateMessage);
-    }
-
-    return Collected.reverse();
+    return ContextResolution.CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInfo, ArgMaxCount);
   }
 
   /**

@@ -97,7 +97,8 @@ describe('RemindersReactionHandler', () => {
         'C123',
         '1234567890.000100',
         'U123',
-        true
+        true,
+        null, 'remember to do this tomorrow', false, null // GH-143 resolved-context arguments
       );
     });
 
@@ -252,12 +253,20 @@ describe('RemindersReactionHandler', () => {
       const Result = await Handler.OnReactionAddedAsync(MockSlackAppInstance, EventInfo);
 
       expect(Result).toBe(true);
+      // GH-143 Phase 2: the reaction path now carries resolved context. A self-contained
+      // top-level message has no antecedent to find, so the text is unchanged and the enriched
+      // flag is false — the four trailing arguments are the CONTRACT, not decoration: dropping
+      // them is what silently opted this path out of synthesis and ownership precedence.
       expect(DependencyBag.TryScheduleRemindersAsync).toHaveBeenCalledWith(
         'remember to do this tomorrow',
         'C123',
         '1234567890.000100',
         'U123',
-        true // force scheduling
+        true, // force scheduling
+        null, // thread_ts — not a thread reply
+        'remember to do this tomorrow', // live reply text
+        false, // not enriched: nothing earlier to resolve
+        null // no enrichment provenance
       );
     });
 
