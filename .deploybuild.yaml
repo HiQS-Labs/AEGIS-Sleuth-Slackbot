@@ -19,11 +19,13 @@ build_commands:
     halt_on_error: true
 
   - description: "Test suite"
-    # --runInBand: the web-api suites are timing-sensitive under parallel workers and flake on the
-    # small build box (2 of the first 3 rebuilt-pipeline deploys died here on tests that pass alone
-    # and pass in most full runs). A deploy gate must be deterministic; serial is slower and never
-    # flakes. GitHub Actions keeps the parallel run, so the race stays visible there. See GH-143.
-    command: "npx jest --runInBand --forceExit && npm run --silent test:node"
+    # Tuned for DeployHQ's small build box, where plain `npm test` died mid-run twice (GH-143):
+    #  - --maxWorkers=2 --workerIdleMemoryLimit=800MB: the full 125-suite run accumulates heap;
+    #    the limit recycles a worker instead of letting the box OOM-kill the run (--runInBand was
+    #    tried and died the same way — one process, nowhere to recycle).
+    #  - DeployHQ's log API keeps only step status, not stdout, so a bare failure is undebuggable
+    #    from the CLI. On failure, print the log tail so the reason lands in the build output.
+    command: "bash -o pipefail -c 'npx jest --maxWorkers=2 --workerIdleMemoryLimit=800MB --forceExit > jest-build.log 2>&1 || { echo BUILD-GATE jest failed, last 80 lines:; tail -80 jest-build.log; exit 1; }; tail -3 jest-build.log' && npm run --silent test:node"
     halt_on_error: true
 
   - description: "Secret and PII scan"
