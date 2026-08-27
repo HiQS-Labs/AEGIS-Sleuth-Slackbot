@@ -7,8 +7,12 @@
 
 build_languages:
   - name: "node"
-    # 20: the lockfile needs it (node 18 fails npm ci outright — tried 2026-08-27).
-    version: "20"
+    # 22 (2026-08-27): the empirical matrix — node 18 fails `npm ci` on the build box (a
+    # devDependency wants >=20; the servers are fine because deploy.sh installs --omit=dev),
+    # node 20 passes jest but exits 1 in `npm run test:node` (older node:test runner; 20 is
+    # also past EOL per the build image's own notice), node 22 runs the full suite clean.
+    # Build node only gates tests — servers rebuild their own deps at their own node.
+    version: "22"
 
 build_commands:
   - description: "Install dependencies"
