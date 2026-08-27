@@ -528,3 +528,6 @@ docs/incident-report-*.md
 # lets a clone run clean when the built index is absent. What must NEVER be committed is the index
 # itself — see the data/rag/ rules above; the .sqlite is a build artifact of `ingest.mjs`.
 /.tick/
+
+# Parked/deferred task notes (operator-local)
+PARKED/

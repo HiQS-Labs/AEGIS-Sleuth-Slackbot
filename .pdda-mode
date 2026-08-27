@@ -1,1 +1,9 @@
 observe
+
+# GH-137-adjacent flip (ported from XYZ-forge GH-169/GH-238/GH-243, 2026-08-25/26):
+# releases.db (via releases.sql) is the roadmap's planning source of truth. ROADMAP.md is legacy —
+# park new intake with `python3 utils/py/releases_app.py roadmap add`, read with
+# `python3 utils/py/releases_app.py roadmap list` / ROADMAP-DASHBOARD.md, and
+# `releases_app.py roadmap sync` is a guarded no-op while this marker is present (it mirrors
+# markdown and would delete `add`-parked rows).
+ROADMAP_SOURCE=releases

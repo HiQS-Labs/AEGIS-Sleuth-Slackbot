@@ -16,16 +16,6 @@ of the three banded releases had their bands pass entirely into history with zer
 kept as history, not as a pattern to continue. A release closes when its issues close. The version
 number is a monotonic counter of CHANGELOG headings and belongs to no one.
 
-<!--test-->
-Codename: "Test"
-Release:
-Front-door reviewed: No
-Shakdedown reviwed: No
-License file: No
-Deadline: July 25, 2026
-Description: FTest
-<!--test-->
-
 Release: TBD
 Status: Draft
 Codename: "Confluence"

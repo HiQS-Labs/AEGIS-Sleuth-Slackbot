@@ -18,6 +18,7 @@ This file provides canonical guidance to AI agents working in this repository.
 ## TL;DR) Read This First (Non-Negotiables)
 
 - Before starting a fresh code-search pass in a new session, first consult `ARCHITECTURE.md`, then `CHANGELOG.md` and `PROJECT/` for prior art. Prefer reading those over a broad grep.
+- **Before making any claim about servers, deployment, or what is running in production**, read the gitignored `temp/SOP.md` — it holds the per-user/org server deployment notes (live directories, canonical remotes, open deploy risks) that are deliberately kept out of this public repo. If `temp/SOP.md` is absent in your checkout, ask the operator for it rather than inferring deploy state from repo contents.
 - This repo is a **Node.js JavaScript backend**, not a React/Vite frontend.
 - Core stack: **Slack Bolt + OpenAI + Express + optional Notion API**.
 - Multi-tenant isolation is file-based using workspace-scoped JSON under `data/runtime/` (not Supabase/RLS).

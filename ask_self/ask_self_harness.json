@@ -18,7 +18,7 @@
     "enabled": false
   },
   "github": {
-    "owner": "HiQS-Suite",
+    "owner": "HiQS-Labs",
     "repo": "AEGIS-Sleuth-Slackbot",
     "default_fetch_limit": 200,
     "token_env_vars": ["GITHUB_TOKEN"]
