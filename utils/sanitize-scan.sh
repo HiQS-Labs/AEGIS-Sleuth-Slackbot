@@ -394,6 +394,12 @@ else
 
     cp "$findings" "${REPO_ROOT}/.sanitize-findings.tsv" 2>/dev/null || true
     printf '\n  Full detail: %s\n\n' "${REPO_ROOT}/.sanitize-findings.tsv"
+    # CI has no shell to open the tsv (DeployHQ build boxes are ephemeral and their log API only
+    # keeps stdout) — print the first findings inline so a red gate is diagnosable from the log.
+    if [ "${CI:-}${DEPLOYHQ:-}" != "" ] || [ ! -t 1 ]; then
+      printf '  First findings (class\tseverity\tfile\tline\tmatch):\n'
+      head -50 "$findings" | $SED 's/^/    /'
+    fi
   fi
 
   # Binaries are reported separately and ALWAYS, including on an otherwise-clean run — they are
