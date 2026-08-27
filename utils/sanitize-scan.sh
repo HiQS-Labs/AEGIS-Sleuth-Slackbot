@@ -79,8 +79,14 @@ done
 [ -x "$SED" ]  || die "$SED is not executable."
 # .git is a DIRECTORY in a normal clone but a FILE in a linked worktree (git worktree add), so
 # -d answers no for a valid checkout. rev-parse --git-dir resolves for a main checkout, a linked
-# worktree, and a submodule; the fail-closed die is unchanged.
-git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "${REPO_ROOT} is not a git repository."
+# worktree, and a submodule.
+# GH-143: DeployHQ's build server receives a git-LESS export of the tree, so `git ls-files` is
+# impossible there. Falling back to the find-based --all listing keeps the gate fail-closed — it
+# scans a SUPERSET of the tracked files (everything in the export) rather than nothing.
+if ! git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  note "not a git repository — scanning the whole tree (find-based --all listing)"
+  MODE_ALL=1
+fi
 cd "$REPO_ROOT" || die "cannot cd to ${REPO_ROOT}"
 
 # Canary self-test: prove grep finds a string we KNOW is present. This is the guard against the
@@ -117,9 +123,15 @@ note "canary ok (grep literal + regex + xargs -0)"
 # ---------------------------------------------------------------------------
 filelist="${canary_dir}/files.z"
 if [ "$MODE_ALL" -eq 1 ]; then
+  # Strip find's `./` prefix so paths match the same anchors git ls-files paths do — skip_paths
+  # (^node_modules/) and the reviewed-binaries entries are all written repo-relative, and
+  # `./releases.db` silently failing to match `releases.db` re-fails the binary gate (GH-143).
+  # perl -0 processes NUL-terminated records, which this list is.
   find . -type f \
     -not -path './.git/*' -not -path './node_modules/*' -not -path './temp/*' \
-    -not -path './scratch/*' -not -path './.xyz/*' -print0 > "$filelist" 2>/dev/null
+    -not -path './scratch/*' -not -path './.xyz/*' \
+    -not -name '.sanitize-findings.tsv' -print0 2>/dev/null \
+    | perl -0 -pe 's{^\./}{}' > "$filelist"
 else
   git ls-files -z > "$filelist" 2>/dev/null || die "git ls-files failed"
 fi

@@ -33,7 +33,9 @@ build_commands:
     # Both halves log to a file and replay it on failure. Output is visible in the DeployHQ web
     # dashboard only (the CLI/API drops build-command stdout and stderr both — verified 2026-08-27),
     # so the failing half must say which it is and dump its log to stdout for the dashboard.
-    command: "bash -c 'node -v; npx jest --maxWorkers=2 --workerIdleMemoryLimit=800MB --forceExit > jest-build.log 2>&1 || { echo BUILD-GATE-JEST-FAILED; tail -60 jest-build.log; exit 1; }; tail -3 jest-build.log; npm run --silent test:node > node-test.log 2>&1 || { echo BUILD-GATE-TEST-NODE-FAILED; cat node-test.log; exit 1; }; tail -8 node-test.log'"
+    # Logs live in /tmp, NOT the tree: the sanitize-scan step runs after this one and would scan
+    # them — jest output quotes test-fixture mock tokens, which would fail the secret gate.
+    command: "bash -c 'node -v; npx jest --maxWorkers=2 --workerIdleMemoryLimit=800MB --forceExit > /tmp/jest-build.log 2>&1 || { echo BUILD-GATE-JEST-FAILED; tail -60 /tmp/jest-build.log; exit 1; }; tail -3 /tmp/jest-build.log; npm run --silent test:node > /tmp/node-test.log 2>&1 || { echo BUILD-GATE-TEST-NODE-FAILED; cat /tmp/node-test.log; exit 1; }; tail -8 /tmp/node-test.log'"
     halt_on_error: true
 
   - description: "Secret and PII scan"
