@@ -205,6 +205,25 @@ Keep `npm run build` passing (`checkJs` + `noImplicitAny` workflow).
   - The `startup with stale reminders` suite in `tests/reminders-integration.test.js` seeds overdue reminders to disk, loads via `StartAsync`, and triggers `process reminders now` to verify post counts and persisted state.
   - Any change to `#CheckRemindersAsync`, `#LoadRemindersAsync`, rescheduling logic, or FSM transitions should include a corresponding startup test case.
   - See `docs/reminder-fsm-audit.md` § *Startup regression test coverage* for the full test matrix.
+- Reminder quality replay (when a reminder path, the context resolver, or an AI prompt asset changed):
+  - `OPENAI_API_KEY_FILE=<path> node utils/reminder-replay.js utils/replay-scenarios.json`
+  - Drives real Slack-shaped events through the real handlers, resolver, prompts, and a real model
+    call, then grades the task text and assignee that come out. Exit code 0 only when every
+    expectation held.
+  - **Why this exists, and why the unit suite is not a substitute.** Every GH-143 defect — a task
+    reading "Do all of the above", a whole 250-character message pasted back as a title, a reminder
+    assigned to the asker instead of the person who committed — passed the entire unit suite. That
+    suite asserts *plumbing* (which path fired, which flag was set, who was assigned) and stubs the
+    model, and all three defects lived in the layers it stubs: what context gets assembled, and what
+    the analyzer writes when it reads that context. Four rounds of a human typing threads into Slack
+    and pasting screenshots located one bug. Add a scenario here instead.
+  - Do NOT replace this with a bot that posts into Slack. It was tried: Slack stamps a `bot_id` on
+    messages sent with an app-owned user token, and the resolver skips `bot_id` messages when
+    collecting antecedents, so the posted thread is invisible as context and the run passes while
+    testing nothing. Making it work would mean loosening the production bot filter for a test.
+  - A scenario with no `expect` block is a "show me what happens" run, not a gate. When a scenario
+    documents an OPEN gap, assert the behavior you want and let it FAIL — a harness that green-lights
+    wrong output is worse than no harness.
 - Manual checks in a test Slack workspace:
   - App mention chat flow.
   - Reminder creation from natural language.

@@ -33,6 +33,31 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.317 - 2026-08-27
+
+Internal only — nothing changes for you. Adds a way for us to replay a Slack conversation through
+my whole reminder brain offline, so the kind of wrong reminder you saw this week gets caught before
+it reaches you instead of after.
+
+**Technical:** GH-143. New `utils/reminder-replay.js` + `utils/replay-scenarios.json` drive real
+Slack-shaped events through the real handler chain, admission gates, context resolver, prompt
+assets, and a real model call, then grade the produced task text and assignee. Isolated to a temp
+`SLEUTH_DATA_DIR` that is removed on exit; exit code 0 only when every expectation holds, so it can
+gate. It grades the BULLETS from the scheduling confirmation, not `ReminderMessageText` — the
+stored text is the whole composed body, so grading it scores prepended context as if it were the
+task. A `maxTaskLength` expectation catches the "whole source message pasted back" shape that a
+`contains` check passes every time.
+
+Why it is not a Slack bot: posting from a bot was built and rejected on evidence. Slack stamps a
+`bot_id` on messages sent with an app-owned user token, and the resolver skips `bot_id` messages
+when collecting antecedents, so a posted thread is invisible as context and the run passes while
+testing nothing — confirmed against dev telemetry (`enrichment=none`), not assumed.
+
+First run: the ⏰ production case and the "do above" shorthand both pass; the multiple-referents
+case fails honestly — the pointer bullet is gone but the referenced tasks are still not enumerated.
+That scenario is left failing on purpose rather than relaxed to green. `AGENTS.md` §8 documents
+when to run it and why the unit suite is not a substitute.
+
 ## 1.4.316 - 2026-08-27
 
 Two fixes to how I read "the above". If you point at several earlier tasks I now give you one

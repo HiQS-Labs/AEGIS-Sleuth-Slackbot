@@ -1,0 +1,78 @@
+[
+  {
+    "name": "GH-143 A: 'all of the above' must name the tasks, not repeat the phrase",
+    "kind": "message",
+    "thread": [
+      {
+        "user": "U_NOEL",
+        "text": "Let's go to the Lake next month."
+      },
+      {
+        "user": "U_NOEL",
+        "text": "<@U_SAM> let's take the car."
+      },
+      {
+        "user": "U_NOEL",
+        "text": "<@U_SAM> please bring the cooler."
+      }
+    ],
+    "event": {
+      "user": "U_NOEL",
+      "text": "<@U_SAM> can you do all of the above tomorrow?"
+    },
+    "expect": {
+      "taskNotContains": [
+        "all of the above"
+      ],
+      "taskContains": [
+        "cooler"
+      ],
+      "assignee": "U_SAM",
+      "note": "OPEN GAP: the MULTIPLE REFERENTS prompt rule does not yet enumerate the referenced tasks; the pointer bullet IS gone."
+    }
+  },
+  {
+    "name": "GH-143 B: 'do above' shorthand must not quote the whole source message",
+    "kind": "message",
+    "thread": [
+      {
+        "user": "U_NOEL",
+        "text": "I think if you can help make a memo to codify the pivot away that would be helpful and we can put it into a do not pursue list so we pause on the features around it. Could you please file a new GH issue?"
+      }
+    ],
+    "event": {
+      "user": "U_SAM",
+      "text": "I'll do above tomorrow."
+    },
+    "expect": {
+      "taskNotContains": [
+        "do not pursue list so we pause",
+        "Could you please file a new GH issue?"
+      ],
+      "maxTaskLength": 90
+    }
+  },
+  {
+    "name": "GH-143 C: the reported production case \u2014 terse commitment, owner is who committed",
+    "kind": "message",
+    "thread": [
+      {
+        "user": "U_NOEL",
+        "text": "<@U_SAM> can you file a GH issue for the enrichment bug?"
+      }
+    ],
+    "event": {
+      "user": "U_SAM",
+      "text": "<@U_NOEL> can do, I'll work on it today."
+    },
+    "expect": {
+      "taskContains": [
+        "issue"
+      ],
+      "taskNotContains": [
+        "can do"
+      ],
+      "assignee": "U_SAM"
+    }
+  }
+]
