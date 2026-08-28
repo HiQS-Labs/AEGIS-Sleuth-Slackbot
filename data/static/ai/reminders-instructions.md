@@ -87,6 +87,41 @@ The JSON output must be generated as follows:
        - When a message describes a completed action for one target and then says the sender will do another target later, carry forward the prior action/context and replace only the target.
        - Example: given `CBDAffs turned off on Client C. Will do Client A tomorrow morning.`, this string property should contain the text `CBDAffs turn off on Client A`, not `Do Client A`.
        - This also applies to short follow-up phrases like `will do X`, `do X tomorrow`, `same for X`, or `also X` when the previous clause contains the real action.
+       - **CONTEXT MARKERS**: a message may arrive with earlier thread messages attached, in this
+         exact shape:
+         ```
+         [earlier messages in this thread, for reference]
+         1. <@U1> let's take the car.
+         2. <@U2> please bring the cooler.
+         [the message to act on]
+         <@U2> can you do all of the above tomorrow?
+         ```
+         Only the text under `[the message to act on]` is the message. The numbered lines are
+         reference material: they tell you what a pointer like `the above` refers to, and they are
+         what you resolve it INTO. Never return a marker line, a number, or the header text itself
+         as part of a task. Never treat the numbered lines as the message's own content — a
+         numbered line is only a task if the message to act on points at it.
+       - **CRITICAL - RESOLVE THE REFERENCE RULE**: `reminder_message` must never leave a backward
+         reference as its object. If the task text would read `the above`, `all of the above`,
+         `it`, `this`, or `that` as the thing to be done, you MUST replace it with the actual task
+         named in the earlier messages you were given. A reminder that says "do all of the above"
+         tells the reader nothing they did not already know.
+         - Example: given the earlier messages `<@U1> let's take the car.` and `<@U2> please bring
+           the cooler.` followed by `<@U2> can you do all of the above tomorrow?`, do NOT return
+           `Do all of the above`.
+       - **MULTIPLE REFERENTS RULE**: when a reference points at more than one earlier task, return
+         one object per task, not one object summarizing them. Each gets its own
+         `reminder_message`; they share the same `scheduling_trigger`.
+         - Example: the messages above produce two objects — `Take the car` and `Bring the cooler` —
+           both with `scheduling_trigger` `tomorrow`.
+         - Cover EVERY earlier task the reference points at, not a subset. `all of the above` with
+           three earlier tasks means three objects; returning two silently loses one. When the
+           context is numbered, `all of the above` means every numbered line — count them and
+           return that many objects.
+         - Do NOT also return the referring sentence itself as its own object. `can you do all of
+           the above tomorrow?` is the pointer, not a fourth task.
+       - If the earlier messages do not actually name a task, prefer `ignore` over inventing one.
+         Never satisfy these two rules by guessing at content you were not given (see GROUNDING RULE).
        - **CRITICAL - QUOTED TEXT RULE**: If the message contains text enclosed in quotes (single or double), you MUST use that quoted text VERBATIM as the `reminder_message`. Do NOT summarize, shorten, paraphrase, or modify quoted text in any way. Include the quote marks in the final task name.
        - Example: given `I need to work on "On-going Project: X" tomorrow`, this string property should contain the text `"On-going Project: X"` (with quotes).
        - Example: given `Please handle 'Use Quotes for Task Names' by Friday`, this string property should contain the text `'Use Quotes for Task Names'` (with quotes).

@@ -33,6 +33,167 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.320 - 2026-08-27
+
+Fixes from a second independent review. Your own numbered lists are no longer edited, "I'll take
+care of both tomorrow" reaches every task you pointed at, and operators gain a switch to turn
+thread context off without a redeploy.
+
+**Technical:** GH-143, from the agy branch review. (1) `StripContextMarkers` stripped leading
+`N. ` from every displayed line, so a user's own "1. ship the release" silently became "ship the
+release"; numbering is now removed only when a marker line proves the text is the resolver's wire
+format. (2) `COLLECTIVE_REFERENCE_PATTERN` claimed object-position-only but three of its branches
+matched subject position, so "All of them are down" read as a backward reference; every branch is
+now verb/preposition-anchored and the comment matches the code. (3) The two marker branches were
+asymmetric in trailing tolerance, so `[the message to act on tomorrow]` survived as a usable
+delimiter. (4) A thread page boundary made `findIndex` return -1, indistinguishable from "this is
+the thread root", and dropped enrichment silently on exactly the busy threads most likely to need
+it; it now warns. (5) New `THREAD_CONTEXT_RESOLUTION_ENABLED` (default on): thread enrichment on
+the app-mention paths had no kill switch, leaving a hole in the rollback plan. All three switches
+are documented in AGENTS.md §12.
+
+Known limitation shipped with this: extraction is nondeterministic — see issue #149. jest 2180,
+node:test 116, tsc clean, replay 4/5 (the failure is #149).
+
+## 1.4.319 - 2026-08-27
+
+More reliability on "do the above": pointing at several earlier tasks now schedules all of them
+whichever way you ask, a genuinely separate to-do sitting beside a resolved one is no longer
+dropped, and no reminder can show you my internal formatting.
+
+**Technical:** GH-143, from a Codex branch review. Five fixes.
+(1) `TryHandleTaskAboveShorthandAsync` still ran a private ONE-message lookup, so "do the above"
+over two earlier tasks silently lost one. It now calls `ResolveContextAsync` like every other door;
+the resolver returns `enrichment.SourceUser` so the antecedent's identity no longer needs a second
+private lookup. (2) The context markers were prompt-injectable — a message containing a literal
+`[the message to act on]` line forged a second delimiter with no precedence rule.
+`NeutralizeContextMarkers` defangs brackets to parentheses in both context and live text; a test
+pins that exactly one delimiter survives. (3) `DropUnresolvedReferenceCandidates` dropped EVERY
+pointer-titled candidate when any sibling resolved, deleting real work ("discuss it with the team
+Friday"). It now requires redundancy, not vagueness: the title must also be the live reply restated,
+at 60% coverage — substring alone matched a clause. (4) Marker text could reach a reminder title
+through the verbatim display path; `StripContextMarkers` removes markers and list numbering at the
+display boundary, while grounding still measures against the full source. (5) The replay harness had
+two false-greens (a scenario passed on zero reminders; assignees were flattened across all reminders
+so right-owner-wrong-task passed) and shared one workspace across scenarios, making verdicts
+order-dependent. Each scenario now gets its own workspace, bullets pair with their own reminder, and
+a graded scenario must schedule something unless it sets `expectNone`.
+
+The reaction kill-switch comment no longer claims byte-identical call shape — it is
+behaviour-identical; the scheduler's signature has grown and nothing can restore the old arity.
+Replay 4/4, jest 2160, node:test 116, tsc clean.
+
+## 1.4.318 - 2026-08-27
+
+"Can you do all of the above tomorrow?" now gives you one reminder per thing you pointed at —
+"Take the car", "Bring the cooler" — instead of one reminder for the wrong thing.
+
+**Technical:** GH-143, the last open gap, and the cause was not the prompt. Prepended context was
+joined as bare lines, which is indistinguishable from one multi-line message: the analyzer returned
+the FIRST line of the blob as the task. It was not disobeying the MULTIPLE REFERENTS rule so much
+as unable to see that there were multiple referents, or which line was the message to act on.
+`reminder-context-resolution.js` now labels and numbers the block —
+`[earlier messages in this thread, for reference]`, numbered lines,
+`[the message to act on]` — exported as `CONTEXT_BLOCK_HEADER` / `LIVE_MESSAGE_HEADER` because the
+markers are a contract with `reminders-instructions.md`, which gained a CONTEXT MARKERS section
+naming them and a rule that `all of the above` over numbered context means one task per number.
+`liveReplyText` stays unmarked: ownership reads its grammar, and a marker line would change the
+sentence the first-person-commitment rule looks at. This replaced the parked plan of routing
+multi-referent messages through whole-thread extraction — less code, and it fixes the cause rather
+than working around it. `utils/reminder-replay.js` now reports 3/3.
+
+## 1.4.317 - 2026-08-27
+
+Internal only — nothing changes for you. Adds a way for us to replay a Slack conversation through
+my whole reminder brain offline, so the kind of wrong reminder you saw this week gets caught before
+it reaches you instead of after.
+
+**Technical:** GH-143. New `utils/reminder-replay.js` + `utils/replay-scenarios.json` drive real
+Slack-shaped events through the real handler chain, admission gates, context resolver, prompt
+assets, and a real model call, then grade the produced task text and assignee. Isolated to a temp
+`SLEUTH_DATA_DIR` that is removed on exit; exit code 0 only when every expectation holds, so it can
+gate. It grades the BULLETS from the scheduling confirmation, not `ReminderMessageText` — the
+stored text is the whole composed body, so grading it scores prepended context as if it were the
+task. A `maxTaskLength` expectation catches the "whole source message pasted back" shape that a
+`contains` check passes every time.
+
+Why it is not a Slack bot: posting from a bot was built and rejected on evidence. Slack stamps a
+`bot_id` on messages sent with an app-owned user token, and the resolver skips `bot_id` messages
+when collecting antecedents, so a posted thread is invisible as context and the run passes while
+testing nothing — confirmed against dev telemetry (`enrichment=none`), not assumed.
+
+First run: the ⏰ production case and the "do above" shorthand both pass; the multiple-referents
+case fails honestly — the pointer bullet is gone but the referenced tasks are still not enumerated.
+That scenario is left failing on purpose rather than relaxed to green. `AGENTS.md` §8 documents
+when to run it and why the unit suite is not a substitute.
+
+## 1.4.316 - 2026-08-27
+
+Two fixes to how I read "the above". If you point at several earlier tasks I now give you one
+reminder each and stop adding a bullet that just repeats your question back. And a thread reply
+like "I'll do above tomorrow" no longer turns into the entire message above it, quoted in full.
+
+**Technical:** GH-143, from live dev testing. (1) A fifth entry door nobody had counted:
+`TryHandleTaskAboveShorthandAsync` intercepts "do/handle/follow up on above" in thread replies
+before the resolver runs, and handed the analyzer
+`Create a reminder for <@U> to handle this task: "<whole source message>" — tomorrow`. That
+wrapper defeated the pipeline twice — the quotes collide with the analyzer's CRITICAL QUOTED TEXT
+RULE, so a 250-character source message came back as the title unsummarized; and because the
+stitching happened in the handler, the reminder recorded `enrichment=off` while enriched. It now
+feeds the same shape every other door feeds (antecedent line, live reply) and passes resolved
+context, keeping the target mention and the defaulted schedule that the wrapper used to carry.
+(2) `DropUnresolvedReferenceCandidates` in `reminder-display-selection.js` removes a candidate
+whose title is still a bare pointer ("can you do all of the above") when context WAS prepended and
+a sibling candidate resolved it — guarded so it never fires unenriched and never empties the set.
+Applied identically in scheduling and `:wrench:` triage. (3) The MULTIPLE REFERENTS prompt rule
+now says cover every referent, not a subset, and never return the referring sentence as its own
+task. Tests: jest 2154, node:test 116, tsc clean.
+
+## 1.4.315 - 2026-08-27
+
+When someone says "can you do all of the above tomorrow?", I now write out what "the above"
+actually was instead of scheduling a reminder that just repeats the phrase back at you. If it
+points at several tasks, you get one reminder per task.
+
+**Technical:** GH-143. The routing half was already correct — telemetry on the reported thread
+showed `enrichment=thread_context prepended_messages=3 synthesis=on` and the right assignee — and
+the reminder still read "Do all of the above". The failure was in extraction, so the fix is in the
+prompts: `data/static/ai/reminders-instructions.md` gains a RESOLVE THE REFERENCE rule (a
+`reminder_message` may not leave `the above`/`it`/`this`/`that` as its object) and a MULTIPLE
+REFERENTS rule (one candidate per referenced task, sharing the trigger), both bounded by the
+existing grounding rule so an unnamed task yields `ignore` rather than an invention.
+`manual-reminder-task-instructions.md` gets the same rule — the :alarm_clock: path falls back to
+it when the analyzer returns no candidates, so fixing only the analyzer would leave that door open.
+Detection is now observable: `reminders-module.js` logs `reminder unresolved reference:` when a
+produced title still carries a backward reference (reported, never rewritten — silently patching a
+model title would hide which prompt change worked). `ABOVE_REFERENCE_PATTERN` excludes "above the
+fold" and "above all", where "above" is a position rather than a pointer. New
+`tests/gh143-unresolved-reference.test.js` covers the detector corpus and guards that both prompt
+rules are still present — the harness gap that let this ship green.
+
+## 1.4.314 - 2026-08-27
+
+When you react :alarm_clock: to a short reply like "can do, I'll work on it today", I now read the
+message it's replying to before I write the reminder — so the task text is the real task and the
+owner is the person who committed, not the person who asked. I also stopped pulling in unrelated
+messages from busy threads, and the :wrench: triage view now explains the decision I actually made.
+
+**Technical:** GH-143 Phase 2 follow-up, from a cross-model review of the Phase 2 resolver.
+`src/reminder-context-resolution.js` drops the `RequireReference` option entirely: the resolver
+answers only "what earlier context exists", and every caller enforces its own admission rule
+before calling (the `see above` path via `NeedsEarlierContext`, the semantic-`this` path via its
+demonstrative gate, the :alarm_clock: reaction by virtue of the reaction itself). An admission
+flag re-created the four disagreeing policies the module exists to delete.
+`THREAD_LOOKBACK_MAX_MESSAGES` 3 -> 1: a thread asserts messages belong together, not that they
+share a task, so three unfiltered messages handed the analyzer a neighbour's task text and a
+neighbour's @mention. `PathPrefix` now outranks the detected reference shape, keeping the
+provenance `Path` tied to the door the message came through. `:wrench:` triage
+(`src/reminders-module.js`) no longer re-resolves context unconditionally — it mirrors the message
+path's gate, and grounds candidate titles against the text the analyzer actually read, so it
+stops reporting "enriched/synthesized" for reminders scheduled bare. `REACTION_CONTEXT_RESOLUTION_ENABLED=off`
+is byte-identical to pre-GH-143 again: `thread_ts` is passed only when the switch is on
+(`src/reminders-reaction-handler.js`).
+
 ## 1.4.313 - 2026-08-24
 I'll now take a smarter guess at what you meant when a typo doesn't match any of my commands
 closely enough for a quick "did you mean" nudge — behind a flag, off by default. Also fixed a case

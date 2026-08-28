@@ -12,6 +12,7 @@ const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
 const DecisionExplain = require('./decision-explain');
 const ReminderOwnership = require('./reminder-ownership');
+const ContextResolution = require('./reminder-context-resolution');
 const TaskGrounding = require('./task-grounding');
 const ReminderDisplaySelection = require('./reminder-display-selection');
 const {
@@ -1294,8 +1295,25 @@ class RemindersModule {
     this.#ReactionHandler = new RemindersReactionHandler(this.#SlackApp, {
       GetPendingReminders: () => this.#PendingRemindersQueue,
       DeleteRemindersAsync: (ArgReminderIDs, ArgReason) => this.#DeleteRemindersAsync(ArgReminderIDs, ArgReason),
-      TryScheduleRemindersAsync: (ArgMessageText, ArgChannelID, ArgTimestamp, ArgUserID, ArgForceSchedule) =>
-        this.#TryScheduleRemindersAsync(this.#SlackApp, ArgMessageText, ArgChannelID, ArgTimestamp, ArgUserID, ArgForceSchedule),
+      // GH-143 Phase 2: the reaction path may now resolve context like every other entry path, so
+      // the enrichment arguments have to reach the scheduler from here too. Before this the
+      // reaction could only ever schedule a bare message — which is how the reported production
+      // case (an :alarm_clock: on "can do, I'll work on it today") reached the queue verbatim.
+      TryScheduleRemindersAsync: (
+        /** @type {string} */ ArgMessageText,
+        /** @type {string} */ ArgChannelID,
+        /** @type {string} */ ArgTimestamp,
+        /** @type {string} */ ArgUserID,
+        /** @type {boolean} */ ArgForceSchedule,
+        /** @type {string|null} */ ArgThreadTS = null,
+        /** @type {string|null} */ ArgLiveReplyText = null,
+        /** @type {boolean} */ ArgUsedEnrichedThreadContext = false,
+        /** @type {{SourceTs: string|null, Path: string}|null} */ ArgEnrichment = null
+      ) =>
+        this.#TryScheduleRemindersAsync(
+          this.#SlackApp, ArgMessageText, ArgChannelID, ArgTimestamp, ArgUserID, ArgForceSchedule,
+          ArgThreadTS, ArgLiveReplyText, ArgUsedEnrichedThreadContext, ArgEnrichment
+        ),
       PostReminderTriageAsync: (ArgChannelID, ArgTimestamp, ArgReactingUserID) =>
         this.#PostReminderTriageAsync(ArgChannelID, ArgTimestamp, ArgReactingUserID),
       SaveTrashedExampleAsync: (ArgExample) => this.#SaveTrashedExampleAsync(ArgExample),
@@ -1732,6 +1750,10 @@ class RemindersModule {
       ` msg_len=${SynthesisRouting.messageLength} sentences=${SynthesisRouting.sentenceCount}` +
       ` segment=${SynthesisRouting.segment} synthesis=${SynthesisRouting.synthesisOn ? 'on' : 'off'}` +
       ` enrichment=${SynthesisRouting.enrichedContext ? 'on' : 'off'}` +
+      // GH-143 Phase 2: which enrichment provenance path produced that flag. Without it the log
+      // says context was used but not which of the (now single) resolver's outcomes produced it,
+      // which is the first question asked when a stitch looks wrong.
+      ` enrichment_path=${ArgEnrichment?.Path || 'none'}` +
       ` actionable_span_ratio=${SynthesisRouting.actionableSpanRatio}` +
       ` ratio_usable=${SynthesisRouting.spanRatioUsable ? 'yes' : 'no'} routed_by=${SynthesisRouting.routedBy}`
     );
@@ -1752,6 +1774,29 @@ class RemindersModule {
     AnalysisResult.reminders = this.#DedupeCandidatesByRenderIdentity(
       AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
     );
+
+    // GH-143: did the analyzer actually RESOLVE the reference it was given context for? A title
+    // that still reads "do all of the above" / "do it" is the failure the enrichment exists to
+    // prevent, and it is invisible in every other field on the line above — enrichment=on,
+    // synthesis=on, ownership correct, and the reminder still says nothing. Reported, not acted
+    // on: the fix belongs in the extraction prompt, and silently rewriting a model title here
+    // would hide which prompt change worked.
+    const RenderedCandidates = AnalysisResult.reminders.map((/** @type {any} */ ArgCandidate) => ({
+      candidate: ArgCandidate,
+      text: this.#SelectReminderTaskText(ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText),
+    }));
+    const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
+      RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
+      ArgLiveReplyText || '',
+    );
+    if(ReferenceFilter.droppedCount > 0) {
+      ArgSlackApp.Logger.warn(
+        `reminder unresolved reference: path=${StructuralPath} enrichment=${ArgUsedEnrichedThreadContext ? 'on' : 'off'}` +
+        ` enrichment_path=${ArgEnrichment?.Path || 'none'} candidates=${AnalysisResult.reminders.length}` +
+        ` dropped=${ReferenceFilter.droppedCount} action=dropped_alongside_resolved_siblings`
+      );
+      AnalysisResult.reminders = ReferenceFilter.kept;
+    }
 
     // exit early if the recommendation is to ignore the message.
     if(AnalysisResult.recommendation === 'ignore') return false;
@@ -2096,7 +2141,33 @@ class RemindersModule {
       return true;
     }
 
-    const TriageResult = await this.#AIPipeline.GetReminderTriageAsync(OriginalText);
+    // GH-143 Phase 2: triage must ask the SAME context question scheduling asks, or it explains a
+    // decision the pipeline never made. Before this, an enriched thread reply scheduled with a
+    // synthesized title and live-reply ownership while triage reported normal-segment/verbatim
+    // routing and a different ownership rule — its "run the REAL resolver" contract, broken.
+    // The ADMISSION rule here must be the one the MESSAGE paths use, not "always". Enriching every
+    // in-thread message made triage report a synthesized, enriched decision for reminders the
+    // plain auto-schedule path had scheduled bare and unenriched — the same "explains a decision
+    // the pipeline never made" defect, with the sign flipped.
+    /** @type {import('./reminder-context-resolution').ResolvedContext} */
+    let TriageContext = {
+      enriched: false, text: OriginalText, liveReplyText: OriginalText,
+      enrichment: null, prependedCount: 0, decidedBy: 'no_reference',
+    };
+    if(ContextResolution.NeedsEarlierContext(OriginalText)) {
+      TriageContext = await ContextResolution.ResolveContextAsync(
+        this.#SlackApp,
+        {
+          channel: ArgChannelID,
+          ts: ArgMessageID,
+          thread_ts: OriginalMessage.thread_ts ?? null,
+          user: OriginalMessage.user,
+          text: OriginalText,
+        },
+        { PathPrefix: 'wrench_triage' }
+      );
+    }
+    const TriageResult = await this.#AIPipeline.GetReminderTriageAsync(TriageContext.text);
     const BaselineFacts = await CollectDiagnosticsBaselineAsync(this.#SlackApp, ArgChannelID, {
       RemindersModule: this,
     });
@@ -2144,13 +2215,29 @@ class RemindersModule {
     // (Codex, branch relay round 10.)
     const TriageRoutingForOwnership = RemindersAIPipeline.DescribeSynthesisRouting(
       OriginalText, TriageResult.analysis.reminders,
+      { EnrichedContext: TriageContext.enriched },
     );
     const TriageCandidates = this.#DedupeCandidatesByRenderIdentity(
       // GH-68: same analyzed-source grounding as the scheduling dedupe above. The comment directly
       // above exists because a triage/production candidate-set mismatch already happened once.
-      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, OriginalText,
+      // GH-143 Phase 2: the analyzed source is what the analyzer actually READ. When triage
+      // enriched, that is the enriched text — passing the bare message here rejects a title the
+      // scheduling path accepts, which is the triage/production mismatch this line guards against.
+      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
     );
-    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageCandidates);
+    // GH-143: and the SAME unresolved-reference filter. Scheduling drops a bullet that is only a
+    // pointer at its own siblings; triage showing that bullet would explain a candidate set the
+    // pipeline no longer has — the drift this whole section exists to prevent.
+    TriageResult.analysis.reminders = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
+      TriageCandidates.map((/** @type {any} */ ArgCandidate) => ({
+        candidate: ArgCandidate,
+        text: this.#SelectReminderTaskText(
+          ArgCandidate, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
+        ),
+      })),
+      TriageContext.enriched, ContextResolution.NeedsEarlierContext, TriageContext.liveReplyText,
+    ).kept;
+    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageResult.analysis.reminders);
 
     for(const Group of TriageGroups) {
       // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver
@@ -2159,6 +2246,8 @@ class RemindersModule {
       const GroupOwnerVerdict = ReminderOwnership.ReduceGroupOwner(Group.candidates);
       const GroupOwnership = ReminderOwnership.ResolveAssignees({
         MessageText: TriageNormalizedText,
+        // GH-143 Phase 2: same input scheduling passes, so the two cannot resolve differently.
+        LiveReplyText: TriageContext.enriched ? TriageContext.liveReplyText : '',
         ActionableLanguage: Group.candidates
           .map((/** @type {any} */ ArgCandidate) => ArgCandidate.actionable_language || '')
           .join(' ')
@@ -2208,7 +2297,8 @@ class RemindersModule {
       // candidate set — the same inputs the scheduling path uses. Deriving it per candidate from
       // normalized text is what let triage and the digest disagree about the same message.
       const TriageRouting = RemindersAIPipeline.DescribeSynthesisRouting(
-        OriginalText, TriageResult.analysis.reminders
+        OriginalText, TriageResult.analysis.reminders,
+        { EnrichedContext: TriageContext.enriched },
       );
       const TriageNormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(OriginalText);
 
@@ -2221,7 +2311,7 @@ class RemindersModule {
           // GH-68: ground triage against the SAME analyzed text the scheduling path uses.
           // Omitting it is precisely how "triage and the digest disagree about the same message"
           // (see the routing comment above) comes back.
-          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, OriginalText)
+          this.#SelectReminderTaskText(Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, TriageContext.text)
         );
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
