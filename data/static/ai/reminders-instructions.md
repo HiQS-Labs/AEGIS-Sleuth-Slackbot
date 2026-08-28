@@ -87,6 +87,20 @@ The JSON output must be generated as follows:
        - When a message describes a completed action for one target and then says the sender will do another target later, carry forward the prior action/context and replace only the target.
        - Example: given `CBDAffs turned off on Client C. Will do Client A tomorrow morning.`, this string property should contain the text `CBDAffs turn off on Client A`, not `Do Client A`.
        - This also applies to short follow-up phrases like `will do X`, `do X tomorrow`, `same for X`, or `also X` when the previous clause contains the real action.
+       - **CONTEXT MARKERS**: a message may arrive with earlier thread messages attached, in this
+         exact shape:
+         ```
+         [earlier messages in this thread, for reference]
+         1. <@U1> let's take the car.
+         2. <@U2> please bring the cooler.
+         [the message to act on]
+         <@U2> can you do all of the above tomorrow?
+         ```
+         Only the text under `[the message to act on]` is the message. The numbered lines are
+         reference material: they tell you what a pointer like `the above` refers to, and they are
+         what you resolve it INTO. Never return a marker line, a number, or the header text itself
+         as part of a task. Never treat the numbered lines as the message's own content — a
+         numbered line is only a task if the message to act on points at it.
        - **CRITICAL - RESOLVE THE REFERENCE RULE**: `reminder_message` must never leave a backward
          reference as its object. If the task text would read `the above`, `all of the above`,
          `it`, `this`, or `that` as the thing to be done, you MUST replace it with the actual task
@@ -101,7 +115,9 @@ The JSON output must be generated as follows:
          - Example: the messages above produce two objects — `Take the car` and `Bring the cooler` —
            both with `scheduling_trigger` `tomorrow`.
          - Cover EVERY earlier task the reference points at, not a subset. `all of the above` with
-           three earlier tasks means three objects; returning two silently loses one.
+           three earlier tasks means three objects; returning two silently loses one. When the
+           context is numbered, `all of the above` means every numbered line — count them and
+           return that many objects.
          - Do NOT also return the referring sentence itself as its own object. `can you do all of
            the above tomorrow?` is the pointer, not a fourth task.
        - If the earlier messages do not actually name a task, prefer `ignore` over inventing one.

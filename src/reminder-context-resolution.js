@@ -107,6 +107,12 @@ function NeedsEarlierContext(ArgText) {
   return DescribeReferenceShape(ArgText) !== null;
 }
 
+// Markers that separate prepended context from the message being acted on. They are part of the
+// contract with `reminders-instructions.md` — changing the wording here without changing it there
+// makes the analyzer treat the markers as ordinary message text.
+const CONTEXT_BLOCK_HEADER = '[earlier messages in this thread, for reference]';
+const LIVE_MESSAGE_HEADER = '[the message to act on]';
+
 // ── Lookback windows ────────────────────────────────────────────────────────────────────────
 
 /**
@@ -281,7 +287,20 @@ async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
 
   if(PrecedingMessages.length === 0) return { ...NotEnriched, decidedBy: 'no_antecedent' };
 
-  const ContextBlock = PrecedingMessages.map((/** @type {any} */ ArgMessage) => ArgMessage.text).join('\n');
+  // Label and number the context, rather than concatenating bare lines.
+  //
+  // The bare-line form was indistinguishable from one multi-line message, and the analyzer behaved
+  // accordingly: given "let's take the car" / "please bring the cooler" / "can you do all of the
+  // above tomorrow?", it returned ONE task — the first line of the blob — instead of one task per
+  // thing "the above" points at. It was not disobeying the MULTIPLE REFERENTS rule so much as
+  // unable to see that there were multiple referents, or which line was the message to act on.
+  // Numbering makes "the above" enumerable and the markers make the boundary explicit; both are
+  // referenced by name in `data/static/ai/reminders-instructions.md`.
+  const ContextBlock = [
+    CONTEXT_BLOCK_HEADER,
+    ...PrecedingMessages.map((/** @type {any} */ ArgMessage, /** @type {number} */ ArgIndex) => `${ArgIndex + 1}. ${ArgMessage.text}`),
+    LIVE_MESSAGE_HEADER,
+  ].join('\n');
   // A caller that names its path wins: the path is which DOOR the message came through, and that
   // must not change because the wording happened to also match a reference regex.
   const Shape = ArgOptions.PathPrefix || ReferenceShape || 'explicit_request';
@@ -310,6 +329,8 @@ module.exports = {
   CollectChannelAntecedentCandidatesAsync,
   THREAD_LOOKBACK_MAX_MESSAGES,
   THREAD_LOOKBACK_MAX_UNREFERENCED,
+  CONTEXT_BLOCK_HEADER,
+  LIVE_MESSAGE_HEADER,
   CHANNEL_ANTECEDENT_MAX_AGE_SECONDS,
   CHANNEL_ANTECEDENT_SCAN_LIMIT,
   VAGUE_COMPLETION_PATTERN,

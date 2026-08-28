@@ -33,6 +33,25 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.318 - 2026-08-27
+
+"Can you do all of the above tomorrow?" now gives you one reminder per thing you pointed at —
+"Take the car", "Bring the cooler" — instead of one reminder for the wrong thing.
+
+**Technical:** GH-143, the last open gap, and the cause was not the prompt. Prepended context was
+joined as bare lines, which is indistinguishable from one multi-line message: the analyzer returned
+the FIRST line of the blob as the task. It was not disobeying the MULTIPLE REFERENTS rule so much
+as unable to see that there were multiple referents, or which line was the message to act on.
+`reminder-context-resolution.js` now labels and numbers the block —
+`[earlier messages in this thread, for reference]`, numbered lines,
+`[the message to act on]` — exported as `CONTEXT_BLOCK_HEADER` / `LIVE_MESSAGE_HEADER` because the
+markers are a contract with `reminders-instructions.md`, which gained a CONTEXT MARKERS section
+naming them and a rule that `all of the above` over numbered context means one task per number.
+`liveReplyText` stays unmarked: ownership reads its grammar, and a marker line would change the
+sentence the first-person-commitment rule looks at. This replaced the parked plan of routing
+multi-referent messages through whole-thread extraction — less code, and it fixes the cause rather
+than working around it. `utils/reminder-replay.js` now reports 3/3.
+
 ## 1.4.317 - 2026-08-27
 
 Internal only — nothing changes for you. Adds a way for us to replay a Slack conversation through

@@ -79,7 +79,16 @@ describe('ResolveContextAsync', () => {
     });
     expect(ContextResolution.THREAD_LOOKBACK_MAX_UNREFERENCED).toBe(1);
     expect(Result.prependedCount).toBe(1);
-    expect(Result.text).toBe('<@U_ALICE> can you review the doc\nship the release friday');
+    // The analyzed text carries the context MARKERS (GH-143): bare concatenated lines were
+    // indistinguishable from one multi-line message, and the analyzer answered accordingly —
+    // returning the first line as the task instead of resolving the reference.
+    expect(Result.text).toBe(
+      `${ContextResolution.CONTEXT_BLOCK_HEADER}\n1. <@U_ALICE> can you review the doc\n` +
+      `${ContextResolution.LIVE_MESSAGE_HEADER}\nship the release friday`,
+    );
+    // The live reply must stay UNMARKED — ownership reads its grammar, and a marker line would
+    // change the sentence the first-person-commitment rule is looking at.
+    expect(Result.liveReplyText).toBe('ship the release friday');
     for(const Sibling of ['one', 'two', 'three']) expect(Result.text).not.toContain(Sibling);
   });
 
