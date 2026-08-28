@@ -45,7 +45,10 @@ const VAGUE_REFERENCE_PATTERN = new RegExp(
 // GH-424: the standalone word "above", verb-agnostic on purpose. An enumerated verb list is a
 // losing game ("follow up on" → "follow on" → "see above" each needed a round); "above" is
 // essentially never used except to point at earlier content.
-const ABOVE_REFERENCE_PATTERN = /\babove\b/i;
+// The two idioms where "above" is a POSITION, not a pointer at earlier content. Kept as a short
+// closed list rather than a cleverer rule: "above the fold" and "above all" are the only ones that
+// have shown up, and a narrow exclusion cannot quietly widen the way a heuristic can.
+const ABOVE_REFERENCE_PATTERN = /\babove\b(?!\s+(?:the\s+fold|all)\b)/i;
 
 // GH-55: the general rule the three patterns above are special cases of — an unresolved pronoun
 // means "the task is elsewhere", but ONLY in OBJECT position. "get **it** done by Monday" points

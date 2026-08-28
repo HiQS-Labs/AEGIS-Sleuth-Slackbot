@@ -1775,6 +1775,25 @@ class RemindersModule {
       AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
     );
 
+    // GH-143: did the analyzer actually RESOLVE the reference it was given context for? A title
+    // that still reads "do all of the above" / "do it" is the failure the enrichment exists to
+    // prevent, and it is invisible in every other field on the line above — enrichment=on,
+    // synthesis=on, ownership correct, and the reminder still says nothing. Reported, not acted
+    // on: the fix belongs in the extraction prompt, and silently rewriting a model title here
+    // would hide which prompt change worked.
+    const UnresolvedReferenceTitles = AnalysisResult.reminders
+      .map((/** @type {any} */ ArgCandidate) => this.#SelectReminderTaskText(
+        ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
+      ))
+      .filter((/** @type {string} */ ArgText) => ContextResolution.NeedsEarlierContext(ArgText));
+    if(UnresolvedReferenceTitles.length > 0) {
+      ArgSlackApp.Logger.warn(
+        `reminder unresolved reference: path=${StructuralPath} enrichment=${ArgUsedEnrichedThreadContext ? 'on' : 'off'}` +
+        ` enrichment_path=${ArgEnrichment?.Path || 'none'} candidates=${AnalysisResult.reminders.length}` +
+        ` unresolved=${UnresolvedReferenceTitles.length}`
+      );
+    }
+
     // exit early if the recommendation is to ignore the message.
     if(AnalysisResult.recommendation === 'ignore') return false;
 

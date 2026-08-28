@@ -33,6 +33,28 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.315 - 2026-08-27
+
+When someone says "can you do all of the above tomorrow?", I now write out what "the above"
+actually was instead of scheduling a reminder that just repeats the phrase back at you. If it
+points at several tasks, you get one reminder per task.
+
+**Technical:** GH-143. The routing half was already correct — telemetry on the reported thread
+showed `enrichment=thread_context prepended_messages=3 synthesis=on` and the right assignee — and
+the reminder still read "Do all of the above". The failure was in extraction, so the fix is in the
+prompts: `data/static/ai/reminders-instructions.md` gains a RESOLVE THE REFERENCE rule (a
+`reminder_message` may not leave `the above`/`it`/`this`/`that` as its object) and a MULTIPLE
+REFERENTS rule (one candidate per referenced task, sharing the trigger), both bounded by the
+existing grounding rule so an unnamed task yields `ignore` rather than an invention.
+`manual-reminder-task-instructions.md` gets the same rule — the :alarm_clock: path falls back to
+it when the analyzer returns no candidates, so fixing only the analyzer would leave that door open.
+Detection is now observable: `reminders-module.js` logs `reminder unresolved reference:` when a
+produced title still carries a backward reference (reported, never rewritten — silently patching a
+model title would hide which prompt change worked). `ABOVE_REFERENCE_PATTERN` excludes "above the
+fold" and "above all", where "above" is a position rather than a pointer. New
+`tests/gh143-unresolved-reference.test.js` covers the detector corpus and guards that both prompt
+rules are still present — the harness gap that let this ship green.
+
 ## 1.4.314 - 2026-08-27
 
 When you react :alarm_clock: to a short reply like "can do, I'll work on it today", I now read the
