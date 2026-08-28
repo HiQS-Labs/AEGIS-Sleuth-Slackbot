@@ -97,7 +97,8 @@ describe('RemindersReactionHandler', () => {
         'C123',
         '1234567890.000100',
         'U123',
-        true
+        true,
+        null, 'remember to do this tomorrow', false, null // GH-143 resolved-context arguments
       );
     });
 
@@ -252,13 +253,55 @@ describe('RemindersReactionHandler', () => {
       const Result = await Handler.OnReactionAddedAsync(MockSlackAppInstance, EventInfo);
 
       expect(Result).toBe(true);
+      // GH-143 Phase 2: the reaction path now carries resolved context. A self-contained
+      // top-level message has no antecedent to find, so the text is unchanged and the enriched
+      // flag is false — the four trailing arguments are the CONTRACT, not decoration: dropping
+      // them is what silently opted this path out of synthesis and ownership precedence.
       expect(DependencyBag.TryScheduleRemindersAsync).toHaveBeenCalledWith(
         'remember to do this tomorrow',
         'C123',
         '1234567890.000100',
         'U123',
-        true // force scheduling
+        true, // force scheduling
+        null, // thread_ts — not a thread reply
+        'remember to do this tomorrow', // live reply text
+        false, // not enriched: nothing earlier to resolve
+        null // no enrichment provenance
       );
+    });
+
+    it('kill switch OFF is byte-identical to pre-GH-143, even on a thread reply', async () => {
+      // The regression this guards: `thread_ts` was passed OUTSIDE the flag gate, so a reaction on
+      // a thread reply persisted OriginalThreadTs on reaction-created reminders with the switch
+      // off — changing downstream consumers. Off must mean off, not "off except one argument".
+      const Previous = process.env.REACTION_CONTEXT_RESOLUTION_ENABLED;
+      process.env.REACTION_CONTEXT_RESOLUTION_ENABLED = 'off';
+      try {
+        MockSlackAppInstance.ThreadMessages = [
+          { text: 'can do, I will work on it today', user: 'U123', thread_ts: '1234567890.000001' },
+        ];
+        DependencyBag.TryScheduleRemindersAsync.mockResolvedValue(true);
+
+        await Handler.OnReactionAddedAsync(MockSlackAppInstance, {
+          reaction: 'alarm_clock',
+          item: { channel: 'C123', ts: '1234567890.000100' },
+        });
+
+        expect(DependencyBag.TryScheduleRemindersAsync).toHaveBeenCalledWith(
+          'can do, I will work on it today',
+          'C123',
+          '1234567890.000100',
+          'U123',
+          true,
+          null,  // thread_ts suppressed with the switch off — the whole point of this test
+          'can do, I will work on it today',
+          false,
+          null
+        );
+      } finally {
+        if(Previous === undefined) delete process.env.REACTION_CONTEXT_RESOLUTION_ENABLED;
+        else process.env.REACTION_CONTEXT_RESOLUTION_ENABLED = Previous;
+      }
     });
 
     it('should return false when original message not found', async () => {

@@ -205,6 +205,25 @@ Keep `npm run build` passing (`checkJs` + `noImplicitAny` workflow).
   - The `startup with stale reminders` suite in `tests/reminders-integration.test.js` seeds overdue reminders to disk, loads via `StartAsync`, and triggers `process reminders now` to verify post counts and persisted state.
   - Any change to `#CheckRemindersAsync`, `#LoadRemindersAsync`, rescheduling logic, or FSM transitions should include a corresponding startup test case.
   - See `docs/reminder-fsm-audit.md` § *Startup regression test coverage* for the full test matrix.
+- Reminder quality replay (when a reminder path, the context resolver, or an AI prompt asset changed):
+  - `OPENAI_API_KEY_FILE=<path> node utils/reminder-replay.js utils/replay-scenarios.json`
+  - Drives real Slack-shaped events through the real handlers, resolver, prompts, and a real model
+    call, then grades the task text and assignee that come out. Exit code 0 only when every
+    expectation held.
+  - **Why this exists, and why the unit suite is not a substitute.** Every GH-143 defect — a task
+    reading "Do all of the above", a whole 250-character message pasted back as a title, a reminder
+    assigned to the asker instead of the person who committed — passed the entire unit suite. That
+    suite asserts *plumbing* (which path fired, which flag was set, who was assigned) and stubs the
+    model, and all three defects lived in the layers it stubs: what context gets assembled, and what
+    the analyzer writes when it reads that context. Four rounds of a human typing threads into Slack
+    and pasting screenshots located one bug. Add a scenario here instead.
+  - Do NOT replace this with a bot that posts into Slack. It was tried: Slack stamps a `bot_id` on
+    messages sent with an app-owned user token, and the resolver skips `bot_id` messages when
+    collecting antecedents, so the posted thread is invisible as context and the run passes while
+    testing nothing. Making it work would mean loosening the production bot filter for a test.
+  - A scenario with no `expect` block is a "show me what happens" run, not a gate. When a scenario
+    documents an OPEN gap, assert the behavior you want and let it FAIL — a harness that green-lights
+    wrong output is worse than no harness.
 - Manual checks in a test Slack workspace:
   - App mention chat flow.
   - Reminder creation from natural language.
@@ -279,6 +298,19 @@ concurrent PRs from ever colliding on it.
 ## 12) Process Environment Flags
 
 - `REMINDER_TEXT_SYNTHESIS` — controls whether reminders display an AI-rewritten "task title" or the **original Slack message verbatim**. Default (unset) and any non-truthy value (`off`/`false`/`0`/`disabled`/blank) = **OFF** → original text preserved. Set to `on`/`true`/`1`/`yes`/`enabled` (case/space-insensitive) to re-enable LLM title synthesis. Affects only the displayed task text (digest summary + "Key task(s)" bullet); detection, date extraction, dedup, and triage are unaffected. See `RemindersAIPipeline.IsTextSynthesisEnabled()`.
+- **Context-enrichment kill switches (GH-143).** Three, and together they are the rollback plan for
+  reminder context resolution — an operator must be able to reach the pre-GH-55 behaviour without a
+  redeploy. All default ON except the channel walk; set any to `off` to disarm.
+  - `THREAD_CONTEXT_RESOLUTION_ENABLED` — prepending earlier THREAD messages, on every door.
+    Default on. Added after review found the app-mention paths had no switch at all, which left a
+    hole in the rollback plan.
+  - `REACTION_CONTEXT_RESOLUTION_ENABLED` — the :alarm_clock: door specifically. Default on. With
+    it off that path is behaviour-identical to pre-GH-143 (not call-shape identical: the
+    scheduler's signature has grown, so anything branching on argument PRESENCE would not be).
+  - `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` — the channel walk for TOP-LEVEL messages. Default
+    **off**; it increases `conversations.history` and model call volume.
+
+  Disarming loses context, never the reminder: the message still schedules, unenriched.
 
 ## 13) Key Features
 

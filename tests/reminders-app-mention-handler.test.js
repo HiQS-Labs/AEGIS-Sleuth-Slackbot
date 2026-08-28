@@ -162,9 +162,26 @@ describe('RemindersAppMentionHandler', () => {
       '1700000000.000001',
       'U_SOURCE',
       false,
-      '1700000000.000001'
+      '1700000000.000001',
+      // GH-143: the trailing three are the contract, not decoration. This door used to stitch its
+      // own context and schedule with enrichment=off, so the routing facts described a decision
+      // the pipeline had not made. It now reports resolved context like every other door.
+      `${SlackApp.AppMentionString} make a Sleuth reminder for <@U_TARGET> based on task above`,
+      true,
+      // GH-143 (Codex review): this door no longer runs its own one-message lookup. It calls the
+      // shared resolver, so the provenance — including the antecedent's author — is the resolver's,
+      // and "do the above" over several earlier tasks can no longer silently drop one.
+      { SourceTs: '1700000000.000001', SourceUser: 'U_SOURCE', Path: 'task_above_shorthand_in_thread' },
     );
+    // The analyzed text is the resolver's marker block, byte-identical in shape to every other door.
+    expect(TryScheduleRemindersAsync.mock.calls[0][1])
+      .toContain('[earlier messages in this thread, for reference]');
     expect(TryScheduleRemindersAsync.mock.calls[0][1]).toContain('<@U_TARGET>');
+    // The source message must arrive UNQUOTED. Wrapping it in quotes triggered the analyzer's
+    // CRITICAL QUOTED TEXT RULE, which forbids summarizing quoted text — so the whole source
+    // message became the reminder title verbatim.
+    expect(TryScheduleRemindersAsync.mock.calls[0][1])
+      .not.toContain('"Please review WP DB Toolkit issue 76 for the BigQuery sync plan."');
     expect(TryScheduleRemindersAsync.mock.calls[0][1]).toMatch(/tomorrow at \d{1,2}:\d{2} AM/);
   });
 
