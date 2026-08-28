@@ -97,7 +97,32 @@
       "taskContains": [
         "cache"
       ],
-      "note": "The Friday commitment carries a pronoun; dropping it because a sibling resolved is data loss."
+      "note": "NOT strengthened to reminderCount 2 as Codex asked: measured 1 reminder every run because the ANALYZER emits one candidate for two commitments in one sentence \u2014 the drop filter is not losing it. That the filter keeps a distinct vague task is pinned deterministically in tests/gh143-unresolved-reference.test.js instead. See PARKED."
+    }
+  },
+  {
+    "name": "GH-143 F: a collective reference ('both') must reach every task it points at",
+    "kind": "message",
+    "thread": [
+      {
+        "user": "U_NOEL",
+        "text": "<@U_SAM> prepare the release notes."
+      },
+      {
+        "user": "U_NOEL",
+        "text": "<@U_SAM> notify support."
+      }
+    ],
+    "event": {
+      "user": "U_SAM",
+      "text": "I'll take care of both tomorrow."
+    },
+    "expect": {
+      "taskContains": [
+        "release notes",
+        "support"
+      ],
+      "note": "Codex round 3: 'both' carries no pronoun, so it took the depth-1 lookback and lost the release notes."
     }
   }
 ]

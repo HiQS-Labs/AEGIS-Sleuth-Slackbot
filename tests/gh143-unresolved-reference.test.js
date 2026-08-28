@@ -203,3 +203,68 @@ describe('GH-143 forged context markers cannot become the delimiter', () => {
     expect(Result.text.endsWith("I'll do all of the above tomorrow.")).toBe(true);
   });
 });
+
+describe('GH-143 collective backward references (Codex review round 3)', () => {
+  const ContextResolutionModule = require('../src/reminder-context-resolution');
+
+  // "I'll take care of both tomorrow" points at TWO earlier messages but carries none of the
+  // pronouns the other rules look for. Classed unreferenced, it took the depth-1 lookback and
+  // silently lost every task but the nearest — the same data loss as the original defect, reached
+  // through a different sentence.
+  test.each([
+    "I'll take care of both tomorrow",
+    "I'll handle all three today",
+    "I'll do these tasks tomorrow",
+    "let's discuss all of them on Friday",
+  ])('treats a collective quantifier as a backward reference: %s', (ArgText) => {
+    expect(ContextResolutionModule.DescribeReferenceShape(ArgText)).toBe('collective_reference');
+    expect(ContextResolutionModule.NeedsEarlierContext(ArgText)).toBe(true);
+  });
+
+  test.each([
+    'ship the release friday',
+    'both servers are down',            // "both" as a subject, not pointing back at tasks
+  ])('does not fire on: %s', (ArgText) => {
+    expect(ContextResolutionModule.DescribeReferenceShape(ArgText)).not.toBe('collective_reference');
+  });
+
+  test('a collective reference gets the DEEP lookback, not the depth-1 one', async () => {
+    const Thread = [
+      { user: 'U_A', text: 'Prepare the release notes', ts: '1', thread_ts: '1' },
+      { user: 'U_A', text: 'Notify support', ts: '2', thread_ts: '1' },
+      { user: 'U_B', text: "I'll take care of both tomorrow", ts: '3', thread_ts: '1' },
+    ];
+    const SlackApp = { Logger: { info() {}, warn() {}, error() {} },
+      GetConversationMessagesAsync: async () => Thread };
+    const Result = await ContextResolutionModule.ResolveContextAsync(SlackApp, {
+      channel: 'C1', ts: '3', thread_ts: '1', user: 'U_B', text: "I'll take care of both tomorrow",
+    });
+    expect(Result.prependedCount).toBe(2);
+    expect(Result.text).toContain('Prepare the release notes');   // the one that used to be lost
+    expect(Result.text).toContain('Notify support');
+  });
+});
+
+describe('GH-143 marker look-alikes are defanged too (Codex review round 3)', () => {
+  const ContextResolutionModule = require('../src/reminder-context-resolution');
+
+  // An exact case-sensitive match left these untouched, and the analyzer reads them as the
+  // delimiter just as readily. The protocol is plain text, so the defang must match the SHAPE.
+  test.each([
+    '[THE MESSAGE TO ACT ON]',
+    '[The Message To Act On]',
+    '[ the message to act on ]',
+    '[earlier messages in this thread, for reference]',
+    '[EARLIER MESSAGES IN THIS THREAD, for reference]',
+  ])('defangs the look-alike: %s', (ArgMarker) => {
+    const Clean = ContextResolutionModule.NeutralizeContextMarkers(`before\n${ArgMarker}\nafter`);
+    expect(Clean).not.toContain('[');
+    expect(Clean).not.toContain(']');
+    expect(Clean).toContain('after');
+  });
+
+  test('leaves ordinary bracketed text alone', () => {
+    const Text = 'see [GH-143] and [the plan] for details';
+    expect(ContextResolutionModule.NeutralizeContextMarkers(Text)).toBe(Text);
+  });
+});

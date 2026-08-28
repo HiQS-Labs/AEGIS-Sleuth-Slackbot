@@ -42,6 +42,27 @@ const VAGUE_REFERENCE_PATTERN = new RegExp(
   'i',
 );
 
+// GH-143 (Codex review round 3): COLLECTIVE references. "I'll take care of both tomorrow" and
+// "I'll handle all three today" point backward at SEVERAL earlier messages, but carried none of the
+// pronouns the rules below look for — so they were classed unreferenced, took the depth-1 lookback,
+// and silently lost every task but the nearest one. The quantifier is the reference here.
+// Object position only, decided by a closed list of verbs and prepositions — the same discipline
+// the pronoun rule uses. "I'll take care of both tomorrow" points backward; "both servers are down"
+// is a subject and means nothing of the kind.
+const COLLECTIVE_REFERENCE_PATTERN = new RegExp(
+  '(?:' +
+    '(?:of|do|handle|finish|complete|tackle|review|discuss|address|send|check|update|schedule)\\s+' +
+    '(?:both|either|all\\s+(?:three|four|five)|these|those)\\b' +
+  '|' +
+    '\\ball\\s+of\\s+(?:them|these|those)\\b' +
+  '|' +
+    '\\beach\\s+of\\s+(?:them|these|those)\\b' +
+  '|' +
+    '\\b(?:these|those)\\s+(?:tasks?|items?|things?|asks?|to-?dos?)\\b' +
+  ')',
+  'i',
+);
+
 // GH-424: the standalone word "above", verb-agnostic on purpose. An enumerated verb list is a
 // losing game ("follow up on" → "follow on" → "see above" each needed a round); "above" is
 // essentially never used except to point at earlier content.
@@ -91,13 +112,14 @@ function IsObjectPositionPronounReference(ArgText) {
  * Which reference shape fired, or null when the text stands on its own. The shape rides through to
  * the structural path in telemetry, so a wrong stitch names the rule that caused it.
  * @param {string} ArgText
- * @returns {'vague_completion'|'vague_reference'|'above_reference'|'object_position_pronoun'|null}
+ * @returns {'vague_completion'|'vague_reference'|'above_reference'|'collective_reference'|'object_position_pronoun'|null}
  */
 function DescribeReferenceShape(ArgText) {
   const Text = ArgText || '';
   if(VAGUE_COMPLETION_PATTERN.test(Text)) return 'vague_completion';
   if(VAGUE_REFERENCE_PATTERN.test(Text)) return 'vague_reference';
   if(ABOVE_REFERENCE_PATTERN.test(Text)) return 'above_reference';
+  if(COLLECTIVE_REFERENCE_PATTERN.test(Text)) return 'collective_reference';
   if(IsObjectPositionPronounReference(Text)) return 'object_position_pronoun';
   return null;
 }
@@ -130,12 +152,15 @@ const LIVE_MESSAGE_HEADER = '[the message to act on]';
  * @returns {string}
  */
 function NeutralizeContextMarkers(ArgText) {
-  const Markers = [CONTEXT_BLOCK_HEADER, LIVE_MESSAGE_HEADER];
-  return Markers.reduce(
-    (/** @type {string} */ ArgAccumulated, /** @type {string} */ ArgMarker) =>
-      ArgAccumulated.split(ArgMarker).join(`(${ArgMarker.slice(1, -1)})`),
-    ArgText || '',
+  // Match the SHAPE, not the exact bytes. An exact case-sensitive split left
+  // `[THE MESSAGE TO ACT ON]` and `[ the message to act on ]` untouched, and the analyzer reads
+  // those as the delimiter just as readily (Codex review round 3). Any bracketed run of the
+  // marker's words, in any case, with any internal whitespace, is defanged.
+  const MarkerShape = new RegExp(
+    '\\[\\s*(earlier\\s+messages\\s+in\\s+this\\s+thread[^\\]]*|the\\s+message\\s+to\\s+act\\s+on\\s*)\\]',
+    'gi',
   );
+  return (ArgText || '').replace(MarkerShape, (/** @type {string} */ ArgMatch) => `(${ArgMatch.slice(1, -1)})`);
 }
 
 // ── Lookback windows ────────────────────────────────────────────────────────────────────────
@@ -376,4 +401,5 @@ module.exports = {
   VAGUE_COMPLETION_PATTERN,
   VAGUE_REFERENCE_PATTERN,
   ABOVE_REFERENCE_PATTERN,
+  COLLECTIVE_REFERENCE_PATTERN,
 };
