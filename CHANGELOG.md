@@ -33,6 +33,29 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.314 - 2026-08-27
+
+When you react :alarm_clock: to a short reply like "can do, I'll work on it today", I now read the
+message it's replying to before I write the reminder — so the task text is the real task and the
+owner is the person who committed, not the person who asked. I also stopped pulling in unrelated
+messages from busy threads, and the :wrench: triage view now explains the decision I actually made.
+
+**Technical:** GH-143 Phase 2 follow-up, from a cross-model review of the Phase 2 resolver.
+`src/reminder-context-resolution.js` drops the `RequireReference` option entirely: the resolver
+answers only "what earlier context exists", and every caller enforces its own admission rule
+before calling (the `see above` path via `NeedsEarlierContext`, the semantic-`this` path via its
+demonstrative gate, the :alarm_clock: reaction by virtue of the reaction itself). An admission
+flag re-created the four disagreeing policies the module exists to delete.
+`THREAD_LOOKBACK_MAX_MESSAGES` 3 -> 1: a thread asserts messages belong together, not that they
+share a task, so three unfiltered messages handed the analyzer a neighbour's task text and a
+neighbour's @mention. `PathPrefix` now outranks the detected reference shape, keeping the
+provenance `Path` tied to the door the message came through. `:wrench:` triage
+(`src/reminders-module.js`) no longer re-resolves context unconditionally — it mirrors the message
+path's gate, and grounds candidate titles against the text the analyzer actually read, so it
+stops reporting "enriched/synthesized" for reminders scheduled bare. `REACTION_CONTEXT_RESOLUTION_ENABLED=off`
+is byte-identical to pre-GH-143 again: `thread_ts` is passed only when the switch is on
+(`src/reminders-reaction-handler.js`).
+
 ## 1.4.313 - 2026-08-24
 I'll now take a smarter guess at what you meant when a typo doesn't match any of my commands
 closely enough for a quick "did you mean" nudge — behind a flag, off by default. Also fixed a case

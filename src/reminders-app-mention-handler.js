@@ -717,7 +717,7 @@ class RemindersAppMentionHandler {
             // GH-143 Phase 2: same resolver as every other path. `this` IS the reference, so the
             // resolver's own detector is authoritative here rather than a second opinion.
             const Context = await ContextResolution.ResolveContextAsync(
-              ArgSlackApp, ArgEventInfo, { RequireReference: false, PathPrefix: 'semantic_this' }
+              ArgSlackApp, ArgEventInfo, { PathPrefix: 'semantic_this' }
             );
 
             if(Context.enriched) {

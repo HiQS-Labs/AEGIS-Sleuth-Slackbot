@@ -65,18 +65,22 @@ describe('ResolveContextAsync', () => {
     expect(Result.prependedCount).toBe(1);
   });
 
-  test('prepends at most three preceding human messages, oldest first', async () => {
+  test('an UNREFERENCED message takes only the message it replies to, never a thread backlog', async () => {
+    // The cap is 1 on purpose. A thread asserts that messages belong together, not that they share
+    // a task; prepending a backlog hands the analyzer a neighbour's task text and a neighbour's
+    // @mention, which is how a reaction on a self-contained reply scheduled the wrong owner.
     const Thread = [
       { user: 'U_A', text: 'one', ts: '1' }, { user: 'U_A', text: 'two', ts: '2' },
-      { user: 'U_A', text: 'three', ts: '3' }, { user: 'U_A', text: 'four', ts: '4' },
-      { user: 'U_B', text: 'will do it today', ts: '5' },
+      { user: 'U_A', text: 'three', ts: '3' }, { user: 'U_A', text: '<@U_ALICE> can you review the doc', ts: '4' },
+      { user: 'U_B', text: 'ship the release friday', ts: '5' },
     ];
     const Result = await ContextResolution.ResolveContextAsync(MakeSlackApp({ Thread }), {
-      channel: 'C1', ts: '5', thread_ts: '1', user: 'U_B', text: 'will do it today',
+      channel: 'C1', ts: '5', thread_ts: '1', user: 'U_B', text: 'ship the release friday',
     });
-    expect(Result.prependedCount).toBe(ContextResolution.THREAD_LOOKBACK_MAX_MESSAGES);
-    expect(Result.text.startsWith('two\nthree\nfour\n')).toBe(true);
-    expect(Result.text).not.toContain('one');
+    expect(ContextResolution.THREAD_LOOKBACK_MAX_UNREFERENCED).toBe(1);
+    expect(Result.prependedCount).toBe(1);
+    expect(Result.text).toBe('<@U_ALICE> can you review the doc\nship the release friday');
+    for(const Sibling of ['one', 'two', 'three']) expect(Result.text).not.toContain(Sibling);
   });
 
   test('bot messages are never used as antecedents', async () => {
@@ -91,23 +95,28 @@ describe('ResolveContextAsync', () => {
     expect(Result.decidedBy).toBe('no_antecedent');
   });
 
-  test('a self-contained message is left alone even inside a thread', async () => {
-    const Result = await ContextResolution.ResolveContextAsync(MakeSlackApp({ Thread: [PARENT, REPLY] }), {
-      channel: 'C1', ts: REPLY.ts, thread_ts: PARENT.ts, user: 'U_SAM', text: 'deploy the release friday',
-    });
-    expect(Result.enriched).toBe(false);
-    expect(Result.decidedBy).toBe('no_reference');
-    expect(Result.text).toBe('deploy the release friday');
-  });
-
-  test('RequireReference:false enriches anyway — the reaction path, where the human asserted intent', async () => {
+  test('the resolver holds NO admission opinion — it answers only "what context exists"', async () => {
+    // There is deliberately no RequireReference option. Whether a door may spend a lookback is
+    // that door's own rule, enforced before the call; an admission flag here re-created the four
+    // disagreeing policies this module exists to delete.
     const Result = await ContextResolution.ResolveContextAsync(
       MakeSlackApp({ Thread: [PARENT, REPLY] }),
       { channel: 'C1', ts: REPLY.ts, thread_ts: PARENT.ts, user: 'U_SAM', text: 'ship the thing' },
-      { RequireReference: false, PathPrefix: 'alarm_clock_reaction' }
+      { PathPrefix: 'alarm_clock_reaction' }
     );
     expect(Result.enriched).toBe(true);
     expect(Result.enrichment?.Path).toBe('alarm_clock_reaction_in_thread');
+  });
+
+  test('a named PathPrefix outranks a reference shape the wording happens to match', async () => {
+    // `Path` records which DOOR the message came through. "finish this" also matches a reference
+    // regex; that must not rename the path and silently break anything keyed on it.
+    const Result = await ContextResolution.ResolveContextAsync(
+      MakeSlackApp({ Thread: [PARENT, REPLY] }),
+      { channel: 'C1', ts: REPLY.ts, thread_ts: PARENT.ts, user: 'U_SAM', text: 'finish this' },
+      { PathPrefix: 'semantic_this' }
+    );
+    expect(Result.enrichment?.Path).toBe('semantic_this_in_thread');
   });
 
   test('outside a thread the channel walk stays behind its kill switch', async () => {

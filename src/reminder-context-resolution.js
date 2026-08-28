@@ -106,8 +106,24 @@ function NeedsEarlierContext(ArgText) {
 
 // ── Lookback windows ────────────────────────────────────────────────────────────────────────
 
-/** Preceding human messages prepended from a thread. The referent is often a few turns back. */
+/**
+ * Preceding human messages prepended from a thread when the message POINTS backward ("above",
+ * "follow up on it") — the referent of an explicit reference is often a few turns back.
+ */
 const THREAD_LOOKBACK_MAX_MESSAGES = 3;
+
+/**
+ * Preceding human messages prepended when the message contains NO backward reference — the
+ * :alarm_clock: reaction on a self-contained sentence.
+ *
+ * ONE, deliberately, and this is not a caller preference: it follows from the message itself. A
+ * thread asserts that messages belong together; it does not assert that they share a task. With no
+ * reference to resolve there is nothing saying how far back to look, so prepending a backlog hands
+ * the analyzer a neighbour's task text and a neighbour's @mention — that is how a reaction on a
+ * self-contained reply scheduled the wrong text to the wrong person.
+ * ponytail: the depth IS the relevance filter here; widen it only behind a real relevance test.
+ */
+const THREAD_LOOKBACK_MAX_UNREFERENCED = 1;
 
 // GH-55 channel-lookback recency window. Named constants with a rationale, because both are the
 // difference between "resolved the antecedent" and "stitched the wrong one".
@@ -213,19 +229,20 @@ async function CollectChannelAntecedentCandidatesAsync(ArgSlackApp, ArgEventInfo
 /**
  * THE single context decision. Every entry path calls this; none re-implements it.
  *
- * `ArgOptions.RequireReference` (default true) keeps the historical behavior of the app-mention
- * paths: only a message that *points* at something earlier is enriched, so ordinary self-contained
- * tasks never spend a lookback. The reaction path passes false — a human reacting :alarm_clock: to
- * a reply has already asserted that the message is a task, and it is precisely the terse replies
- * ("can do, I'll work on it today") that need their antecedent.
+ * It answers ONE question — "what earlier context exists for this message?" — and it answers it
+ * the same way for every caller. It takes no admission flag: whether a given door is allowed to
+ * spend a lookback is that door's own rule, enforced before the call (the `see above` path checks
+ * {@link NeedsEarlierContext}, the semantic-`this` path checks its demonstrative gate, triage
+ * mirrors the message path's gate, the :alarm_clock: reaction is itself a human assertion that
+ * the message is a task). An admission option here re-created the four disagreeing policies this
+ * module exists to delete, one layer down.
  * @param {any} ArgSlackApp
  * @param {{channel: string, ts: string, thread_ts?: string|null, user?: string, text?: string}} ArgEventInfo
- * @param {{RequireReference?: boolean, PathPrefix?: string}} [ArgOptions]
+ * @param {{PathPrefix?: string}} [ArgOptions]
  * @returns {Promise<ResolvedContext>}
  */
 async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
   const Text = ArgEventInfo.text || '';
-  const RequireReference = ArgOptions.RequireReference !== false;
   const InThread = Boolean(ArgEventInfo.thread_ts);
 
   /** @type {ResolvedContext} */
@@ -234,8 +251,8 @@ async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
     enrichment: null, prependedCount: 0, decidedBy: 'no_context',
   };
 
+  // Names the reference for the provenance Path only — it is NOT a gate. Callers gate themselves.
   const ReferenceShape = DescribeReferenceShape(Text);
-  if(RequireReference && !ReferenceShape) return { ...NotEnriched, decidedBy: 'no_reference' };
 
   // Outside a thread the channel walk is behind a kill switch, so an unset flag leaves call
   // volume byte-identical to before GH-55.
@@ -245,7 +262,13 @@ async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
   let PrecedingMessages = [];
   try {
     PrecedingMessages = InThread
-      ? await CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInfo, THREAD_LOOKBACK_MAX_MESSAGES)
+      // How far back to look follows from the MESSAGE, not from the caller: an explicit backward
+      // reference ("above", "follow up on it") licenses a few turns; without one there is nothing
+      // saying how far back the referent is, so take only the message being replied to.
+      ? await CollectPrecedingHumanThreadMessagesAsync(
+        ArgSlackApp, ArgEventInfo,
+        ReferenceShape ? THREAD_LOOKBACK_MAX_MESSAGES : THREAD_LOOKBACK_MAX_UNREFERENCED,
+      )
       : await CollectChannelAntecedentCandidatesAsync(ArgSlackApp, ArgEventInfo);
   } catch(error) {
     // A lookback failure must never lose the reminder — fall back to the unenriched message.
@@ -256,7 +279,9 @@ async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
   if(PrecedingMessages.length === 0) return { ...NotEnriched, decidedBy: 'no_antecedent' };
 
   const ContextBlock = PrecedingMessages.map((/** @type {any} */ ArgMessage) => ArgMessage.text).join('\n');
-  const Shape = ReferenceShape || ArgOptions.PathPrefix || 'explicit_request';
+  // A caller that names its path wins: the path is which DOOR the message came through, and that
+  // must not change because the wording happened to also match a reference regex.
+  const Shape = ArgOptions.PathPrefix || ReferenceShape || 'explicit_request';
   // The antecedent's ts is what makes a wrong stitch auditable rather than silent — it rides
   // through to the ReminderCreated ledger payload as `enrichedFrom` (GH-55).
   const AntecedentTs = PrecedingMessages[PrecedingMessages.length - 1]?.ts || null;
@@ -281,6 +306,7 @@ module.exports = {
   CollectPrecedingHumanThreadMessagesAsync,
   CollectChannelAntecedentCandidatesAsync,
   THREAD_LOOKBACK_MAX_MESSAGES,
+  THREAD_LOOKBACK_MAX_UNREFERENCED,
   CHANNEL_ANTECEDENT_MAX_AGE_SECONDS,
   CHANNEL_ANTECEDENT_SCAN_LIMIT,
   VAGUE_COMPLETION_PATTERN,

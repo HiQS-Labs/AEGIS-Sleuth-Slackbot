@@ -270,6 +270,40 @@ describe('RemindersReactionHandler', () => {
       );
     });
 
+    it('kill switch OFF is byte-identical to pre-GH-143, even on a thread reply', async () => {
+      // The regression this guards: `thread_ts` was passed OUTSIDE the flag gate, so a reaction on
+      // a thread reply persisted OriginalThreadTs on reaction-created reminders with the switch
+      // off — changing downstream consumers. Off must mean off, not "off except one argument".
+      const Previous = process.env.REACTION_CONTEXT_RESOLUTION_ENABLED;
+      process.env.REACTION_CONTEXT_RESOLUTION_ENABLED = 'off';
+      try {
+        MockSlackAppInstance.ThreadMessages = [
+          { text: 'can do, I will work on it today', user: 'U123', thread_ts: '1234567890.000001' },
+        ];
+        DependencyBag.TryScheduleRemindersAsync.mockResolvedValue(true);
+
+        await Handler.OnReactionAddedAsync(MockSlackAppInstance, {
+          reaction: 'alarm_clock',
+          item: { channel: 'C123', ts: '1234567890.000100' },
+        });
+
+        expect(DependencyBag.TryScheduleRemindersAsync).toHaveBeenCalledWith(
+          'can do, I will work on it today',
+          'C123',
+          '1234567890.000100',
+          'U123',
+          true,
+          null,  // thread_ts suppressed with the switch off — the whole point of this test
+          'can do, I will work on it today',
+          false,
+          null
+        );
+      } finally {
+        if(Previous === undefined) delete process.env.REACTION_CONTEXT_RESOLUTION_ENABLED;
+        else process.env.REACTION_CONTEXT_RESOLUTION_ENABLED = Previous;
+      }
+    });
+
     it('should return false when original message not found', async () => {
       const EventInfo = {
         reaction: 'alarm_clock',

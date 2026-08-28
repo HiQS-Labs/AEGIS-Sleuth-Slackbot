@@ -173,14 +173,16 @@ class RemindersReactionHandler {
     // GH-143 Phase 2: resolve earlier context through the SAME resolver every other entry path
     // uses. This path had none, which is how the reported case reached the queue verbatim and
     // wrongly owned: a reaction on "can do, I'll work on it today" carries the whole task in the
-    // message it is replying to. `RequireReference: false` — the human's :alarm_clock: has already
-    // asserted this is a task, so the reference patterns are not an admission gate here.
+    // message it is replying to. This path's ADMISSION rule is the reaction itself — a human
+    // placing :alarm_clock: has already asserted the message is a task — so there is nothing to
+    // gate before the call.
     /** @type {import('./reminder-context-resolution').ResolvedContext} */
     let Context = {
       enriched: false, text: OriginalMessage.text, liveReplyText: OriginalMessage.text,
       enrichment: null, prependedCount: 0, decidedBy: 'reaction_resolution_disabled',
     };
-    if(ContextResolution.IsReactionContextResolutionEnabled()) {
+    const ReactionContextEnabled = ContextResolution.IsReactionContextResolutionEnabled();
+    if(ReactionContextEnabled) {
       Context = await ContextResolution.ResolveContextAsync(
         this.#SlackApp,
         {
@@ -190,7 +192,7 @@ class RemindersReactionHandler {
           user: OriginalMessage.user,
           text: OriginalMessage.text,
         },
-        { RequireReference: false, PathPrefix: 'alarm_clock_reaction' }
+        { PathPrefix: 'alarm_clock_reaction' }
       );
     }
     this.#SlackApp.Logger.info(
@@ -203,7 +205,10 @@ class RemindersReactionHandler {
     return await this.#TryScheduleRemindersAsync(
       Context.text, ArgEventInfo.item.channel, ArgEventInfo.item.ts, OriginalMessage.user,
       true, // force scheduling if no scheduling triggers are found in the message.
-      OriginalMessage.thread_ts ?? null,
+      // Gated with the kill switch: before GH-143 this path passed 5 arguments, so a thread_ts
+      // passed here with the switch OFF would persist OriginalThreadTs on reaction-created
+      // reminders and change downstream consumers. Off must mean byte-identical to before.
+      ReactionContextEnabled ? (OriginalMessage.thread_ts ?? null) : null,
       Context.liveReplyText,
       Context.enriched,
       Context.enrichment
