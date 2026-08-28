@@ -81,6 +81,23 @@ goal: >
   window and does not open until Phase 1's gate is green. →
   [PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md)
 
+- **Five entry paths each decided context independently (GH-143)** — **SHIPPED to production
+  2026-08-28**, release "Antecedent". The successor to GH-55 above, and the reason that entry's
+  Phase 2 could not be finished as written: enrichment was not one gate to widen but five separate
+  ones. A thread reply "can do, I'll work on it today" scheduled verbatim and was assigned to the
+  person who ASKED rather than the one who committed, because it arrived through a door that did no
+  lookback at all — which is why an earlier fix looked deployed and changed nothing.
+  `src/reminder-context-resolution.js` is now the single answer to "what earlier context exists",
+  with no admission flag: each door enforces its own admission before calling, and lookback depth
+  follows from the message rather than the caller. Reviewed by three independent models (GLM 5.3
+  Flash, Codex over three rounds, agy); every finding fixed or answered with a reason. Also adds
+  `utils/reminder-replay.js`, an offline harness that runs real events through the real pipeline and
+  a real model call — every defect here had passed the full unit suite, which stubs the model.
+  **Known ceiling: extraction is nondeterministic** — the same thread can yield different task sets,
+  and one observed run reproduced the original defect shape.
+  → [#147](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/147),
+  [#149](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149) (follow-up umbrella)
+
 - **Span-ratio rounding hides the most deeply buried tasks (GH-51)** — **release goalpost 1.4.280
   ("Grounding")** for the open remainder. `DescribeSynthesisRouting`
   rounded the actionable-span ratio with `toFixed(2)` **before** the buried-task gate read it, so any

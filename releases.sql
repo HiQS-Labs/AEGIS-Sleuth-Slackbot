@@ -1,6 +1,6 @@
 -- releases-app canonical dump (GH-32 grammar: GID-keyed rows, natural keys elsewhere,
 -- no integer PKs/FKs as values; rebuild renumbers deterministically)
--- generation: 15
+-- generation: 18
 -- table: schema_migrations
 INSERT INTO schema_migrations(version, applied_at) VALUES('1', '2026-08-25T01:07:47Z');
 INSERT INTO schema_migrations(version, applied_at) VALUES('2', '2026-08-25T01:07:47Z');
@@ -9,7 +9,7 @@ INSERT INTO schema_migrations(version, applied_at) VALUES('4', '2026-08-25T01:07
 INSERT INTO schema_migrations(version, applied_at) VALUES('5', '2026-08-25T01:07:48Z');
 -- table: settings
 INSERT INTO settings(key, value) VALUES('enforcement', 'lenient');
-INSERT INTO settings(key, value) VALUES('generation', '15');
+INSERT INTO settings(key, value) VALUES('generation', '18');
 INSERT INTO settings(key, value) VALUES('repo_slug', 'aegis-sleuth-slack-bot');
 -- table: repos
 INSERT INTO repos(global_id, slug) VALUES('repo-01M0V7B2N4NR2AFQPFYKVT7997', 'aegis-sleuth-slack-bot');
@@ -24,6 +24,8 @@ INSERT INTO issue_refs(global_id, url, temp_id, created_at) VALUES('ref-01M0WR2B
 INSERT INTO issue_refs(global_id, url, temp_id, created_at) VALUES('ref-01M0Y163MWWEW7CPNZ7BPPTJF4', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/137', NULL, '2026-08-26T03:17:57Z');
 INSERT INTO issue_refs(global_id, url, temp_id, created_at) VALUES('ref-01M0Y1N78GT67MTYX3KB86PYYP', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/138', NULL, '2026-08-26T03:26:12Z');
 INSERT INTO issue_refs(global_id, url, temp_id, created_at) VALUES('ref-01M0Y1SYV719F43YXZ1WKPR8N0', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/139', NULL, '2026-08-26T03:28:47Z');
+INSERT INTO issue_refs(global_id, url, temp_id, created_at) VALUES('ref-01M14D9SQ22W3VET3FS6VZXVVK', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/143', NULL, '2026-08-28T14:45:07Z');
+INSERT INTO issue_refs(global_id, url, temp_id, created_at) VALUES('ref-01M14DA42W6WFC7KGFXGJ2CYRJ', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149', NULL, '2026-08-28T14:45:18Z');
 -- table: releases
 INSERT INTO releases(global_id, repo_gid, version, codename, status, target_date, shipped_date, description, exit_criterion, tracking_ref_gid, marathon_gid, gh_release_url, milestone, front_door_reviewed, shakedown_reviewed, license_file, baseline_count, baseline_at, baseline_source) VALUES('rel-01M0V7FVJ2JRKQABYXPP3VEYB8', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '"Confluence"', 'draft', NULL, NULL, 'Deliberately short — see #80 and #79. This file''s own history is the reason: the', NULL, 'ref-01M0V7FVJ3EATMPR5G3Q7H3M3C', NULL, 'https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/80', 'One extraction path. Delete intent-selector grammars; keep verifiers.', 'No', 'No', 'No', NULL, NULL, NULL);
 INSERT INTO releases(global_id, repo_gid, version, codename, status, target_date, shipped_date, description, exit_criterion, tracking_ref_gid, marathon_gid, gh_release_url, milestone, front_door_reviewed, shakedown_reviewed, license_file, baseline_count, baseline_at, baseline_source) VALUES('rel-01M0V7FVJ3JJBA7BKJ1B0X4XV2', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '"Silverlining"', 'draft', NULL, NULL, 'First public open source license', NULL, 'ref-01M0V7FVJ3YZP4NBH9Y4K6A1VR', NULL, NULL, NULL, 'No', NULL, 'No', NULL, NULL, NULL);
@@ -39,8 +41,11 @@ INSERT INTO manifest_items(global_id, release_gid, issue_ref_gid, state, dialed_
 INSERT INTO manifest_items(global_id, release_gid, issue_ref_gid, state, dialed_in_at, dial_reason, marathon_gid) VALUES('mfi-01M0Y1N75ACADWWJAJ78H9TW0J', 'rel-01M0Y1MXPSR7TC8VD7PFNRAHJJ', 'ref-01M0Y163MWWEW7CPNZ7BPPTJF4', 'dialed_in', '2026-08-26T03:26:12Z', 'ask-code hands-free thread-sticky routing', NULL);
 INSERT INTO manifest_items(global_id, release_gid, issue_ref_gid, state, dialed_in_at, dial_reason, marathon_gid) VALUES('mfi-01M0Y1N78CS04ZMXS28EMYRDT0', 'rel-01M0Y1MXPSR7TC8VD7PFNRAHJJ', 'ref-01M0Y1N78GT67MTYX3KB86PYYP', 'dialed_in', '2026-08-26T03:26:12Z', 'resolve OCR/analyze target from a prior message', NULL);
 INSERT INTO manifest_items(global_id, release_gid, issue_ref_gid, state, dialed_in_at, dial_reason, marathon_gid) VALUES('mfi-01M0Y1SYV31E553AWY0066APJ6', 'rel-01M0Y1MXPSR7TC8VD7PFNRAHJJ', 'ref-01M0Y1SYV719F43YXZ1WKPR8N0', 'dialed_in', '2026-08-26T03:28:47Z', 'ask-code citations parity with ask-self', NULL);
+INSERT INTO manifest_items(global_id, release_gid, issue_ref_gid, state, dialed_in_at, dial_reason, marathon_gid) VALUES('mfi-01M14D9SPX9EVFAS22CAXX0A5T', 'rel-01M0V7FVJ46K0PJ61KY2HPV9VV', 'ref-01M14D9SQ22W3VET3FS6VZXVVK', 'shipped', '2026-08-28T14:45:07Z', 'The reported production defect and the release''s namesake: five entry paths each decided independently whether earlier context existed, so a thread reply scheduled verbatim and was assigned to the asker rather than the person who committed. One resolver now answers that question for every door.', NULL);
+INSERT INTO manifest_items(global_id, release_gid, issue_ref_gid, state, dialed_in_at, dial_reason, marathon_gid) VALUES('mfi-01M14DA42SHYQE4GKVMRA4RE0V', 'rel-01M0V7FVJ46K0PJ61KY2HPV9VV', 'ref-01M14DA42W6WFC7KGFXGJ2CYRJ', 'dialed_in', '2026-08-28T14:45:18Z', 'Umbrella for what GH-143 did NOT close: extraction is nondeterministic, and two reviewer recommendations were deliberately deferred. Dialed in so the release''s known ceiling is visible in the ledger rather than only in the PR body.', NULL);
 -- table: manifest_state_events
 INSERT INTO manifest_state_events(item_gid, from_state, to_state, at, reason) VALUES('mfi-01M0Y163MR8EVT4T0HBA0FDWA6', 'dialed_in', 'cut', '2026-08-26T03:26:12Z', 'Confluence''s manifest is frozen (locked 2026-08-17); moved to successor release Retrospect instead of reopening it');
+INSERT INTO manifest_state_events(item_gid, from_state, to_state, at, reason) VALUES('mfi-01M14D9SPX9EVFAS22CAXX0A5T', 'dialed_in', 'shipped', '2026-08-28T14:45:17Z', 'PR #147 -> development, PR #151 -> main (cd46333); DeployHQ af8d8e9e to production 2026-08-28 04:06 UTC, verified on host (resolver symbols present, /var/lib/aegis-sleuth intact, no errors). jest 2180, node:test 116, tsc clean. Reviewed by GLM 5.3 Flash, Codex (3 rounds), agy. Known ceiling tracked in #149.');
 -- table: doc_lines
 INSERT INTO doc_lines(repo_gid, position, content) VALUES('repo-01M0V7B2N4NR2AFQPFYKVT7997', '0', '# Major Releases');
 INSERT INTO doc_lines(repo_gid, position, content) VALUES('repo-01M0V7B2N4NR2AFQPFYKVT7997', '1', '');
@@ -612,3 +617,6 @@ INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_bef
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('manifest-add', 'mfi-01M0Y1N78CS04ZMXS28EMYRDT0', '2026-08-26T03:26:12Z', '86c5ddd53a2849e8af06fb8520744177', 'default', '47f573a9ad3ed9de96ad387e917512eed57cd3467d097db8b8a695f2b6479075', '74baef346eb843f1484a4ba9d14e9d3f77f622ea503e994ca0dc5aaa8473fda8');
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-add', 'rmi-01M0Y1SYR1M9ZKFTTFD0KDAC9P', '2026-08-26T03:28:47Z', 'f72813aa1c424254a70fd018d1c23636', 'default', '74baef346eb843f1484a4ba9d14e9d3f77f622ea503e994ca0dc5aaa8473fda8', 'b90bf601ccaf052fa9543348c1b684470a44f9b66ab3bcaafe8fd484a1e7f7d9');
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('manifest-add', 'mfi-01M0Y1SYV31E553AWY0066APJ6', '2026-08-26T03:28:47Z', '294366605d6b4e2f88377f5e535769c3', 'default', 'b90bf601ccaf052fa9543348c1b684470a44f9b66ab3bcaafe8fd484a1e7f7d9', '8e5fa49f575a54cd3ce41ad5b495b3f11eee4d54ca9468f1624eead90a025be2');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('manifest-add', 'mfi-01M14D9SPX9EVFAS22CAXX0A5T', '2026-08-28T14:45:07Z', '0a9be6ecb4c54c9eb2e5b21adee88802', 'default', '8e5fa49f575a54cd3ce41ad5b495b3f11eee4d54ca9468f1624eead90a025be2', 'd731d2109e32f9127049eaa81d3a69b9f16870f89968c4e07c9f69d5d0d52c4c');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('manifest-ship', 'rel-01M0V7FVJ46K0PJ61KY2HPV9VV', '2026-08-28T14:45:17Z', 'e594adb682f84e63be2dd587b9aabc49', 'default', 'd731d2109e32f9127049eaa81d3a69b9f16870f89968c4e07c9f69d5d0d52c4c', '02f842017c10c13b8bbaee9601e7df00425f198128b7b81065d9e63567cf2cac');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('manifest-add', 'mfi-01M14DA42SHYQE4GKVMRA4RE0V', '2026-08-28T14:45:18Z', 'f3c200742b674cdca7f4009222f4c8f0', 'default', '02f842017c10c13b8bbaee9601e7df00425f198128b7b81065d9e63567cf2cac', '5fa424a0428e111e2ffdbca011ea8d9a22928489e5370aa92e78218f2a43d699');
