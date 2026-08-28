@@ -207,7 +207,11 @@ class RemindersReactionHandler {
       true, // force scheduling if no scheduling triggers are found in the message.
       // Gated with the kill switch: before GH-143 this path passed 5 arguments, so a thread_ts
       // passed here with the switch OFF would persist OriginalThreadTs on reaction-created
-      // reminders and change downstream consumers. Off must mean byte-identical to before.
+      // reminders and change downstream consumers. With the switch off every trailing argument now
+      // carries its pre-GH-143 default, so the switch is BEHAVIOUR-identical to before — not
+      // call-shape identical, which nothing here can restore now that the scheduler's signature has
+      // grown (Codex review, 2026-08-27). Anything that ever branches on argument PRESENCE rather
+      // than value would break that guarantee.
       ReactionContextEnabled ? (OriginalMessage.thread_ts ?? null) : null,
       Context.liveReplyText,
       Context.enriched,

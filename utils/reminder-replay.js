@@ -90,6 +90,17 @@ const { MockSlackApp } = require('../tests/mocks/mock-slack-app');
 
 const CHANNEL = 'C_REPLAY';
 
+/**
+ * A FRESH workspace per scenario. Sharing one made results order-dependent: reminders accumulate in
+ * the workspace store, so a later scenario's candidate could be collapsed as a duplicate of an
+ * earlier scenario's, and a scenario that passed alone reported "nothing scheduled" in sequence.
+ * A harness whose verdict depends on what ran before it is not a harness.
+ * @param {number} ArgIndex
+ */
+function MakeWorkspaceInfo(ArgIndex) {
+  return { ...WorkspaceInfo, WORKSPACE_NAME: `ReplayWorkspace_${ArgIndex}` };
+}
+
 const WorkspaceInfo = {
   WORKSPACE_NAME: 'ReplayWorkspace',
   ADMIN_EMAIL: 'admin@example.com',
@@ -126,14 +137,14 @@ function BuildThread(ArgMessages, ArgBaseSeconds) {
  * Run one scenario end to end and return what the pipeline produced.
  * @param {any} ArgScenario
  */
-async function RunScenarioAsync(ArgScenario) {
+async function RunScenarioAsync(ArgScenario, ArgIndex) {
   const BaseSeconds = 1800000000;
   const Thread = BuildThread([...(ArgScenario.thread || []), ArgScenario.event], BaseSeconds);
   const LiveMessage = Thread[Thread.length - 1];
   const RootTs = Thread[0].ts;
 
   const SlackApp = new MockSlackApp({
-    WorkspaceInfo,
+    WorkspaceInfo: MakeWorkspaceInfo(ArgIndex),
     // Enabling reminders is creator/admin-gated. Without this the enable command is refused and
     // every scenario reports "no reminder scheduled" — a silent pass-as-fail that says nothing
     // about the code under test.
@@ -176,8 +187,7 @@ async function RunScenarioAsync(ArgScenario) {
   // the whole composed body — quoted source, context line and all — so grading it would score the
   // prepended context as if it were the task, and a "no reminder should contain X" expectation
   // would fail on the quote of X rather than on the task. The bullet is what a person reads.
-  const Assignees = Reminders.GetAllReminders()
-    .flatMap((/** @type {any} */ ArgReminder) => ArgReminder.AssigneeIDs || [ArgReminder.AssigneeID].filter(Boolean));
+  const AllReminders = Reminders.GetAllReminders();
   const Confirmation = (SlackApp.SentMessages || [])
     .map((/** @type {any} */ ArgSent) => String(ArgSent.text || ''))
     .find((/** @type {string} */ ArgText) => ArgText.includes('Tasks for'));
@@ -185,7 +195,19 @@ async function RunScenarioAsync(ArgScenario) {
     .split('\n')
     .filter((/** @type {string} */ ArgLine) => ArgLine.trim().startsWith('•'))
     .map((/** @type {string} */ ArgLine) => ArgLine.replace(/^\s*•\s*/, '').replace(/^Sleuth\s+-\s*/, '').trim());
-  const Produced = Bullets.map((/** @type {string} */ ArgText) => ({ text: ArgText, assignees: Assignees }));
+
+  // Pair each BULLET with its OWN reminder's assignees. Flattening assignees across all reminders
+  // and attaching the union to every bullet let a two-task output pass with the right person on the
+  // wrong task — the harness could not see a mis-pairing at all. Found by Codex review.
+  const Produced = Bullets.map((/** @type {string} */ ArgText) => {
+    const Owner = AllReminders.find((/** @type {any} */ ArgReminder) =>
+      String(ArgReminder.ReminderMessageText || '').includes(ArgText));
+    return {
+      text: ArgText,
+      assignees: Owner ? (Owner.AssigneeIDs || [Owner.AssigneeID].filter(Boolean)) : [],
+      matched: Boolean(Owner),
+    };
+  });
   await Reminders.StopAsync();
   return Produced;
 }
@@ -198,6 +220,18 @@ function Grade(ArgScenario, ArgProduced) {
   const Failures = [];
   const AllText = ArgProduced.map((/** @type {any} */ ArgItem) => ArgItem.text).join('\n');
   const Expect = ArgScenario.expect || {};
+
+  // A scenario with NOTHING scheduled passes every negative check vacuously — "no reminder contains
+  // X" is trivially true of no reminders. Any graded scenario must therefore assert that something
+  // happened, unless it is explicitly a nothing-should-schedule case. Found by Codex review.
+  if(Object.keys(Expect).length > 0 && ArgProduced.length === 0 && !Expect.expectNone)
+    Failures.push('nothing was scheduled — negative expectations pass vacuously; set expectNone to assert this on purpose');
+  if(Expect.expectNone && ArgProduced.length > 0)
+    Failures.push(`expected nothing to be scheduled, got ${ArgProduced.length}`);
+
+  for(const Item of ArgProduced)
+    if(!Item.matched)
+      Failures.push(`bullet "${Item.text}" could not be paired with a stored reminder — assignee checks would be blind`);
 
   for(const Needle of Expect.taskContains || [])
     if(!AllText.toLowerCase().includes(Needle.toLowerCase()))
@@ -217,11 +251,12 @@ function Grade(ArgScenario, ArgProduced) {
   if(Expect.reminderCount !== undefined && ArgProduced.length !== Expect.reminderCount)
     Failures.push(`expected ${Expect.reminderCount} reminder(s), got ${ArgProduced.length}`);
 
-  if(Expect.assignee) {
-    const Assignees = new Set(ArgProduced.flatMap((/** @type {any} */ ArgItem) => ArgItem.assignees));
-    if(!Assignees.has(Expect.assignee))
-      Failures.push(`expected assignee ${Expect.assignee}, got ${[...Assignees].join(', ') || 'none'}`);
-  }
+  // Per-bullet, not per-run: "the right user appears somewhere" is exactly the check that cannot
+  // see a task assigned to the wrong person.
+  if(Expect.assignee)
+    for(const Item of ArgProduced)
+      if(!Item.assignees.includes(Expect.assignee))
+        Failures.push(`"${Item.text}" is assigned to ${Item.assignees.join(', ') || 'nobody'}, expected ${Expect.assignee}`);
 
   return Failures;
 }
@@ -239,7 +274,7 @@ async function MainAsync() {
 
     let Produced = [];
     try {
-      Produced = await RunScenarioAsync(Scenario);
+      Produced = await RunScenarioAsync(Scenario, Scenarios.indexOf(Scenario));
     } catch(error) {
       console.log(`   ERROR: ${error.message}`);
       FailedCount++;

@@ -1155,14 +1155,22 @@ class RemindersAppMentionHandler {
       return true;
     }
 
-    let SourceMessage = null;
+    // GH-143: THE SAME resolver every other door calls. This path used to run its own
+    // one-message lookup, so "do the above" over two earlier tasks silently dropped one — the
+    // wrong lookback depth AND a second private opinion about what context is, which is the exact
+    // architecture this work exists to delete. The resolver derives depth from the message ("above"
+    // is a backward reference, so it licenses several turns) and returns the antecedent's identity,
+    // which is the only thing the private lookup was still needed for.
+    let Context = null;
     try {
-      SourceMessage = await this.#FindPrecedingHumanThreadMessageAsync(ArgSlackApp, ArgEventInfo);
+      Context = await ContextResolution.ResolveContextAsync(
+        ArgSlackApp, ArgEventInfo, { PathPrefix: 'task_above_shorthand' },
+      );
     } catch(error) {
       ArgSlackApp.Logger.error('failed to resolve source message for "task above" reminder command:', error);
     }
 
-    if(!SourceMessage?.text) {
+    if(!Context?.enriched) {
       await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ArgEventInfo.ts,
@@ -1173,7 +1181,9 @@ class RemindersAppMentionHandler {
 
     const ScheduleText = (ArgScheduleText || '').trim();
     const HasRequestedSchedule = this.#HasExplicitScheduleForDefaulting(ScheduleText);
-    const HasSourceSchedule = this.#HasExplicitScheduleForDefaulting(SourceMessage.text);
+    // Read the schedule out of the RESOLVED context, not one hand-picked message: with several
+    // antecedents in play, a time named in any of them is a time the user already gave.
+    const HasSourceSchedule = this.#HasExplicitScheduleForDefaulting(Context.text);
     const DefaultMorningTotalMin = 8 * 60 + Math.floor(Math.random() * 91) - 45; // 7:15–8:45 AM range
     const DefaultMorningTime = `tomorrow at ${Math.floor(DefaultMorningTotalMin / 60)}:${String(DefaultMorningTotalMin % 60).padStart(2, '0')} AM`;
     const EffectiveScheduleText = HasRequestedSchedule ? ScheduleText :
@@ -1197,27 +1207,31 @@ class RemindersAppMentionHandler {
     //   - a DEFAULTED schedule. When neither the command nor the source names a time we invent a
     //     morning slot; appending an EXPLICIT one the live text already contains is what produced
     //     "...by 11 AM PT — with WP Engine support chat by 11 AM PT".
-    const MentionPrefix = LiveReplyText.includes(ArgUserMention) ? '' : `${ArgUserMention} `;
+    // Appended to the resolver's block rather than woven into it: the target and the defaulted
+    // time are this door's own additions, and keeping them at the end leaves the context format
+    // byte-identical to every other door's.
+    const MentionSuffix = LiveReplyText.includes(ArgUserMention) ? '' : ` (for ${ArgUserMention})`;
     const ScheduleSuffix = (EffectiveScheduleText && !HasRequestedSchedule)
       ? ` — ${EffectiveScheduleText}` : '';
-    const AnalysisText = `${SourceMessage.text}\n${MentionPrefix}${LiveReplyText}${ScheduleSuffix}`;
-    const SourceUserID = SourceMessage.user || ArgEventInfo.user;
+    const AnalysisText = `${Context.text}${MentionSuffix}${ScheduleSuffix}`;
+    const SourceUserID = Context.enrichment?.SourceUser || ArgEventInfo.user;
+    const SourceTs = Context.enrichment?.SourceTs || ArgEventInfo.ts;
     ArgSlackApp.Logger.info(
-      `reminder path fired: path=task_above_shorthand_in_thread enrichment=thread_context` +
-      ` temporal_trigger="${EffectiveScheduleText || 'from_source'}" prepended_messages=1` +
-      ` antecedent_ts=${SourceMessage.ts || 'none'}`
+      `reminder path fired: path=${Context.enrichment?.Path} enrichment=${Context.decidedBy}` +
+      ` temporal_trigger="${EffectiveScheduleText || 'from_source'}"` +
+      ` prepended_messages=${Context.prependedCount} antecedent_ts=${Context.enrichment?.SourceTs || 'none'}`
     );
     const WasScheduled = await this.#TryScheduleRemindersAsync(
       ArgSlackApp,
       AnalysisText,
       ArgEventInfo.channel,
-      SourceMessage.ts,
+      SourceTs,
       SourceUserID,
       false,
       ArgEventInfo.thread_ts,
-      LiveReplyText,
+      Context.liveReplyText,
       true,
-      { SourceTs: SourceMessage.ts || null, Path: 'task_above_shorthand_in_thread' }
+      Context.enrichment
     );
 
     if(WasScheduled) return true;

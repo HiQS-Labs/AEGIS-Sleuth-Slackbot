@@ -411,6 +411,9 @@ describe('GH-55 antecedent provenance reaches the scheduler', () => {
     expect(Call[7]).toBe('Can we try to get it done by end of day on Monday?');
     expect(Call[9]).toEqual({
       SourceTs: Ts(TASK_TS),
+      // GH-143 (Codex review): the antecedent's AUTHOR rides along, so a caller that needs its
+      // identity does not run a second private lookup — that lookup was its own context decision.
+      SourceUser: 'U_NOEL',
       Path: 'object_position_pronoun_in_channel',
     });
     delete process.env.CHANNEL_ANTECEDENT_LOOKBACK_ENABLED;

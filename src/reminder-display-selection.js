@@ -45,7 +45,7 @@ const TaskGrounding = require('./task-grounding');
  * `ungroundedTerms` is non-empty only when a proposed title was REJECTED — that is the event worth
  * logging, and it is returned rather than logged so this stays pure.
  */
-function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
+function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
   const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
   const Candidate = ArgReminderInfo || {};
 
@@ -146,36 +146,95 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
 }
 
 /**
- * Drop candidates whose displayed title is still just a pointer at earlier content — "do all of
- * the above", "do it" — when the resolver DID supply that content and at least one sibling
- * candidate resolved it.
+ * Never show a context marker to a person.
  *
- * Why this is a filter and not another prompt round. The reported thread produced three
- * candidates: `Take the car`, `Bring the cooler`, and the live reply echoed back as
- * `can you do all of the above`. Two of the three are the model doing exactly what it was asked;
- * the third is the un-expanded reference riding along beside its own expansion, so it carries no
- * information the other bullets do not already carry. Deleting it cannot lose a task.
+ * The verbatim display path returns the analyzed source unchanged, and since GH-143 that source
+ * begins with `[earlier messages in this thread, for reference]`. A reminder whose entire title was
+ * that header shipped to the replay harness — caught there, but it is exactly the class of leak
+ * that reaches a user as gibberish. Stripping here rather than at each call site means a future
+ * display path cannot forget: the markers are internal wire format, and this is the boundary
+ * between wire format and a human.
  *
- * The two guards are what make that claim true, and neither is optional:
- *   - `ArgEnriched` — without prepended context there is nothing the reference COULD have been
- *     resolved into, so the vague title may be the only record of the task. Keep it.
- *   - at least one survivor — never return an empty set. A message whose every candidate is vague
- *     still schedules something a human can act on by opening the thread.
- * ponytail: a filter, not a rewrite. Inventing replacement text here would be the model's job done
- * badly, and would hide which prompt change actually worked.
+ * Grounding still measures against the FULL source, markers included — this only affects what is
+ * shown, never what a title is checked against.
+ * @param {string} ArgText
+ * @returns {string}
+ */
+function StripContextMarkers(ArgText) {
+  const MarkerLine = /^\s*\[(?:earlier messages in this thread, for reference|the message to act on)\]\s*$/i;
+  return (ArgText || '')
+    .split(/\r?\n/)
+    .filter((/** @type {string} */ ArgLine) => !MarkerLine.test(ArgLine))
+    // The numbering is wire format too: "1. take the car" reads as a list fragment in a bullet.
+    .map((/** @type {string} */ ArgLine) => ArgLine.replace(/^\s*\d+\.\s+/, ''))
+    .join('\n')
+    .trim();
+}
+
+/**
+ * {@link SelectTaskTextRaw}, with the wire-format markers removed from whatever it chose to show.
+ * @param {any} ArgReminderInfo
+ * @param {string} [ArgNormalizedOriginalText]
+ * @param {boolean} [ArgSynthesisOn]
+ * @param {string} [ArgAnalyzedSourceText]
+ */
+function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynthesisOn = undefined, ArgAnalyzedSourceText = '') {
+  const Selection = SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
+  return { ...Selection, text: StripContextMarkers(Selection.text) };
+}
+
+
+/**
+ * Drop a candidate that is only the LIVE REPLY echoed back — the pointer sitting beside its own
+ * expansion — without touching a candidate that merely happens to contain a pronoun.
+ *
+ * The narrow rule matters. The first version dropped every title the reference detector matched
+ * whenever any sibling did not, and that deletes real work: a thread "the cache bug is blocking
+ * users" then "I'll file a GH issue about it tomorrow and discuss it with the team Friday" yields
+ * "File a GH issue about the cache bug" AND "Discuss it with the team" — the second is a separate
+ * Friday commitment, it carries a pronoun, and it was being deleted purely because the first
+ * survived. Found by Codex review; the two original guards (only-when-enriched, never-empty)
+ * prevent an empty result, not that data loss.
+ *
+ * So the test is redundancy, not vagueness: the candidate must both read as a bare pointer AND be
+ * the live reply restated. "can you do all of the above" is the message itself, carrying nothing
+ * its siblings do not already carry. "Discuss it with the team" is not.
  * @param {Array<{candidate: any, text: string}>} ArgRendered Candidates with their displayed text.
  * @param {boolean} ArgEnriched Whether earlier context was prepended for this message.
  * @param {(ArgText: string) => boolean} ArgIsUnresolved Reference detector (NeedsEarlierContext).
+ * @param {string} [ArgLiveReplyText] The author's own message, unenriched.
  * @returns {{kept: Array<any>, droppedCount: number}}
  */
-function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnresolved) {
+function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnresolved, ArgLiveReplyText = '') {
   const All = ArgRendered.map(ArgEntry => ArgEntry.candidate);
+  // Without prepended context there is nothing the reference COULD have resolved into, so the
+  // vague title may be the only record of the task. Keep it.
   if(!ArgEnriched) return { kept: All, droppedCount: 0 };
 
-  const Kept = ArgRendered.filter(ArgEntry => !ArgIsUnresolved(ArgEntry.text)).map(ArgEntry => ArgEntry.candidate);
+  const Normalize = (/** @type {string} */ ArgText) =>
+    (ArgText || '').toLowerCase().replace(/<@[^>]+>/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+  const LiveReply = Normalize(ArgLiveReplyText);
+  if(!LiveReply) return { kept: All, droppedCount: 0 };
+
+  // Substring containment alone is not enough: "discuss it with the team" IS a substring of
+  // "I'll file a GH issue about it tomorrow and discuss it with the team Friday", yet it is a
+  // distinct commitment, not the reply restated. An echo has to account for MOST of the reply.
+  const ECHO_COVERAGE = 0.6;
+  const IsEchoOfLiveReply = (/** @type {string} */ ArgText) => {
+    const Title = Normalize(ArgText);
+    if(!Title) return false;
+    if(!LiveReply.includes(Title) && !Title.includes(LiveReply)) return false;
+    return Title.length >= LiveReply.length * ECHO_COVERAGE;
+  };
+
+  const Kept = ArgRendered
+    .filter(ArgEntry => !(ArgIsUnresolved(ArgEntry.text) && IsEchoOfLiveReply(ArgEntry.text)))
+    .map(ArgEntry => ArgEntry.candidate);
+  // Never return nothing. A message whose every candidate is a bare pointer still schedules
+  // something a human can act on by opening the thread.
   if(Kept.length === 0) return { kept: All, droppedCount: 0 };
 
   return { kept: Kept, droppedCount: All.length - Kept.length };
 }
 
-module.exports = { SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates };
+module.exports = { SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates, StripContextMarkers };

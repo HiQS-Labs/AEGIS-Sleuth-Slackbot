@@ -61,7 +61,7 @@ describe('ResolveContextAsync', () => {
     expect(Result.text).toContain(PARENT.text);          // the ask the reply refers to
     expect(Result.text).toContain(REPLY.text);
     expect(Result.liveReplyText).toBe(REPLY.text);       // ownership needs the reply ALONE
-    expect(Result.enrichment).toEqual({ SourceTs: PARENT.ts, Path: 'vague_completion_in_thread' });
+    expect(Result.enrichment).toEqual({ SourceTs: PARENT.ts, SourceUser: PARENT.user, Path: 'vague_completion_in_thread' });
     expect(Result.prependedCount).toBe(1);
   });
 

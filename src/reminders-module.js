@@ -1787,6 +1787,7 @@ class RemindersModule {
     }));
     const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
       RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
+      ArgLiveReplyText || '',
     );
     if(ReferenceFilter.droppedCount > 0) {
       ArgSlackApp.Logger.warn(
@@ -2234,7 +2235,7 @@ class RemindersModule {
           ArgCandidate, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
         ),
       })),
-      TriageContext.enriched, ContextResolution.NeedsEarlierContext,
+      TriageContext.enriched, ContextResolution.NeedsEarlierContext, TriageContext.liveReplyText,
     ).kept;
     const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageResult.analysis.reminders);
 

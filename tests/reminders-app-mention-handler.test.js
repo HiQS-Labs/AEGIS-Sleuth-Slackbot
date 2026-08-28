@@ -168,8 +168,14 @@ describe('RemindersAppMentionHandler', () => {
       // the pipeline had not made. It now reports resolved context like every other door.
       `${SlackApp.AppMentionString} make a Sleuth reminder for <@U_TARGET> based on task above`,
       true,
-      { SourceTs: '1700000000.000001', Path: 'task_above_shorthand_in_thread' },
+      // GH-143 (Codex review): this door no longer runs its own one-message lookup. It calls the
+      // shared resolver, so the provenance — including the antecedent's author — is the resolver's,
+      // and "do the above" over several earlier tasks can no longer silently drop one.
+      { SourceTs: '1700000000.000001', SourceUser: 'U_SOURCE', Path: 'task_above_shorthand_in_thread' },
     );
+    // The analyzed text is the resolver's marker block, byte-identical in shape to every other door.
+    expect(TryScheduleRemindersAsync.mock.calls[0][1])
+      .toContain('[earlier messages in this thread, for reference]');
     expect(TryScheduleRemindersAsync.mock.calls[0][1]).toContain('<@U_TARGET>');
     // The source message must arrive UNQUOTED. Wrapping it in quotes triggered the analyzer's
     // CRITICAL QUOTED TEXT RULE, which forbids summarizing quoted text — so the whole source

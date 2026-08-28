@@ -33,6 +33,34 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.319 - 2026-08-27
+
+More reliability on "do the above": pointing at several earlier tasks now schedules all of them
+whichever way you ask, a genuinely separate to-do sitting beside a resolved one is no longer
+dropped, and no reminder can show you my internal formatting.
+
+**Technical:** GH-143, from a Codex branch review. Five fixes.
+(1) `TryHandleTaskAboveShorthandAsync` still ran a private ONE-message lookup, so "do the above"
+over two earlier tasks silently lost one. It now calls `ResolveContextAsync` like every other door;
+the resolver returns `enrichment.SourceUser` so the antecedent's identity no longer needs a second
+private lookup. (2) The context markers were prompt-injectable — a message containing a literal
+`[the message to act on]` line forged a second delimiter with no precedence rule.
+`NeutralizeContextMarkers` defangs brackets to parentheses in both context and live text; a test
+pins that exactly one delimiter survives. (3) `DropUnresolvedReferenceCandidates` dropped EVERY
+pointer-titled candidate when any sibling resolved, deleting real work ("discuss it with the team
+Friday"). It now requires redundancy, not vagueness: the title must also be the live reply restated,
+at 60% coverage — substring alone matched a clause. (4) Marker text could reach a reminder title
+through the verbatim display path; `StripContextMarkers` removes markers and list numbering at the
+display boundary, while grounding still measures against the full source. (5) The replay harness had
+two false-greens (a scenario passed on zero reminders; assignees were flattened across all reminders
+so right-owner-wrong-task passed) and shared one workspace across scenarios, making verdicts
+order-dependent. Each scenario now gets its own workspace, bullets pair with their own reminder, and
+a graded scenario must schedule something unless it sets `expectNone`.
+
+The reaction kill-switch comment no longer claims byte-identical call shape — it is
+behaviour-identical; the scheduler's signature has grown and nothing can restore the old arity.
+Replay 4/4, jest 2160, node:test 116, tsc clean.
+
 ## 1.4.318 - 2026-08-27
 
 "Can you do all of the above tomorrow?" now gives you one reminder per thing you pointed at —
