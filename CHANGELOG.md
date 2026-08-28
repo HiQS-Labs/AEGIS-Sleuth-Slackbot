@@ -33,6 +33,28 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.316 - 2026-08-27
+
+Two fixes to how I read "the above". If you point at several earlier tasks I now give you one
+reminder each and stop adding a bullet that just repeats your question back. And a thread reply
+like "I'll do above tomorrow" no longer turns into the entire message above it, quoted in full.
+
+**Technical:** GH-143, from live dev testing. (1) A fifth entry door nobody had counted:
+`TryHandleTaskAboveShorthandAsync` intercepts "do/handle/follow up on above" in thread replies
+before the resolver runs, and handed the analyzer
+`Create a reminder for <@U> to handle this task: "<whole source message>" — tomorrow`. That
+wrapper defeated the pipeline twice — the quotes collide with the analyzer's CRITICAL QUOTED TEXT
+RULE, so a 250-character source message came back as the title unsummarized; and because the
+stitching happened in the handler, the reminder recorded `enrichment=off` while enriched. It now
+feeds the same shape every other door feeds (antecedent line, live reply) and passes resolved
+context, keeping the target mention and the defaulted schedule that the wrapper used to carry.
+(2) `DropUnresolvedReferenceCandidates` in `reminder-display-selection.js` removes a candidate
+whose title is still a bare pointer ("can you do all of the above") when context WAS prepended and
+a sibling candidate resolved it — guarded so it never fires unenriched and never empties the set.
+Applied identically in scheduling and `:wrench:` triage. (3) The MULTIPLE REFERENTS prompt rule
+now says cover every referent, not a subset, and never return the referring sentence as its own
+task. Tests: jest 2154, node:test 116, tsc clean.
+
 ## 1.4.315 - 2026-08-27
 
 When someone says "can you do all of the above tomorrow?", I now write out what "the above"

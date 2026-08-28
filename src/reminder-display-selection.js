@@ -145,4 +145,37 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   return { text: Context, suppressedBy: null };
 }
 
-module.exports = { SelectTaskText, SelectContextLine };
+/**
+ * Drop candidates whose displayed title is still just a pointer at earlier content — "do all of
+ * the above", "do it" — when the resolver DID supply that content and at least one sibling
+ * candidate resolved it.
+ *
+ * Why this is a filter and not another prompt round. The reported thread produced three
+ * candidates: `Take the car`, `Bring the cooler`, and the live reply echoed back as
+ * `can you do all of the above`. Two of the three are the model doing exactly what it was asked;
+ * the third is the un-expanded reference riding along beside its own expansion, so it carries no
+ * information the other bullets do not already carry. Deleting it cannot lose a task.
+ *
+ * The two guards are what make that claim true, and neither is optional:
+ *   - `ArgEnriched` — without prepended context there is nothing the reference COULD have been
+ *     resolved into, so the vague title may be the only record of the task. Keep it.
+ *   - at least one survivor — never return an empty set. A message whose every candidate is vague
+ *     still schedules something a human can act on by opening the thread.
+ * ponytail: a filter, not a rewrite. Inventing replacement text here would be the model's job done
+ * badly, and would hide which prompt change actually worked.
+ * @param {Array<{candidate: any, text: string}>} ArgRendered Candidates with their displayed text.
+ * @param {boolean} ArgEnriched Whether earlier context was prepended for this message.
+ * @param {(ArgText: string) => boolean} ArgIsUnresolved Reference detector (NeedsEarlierContext).
+ * @returns {{kept: Array<any>, droppedCount: number}}
+ */
+function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnresolved) {
+  const All = ArgRendered.map(ArgEntry => ArgEntry.candidate);
+  if(!ArgEnriched) return { kept: All, droppedCount: 0 };
+
+  const Kept = ArgRendered.filter(ArgEntry => !ArgIsUnresolved(ArgEntry.text)).map(ArgEntry => ArgEntry.candidate);
+  if(Kept.length === 0) return { kept: All, droppedCount: 0 };
+
+  return { kept: Kept, droppedCount: All.length - Kept.length };
+}
+
+module.exports = { SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates };

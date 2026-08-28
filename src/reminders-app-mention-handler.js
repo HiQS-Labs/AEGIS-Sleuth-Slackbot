@@ -1178,10 +1178,35 @@ class RemindersAppMentionHandler {
     const DefaultMorningTime = `tomorrow at ${Math.floor(DefaultMorningTotalMin / 60)}:${String(DefaultMorningTotalMin % 60).padStart(2, '0')} AM`;
     const EffectiveScheduleText = HasRequestedSchedule ? ScheduleText :
       (HasSourceSchedule ? '' : DefaultMorningTime);
-    const AnalysisText = EffectiveScheduleText
-      ? `Create a reminder for ${ArgUserMention} to handle this task: "${SourceMessage.text}" — ${EffectiveScheduleText}`
-      : `Create a reminder for ${ArgUserMention} to handle this task: "${SourceMessage.text}"`;
+    // GH-143: this door used to hand the analyzer
+    //   `Create a reminder for <@U> to handle this task: "<the whole source message>" — tomorrow`
+    // and that wrapper defeated the pipeline twice. The quotes collide head-on with the analyzer's
+    // CRITICAL QUOTED TEXT RULE ("use quoted text VERBATIM, never summarize"), so a 250-character
+    // source message came back as the reminder title, unsummarized, quote marks and all. And
+    // because the stitching happened here instead of in the resolver, the reminder was recorded
+    // with enrichment=off — the routing facts described a decision the pipeline had not made.
+    //
+    // It now feeds the SAME shape every other enriched door feeds: antecedent line, then the live
+    // reply, and the resolved-context arguments alongside it. No wrapper, no quotes, no fifth
+    // private opinion about what context is.
+    const LiveReplyText = ArgEventInfo.text || '';
+    // Two things the old wrapper carried that the live reply does not always carry on its own:
+    //   - the TARGET. "@Sleuth make a reminder for @X based on task above" names @X in the text,
+    //     but the shorthand form resolves it from the thread, so it must be stated or the
+    //     reminder is assigned to whoever typed the command.
+    //   - a DEFAULTED schedule. When neither the command nor the source names a time we invent a
+    //     morning slot; appending an EXPLICIT one the live text already contains is what produced
+    //     "...by 11 AM PT — with WP Engine support chat by 11 AM PT".
+    const MentionPrefix = LiveReplyText.includes(ArgUserMention) ? '' : `${ArgUserMention} `;
+    const ScheduleSuffix = (EffectiveScheduleText && !HasRequestedSchedule)
+      ? ` — ${EffectiveScheduleText}` : '';
+    const AnalysisText = `${SourceMessage.text}\n${MentionPrefix}${LiveReplyText}${ScheduleSuffix}`;
     const SourceUserID = SourceMessage.user || ArgEventInfo.user;
+    ArgSlackApp.Logger.info(
+      `reminder path fired: path=task_above_shorthand_in_thread enrichment=thread_context` +
+      ` temporal_trigger="${EffectiveScheduleText || 'from_source'}" prepended_messages=1` +
+      ` antecedent_ts=${SourceMessage.ts || 'none'}`
+    );
     const WasScheduled = await this.#TryScheduleRemindersAsync(
       ArgSlackApp,
       AnalysisText,
@@ -1189,7 +1214,10 @@ class RemindersAppMentionHandler {
       SourceMessage.ts,
       SourceUserID,
       false,
-      ArgEventInfo.thread_ts
+      ArgEventInfo.thread_ts,
+      LiveReplyText,
+      true,
+      { SourceTs: SourceMessage.ts || null, Path: 'task_above_shorthand_in_thread' }
     );
 
     if(WasScheduled) return true;

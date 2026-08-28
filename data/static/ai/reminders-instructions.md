@@ -100,6 +100,10 @@ The JSON output must be generated as follows:
          `reminder_message`; they share the same `scheduling_trigger`.
          - Example: the messages above produce two objects — `Take the car` and `Bring the cooler` —
            both with `scheduling_trigger` `tomorrow`.
+         - Cover EVERY earlier task the reference points at, not a subset. `all of the above` with
+           three earlier tasks means three objects; returning two silently loses one.
+         - Do NOT also return the referring sentence itself as its own object. `can you do all of
+           the above tomorrow?` is the pointer, not a fourth task.
        - If the earlier messages do not actually name a task, prefer `ignore` over inventing one.
          Never satisfy these two rules by guessing at content you were not given (see GROUNDING RULE).
        - **CRITICAL - QUOTED TEXT RULE**: If the message contains text enclosed in quotes (single or double), you MUST use that quoted text VERBATIM as the `reminder_message`. Do NOT summarize, shorten, paraphrase, or modify quoted text in any way. Include the quote marks in the final task name.

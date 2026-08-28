@@ -1781,17 +1781,20 @@ class RemindersModule {
     // synthesis=on, ownership correct, and the reminder still says nothing. Reported, not acted
     // on: the fix belongs in the extraction prompt, and silently rewriting a model title here
     // would hide which prompt change worked.
-    const UnresolvedReferenceTitles = AnalysisResult.reminders
-      .map((/** @type {any} */ ArgCandidate) => this.#SelectReminderTaskText(
-        ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
-      ))
-      .filter((/** @type {string} */ ArgText) => ContextResolution.NeedsEarlierContext(ArgText));
-    if(UnresolvedReferenceTitles.length > 0) {
+    const RenderedCandidates = AnalysisResult.reminders.map((/** @type {any} */ ArgCandidate) => ({
+      candidate: ArgCandidate,
+      text: this.#SelectReminderTaskText(ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText),
+    }));
+    const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
+      RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
+    );
+    if(ReferenceFilter.droppedCount > 0) {
       ArgSlackApp.Logger.warn(
         `reminder unresolved reference: path=${StructuralPath} enrichment=${ArgUsedEnrichedThreadContext ? 'on' : 'off'}` +
         ` enrichment_path=${ArgEnrichment?.Path || 'none'} candidates=${AnalysisResult.reminders.length}` +
-        ` unresolved=${UnresolvedReferenceTitles.length}`
+        ` dropped=${ReferenceFilter.droppedCount} action=dropped_alongside_resolved_siblings`
       );
+      AnalysisResult.reminders = ReferenceFilter.kept;
     }
 
     // exit early if the recommendation is to ignore the message.
@@ -2221,7 +2224,19 @@ class RemindersModule {
       // scheduling path accepts, which is the triage/production mismatch this line guards against.
       TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
     );
-    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageCandidates);
+    // GH-143: and the SAME unresolved-reference filter. Scheduling drops a bullet that is only a
+    // pointer at its own siblings; triage showing that bullet would explain a candidate set the
+    // pipeline no longer has — the drift this whole section exists to prevent.
+    TriageResult.analysis.reminders = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
+      TriageCandidates.map((/** @type {any} */ ArgCandidate) => ({
+        candidate: ArgCandidate,
+        text: this.#SelectReminderTaskText(
+          ArgCandidate, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
+        ),
+      })),
+      TriageContext.enriched, ContextResolution.NeedsEarlierContext,
+    ).kept;
+    const TriageGroups = ReminderOwnership.GroupCandidatesByTrigger(TriageResult.analysis.reminders);
 
     for(const Group of TriageGroups) {
       // GH-43 Phase 1B: the analyzer's owner verdict has to be fed in here TOO. Passing the resolver

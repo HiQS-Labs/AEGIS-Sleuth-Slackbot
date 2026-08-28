@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const ContextResolution = require('../src/reminder-context-resolution');
+const DisplaySelection = require('../src/reminder-display-selection');
 
 /**
  * GH-143: the defect this file exists for.
@@ -73,5 +74,59 @@ describe('GH-143 extraction prompts carry the resolve-the-reference rules', () =
     const Instructions = ReadAsset('manual-reminder-task-instructions.md');
     expect(Instructions).toContain('RESOLVE THE REFERENCE');
     expect(Instructions).toContain('Do all of the above');
+  });
+});
+
+describe('GH-143 dropping the pointer bullet', () => {
+  const Detect = ContextResolution.NeedsEarlierContext;
+  const Render = (/** @type {string} */ ArgText) => ({ candidate: { reminder_message: ArgText }, text: ArgText });
+
+  // The exact production shape: two resolved tasks plus the live reply echoed back beside them.
+  const REPORTED_CASE = [
+    Render('Take the car'),
+    Render('Bring the cooler'),
+    Render('can you do all of the above'),
+  ];
+
+  test('drops the pointer when its own expansion is sitting next to it', () => {
+    const Result = DisplaySelection.DropUnresolvedReferenceCandidates(REPORTED_CASE, true, Detect);
+    expect(Result.droppedCount).toBe(1);
+    expect(Result.kept.map((/** @type {any} */ ArgCandidate) => ArgCandidate.reminder_message))
+      .toEqual(['Take the car', 'Bring the cooler']);
+  });
+
+  test('keeps everything when no context was prepended — the vague title may be the only record', () => {
+    // Without enrichment there is nothing the reference COULD have resolved into, so dropping it
+    // would delete the user's only reminder rather than a redundant duplicate of a sibling.
+    const Result = DisplaySelection.DropUnresolvedReferenceCandidates(REPORTED_CASE, false, Detect);
+    expect(Result.droppedCount).toBe(0);
+    expect(Result.kept).toHaveLength(3);
+  });
+
+  test('never returns an empty set, even when every candidate is a bare reference', () => {
+    // A reminder a human can act on by opening the thread beats no reminder at all.
+    const AllVague = [Render('Do all of the above'), Render('Handle this')];
+    const Result = DisplaySelection.DropUnresolvedReferenceCandidates(AllVague, true, Detect);
+    expect(Result.droppedCount).toBe(0);
+    expect(Result.kept).toHaveLength(2);
+  });
+
+  test('leaves a fully resolved candidate set untouched', () => {
+    const Clean = [Render('Take the car'), Render('Bring the cooler'), Render('Bring beer')];
+    const Result = DisplaySelection.DropUnresolvedReferenceCandidates(Clean, true, Detect);
+    expect(Result.droppedCount).toBe(0);
+    expect(Result.kept).toHaveLength(3);
+  });
+});
+
+describe('GH-143 the multiple-referents rule names its two failure modes', () => {
+  test('the analyzer prompt forbids a subset and forbids echoing the pointer', () => {
+    // Both observed on dev: three referents produced two objects, and the referring sentence came
+    // back as an extra object. A prompt rule that only says "one per task" permits both.
+    const Instructions = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'data', 'static', 'ai', 'reminders-instructions.md'), 'utf8',
+    );
+    expect(Instructions).toContain('not a subset');
+    expect(Instructions).toContain('is the pointer, not a fourth task');
   });
 });
