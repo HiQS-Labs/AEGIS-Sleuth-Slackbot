@@ -50,16 +50,13 @@ const VAGUE_REFERENCE_PATTERN = new RegExp(
 // the pronoun rule uses. "I'll take care of both tomorrow" points backward; "both servers are down"
 // is a subject and means nothing of the kind.
 const COLLECTIVE_REFERENCE_PATTERN = new RegExp(
+  '(?:of|do|doing|handle|finish|complete|tackle|review|discuss|address|send|check|update|schedule)\\s+' +
   '(?:' +
-    '(?:of|do|handle|finish|complete|tackle|review|discuss|address|send|check|update|schedule)\\s+' +
-    '(?:both|either|all\\s+(?:three|four|five)|these|those)\\b' +
-  '|' +
-    '\\ball\\s+of\\s+(?:them|these|those)\\b' +
-  '|' +
-    '\\beach\\s+of\\s+(?:them|these|those)\\b' +
-  '|' +
-    '\\b(?:these|those)\\s+(?:tasks?|items?|things?|asks?|to-?dos?)\\b' +
-  ')',
+    'both|either' +
+    '|all\\s+(?:three|four|five)' +
+    '|(?:all|each)\\s+of\\s+(?:them|these|those)' +
+    '|(?:these|those)(?:\\s+(?:tasks?|items?|things?|asks?|to-?dos?))?' +
+  ')\\b',
   'i',
 );
 
@@ -157,7 +154,7 @@ function NeutralizeContextMarkers(ArgText) {
   // those as the delimiter just as readily (Codex review round 3). Any bracketed run of the
   // marker's words, in any case, with any internal whitespace, is defanged.
   const MarkerShape = new RegExp(
-    '\\[\\s*(earlier\\s+messages\\s+in\\s+this\\s+thread[^\\]]*|the\\s+message\\s+to\\s+act\\s+on\\s*)\\]',
+    '\\[\\s*(earlier\\s+messages\\s+in\\s+this\\s+thread[^\\]]*|the\\s+message\\s+to\\s+act\\s+on[^\\]]*)\\]',
     'gi',
   );
   return (ArgText || '').replace(MarkerShape, (/** @type {string} */ ArgMatch) => `(${ArgMatch.slice(1, -1)})`);
@@ -211,6 +208,15 @@ function IsChannelAntecedentLookbackEnabled() {
  * enrichment is NEW behavior rather than a rule being shared.
  * @returns {boolean}
  */
+/**
+ * Whether thread-level context resolution is armed. Default ON — this is GH-55's shipped behaviour,
+ * and the switch exists so it can be turned OFF in an incident without a redeploy.
+ * @returns {boolean}
+ */
+function IsThreadContextResolutionEnabled() {
+  return String(process.env.THREAD_CONTEXT_RESOLUTION_ENABLED || 'on').toLowerCase() !== 'off';
+}
+
 function IsReactionContextResolutionEnabled() {
   const Raw = (process.env.REACTION_CONTEXT_RESOLUTION_ENABLED || '').trim().toLowerCase();
   if(!Raw) return true;
@@ -232,7 +238,19 @@ async function CollectPrecedingHumanThreadMessagesAsync(ArgSlackApp, ArgEventInf
 
   const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
   const CurrentIndex = ThreadMessages.findIndex((/** @type {any} */ ArgMessage) => ArgMessage.ts === ArgEventInfo.ts);
-  if(CurrentIndex <= 0) return [];
+  // -1 and 0 mean different things and only one of them is ordinary. 0 is "this IS the thread root,
+  // nothing precedes it". -1 is "the live message is not in what Slack returned" — a long thread
+  // paginating past it — and that silently drops enrichment for exactly the busy threads most
+  // likely to need it. Same return either way (losing context must never lose the reminder), but
+  // the second one says so. (agy review, 2026-08-27.)
+  if(CurrentIndex < 0) {
+    ArgSlackApp?.Logger?.warn?.(
+      `context resolution: live message ${ArgEventInfo.ts} not found in ${ThreadMessages.length}` +
+      ' returned thread messages — likely a page boundary; scheduling without enrichment'
+    );
+    return [];
+  }
+  if(CurrentIndex === 0) return [];
 
   const Collected = [];
   for(let MessageIndex = CurrentIndex - 1; MessageIndex >= 0 && Collected.length < ArgMaxCount; MessageIndex--) {
@@ -318,6 +336,14 @@ async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
   if(!InThread && !IsChannelAntecedentLookbackEnabled())
     return { ...NotEnriched, decidedBy: 'channel_lookback_disabled' };
 
+  // ...and INSIDE a thread there is now one too. Previously only the channel walk and the
+  // :alarm_clock: reaction had switches, so if thread enrichment misbehaved on the app-mention
+  // paths an operator had no way back to the old behaviour short of a redeploy — a rollback plan
+  // with a hole in it is not a rollback plan. Default ON: this is the behaviour GH-55 shipped.
+  // (agy review, 2026-08-27.)
+  if(InThread && !IsThreadContextResolutionEnabled())
+    return { ...NotEnriched, decidedBy: 'thread_lookback_disabled' };
+
   let PrecedingMessages = [];
   try {
     PrecedingMessages = InThread
@@ -389,6 +415,7 @@ module.exports = {
   IsObjectPositionPronounReference,
   IsChannelAntecedentLookbackEnabled,
   IsReactionContextResolutionEnabled,
+  IsThreadContextResolutionEnabled,
   CollectPrecedingHumanThreadMessagesAsync,
   CollectChannelAntecedentCandidatesAsync,
   THREAD_LOOKBACK_MAX_MESSAGES,

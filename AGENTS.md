@@ -298,6 +298,19 @@ concurrent PRs from ever colliding on it.
 ## 12) Process Environment Flags
 
 - `REMINDER_TEXT_SYNTHESIS` — controls whether reminders display an AI-rewritten "task title" or the **original Slack message verbatim**. Default (unset) and any non-truthy value (`off`/`false`/`0`/`disabled`/blank) = **OFF** → original text preserved. Set to `on`/`true`/`1`/`yes`/`enabled` (case/space-insensitive) to re-enable LLM title synthesis. Affects only the displayed task text (digest summary + "Key task(s)" bullet); detection, date extraction, dedup, and triage are unaffected. See `RemindersAIPipeline.IsTextSynthesisEnabled()`.
+- **Context-enrichment kill switches (GH-143).** Three, and together they are the rollback plan for
+  reminder context resolution — an operator must be able to reach the pre-GH-55 behaviour without a
+  redeploy. All default ON except the channel walk; set any to `off` to disarm.
+  - `THREAD_CONTEXT_RESOLUTION_ENABLED` — prepending earlier THREAD messages, on every door.
+    Default on. Added after review found the app-mention paths had no switch at all, which left a
+    hole in the rollback plan.
+  - `REACTION_CONTEXT_RESOLUTION_ENABLED` — the :alarm_clock: door specifically. Default on. With
+    it off that path is behaviour-identical to pre-GH-143 (not call-shape identical: the
+    scheduler's signature has grown, so anything branching on argument PRESENCE would not be).
+  - `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` — the channel walk for TOP-LEVEL messages. Default
+    **off**; it increases `conversations.history` and model call volume.
+
+  Disarming loses context, never the reminder: the message still schedules, unenriched.
 
 ## 13) Key Features
 

@@ -33,6 +33,28 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.320 - 2026-08-27
+
+Fixes from a second independent review. Your own numbered lists are no longer edited, "I'll take
+care of both tomorrow" reaches every task you pointed at, and operators gain a switch to turn
+thread context off without a redeploy.
+
+**Technical:** GH-143, from the agy branch review. (1) `StripContextMarkers` stripped leading
+`N. ` from every displayed line, so a user's own "1. ship the release" silently became "ship the
+release"; numbering is now removed only when a marker line proves the text is the resolver's wire
+format. (2) `COLLECTIVE_REFERENCE_PATTERN` claimed object-position-only but three of its branches
+matched subject position, so "All of them are down" read as a backward reference; every branch is
+now verb/preposition-anchored and the comment matches the code. (3) The two marker branches were
+asymmetric in trailing tolerance, so `[the message to act on tomorrow]` survived as a usable
+delimiter. (4) A thread page boundary made `findIndex` return -1, indistinguishable from "this is
+the thread root", and dropped enrichment silently on exactly the busy threads most likely to need
+it; it now warns. (5) New `THREAD_CONTEXT_RESOLUTION_ENABLED` (default on): thread enrichment on
+the app-mention paths had no kill switch, leaving a hole in the rollback plan. All three switches
+are documented in AGENTS.md §12.
+
+Known limitation shipped with this: extraction is nondeterministic — see issue #149. jest 2180,
+node:test 116, tsc clean, replay 4/5 (the failure is #149).
+
 ## 1.4.319 - 2026-08-27
 
 More reliability on "do the above": pointing at several earlier tasks now schedules all of them

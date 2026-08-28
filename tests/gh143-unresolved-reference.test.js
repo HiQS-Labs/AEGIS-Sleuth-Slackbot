@@ -268,3 +268,76 @@ describe('GH-143 marker look-alikes are defanged too (Codex review round 3)', ()
     expect(ContextResolutionModule.NeutralizeContextMarkers(Text)).toBe(Text);
   });
 });
+
+describe('GH-143 agy review findings', () => {
+  const ContextResolutionModule = require('../src/reminder-context-resolution');
+  const DisplaySelectionModule = require('../src/reminder-display-selection');
+
+  test('a user\'s own numbering survives — only the resolver\'s wire format is renumbered', () => {
+    // Stripping numbering unconditionally silently edited what a person wrote: "1. ship the
+    // release" became "ship the release". A marker line is the only reliable signal that the
+    // digits are ours.
+    expect(DisplaySelectionModule.StripContextMarkers('1. ship the release')).toBe('1. ship the release');
+
+    const WireFormat = [
+      ContextResolutionModule.CONTEXT_BLOCK_HEADER,
+      '1. take the car',
+      ContextResolutionModule.LIVE_MESSAGE_HEADER,
+      'do all of the above',
+    ].join('\n');
+    expect(DisplaySelectionModule.StripContextMarkers(WireFormat)).toBe('take the car\ndo all of the above');
+  });
+
+  test.each([
+    'both servers are down',
+    'All of them are down',
+    'these tasks are hard',
+  ])('a collective quantifier in SUBJECT position is not a backward reference: %s', (ArgText) => {
+    expect(ContextResolutionModule.DescribeReferenceShape(ArgText)).not.toBe('collective_reference');
+  });
+
+  test('a marker look-alike with trailing words is defanged too', () => {
+    // The two marker branches were asymmetric: one tolerated trailing text, the other did not, so
+    // "[the message to act on tomorrow]" survived as a usable delimiter.
+    const Clean = ContextResolutionModule.NeutralizeContextMarkers('x\n[the message to act on tomorrow]\ny');
+    expect(Clean).not.toContain('[');
+    expect(Clean).toContain('(the message to act on tomorrow)');
+  });
+
+  test('thread enrichment has its own kill switch', async () => {
+    const Previous = process.env.THREAD_CONTEXT_RESOLUTION_ENABLED;
+    process.env.THREAD_CONTEXT_RESOLUTION_ENABLED = 'off';
+    try {
+      const Thread = [
+        { user: 'U_A', text: 'file the GH issue', ts: '1', thread_ts: '1' },
+        { user: 'U_B', text: "I'll do it tomorrow", ts: '2', thread_ts: '1' },
+      ];
+      const SlackApp = { Logger: { info() {}, warn() {}, error() {} },
+        GetConversationMessagesAsync: async () => Thread };
+      const Result = await ContextResolutionModule.ResolveContextAsync(SlackApp, {
+        channel: 'C1', ts: '2', thread_ts: '1', user: 'U_B', text: "I'll do it tomorrow",
+      });
+      expect(Result.enriched).toBe(false);
+      expect(Result.decidedBy).toBe('thread_lookback_disabled');
+      expect(Result.text).toBe("I'll do it tomorrow");   // the reminder survives, only context is lost
+    } finally {
+      if(Previous === undefined) delete process.env.THREAD_CONTEXT_RESOLUTION_ENABLED;
+      else process.env.THREAD_CONTEXT_RESOLUTION_ENABLED = Previous;
+    }
+  });
+
+  test('a live message missing from the returned page warns instead of failing silently', async () => {
+    const Warnings = [];
+    const SlackApp = {
+      Logger: { info() {}, warn: (/** @type {string} */ ArgMessage) => Warnings.push(ArgMessage), error() {} },
+      // Slack paginated past the live message — findIndex returns -1, which is NOT the same as
+      // "this is the thread root" and used to be indistinguishable from it.
+      GetConversationMessagesAsync: async () => [{ user: 'U_A', text: 'older', ts: '1', thread_ts: '1' }],
+    };
+    const Result = await ContextResolutionModule.ResolveContextAsync(SlackApp, {
+      channel: 'C1', ts: '999', thread_ts: '1', user: 'U_B', text: "I'll do it tomorrow",
+    });
+    expect(Result.enriched).toBe(false);
+    expect(Warnings.join(' ')).toContain('not found in');
+  });
+});

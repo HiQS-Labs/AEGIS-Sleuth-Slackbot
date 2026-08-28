@@ -162,11 +162,18 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
  */
 function StripContextMarkers(ArgText) {
   const MarkerLine = /^\s*\[(?:earlier messages in this thread, for reference|the message to act on)\]\s*$/i;
-  return (ArgText || '')
+  const Text = ArgText || '';
+
+  // Numbering is stripped ONLY when a marker proves this text is the resolver's wire format.
+  // Stripping unconditionally deleted a user's own numbering: "1. ship the release" became "ship
+  // the release", silently editing what a person wrote. A marker line is the only reliable signal
+  // that the digits came from us rather than from them. (agy review, 2026-08-27.)
+  const IsWireFormat = Text.split(/\r?\n/).some((/** @type {string} */ ArgLine) => MarkerLine.test(ArgLine));
+
+  return Text
     .split(/\r?\n/)
     .filter((/** @type {string} */ ArgLine) => !MarkerLine.test(ArgLine))
-    // The numbering is wire format too: "1. take the car" reads as a list fragment in a bullet.
-    .map((/** @type {string} */ ArgLine) => ArgLine.replace(/^\s*\d+\.\s+/, ''))
+    .map((/** @type {string} */ ArgLine) => (IsWireFormat ? ArgLine.replace(/^\s*\d+\.\s+/, '') : ArgLine))
     .join('\n')
     .trim();
 }
