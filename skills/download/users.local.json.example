@@ -1,0 +1,4 @@
+{
+  "_comment": "Copy this file to users.local.json (gitignored — .claude/ is fully repo-ignored here) and map your name to your Slack user ID. Find your ID from any reminder's assigneeId field, or ask in Slack.",
+  "noel": "U0XXXXXXXXX"
+}
