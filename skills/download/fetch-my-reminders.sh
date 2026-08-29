@@ -150,22 +150,47 @@ else:
     print(f'ERROR: unexpected reminders JSON shape from server: {type(data).__name__} without a \'reminders\' list', file=sys.stderr)
     sys.exit(1)
 
+# The RAW on-disk record uses PascalCase (AssigneeID, State, ReminderID, ...) and has NO
+# isActive field at all — that is only computed by the export path (src/web-api.js
+# #BuildRebalanceReminderRecord / #GetReminderState / #IsReminderStateActive), which this
+# SSH read bypasses entirely. Replicate that logic exactly rather than guessing camelCase
+# field names, and accept camelCase too in case a future export-shaped source is ever piped
+# through this same script.
+ACTIVE_STATES = {'scheduled', 'overdue', 'snoozed', 'posting', 'posted', 'rescheduled', 'failed'}
+VALID_STATES = ACTIVE_STATES | {'completed', 'canceled', 'dead-letter'}
+
+def field(r, *names):
+    for n in names:
+        if n in r:
+            return r[n]
+    return None
+
+def normalize_state(raw):
+    if not isinstance(raw, str):
+        return 'scheduled'
+    s = raw.strip().lower()
+    if s == 'due':
+        return 'overdue'
+    return s if s in VALID_STATES else 'scheduled'
+
 mine = []
 for r in reminders:
-    if not r.get('isActive', r.get('state') not in ('completed', 'cancelled', 'deleted')):
+    state = normalize_state(field(r, 'State', 'state'))
+    if state not in ACTIVE_STATES:
         continue
-    ids = set(r.get('assigneeIds') or [])
-    if r.get('assigneeId'):
-        ids.add(r['assigneeId'])
+    ids = set(field(r, 'AssigneeIDs', 'assigneeIds') or [])
+    aid = field(r, 'AssigneeID', 'assigneeId')
+    if isinstance(aid, str) and aid:
+        ids.add(aid)
     if slack_id not in ids:
         continue
     mine.append({
-        'reminderId': r.get('reminderId'),
-        'state': r.get('state'),
-        'reminderMessageText': r.get('reminderMessageText'),
-        'dueDate': r.get('dueDate') or r.get('shouldPostOn'),
-        'originalChannelName': r.get('originalChannelName'),
-        'githubUrls': r.get('githubUrls'),
+        'reminderId': field(r, 'ReminderID', 'reminderId'),
+        'state': state,
+        'reminderMessageText': field(r, 'ReminderMessageText', 'reminderMessageText'),
+        'dueDate': field(r, 'ShouldPostOn', 'shouldPostOn', 'dueDate'),
+        'originalChannelName': field(r, 'OriginalChannelName', 'originalChannelName'),
+        'githubUrls': field(r, 'GitHubUrls', 'githubUrls'),
     })
 
 out = {
