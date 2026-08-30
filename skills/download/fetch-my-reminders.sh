@@ -143,11 +143,18 @@ if [ "$VIA" = "api" ]; then
   esac
   [ -z "${WORKSPACE_EXPLICIT:-}" ] && [ -n "$API_WORKSPACE" ] && WORKSPACE="$API_WORKSPACE"
   echo "Fetching '$WORKSPACE' reminders from the web API ($API_BASE_URL) for $SLACK_ID..." >&2
-  RAW_JSON="$(curl -sf --connect-timeout 10 -H "Authorization: Bearer $API_TOKEN" \
+  # The bearer token goes in via -K (a config file), not -H on the command line — a -H
+  # argument is visible to every local user via `ps`; -K's file content is not.
+  API_CURL_CFG="$(mktemp "${TMPDIR:-/tmp}/sleuth-web-api-curl.XXXXXX.cfg")"
+  trap 'rm -f "$API_CURL_CFG"' EXIT
+  chmod 600 "$API_CURL_CFG"
+  printf 'header = "Authorization: Bearer %s"\n' "$API_TOKEN" > "$API_CURL_CFG"
+  RAW_JSON="$(curl -sf --connect-timeout 10 -K "$API_CURL_CFG" \
     "${API_BASE_URL%/}/workspace/${WORKSPACE}/reminders?format=rebalance&activeOnly=true")" || {
     echo "ERROR: web API request failed (host unreachable, bad token, or workspace '$WORKSPACE' not found)" >&2
     exit 1
   }
+  rm -f "$API_CURL_CFG"
 else
   echo "Fetching live '$WORKSPACE' reminders from $SSH_USER@$SSH_HOST for $SLACK_ID..." >&2
 
@@ -170,7 +177,10 @@ if [ -z "$DATA_DIR" ]; then
   # <WorkingDirectory>/data/runtime used to silently read the wrong (or no) file. Fail loudly
   # instead, naming the host/PID so the real cause (root can't read /proc, or SLEUTH_DATA_DIR
   # isn't set on the unit) is obvious rather than masked by a wrong-but-present path.
-  echo "ERROR: could not read SLEUTH_DATA_DIR from /proc/$PID/environ on $SSH_HOST — refusing to guess a data directory. Check that this SSH session can read /proc/$PID/environ (root) and that the sleuth-app unit has SLEUTH_DATA_DIR set." >&2
+  # $(hostname), not the caller's $SSH_HOST — this heredoc runs on the REMOTE shell, where
+  # SSH_HOST was never set; under `set -u` a reference to it would abort with "unbound
+  # variable" before this message ever printed (caught in agy QA on PR #155).
+  echo "ERROR: could not read SLEUTH_DATA_DIR from /proc/$PID/environ on $(hostname) — refusing to guess a data directory. Check that this SSH session can read /proc/$PID/environ (root) and that the sleuth-app unit has SLEUTH_DATA_DIR set." >&2
   exit 1
 fi
 cat "$DATA_DIR/reminders/${WORKSPACE}_reminders.json"
@@ -231,10 +241,23 @@ def normalize_state(raw):
         return 'overdue'
     return s if s in VALID_STATES else 'scheduled'
 
+def is_active(r):
+    # GH-154 agy QA: when the record already carries a real isActive (the --via api /
+    # web-api-export shape), trust it — it's the server's own #IsReminderStateActive
+    # verdict. Re-deriving it here from ACTIVE_STATES would silently drift from the server
+    # if that set ever changes, defeating the whole point of --via api (GH-152 was exactly
+    # this kind of drift). Only synthesize it from State when isActive is genuinely absent
+    # (the raw on-disk PascalCase shape --via ssh reads).
+    state = normalize_state(field(r, 'State', 'state'))
+    raw_active = field(r, 'isActive')
+    if isinstance(raw_active, bool):
+        return raw_active, state
+    return state in ACTIVE_STATES, state
+
 mine = []
 for r in reminders:
-    state = normalize_state(field(r, 'State', 'state'))
-    if state not in ACTIVE_STATES:
+    active, state = is_active(r)
+    if not active:
         continue
     ids = set(field(r, 'AssigneeIDs', 'assigneeIds') or [])
     aid = field(r, 'AssigneeID', 'assigneeId')
