@@ -35,6 +35,15 @@ skills/download/fetch-my-reminders.sh --user <yourname> --env prod
 - Omit `--env` to use SSH key auth instead of the password file.
 - `--workspace <name>` (default `neochrome`), `--host`, `--user-ssh`, `--out` are all
   overridable; see the flags at the top of `fetch-my-reminders.sh`.
+- **`--via api`** (GH-154) fetches through the app's own authenticated Web API instead of
+  root SSH — no `/proc` read, no hand-copied active-state logic:
+  ```bash
+  skills/download/fetch-my-reminders.sh --user <yourname> --via api
+  ```
+  Needs `~/secrets/sleuth/sleuth-web-api-production.env` (`SLEUTH_WEB_API_BASE_URL`,
+  `SLEUTH_WEB_API_TOKEN`, `SLEUTH_WORKSPACE_NAME` — ask a teammate if you don't have it).
+  `--api-profile dev` / `--api-env-file <path>` override the profile/location, same pattern
+  as `--env`/`--env-file` for SSH. Still defaults to `--via ssh` for backward compatibility.
 
 ## Output
 
@@ -49,3 +58,8 @@ a raw `id:<uuid>` to a Slack user.
   so it never appears in `ps` output.
 - `SLEUTH_DATA_DIR` is resolved from the *live* running process, not a hardcoded path or a
   possibly-stale `.env` file — matches `temp/SOP.md`'s "trust only the live process" rule.
+  If that read fails, the script errors out rather than silently falling back to a directory
+  that doesn't hold the data (GH-154 #5).
+- `--via api` re-uses the same server-side `isActive` computation the app itself uses
+  (`src/web-api.js` `#IsReminderStateActive`), instead of a hand-copy that can drift out of
+  sync (GH-152 was exactly that copy going wrong).

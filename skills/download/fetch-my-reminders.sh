@@ -15,7 +15,9 @@ if [ -z "$REPO_ROOT" ]; then
   exit 1
 fi
 
-USERS_FILE="$SKILL_DIR/users.local.json"
+# GH-154 #7: SLEUTH_USERS_FILE lets a caller point at a users.local.json living somewhere
+# other than this skill's own directory (e.g. a copied, non-symlinked install).
+USERS_FILE="${SLEUTH_USERS_FILE:-$SKILL_DIR/users.local.json}"
 
 WORKSPACE="${SLEUTH_WORKSPACE:-neochrome}"
 SSH_HOST="${SLEUTH_SSH_HOST:-64.176.223.93}"
@@ -29,25 +31,41 @@ OUT_PATH="$REPO_ROOT/temp/my_reminders.json"
 # authenticate. Omit --env to keep the original key-auth (BatchMode) behavior.
 SSH_ENV_PROFILE="${SLEUTH_SSH_ENV:-}"
 SSH_ENV_FILE="${SLEUTH_SSH_ENV_FILE:-}"
+# GH-154 #4: --via api reads the same data through the app's own authenticated Web API
+# (GET /workspace/:name/reminders?format=rebalance&activeOnly=true) instead of root SSH +
+# /proc + a hand-copy of the app's active-state logic. Recommended when a web-api secrets
+# file is available; --via ssh keeps the original path. Default stays ssh for backward
+# compatibility with the documented --env workflow.
+VIA="${SLEUTH_VIA:-ssh}"
+API_PROFILE="${SLEUTH_WEB_API_PROFILE:-production}"
+API_ENV_FILE="${SLEUTH_WEB_API_ENV_FILE:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) MY_USER="$2"; shift 2 ;;
-    --workspace) WORKSPACE="$2"; shift 2 ;;
+    --workspace) WORKSPACE="$2"; WORKSPACE_EXPLICIT=1; shift 2 ;;
     --host) SSH_HOST="$2"; shift 2 ;;
     --user-ssh) SSH_USER="$2"; shift 2 ;;
     --out) OUT_PATH="$2"; shift 2 ;;
     --env) SSH_ENV_PROFILE="$2"; shift 2 ;;
     --env-file) SSH_ENV_FILE="$2"; shift 2 ;;
+    --via) VIA="$2"; shift 2 ;;
+    --api-profile) API_PROFILE="$2"; shift 2 ;;
+    --api-env-file) API_ENV_FILE="$2"; shift 2 ;;
     *) echo "ERROR: unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+if [ "$VIA" != "ssh" ] && [ "$VIA" != "api" ]; then
+  echo "ERROR: --via must be 'ssh' or 'api' (got '$VIA')" >&2
+  exit 1
+fi
 
 # Resolve password-auth inputs from the local secrets file, if requested. We deliberately do
 # NOT `source` this file (it's a credentials file, not code we should execute) — pull out only
 # the three keys we need with `sed`, so a syntax error or stray line in it can't run as shell.
 SSH_PASS=""
-if [ -n "$SSH_ENV_PROFILE" ] || [ -n "$SSH_ENV_FILE" ]; then
+if [ "$VIA" = "ssh" ] && { [ -n "$SSH_ENV_PROFILE" ] || [ -n "$SSH_ENV_FILE" ]; }; then
   case "$SSH_ENV_PROFILE" in
     prod|production|"") VAR_PREFIX="SLEUTH_PROD"; DEFAULT_ENV_FILE="$HOME/secrets/sleuth/vultr-sleuth-production.env" ;;
     dev|development) VAR_PREFIX="SLEUTH_DEV"; DEFAULT_ENV_FILE="$HOME/secrets/sleuth/vultr-sleuth-development.env" ;;
@@ -100,14 +118,45 @@ print(m[name])
   }
 fi
 
-echo "Fetching live '$WORKSPACE' reminders from $SSH_USER@$SSH_HOST for $SLACK_ID..." >&2
+if [ "$VIA" = "api" ]; then
+  # GH-154 #4: the app already serves exactly this read, with isActive computed correctly
+  # server-side (src/web-api.js #BuildRebalanceReminderRecord) — no root SSH, no /proc, no
+  # hand-copied state logic to keep in sync (that copy being wrong was GH-152).
+  API_ENV_FILE="${API_ENV_FILE:-$HOME/secrets/sleuth/sleuth-web-api-${API_PROFILE}.env}"
+  if [ ! -f "$API_ENV_FILE" ]; then
+    echo "ERROR: web API env file not found: $API_ENV_FILE (client-machine-local secret, never part of the repo)" >&2
+    exit 1
+  fi
+  API_BASE_URL="$(sed -n 's/^SLEUTH_WEB_API_BASE_URL=//p' "$API_ENV_FILE" | tail -1)"
+  API_TOKEN="$(sed -n 's/^SLEUTH_WEB_API_TOKEN=//p' "$API_ENV_FILE" | tail -1)"
+  API_WORKSPACE="$(sed -n 's/^SLEUTH_WORKSPACE_NAME=//p' "$API_ENV_FILE" | tail -1)"
+  if [ -z "$API_BASE_URL" ] || [ -z "$API_TOKEN" ]; then
+    echo "ERROR: SLEUTH_WEB_API_BASE_URL / SLEUTH_WEB_API_TOKEN missing from $API_ENV_FILE" >&2
+    exit 1
+  fi
+  command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not installed — required for --via api" >&2; exit 1; }
+  # A 127.0.0.1 base URL is set up for an SSH tunnel that may not exist on this run; the same
+  # token also authenticates directly against the public host, so fall back to that rather
+  # than failing outright on an unreachable localhost URL.
+  case "$API_BASE_URL" in
+    http://127.0.0.1:*|http://localhost:*) API_BASE_URL="http://${SSH_HOST}:2020" ;;
+  esac
+  [ -z "${WORKSPACE_EXPLICIT:-}" ] && [ -n "$API_WORKSPACE" ] && WORKSPACE="$API_WORKSPACE"
+  echo "Fetching '$WORKSPACE' reminders from the web API ($API_BASE_URL) for $SLACK_ID..." >&2
+  RAW_JSON="$(curl -sf --connect-timeout 10 -H "Authorization: Bearer $API_TOKEN" \
+    "${API_BASE_URL%/}/workspace/${WORKSPACE}/reminders?format=rebalance&activeOnly=true")" || {
+    echo "ERROR: web API request failed (host unreachable, bad token, or workspace '$WORKSPACE' not found)" >&2
+    exit 1
+  }
+else
+  echo "Fetching live '$WORKSPACE' reminders from $SSH_USER@$SSH_HOST for $SLACK_ID..." >&2
 
-# Write the remote-side logic to a local scratch file once (quoted heredoc — no local
-# expansion), then pipe it over stdin to whichever ssh invocation we use below. Nothing here
-# touches the remote host's filesystem; the remote shell just reads this off its own stdin.
-REMOTE_SCRIPT_FILE="$(mktemp "${TMPDIR:-/tmp}/sleuth-remote-reminders.XXXXXX.sh")"
-trap 'rm -f "$REMOTE_SCRIPT_FILE"' EXIT
-cat > "$REMOTE_SCRIPT_FILE" <<'REMOTE_SCRIPT'
+  # Write the remote-side logic to a local scratch file once (quoted heredoc — no local
+  # expansion), then pipe it over stdin to whichever ssh invocation we use below. Nothing here
+  # touches the remote host's filesystem; the remote shell just reads this off its own stdin.
+  REMOTE_SCRIPT_FILE="$(mktemp "${TMPDIR:-/tmp}/sleuth-remote-reminders.XXXXXX.sh")"
+  trap 'rm -f "$REMOTE_SCRIPT_FILE"' EXIT
+  cat > "$REMOTE_SCRIPT_FILE" <<'REMOTE_SCRIPT'
 set -euo pipefail
 WORKSPACE="$1"
 PID="$(systemctl show sleuth-app -p MainPID --value)"
@@ -116,17 +165,23 @@ if [ -n "$PID" ] && [ "$PID" != "0" ] && [ -r "/proc/$PID/environ" ]; then
   DATA_DIR="$(tr '\0' '\n' < "/proc/$PID/environ" | sed -n 's/^SLEUTH_DATA_DIR=//p')"
 fi
 if [ -z "$DATA_DIR" ]; then
-  WORKDIR="$(systemctl show sleuth-app -p WorkingDirectory --value)"
-  DATA_DIR="$WORKDIR/data/runtime"
+  # GH-154 #5: there is no reliable fallback location — the deploy SOP places runtime data
+  # at /var/lib/aegis-sleuth, outside either application checkout, so guessing
+  # <WorkingDirectory>/data/runtime used to silently read the wrong (or no) file. Fail loudly
+  # instead, naming the host/PID so the real cause (root can't read /proc, or SLEUTH_DATA_DIR
+  # isn't set on the unit) is obvious rather than masked by a wrong-but-present path.
+  echo "ERROR: could not read SLEUTH_DATA_DIR from /proc/$PID/environ on $SSH_HOST — refusing to guess a data directory. Check that this SSH session can read /proc/$PID/environ (root) and that the sleuth-app unit has SLEUTH_DATA_DIR set." >&2
+  exit 1
 fi
 cat "$DATA_DIR/reminders/${WORKSPACE}_reminders.json"
 REMOTE_SCRIPT
 
-if [ -n "$SSH_PASS" ]; then
-  # -e reads the password from $SSHPASS rather than argv, so it never shows up in `ps`.
-  RAW_JSON="$(SSHPASS="$SSH_PASS" sshpass -e ssh -q -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE" < "$REMOTE_SCRIPT_FILE")"
-else
-  RAW_JSON="$(ssh -q -o BatchMode=yes -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE" < "$REMOTE_SCRIPT_FILE")"
+  if [ -n "$SSH_PASS" ]; then
+    # -e reads the password from $SSHPASS rather than argv, so it never shows up in `ps`.
+    RAW_JSON="$(SSHPASS="$SSH_PASS" sshpass -e ssh -q -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE" < "$REMOTE_SCRIPT_FILE")"
+  else
+    RAW_JSON="$(ssh -q -o BatchMode=yes -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE" < "$REMOTE_SCRIPT_FILE")"
+  fi
 fi
 
 mkdir -p "$(dirname "$OUT_PATH")"
@@ -140,9 +195,12 @@ from datetime import datetime, timezone
 slack_id, workspace, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 data = json.load(sys.stdin)
 
-# The on-server file has been observed both as a bare list and as an
-# {reminders: [...]} envelope (matching the git-pulse-sync export shape) — handle both.
-if isinstance(data, dict) and 'reminders' in data:
+# Three shapes seen in practice: a bare list (raw on-disk file), a {reminders: [...]}
+# envelope (git-pulse-sync export), or {success, data: {reminders: [...]}} (the web API,
+# --via api) — handle all three.
+if isinstance(data, dict) and isinstance(data.get('data'), dict) and 'reminders' in data['data']:
+    reminders = data['data']['reminders']
+elif isinstance(data, dict) and 'reminders' in data:
     reminders = data['reminders']
 elif isinstance(data, list):
     reminders = data
