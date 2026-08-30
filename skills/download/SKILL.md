@@ -44,6 +44,12 @@ skills/download/fetch-my-reminders.sh --user <yourname> --env prod
   `SLEUTH_WEB_API_TOKEN`, `SLEUTH_WORKSPACE_NAME` — ask a teammate if you don't have it).
   `--api-profile dev` / `--api-env-file <path>` override the profile/location, same pattern
   as `--env`/`--env-file` for SSH. Still defaults to `--via ssh` for backward compatibility.
+  - That secrets file is normally set up for an SSH tunnel (`SLEUTH_WEB_API_BASE_URL=http://
+    127.0.0.1:<port>`). Without a tunnel open, `--via api` **errors** rather than silently
+    querying the public host in plaintext. Either open the tunnel (`ssh -L
+    12020:localhost:2020 root@64.176.223.93`) or pass `--api-allow-direct` to query the host
+    directly over plain HTTP — the bearer token then travels unencrypted on the network, so
+    only do this on a connection you trust.
 
 ## Output
 

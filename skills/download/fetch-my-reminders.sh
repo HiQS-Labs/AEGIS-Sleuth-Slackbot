@@ -9,11 +9,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$SCRIPT_DIR"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -z "$REPO_ROOT" ]; then
-  echo "ERROR: could not resolve repo root from $SCRIPT_DIR (not inside a git repo?)" >&2
-  exit 1
-fi
+# GH-154 codex QA (round 2): REPO_ROOT is only needed to build a DEFAULT --out path. Resolving
+# it unconditionally meant a fully-parameterized, non-repo invocation (--out ... plus a literal
+# --user SlackID, bypassing users.local.json) could never run even though nothing it touches
+# actually needs a git checkout. Resolution is deferred below, after arg parsing, and only
+# attempted if --out was not given.
 
 # GH-154 #7: SLEUTH_USERS_FILE lets a caller point at a users.local.json living somewhere
 # other than this skill's own directory (e.g. a copied, non-symlinked install).
@@ -23,7 +23,7 @@ WORKSPACE="${SLEUTH_WORKSPACE:-neochrome}"
 SSH_HOST="${SLEUTH_SSH_HOST:-64.176.223.93}"
 SSH_USER="${SLEUTH_SSH_USER:-root}"
 MY_USER="${SLEUTH_MY_SLACK_ID:-}"
-OUT_PATH="$REPO_ROOT/temp/my_reminders.json"
+OUT_PATH=""
 # --env selects password auth from a LOCAL, never-committed secrets file
 # ($HOME/secrets/sleuth/vultr-sleuth-<development|production>.env, same convention temp/SOP.md
 # already documents for the dev host). Nothing from that file is ever written into this repo or
@@ -39,6 +39,9 @@ SSH_ENV_FILE="${SLEUTH_SSH_ENV_FILE:-}"
 VIA="${SLEUTH_VIA:-ssh}"
 API_PROFILE="${SLEUTH_WEB_API_PROFILE:-production}"
 API_ENV_FILE="${SLEUTH_WEB_API_ENV_FILE:-}"
+# GH-154 codex QA (round 2): off by default — see the --via api block below for why.
+API_ALLOW_DIRECT="${SLEUTH_API_ALLOW_DIRECT:-0}"
+OUT_EXPLICIT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,12 +49,13 @@ while [ $# -gt 0 ]; do
     --workspace) WORKSPACE="$2"; WORKSPACE_EXPLICIT=1; shift 2 ;;
     --host) SSH_HOST="$2"; shift 2 ;;
     --user-ssh) SSH_USER="$2"; shift 2 ;;
-    --out) OUT_PATH="$2"; shift 2 ;;
+    --out) OUT_PATH="$2"; OUT_EXPLICIT=1; shift 2 ;;
     --env) SSH_ENV_PROFILE="$2"; shift 2 ;;
     --env-file) SSH_ENV_FILE="$2"; shift 2 ;;
     --via) VIA="$2"; shift 2 ;;
     --api-profile) API_PROFILE="$2"; shift 2 ;;
     --api-env-file) API_ENV_FILE="$2"; shift 2 ;;
+    --api-allow-direct) API_ALLOW_DIRECT=1; shift ;;
     *) echo "ERROR: unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -59,6 +63,15 @@ done
 if [ "$VIA" != "ssh" ] && [ "$VIA" != "api" ]; then
   echo "ERROR: --via must be 'ssh' or 'api' (got '$VIA')" >&2
   exit 1
+fi
+
+if [ -z "$OUT_EXPLICIT" ]; then
+  REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -z "$REPO_ROOT" ]; then
+    echo "ERROR: could not resolve repo root from $SCRIPT_DIR (not inside a git repo?) — pass --out <path> to run outside a checkout." >&2
+    exit 1
+  fi
+  OUT_PATH="$REPO_ROOT/temp/my_reminders.json"
 fi
 
 # Resolve password-auth inputs from the local secrets file, if requested. We deliberately do
@@ -135,11 +148,25 @@ if [ "$VIA" = "api" ]; then
     exit 1
   fi
   command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not installed — required for --via api" >&2; exit 1; }
-  # A 127.0.0.1 base URL is set up for an SSH tunnel that may not exist on this run; the same
-  # token also authenticates directly against the public host, so fall back to that rather
-  # than failing outright on an unreachable localhost URL.
+  # A 127.0.0.1 base URL means the secrets file was set up for an SSH tunnel. The same token
+  # also authenticates directly against the public host — but doing that automatically would
+  # silently swap "bearer token stays inside an encrypted tunnel" for "bearer token transits
+  # the public network in cleartext HTTP" (the app has no HTTPS listener on this port). That's
+  # a real security downgrade, so it requires explicit opt-in (--api-allow-direct), not a
+  # silent fallback (caught in codex QA on PR #155).
   case "$API_BASE_URL" in
-    http://127.0.0.1:*|http://localhost:*) API_BASE_URL="http://${SSH_HOST}:2020" ;;
+    http://127.0.0.1:*|http://localhost:*)
+      if [ "$API_ALLOW_DIRECT" = "1" ]; then
+        echo "WARNING: $API_ENV_FILE is configured for an SSH tunnel; --api-allow-direct is set, so querying ${SSH_HOST}:2020 directly over plain HTTP instead. The bearer token will be visible to anyone on the network path." >&2
+        API_BASE_URL="http://${SSH_HOST}:2020"
+      else
+        echo "ERROR: $API_ENV_FILE is configured for an SSH tunnel (127.0.0.1) that isn't open on this session." >&2
+        echo "  Either open it (e.g. ssh -L 12020:localhost:2020 $SSH_USER@$SSH_HOST) or re-run with" >&2
+        echo "  --api-allow-direct to query ${SSH_HOST}:2020 directly over plain HTTP (bearer token then" >&2
+        echo "  travels in cleartext over the network)." >&2
+        exit 1
+      fi
+      ;;
   esac
   [ -z "${WORKSPACE_EXPLICIT:-}" ] && [ -n "$API_WORKSPACE" ] && WORKSPACE="$API_WORKSPACE"
   echo "Fetching '$WORKSPACE' reminders from the web API ($API_BASE_URL) for $SLACK_ID..." >&2
@@ -186,11 +213,19 @@ fi
 cat "$DATA_DIR/reminders/${WORKSPACE}_reminders.json"
 REMOTE_SCRIPT
 
+  # ssh does NOT preserve local argv quoting for the remote command: everything after the
+  # destination is joined with spaces into ONE string and handed to the remote shell, so a
+  # locally-quoted "$WORKSPACE" can still be re-split/interpreted remotely if it contains
+  # shell metacharacters. --workspace is user-supplied, so shell-escape it with `%q` before
+  # it crosses that boundary — the remote `bash -s -- "$1"` then receives the original value
+  # back as inert data, not executable syntax (caught in codex QA on PR #155).
+  printf -v WORKSPACE_Q '%q' "$WORKSPACE"
+
   if [ -n "$SSH_PASS" ]; then
     # -e reads the password from $SSHPASS rather than argv, so it never shows up in `ps`.
-    RAW_JSON="$(SSHPASS="$SSH_PASS" sshpass -e ssh -q -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE" < "$REMOTE_SCRIPT_FILE")"
+    RAW_JSON="$(SSHPASS="$SSH_PASS" sshpass -e ssh -q -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE_Q" < "$REMOTE_SCRIPT_FILE")"
   else
-    RAW_JSON="$(ssh -q -o BatchMode=yes -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE" < "$REMOTE_SCRIPT_FILE")"
+    RAW_JSON="$(ssh -q -o BatchMode=yes -o ConnectTimeout=10 "$SSH_USER@$SSH_HOST" bash -s -- "$WORKSPACE_Q" < "$REMOTE_SCRIPT_FILE")"
   fi
 fi
 
