@@ -20,7 +20,10 @@ SKILL_DIR="$SCRIPT_DIR"
 USERS_FILE="${SLEUTH_USERS_FILE:-$SKILL_DIR/users.local.json}"
 
 WORKSPACE="${SLEUTH_WORKSPACE:-neochrome}"
-SSH_HOST="${SLEUTH_SSH_HOST:-64.176.223.93}"
+# No hardcoded default — this is a public repo, and the real host is not a secret to leak
+# here (temp/SOP.md, gitignored, is where it lives). Resolved from --host / SLEUTH_SSH_HOST,
+# or from the --env secrets file's SLEUTH_<PROFILE>_HOST; validated at each point of use below.
+SSH_HOST="${SLEUTH_SSH_HOST:-}"
 SSH_USER="${SLEUTH_SSH_USER:-root}"
 MY_USER="${SLEUTH_MY_SLACK_ID:-}"
 OUT_PATH=""
@@ -157,6 +160,10 @@ if [ "$VIA" = "api" ]; then
   case "$API_BASE_URL" in
     http://127.0.0.1:*|http://localhost:*)
       if [ "$API_ALLOW_DIRECT" = "1" ]; then
+        if [ -z "$SSH_HOST" ]; then
+          echo "ERROR: --api-allow-direct needs a host to query directly. Pass --host <ip> or set SLEUTH_SSH_HOST (see temp/SOP.md)." >&2
+          exit 1
+        fi
         echo "WARNING: $API_ENV_FILE is configured for an SSH tunnel; --api-allow-direct is set, so querying ${SSH_HOST}:2020 directly over plain HTTP instead. The bearer token will be visible to anyone on the network path." >&2
         API_BASE_URL="http://${SSH_HOST}:2020"
       else
@@ -189,6 +196,10 @@ if [ "$VIA" = "api" ]; then
   }
   rm -f "$API_CURL_CFG"
 else
+  if [ -z "$SSH_HOST" ]; then
+    echo "ERROR: no host given. Pass --host <ip>, set SLEUTH_SSH_HOST, or use --env/--env-file (its secrets file supplies the host). See temp/SOP.md or ask a teammate." >&2
+    exit 1
+  fi
   echo "Fetching live '$WORKSPACE' reminders from $SSH_USER@$SSH_HOST for $SLACK_ID..." >&2
 
   # Write the remote-side logic to a local scratch file once (quoted heredoc — no local

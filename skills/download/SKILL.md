@@ -32,9 +32,12 @@ specifically for a live, assigned-to-me, server-side pull.
 skills/download/fetch-my-reminders.sh --user <yourname> --env prod
 ```
 
-- Omit `--env` to use SSH key auth instead of the password file.
-- `--workspace <name>` (default `neochrome`), `--host`, `--user-ssh`, `--out` are all
-  overridable; see the flags at the top of `fetch-my-reminders.sh`.
+- Omit `--env` to use SSH key auth instead of the password file. The production host has no
+  built-in default (never committed to this public repo) — `--env prod` fills it in from the
+  secrets file; with key auth instead, pass `--host <ip>` or set `SLEUTH_SSH_HOST` (see
+  `temp/SOP.md` or ask a teammate for the value).
+- `--workspace <name>` (default `neochrome`), `--user-ssh`, `--out` are all overridable; see
+  the flags at the top of `fetch-my-reminders.sh`.
 - **`--via api`** (GH-154) fetches through the app's own authenticated Web API instead of
   root SSH — no `/proc` read, no hand-copied active-state logic:
   ```bash
@@ -47,9 +50,10 @@ skills/download/fetch-my-reminders.sh --user <yourname> --env prod
   - That secrets file is normally set up for an SSH tunnel (`SLEUTH_WEB_API_BASE_URL=http://
     127.0.0.1:<port>`). Without a tunnel open, `--via api` **errors** rather than silently
     querying the public host in plaintext. Either open the tunnel (`ssh -L
-    12020:localhost:2020 root@64.176.223.93`) or pass `--api-allow-direct` to query the host
-    directly over plain HTTP — the bearer token then travels unencrypted on the network, so
-    only do this on a connection you trust.
+    12020:localhost:2020 root@<prod-host>` — see `temp/SOP.md` for the host, or ask a
+    teammate) or pass `--api-allow-direct` to query the host directly over plain HTTP — the
+    bearer token then travels unencrypted on the network, so only do this on a connection you
+    trust.
 
 ## Output
 
