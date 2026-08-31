@@ -176,8 +176,14 @@ if [ "$VIA" = "api" ]; then
   trap 'rm -f "$API_CURL_CFG"' EXIT
   chmod 600 "$API_CURL_CFG"
   printf 'header = "Authorization: Bearer %s"\n' "$API_TOKEN" > "$API_CURL_CFG"
+  # Same class of bug the SSH path had with --workspace, different boundary: an unescaped
+  # workspace name lets '#' truncate the URL (silently dropping our own ?activeOnly=true and
+  # sending whatever precedes it instead) or '../' attempt path traversal onto another route
+  # under the same bearer token. Percent-encode it before it enters the URL — found in this
+  # self-review after the SSH fix made the missing symmetric fix here obvious.
+  WORKSPACE_URLENC="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$WORKSPACE")"
   RAW_JSON="$(curl -sf --connect-timeout 10 -K "$API_CURL_CFG" \
-    "${API_BASE_URL%/}/workspace/${WORKSPACE}/reminders?format=rebalance&activeOnly=true")" || {
+    "${API_BASE_URL%/}/workspace/${WORKSPACE_URLENC}/reminders?format=rebalance&activeOnly=true")" || {
     echo "ERROR: web API request failed (host unreachable, bad token, or workspace '$WORKSPACE' not found)" >&2
     exit 1
   }
