@@ -368,6 +368,41 @@ async function RunAppAsync() {
       await SnapshotRelayInstance.StartAsync();
       SnapshotRelayModules.push(SnapshotRelayInstance);
 
+      // HiQS progress digest relay (GH-157): a SECOND instance of the same class,
+      // watching a different directory in the same private repo and posting to a
+      // different channel. rebalance-OS pushes one digest per slot at 13:05/17:05 PT;
+      // this relays it. Deliberately not a new module — AGENTS.md:63, follow the
+      // existing proven pattern.
+      //
+      // Everything that must differ between the two instances is passed explicitly.
+      // The seen-set path is NOT passed: it derives from auditTag inside the module,
+      // so the two can never silently share a dedupe set.
+      //
+      // The channel id is env-only and has no default. It is a real Slack id, which
+      // utils/sanitize-scan.sh flags as HIGH — it must never be committed. Unset means
+      // the digest relay stays off, which is the correct failure: a wrong-channel post
+      // is worse than no post.
+      const HiqsDigestWorkspaces = (process.env.HIQS_DIGEST_WORKSPACES || '')
+        .split(',').map((ArgName) => ArgName.trim()).filter(Boolean);
+      const HiqsDigestChannelID = process.env.HIQS_DIGEST_CHANNEL_ID || '';
+      const HiqsDigestEnabled = HiqsDigestWorkspaces.includes(WorkspaceName) && Boolean(HiqsDigestChannelID);
+
+      if(HiqsDigestWorkspaces.includes(WorkspaceName) && !HiqsDigestChannelID)
+        logger.warn('hiqs-digest-relay: workspace is allowlisted but HIQS_DIGEST_CHANNEL_ID is unset — staying disabled');
+
+      const HiqsDigestRelayInstance = new SnapshotRelayModule(SlackAppInstance, logger, {
+        enabled: HiqsDigestEnabled,
+        channelId: HiqsDigestChannelID,
+        auditTag: 'hiqs-digest-relay',
+        // Same private repo and branch as the snapshot relay by default — only the
+        // watched directory differs.
+        repo: process.env.HIQS_DIGEST_REPO || process.env.SNAPSHOT_RELAY_REPO || '',
+        branch: process.env.HIQS_DIGEST_BRANCH || process.env.SNAPSHOT_RELAY_BRANCH || 'main',
+        dir: process.env.HIQS_DIGEST_DIR || 'digests',
+      });
+      await HiqsDigestRelayInstance.StartAsync();
+      SnapshotRelayModules.push(HiqsDigestRelayInstance);
+
       // store instances for later cleanup only after the workspace fully started.
       SlackApps.push(SlackAppInstance);
       StatsModules.push(StatsModuleInstance);

@@ -56,6 +56,12 @@ https://\$\{GIT_USER_EMAIL\}:\$\{GITHUB_TOKEN\}@github\.com
 U07ALICE99
 U072BF6K4XYZ
 C07GENERAL9
+# GH-157: the destination channel for the progress-digest relay is env-only
+# (HIQS_DIGEST_CHANNEL_ID) precisely so no real id is committed. This fixture exists to prove
+# the module posts to the channel it was CONFIGURED with rather than falling back to the
+# in-repo placeholder — a fallback that would put a digest in the wrong channel silently.
+# Spells words; not a real id.
+C0TESTDIGEST
 
 # ---------------------------------------------------------------------------
 # Filenames that end in ".local" — not a hostname (GH-154)
