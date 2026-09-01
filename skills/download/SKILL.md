@@ -32,9 +32,28 @@ specifically for a live, assigned-to-me, server-side pull.
 skills/download/fetch-my-reminders.sh --user <yourname> --env prod
 ```
 
-- Omit `--env` to use SSH key auth instead of the password file.
-- `--workspace <name>` (default `neochrome`), `--host`, `--user-ssh`, `--out` are all
-  overridable; see the flags at the top of `fetch-my-reminders.sh`.
+- Omit `--env` to use SSH key auth instead of the password file. The production host has no
+  built-in default (never committed to this public repo) — `--env prod` fills it in from the
+  secrets file; with key auth instead, pass `--host <ip>` or set `SLEUTH_SSH_HOST` (see
+  `temp/SOP.md` or ask a teammate for the value).
+- `--workspace <name>` (default `neochrome`), `--user-ssh`, `--out` are all overridable; see
+  the flags at the top of `fetch-my-reminders.sh`.
+- **`--via api`** (GH-154) fetches through the app's own authenticated Web API instead of
+  root SSH — no `/proc` read, no hand-copied active-state logic:
+  ```bash
+  skills/download/fetch-my-reminders.sh --user <yourname> --via api
+  ```
+  Needs `~/secrets/sleuth/sleuth-web-api-production.env` (`SLEUTH_WEB_API_BASE_URL`,
+  `SLEUTH_WEB_API_TOKEN`, `SLEUTH_WORKSPACE_NAME` — ask a teammate if you don't have it).
+  `--api-profile dev` / `--api-env-file <path>` override the profile/location, same pattern
+  as `--env`/`--env-file` for SSH. Still defaults to `--via ssh` for backward compatibility.
+  - That secrets file is normally set up for an SSH tunnel (`SLEUTH_WEB_API_BASE_URL=http://
+    127.0.0.1:<port>`). Without a tunnel open, `--via api` **errors** rather than silently
+    querying the public host in plaintext. Either open the tunnel (`ssh -L
+    12020:localhost:2020 root@<prod-host>` — see `temp/SOP.md` for the host, or ask a
+    teammate) or pass `--api-allow-direct` to query the host directly over plain HTTP — the
+    bearer token then travels unencrypted on the network, so only do this on a connection you
+    trust.
 
 ## Output
 
@@ -49,3 +68,8 @@ a raw `id:<uuid>` to a Slack user.
   so it never appears in `ps` output.
 - `SLEUTH_DATA_DIR` is resolved from the *live* running process, not a hardcoded path or a
   possibly-stale `.env` file — matches `temp/SOP.md`'s "trust only the live process" rule.
+  If that read fails, the script errors out rather than silently falling back to a directory
+  that doesn't hold the data (GH-154 #5).
+- `--via api` re-uses the same server-side `isActive` computation the app itself uses
+  (`src/web-api.js` `#IsReminderStateActive`), instead of a hand-copy that can drift out of
+  sync (GH-152 was exactly that copy going wrong).

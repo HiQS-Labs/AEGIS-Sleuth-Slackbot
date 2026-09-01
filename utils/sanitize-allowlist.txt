@@ -56,3 +56,13 @@ https://\$\{GIT_USER_EMAIL\}:\$\{GITHUB_TOKEN\}@github\.com
 U07ALICE99
 U072BF6K4XYZ
 C07GENERAL9
+
+# ---------------------------------------------------------------------------
+# Filenames that end in ".local" — not a hostname (GH-154)
+# ---------------------------------------------------------------------------
+# The internal-hostname rule (\b[a-z0-9-]+\.(local|internal|lan|home|corp)\b) is a hostname
+# heuristic, but it can't distinguish "ends in .local because it's an mDNS hostname" from "ends
+# in .local because that's literally the filename". skills/download/users.local.json (the
+# per-teammate, gitignored Slack-ID map) is the latter — chosen to read as "a locally-scoped
+# copy of users.json", not any host. No real hostname is being suppressed here.
+users\.local
