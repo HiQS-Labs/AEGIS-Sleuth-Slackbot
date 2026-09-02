@@ -438,6 +438,9 @@ snapshot.md
 PROJECT/PDDA-ACTIVITY.jsonl
 .pdda-gh-state.tsv
 
+# Per-teammate Slack-ID maps for shipped skills/ — personal, never committed
+skills/*/users.local.json
+
 # Aider Studio (auto-added)
 REPO_MAP.md
 .aider/

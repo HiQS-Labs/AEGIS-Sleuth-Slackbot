@@ -427,3 +427,94 @@ describe('SnapshotRelayModule — durable env-allowlist enable', () => {
     expect(GithubClient.ListSnapshotsAsync).toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test suite 7 — Second instance isolation (GH-157 progress digest relay)
+//
+// app.js runs a SECOND SnapshotRelayModule against a different directory and
+// channel. Everything below is a way the two could silently become
+// indistinguishable — which is worse than a crash, because the symptom is a
+// post in the wrong place or a digest that never appears at all.
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — second-instance isolation', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-test-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp();
+    GithubClient = MakeFakeGithubClient();
+    GithubClient.GetContentAsync.mockResolvedValue(DEFAULT_CONTENT);
+    Module = null;
+  });
+
+  afterEach(async () => {
+    if(Module) await Module.StopAsync();
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Drive one real post: StartAsync seeds an empty remote (so nothing is skipped as
+   * backlog), then a file appears and RunOnceAsync relays it. RunOnceAsync alone is a
+   * no-op — it returns early unless StartAsync has marked the module active.
+   * @param {object} ArgModule Module under test.
+   * @returns {Promise<void>}
+   */
+  async function StartThenPostAsync(ArgModule) {
+    GithubClient.ListSnapshotsAsync.mockResolvedValueOnce([]);
+    await ArgModule.StartAsync();
+    GithubClient.ListSnapshotsAsync.mockResolvedValue([{ name: 'a.md', sha: 's1' }]);
+    await ArgModule.RunOnceAsync();
+  }
+
+  test('audit Tag defaults to snapshot-relay so existing observability is unchanged', async () => {
+    Module = MakeModule(SlackApp, SeenPath, GithubClient);
+    await StartThenPostAsync(Module);
+
+    const [, , , , Tag] = SlackApp.PostMessageTextAsync.mock.calls[0];
+    expect(Tag).toEqual({ Tag: 'snapshot-relay' });
+  });
+
+  test('a custom auditTag reaches the write audit — the two instances are distinguishable', async () => {
+    Module = MakeModule(SlackApp, SeenPath, GithubClient, { auditTag: 'hiqs-digest-relay' });
+    await StartThenPostAsync(Module);
+
+    const [, , , , Tag] = SlackApp.PostMessageTextAsync.mock.calls[0];
+    expect(Tag).toEqual({ Tag: 'hiqs-digest-relay' });
+  });
+
+  test('a custom auditTag prefixes the log lines, not just the audit record', async () => {
+    // `journalctl -u sleuth-app | grep '<tag>:'` is the only way this module is
+    // diagnosed in production, so the prefix has to move with the tag.
+    Module = MakeModule(SlackApp, SeenPath, GithubClient, { auditTag: 'hiqs-digest-relay' });
+    await StartThenPostAsync(Module);
+
+    const Posted = SlackApp.Logger.InfoMessages.filter((ArgMsg) => ArgMsg.includes('posted'));
+    expect(Posted.length).toBeGreaterThan(0);
+    expect(Posted.every((ArgMsg) => ArgMsg.startsWith('hiqs-digest-relay:'))).toBe(true);
+    expect(Posted.some((ArgMsg) => ArgMsg.startsWith('snapshot-relay:'))).toBe(false);
+  });
+
+  test('the configured channel is used verbatim — never the sanitized placeholder default', async () => {
+    // The real channel id is env-only (sanitize-scan flags it as HIGH), so the
+    // in-repo default is a placeholder. An instance that silently fell back to it
+    // would post into a channel that does not exist, or worse, one that does.
+    Module = MakeModule(SlackApp, SeenPath, GithubClient, { channelId: 'C0TESTDIGEST' });
+    await StartThenPostAsync(Module);
+
+    const [ChannelID] = SlackApp.PostMessageTextAsync.mock.calls[0];
+    expect(ChannelID).toBe('C0TESTDIGEST');
+  });
+
+  test('two instances with different tags do not share a seen-set', async () => {
+    // Regression guard for the failure that has no error message: a shared seen-set
+    // makes the second instance treat the first instance's already-relayed files as
+    // seen, so its own digests are never posted and nothing is logged.
+    const First = MakeModule(SlackApp, undefined, GithubClient, { auditTag: 'relay-one' });
+    const Second = MakeModule(SlackApp, undefined, GithubClient, { auditTag: 'relay-two' });
+
+    expect(First.SeenPathForTest).not.toBe(Second.SeenPathForTest);
+    expect(First.SeenPathForTest).toContain('relay-one-seen.json');
+    expect(Second.SeenPathForTest).toContain('relay-two-seen.json');
+  });
+});
