@@ -33,6 +33,22 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.321 - 2026-09-02
+
+The twice-daily progress digest now reads properly in Slack: real bold, real bullets, and no stray
+`#` or `**` characters. The title no longer appears twice.
+
+**Technical:** GH-163. The digest file is GitHub Markdown because it also lives in the pulse repo;
+the relay posted its body verbatim. New `src/markdown-to-mrkdwn.js` (pure, line-oriented: headings
+to bold, `**` to `*`, `*`/`-` bullets to `•`, links to `<url|text>`, rules and relay comments
+dropped, fenced and inline code untouched, `__x__` deliberately left alone so `__init__.py`
+survives). `SnapshotRelayModule` gains an opt-in `renderMrkdwn` config applied on the short-message
+path only; the `hiqs-digest-relay` instance in `app.js` turns it on, the original snapshot relay is
+byte-for-byte unchanged. The leading H1 is dropped when converting because the compact header already
+carries it. Reviewed by Qwen 3.8 Max via the relay harness (two rounds, approved). jest 2198, tsc
+clean, sanitize-scan clean. Also filed #164: `tests/deploy-script.test.js` can retarget the real
+clone's HEAD when its fixture `git init` fails.
+
 ## 1.4.320 - 2026-08-27
 
 Fixes from a second independent review. Your own numbered lists are no longer edited, "I'll take
