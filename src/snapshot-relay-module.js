@@ -6,6 +6,7 @@ const path = require('path');
 const { WriteFileDurableAsync } = require('./durable-write');
 const os = require('os');
 const workspaces = require('./workspaces');
+const { MarkdownToMrkdwn } = require('./markdown-to-mrkdwn');
 
 /**
  * Build the default GitHub API client using global fetch (Node 18+).
@@ -93,7 +94,7 @@ class SnapshotRelayModule {
 
   /**
    * Resolved config for this instance.
-   * @type {{ enabled: boolean, channelId: string, pat: string, repo: string, dir: string, branch: string, seenPath: string, auditTag: string, pollIntervalMs: number, githubClient: { ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> } }}
+   * @type {{ enabled: boolean, channelId: string, pat: string, repo: string, dir: string, branch: string, seenPath: string, auditTag: string, pollIntervalMs: number, renderMrkdwn: boolean, githubClient: { ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> } }}
    */
   #Config;
 
@@ -132,6 +133,7 @@ class SnapshotRelayModule {
    * @param {string} [ArgConfig.seenPath]
    * @param {string} [ArgConfig.auditTag] Log prefix, write-audit Tag, and temp-file prefix.
    * @param {number} [ArgConfig.pollIntervalMs]
+   * @param {boolean} [ArgConfig.renderMrkdwn] GH-163: convert the Markdown body to Slack mrkdwn on the short-message path. Default false.
    * @param {object} [ArgConfig.githubClient] Injectable GitHub client (for tests).
    * @param {() => Promise<Array<{ name: string, sha: string }>>} ArgConfig.githubClient.ListSnapshotsAsync
    * @param {(name: string) => Promise<string>} ArgConfig.githubClient.GetContentAsync
@@ -193,6 +195,10 @@ class SnapshotRelayModule {
       seenPath: ArgConfig.seenPath ?? DefaultSeenPath,
       auditTag: AuditTag,
       pollIntervalMs: ArgConfig.pollIntervalMs ?? 60000,
+      // GH-163: convert the Markdown body to Slack mrkdwn on the short-message path.
+      // Opt-in per instance so the original snapshot relay's output is byte-for-byte
+      // unchanged unless it is switched on; the digest instance turns it on in app.js.
+      renderMrkdwn: ArgConfig.renderMrkdwn === true,
       githubClient: ArgConfig.githubClient ?? /** @type {{ ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> }} */ (BuildDefaultGithubClient(ClientConfig)),
     };
   }
@@ -339,8 +345,13 @@ class SnapshotRelayModule {
     const Tag = { Tag: auditTag };
 
     if(ArgContent.length <= 3500) {
-      // post as a single text message.
-      await this.#SlackApp.PostMessageTextAsync(channelId, null, `${CompactHeader}\n\n${ArgContent}`, undefined, Tag);
+      // post as a single text message. With renderMrkdwn the Markdown body is converted
+      // to Slack mrkdwn (GH-163) and its `# Title` line dropped — CompactHeader already
+      // carries the title, so leaving it would print the heading twice.
+      const Body = this.#Config.renderMrkdwn
+        ? MarkdownToMrkdwn(ArgContent, { dropFirstHeading: true })
+        : ArgContent;
+      await this.#SlackApp.PostMessageTextAsync(channelId, null, `${CompactHeader}\n\n${Body}`, undefined, Tag);
     } else {
       // Long entry: deliver as a SINGLE file upload with the header as the file's
       // initial comment. No separate header message — so a failed upload (e.g. the
