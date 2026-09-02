@@ -518,3 +518,60 @@ describe('SnapshotRelayModule — second-instance isolation', () => {
     expect(Second.SeenPathForTest).toContain('relay-two-seen.json');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test suite — GH-163: renderMrkdwn converts the Markdown body on the short path
+// ---------------------------------------------------------------------------
+describe('SnapshotRelayModule — renderMrkdwn (GH-163)', () => {
+  let TempDir, SeenPath, SlackApp, GithubClient, Module;
+
+  const DIGEST = [
+    '# Progress digest — 2026-09-02',
+    '',
+    '* **repo/a**: Merged a thing (#1).',
+    '',
+    '---',
+    '3 commits · 1 merged',
+  ].join('\n');
+
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'snapshot-relay-mrkdwn-'));
+    SeenPath = path.join(TempDir, 'seen.json');
+    SlackApp = MakeMockSlackApp();
+    GithubClient = MakeFakeGithubClient();
+    GithubClient.ListSnapshotsAsync.mockResolvedValueOnce([]);
+  });
+
+  afterEach(async () => {
+    if(Module) await Module.StopAsync();
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  async function PostOneAsync(ArgExtraConfig) {
+    Module = MakeModule(SlackApp, SeenPath, GithubClient, ArgExtraConfig);
+    await Module.StartAsync();
+    GithubClient.ListSnapshotsAsync.mockResolvedValue([{ name: 'hiqs-2026-09-02-1305.md', sha: 'd1' }]);
+    GithubClient.GetContentAsync.mockResolvedValue(DIGEST);
+    await Module.RunOnceAsync();
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+    return SlackApp.PostMessageTextAsync.mock.calls[0][2];
+  }
+
+  test('default (off): body is posted verbatim — existing snapshot relay is unchanged', async () => {
+    const Text = await PostOneAsync({});
+    expect(Text).toContain('# Progress digest — 2026-09-02');
+    expect(Text).toContain('* **repo/a**');
+    expect(Text).toContain('\n---\n');
+  });
+
+  test('renderMrkdwn: true → mrkdwn body, title once (in the header), no Markdown syntax', async () => {
+    const Text = await PostOneAsync({ renderMrkdwn: true, auditTag: 'hiqs-digest-relay' });
+    expect(Text.startsWith('*Progress digest — 2026-09-02*')).toBe(true);
+    expect(Text.match(/Progress digest — 2026-09-02/g)).toHaveLength(1);
+    expect(Text).toContain('• *repo/a*: Merged a thing (#1).');
+    expect(Text).not.toMatch(/\*\*/);
+    expect(Text).not.toMatch(/^#/m);
+    expect(Text).not.toMatch(/^---$/m);
+    expect(Text).toContain('3 commits · 1 merged');
+  });
+});

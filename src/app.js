@@ -394,6 +394,7 @@ async function RunAppAsync() {
         enabled: HiqsDigestEnabled,
         channelId: HiqsDigestChannelID,
         auditTag: 'hiqs-digest-relay',
+        renderMrkdwn: true, // GH-163: the digest is Markdown; Slack renders mrkdwn
         // Same private repo and branch as the snapshot relay by default — only the
         // watched directory differs.
         repo: process.env.HIQS_DIGEST_REPO || process.env.SNAPSHOT_RELAY_REPO || '',
