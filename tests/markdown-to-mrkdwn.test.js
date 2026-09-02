@@ -41,6 +41,17 @@ describe('MarkdownToMrkdwn — GH-163 digest rendering', () => {
     expect(Dropped).toBe('*Section*\ntext');
   });
 
+  test('dropFirstHeading only drops a LEADING H1 — a first ## or a late # survives', () => {
+    expect(MarkdownToMrkdwn('## Section\ntext', { dropFirstHeading: true })).toBe('*Section*\ntext');
+    expect(MarkdownToMrkdwn('intro\n# Late title\ntext', { dropFirstHeading: true })).toBe('intro\n*Late title*\ntext');
+    // A relay header comment before the H1 does not count as content.
+    expect(MarkdownToMrkdwn('<!-- x -->\n# T\nbody', { dropFirstHeading: true })).toBe('body');
+  });
+
+  test('double-underscore is left alone: dunder identifiers are not emphasis', () => {
+    expect(MarkdownToMrkdwn('added __init__.py and __HEALTH__')).toBe('added __init__.py and __HEALTH__');
+  });
+
   test('bullets: *, -, + become •, indentation preserved', () => {
     const Out = MarkdownToMrkdwn('* a\n- b\n+ c\n  * nested');
     expect(Out).toBe('• a\n• b\n• c\n  • nested');

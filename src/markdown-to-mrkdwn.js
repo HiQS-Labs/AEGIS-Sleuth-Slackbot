@@ -40,11 +40,13 @@ function ConvertInlineSegment(ArgSegment) {
   // [text](url) → <url|text>. Slack's link form; only http(s) targets.
   Line = Line.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<$2|$1>');
 
-  // **bold** / __bold__ → *bold*, via a placeholder so the italic pass below cannot
-  // see the freshly-made single stars and turn bold into italic.
+  // **bold** → *bold*, via a placeholder so the italic pass below cannot see the
+  // freshly-made single stars and turn bold into italic.
+  // `__bold__` is deliberately NOT converted: the producer never emits it, and in
+  // prose about code (`__init__.py`, dunder names) it is far more often an
+  // identifier than emphasis. Review finding Q2 on the GH-163 relay.
   const BoldMark = '\u0000';
   Line = Line.replace(/\*\*([^*\n]+?)\*\*/g, `${BoldMark}$1${BoldMark}`);
-  Line = Line.replace(/__([^_\n]+?)__/g, `${BoldMark}$1${BoldMark}`);
 
   // *italic* (single star, not a bullet marker) → _italic_
   Line = Line.replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![*\w])/g, '$1_$2_');
@@ -61,8 +63,10 @@ function ConvertInlineSegment(ArgSegment) {
  * Convert a Markdown document to Slack mrkdwn.
  * @param {string} ArgMarkdown Source text.
  * @param {{ dropFirstHeading?: boolean }} [ArgOptions]
- *   dropFirstHeading — remove the first `# Title` line entirely. The relay already lifts
+ *   dropFirstHeading — remove a leading level-1 `# Title` line. The relay already lifts
  *   that title into its own header line, so keeping it would print the title twice.
+ *   Only an H1 that is the first content line qualifies; a file that starts with a
+ *   `## Section` or with body text loses nothing.
  * @returns {string}
  */
 function MarkdownToMrkdwn(ArgMarkdown, ArgOptions = {}) {
@@ -73,11 +77,13 @@ function MarkdownToMrkdwn(ArgMarkdown, ArgOptions = {}) {
   const Out = [];
   let InFence = false;
   let FirstHeadingDropped = false;
+  let SeenContent = false; // any non-blank, non-comment line emitted or seen so far
 
   for(const RawLine of Lines) {
     // Fenced code: pass through verbatim, including the fence lines themselves.
     if(/^\s*```/.test(RawLine)) {
       InFence = !InFence;
+      SeenContent = true;
       Out.push(RawLine);
       continue;
     }
@@ -95,17 +101,21 @@ function MarkdownToMrkdwn(ArgMarkdown, ArgOptions = {}) {
       continue;
     }
 
-    // Headings: `# Title` → `*Title*`. First one optionally dropped.
-    const HeadingMatch = RawLine.match(/^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/);
+    // Headings: `# Title` → `*Title*`. With dropFirstHeading, ONLY a level-1 heading
+    // that is the first content line of the file is dropped — a `## Section` that
+    // happens to come first is a real heading and stays (review finding Q4).
+    const HeadingMatch = RawLine.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/);
     if(HeadingMatch) {
-      if(DropFirstHeading && !FirstHeadingDropped) {
+      const IsLeadingH1 = HeadingMatch[1].length === 1 && !SeenContent;
+      SeenContent = true;
+      if(DropFirstHeading && IsLeadingH1 && !FirstHeadingDropped) {
         FirstHeadingDropped = true;
         continue;
       }
-      FirstHeadingDropped = true;
-      Out.push(`*${ConvertInline(HeadingMatch[1])}*`);
+      Out.push(`*${ConvertInline(HeadingMatch[2])}*`);
       continue;
     }
+    if(RawLine.trim() !== '') SeenContent = true;
 
     // Bullets: `* item` / `- item` / `+ item` → `• item` (indent preserved).
     const BulletMatch = RawLine.match(/^(\s*)[*\-+]\s+(.*)$/);
