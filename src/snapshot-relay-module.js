@@ -93,7 +93,7 @@ class SnapshotRelayModule {
 
   /**
    * Resolved config for this instance.
-   * @type {{ enabled: boolean, channelId: string, pat: string, repo: string, dir: string, branch: string, seenPath: string, pollIntervalMs: number, githubClient: { ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> } }}
+   * @type {{ enabled: boolean, channelId: string, pat: string, repo: string, dir: string, branch: string, seenPath: string, auditTag: string, pollIntervalMs: number, githubClient: { ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> } }}
    */
   #Config;
 
@@ -118,7 +118,11 @@ class SnapshotRelayModule {
   /**
    * @param {import('./slack-app')} ArgSlackApp Slack app instance.
    * @param {import('@slack/logger').Logger} ArgLogger Logger instance.
-   * @param {object} [ArgConfig] Optional config overrides (for tests).
+   * @param {object} [ArgConfig] Optional config overrides. Used by tests, and by app.js to
+   *   run a SECOND instance of this class against a different directory and channel
+   *   (the GH-157 progress digest). A second instance MUST be given its own channelId,
+   *   dir and auditTag; the seen-set path is derived from auditTag, so a distinct tag
+   *   brings a distinct dedupe set automatically.
    * @param {boolean} [ArgConfig.enabled]
    * @param {string} [ArgConfig.channelId]
    * @param {string} [ArgConfig.pat]
@@ -126,6 +130,7 @@ class SnapshotRelayModule {
    * @param {string} [ArgConfig.dir]
    * @param {string} [ArgConfig.branch]
    * @param {string} [ArgConfig.seenPath]
+   * @param {string} [ArgConfig.auditTag] Log prefix, write-audit Tag, and temp-file prefix.
    * @param {number} [ArgConfig.pollIntervalMs]
    * @param {object} [ArgConfig.githubClient] Injectable GitHub client (for tests).
    * @param {() => Promise<Array<{ name: string, sha: string }>>} ArgConfig.githubClient.ListSnapshotsAsync
@@ -152,7 +157,18 @@ class SnapshotRelayModule {
         && this.#SlackApp.WorkspaceInfo.SNAPSHOT_RELAY_ENABLED === true;
       const FlagEnabled = EnabledViaEnv || EnabledViaConfig;
 
-    const DefaultSeenPath = workspaces.GetSubdirPath('', 'snapshot-relay-seen.json');
+    // Resolved FIRST: it is the log prefix, the write-audit Tag, the temp-file prefix,
+    // and the default seen-set filename below. Two instances of this class that share
+    // those are indistinguishable in journald, and
+    // `journalctl -u sleuth-app | grep 'snapshot-relay:'` is the only way anyone
+    // diagnoses this module. The default preserves the previous hardcoded value.
+    const AuditTag = ArgConfig.auditTag ?? 'snapshot-relay';
+
+    // Derived from the tag, NOT a fixed literal: a second instance sharing this file
+    // would treat the other's already-relayed files as seen and silently never post
+    // them. Deriving it means a distinct auditTag cannot forget to bring a distinct
+    // seen-set. Resolves to 'snapshot-relay-seen.json' for the default instance.
+    const DefaultSeenPath = workspaces.GetSubdirPath('', `${AuditTag}-seen.json`);
     const DefaultPat = ArgConfig.pat ?? process.env.SLEUTH_RAG_GITHUB_PAT ?? '';
     const DefaultRepo = ArgConfig.repo ?? (process.env.SNAPSHOT_RELAY_REPO || '');
     const DefaultDir = ArgConfig.dir ?? (process.env.SNAPSHOT_RELAY_DIR || 'snapshots');
@@ -161,7 +177,7 @@ class SnapshotRelayModule {
     // Determine enabled state: flag gate + PAT check.
     let ShouldEnable = ArgConfig.enabled ?? FlagEnabled;
     if(ShouldEnable && !DefaultPat) {
-      this.#Logger.warn('snapshot-relay: enabled (env allowlist or workspace flag) but no PAT found — staying disabled');
+      this.#Logger.warn(`${AuditTag}: enabled (env allowlist or workspace flag) but no PAT found — staying disabled`);
       ShouldEnable = false;
     }
 
@@ -175,9 +191,20 @@ class SnapshotRelayModule {
       dir: DefaultDir,
       branch: DefaultBranch,
       seenPath: ArgConfig.seenPath ?? DefaultSeenPath,
+      auditTag: AuditTag,
       pollIntervalMs: ArgConfig.pollIntervalMs ?? 60000,
       githubClient: ArgConfig.githubClient ?? /** @type {{ ListSnapshotsAsync: () => Promise<Array<{ name: string, sha: string }>>, GetContentAsync: (name: string) => Promise<string> }} */ (BuildDefaultGithubClient(ClientConfig)),
     };
+  }
+
+  /**
+   * Resolved seen-set path for this instance. Read-only; exposed because two instances
+   * silently sharing this file is a failure with no error message — the second one
+   * treats the first's relayed files as seen and never posts its own.
+   * @returns {string} Absolute path to this instance's seen-set file.
+   */
+  get SeenPathForTest() {
+    return this.#Config.seenPath;
   }
 
   /**
@@ -186,7 +213,7 @@ class SnapshotRelayModule {
    */
   async StartAsync() {
     if(!this.#Config.enabled) {
-      this.#Logger.info('snapshot-relay: disabled — StartAsync is a no-op');
+      this.#Logger.info(`${this.#Config.auditTag}: disabled — StartAsync is a no-op`);
       return;
     }
 
@@ -204,19 +231,19 @@ class SnapshotRelayModule {
       try {
         RemoteFiles = await this.#Config.githubClient.ListSnapshotsAsync();
       } catch(error) {
-        this.#Logger.error('snapshot-relay: first-run seed list failed (non-fatal):', error.message ?? error);
+        this.#Logger.error(`${this.#Config.auditTag}: first-run seed list failed (non-fatal):`, error.message ?? error);
         RemoteFiles = [];
       }
       for(const { name: FileName } of RemoteFiles) {
         this.#SeenFilenames.add(FileName);
       }
       await this.#SaveSeenAsync();
-      this.#Logger.info(`snapshot-relay: first run — seeded ${this.#SeenFilenames.size} existing file(s), none posted`);
+      this.#Logger.info(`${this.#Config.auditTag}: first run — seeded ${this.#SeenFilenames.size} existing file(s), none posted`);
     } else {
       // RESTART: do NOT re-seed. RunOnce will post anything that arrived while we
       // were down (remote files not in the persisted seen-set) — this closes the
       // restart-seed gap where downtime arrivals would be skipped forever.
-      this.#Logger.info(`snapshot-relay: resuming with ${this.#SeenFilenames.size} seen file(s); new arrivals will post`);
+      this.#Logger.info(`${this.#Config.auditTag}: resuming with ${this.#SeenFilenames.size} seen file(s); new arrivals will post`);
     }
 
     // start the poll timer.
@@ -235,7 +262,7 @@ class SnapshotRelayModule {
     try {
       Files = await this.#Config.githubClient.ListSnapshotsAsync();
     } catch(error) {
-      this.#Logger.error('snapshot-relay: list failed (non-fatal):', error.message ?? error);
+      this.#Logger.error(`${this.#Config.auditTag}: list failed (non-fatal):`, error.message ?? error);
       return;
     }
 
@@ -246,7 +273,7 @@ class SnapshotRelayModule {
       try {
         Content = await this.#Config.githubClient.GetContentAsync(FileName);
       } catch(error) {
-        this.#Logger.error(`snapshot-relay: failed to fetch ${FileName} (non-fatal):`, error.message ?? error);
+        this.#Logger.error(`${this.#Config.auditTag}: failed to fetch ${FileName} (non-fatal):`, error.message ?? error);
         continue;
       }
 
@@ -256,7 +283,7 @@ class SnapshotRelayModule {
         this.#SeenFilenames.add(FileName);
         await this.#SaveSeenAsync();
       } catch(error) {
-        this.#Logger.error(`snapshot-relay: failed to post ${FileName} (non-fatal):`, error.message ?? error);
+        this.#Logger.error(`${this.#Config.auditTag}: failed to post ${FileName} (non-fatal):`, error.message ?? error);
       }
     }
   }
@@ -308,8 +335,8 @@ class SnapshotRelayModule {
     ].filter(Boolean);
     const CompactHeader = HeaderParts.join('  |  ');
 
-    const { channelId } = this.#Config;
-    const Tag = { Tag: 'snapshot-relay' };
+    const { channelId, auditTag } = this.#Config;
+    const Tag = { Tag: auditTag };
 
     if(ArgContent.length <= 3500) {
       // post as a single text message.
@@ -320,7 +347,9 @@ class SnapshotRelayModule {
       // bot missing files:write scope) leaves nothing visible and is retried next
       // cycle, instead of spamming a header that re-posts every poll. The full
       // content is the uploaded file.
-      const TempFilePath = path.join(os.tmpdir(), `snapshot-relay-${process.pid}-${ArgFileName}`);
+      // Tag-scoped, not `snapshot-relay`-scoped: two instances in one process share a
+      // pid, so a fixed prefix would let them collide on a same-named file.
+      const TempFilePath = path.join(os.tmpdir(), `${auditTag}-${process.pid}-${ArgFileName}`);
       try {
         await fs.writeFile(TempFilePath, ArgContent, 'utf8');
         await this.#SlackApp.UploadFileAsync(channelId, null, TempFilePath, CompactHeader, ArgFileName, Tag);
@@ -333,7 +362,7 @@ class SnapshotRelayModule {
       }
     }
 
-    this.#Logger.info(`snapshot-relay: posted ${ArgFileName}`);
+    this.#Logger.info(`${this.#Config.auditTag}: posted ${ArgFileName}`);
   }
 
   /**
@@ -365,7 +394,7 @@ class SnapshotRelayModule {
       // Crash-atomic (GH-12): a truncated seen-set re-relays every previously handled snapshot.
       await WriteFileDurableAsync(this.#Config.seenPath, JSON.stringify([...this.#SeenFilenames], null, 2));
     } catch(error) {
-      this.#Logger.warn('snapshot-relay: failed to save seen-set (non-fatal):', error.message ?? error);
+      this.#Logger.warn(`${this.#Config.auditTag}: failed to save seen-set (non-fatal):`, error.message ?? error);
     }
   }
 
@@ -377,7 +406,7 @@ class SnapshotRelayModule {
       try {
         await this.RunOnceAsync();
       } catch(error) {
-        this.#Logger.error('snapshot-relay: unhandled error in poll cycle (non-fatal):', error.message ?? error);
+        this.#Logger.error(`${this.#Config.auditTag}: unhandled error in poll cycle (non-fatal):`, error.message ?? error);
       }
       if(this.#Active) {
         this.#ScheduleNextPoll();
