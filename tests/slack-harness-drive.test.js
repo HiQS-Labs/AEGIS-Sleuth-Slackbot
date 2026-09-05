@@ -6,7 +6,11 @@
  * being true. The Slack client is injected, so nothing here touches the network or a real token.
  */
 
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const {
+  LoadToken,
   ParseArgs,
   ValidateOptions,
   RunAsync,
@@ -73,10 +77,20 @@ describe('slack-harness-drive — option validation', () => {
 });
 
 describe('slack-harness-drive — bot identity', () => {
-  /** @param {Array<object>} ArgMessages */
-  function ClientWithHistory(ArgMessages) {
+  /**
+   * @param {Array<object>|Array<Array<object>>} ArgPages One page, or a list of pages that the
+   *   double serves in order with a `next_cursor` between them.
+   */
+  function ClientWithHistory(ArgPages) {
+    const Pages = Array.isArray(ArgPages[0]) || ArgPages.length === 0 ? ArgPages : [ArgPages];
     const Client = MakeClient();
-    Client.conversations.history = jest.fn().mockResolvedValue({ messages: ArgMessages });
+    Client.conversations.history = jest.fn().mockImplementation(async ({ cursor }) => {
+      const Index = cursor ? Number(cursor) : 0;
+      return {
+        messages: Pages[Index] || [],
+        response_metadata: Index + 1 < Pages.length ? { next_cursor: String(Index + 1) } : {},
+      };
+    });
     return Client;
   }
 
@@ -96,6 +110,24 @@ describe('slack-harness-drive — bot identity', () => {
     ]);
     await expect(DiscoverBotUserIdAsync(Client, CHANNEL, 'sleuth-dev'))
       .rejects.toThrow(/Ambiguous.*U_A, U_B.*--bot-user-id/s);
+  });
+
+  test('REFUSES when the second history PAGE hides another same-named bot — one page is not the channel', async () => {
+    const Client = ClientWithHistory([
+      [{ user: 'U_A', bot_profile: { name: 'Sleuth-dev' } }],
+      [{ user: 'U_B', bot_profile: { name: 'Sleuth-dev' } }],
+    ]);
+    await expect(DiscoverBotUserIdAsync(Client, CHANNEL, 'sleuth-dev'))
+      .rejects.toThrow(/Ambiguous.*U_A, U_B/s);
+    expect(Client.conversations.history).toHaveBeenCalledTimes(2);
+  });
+
+  test('a single bot spread over several pages is still unambiguous', async () => {
+    const Client = ClientWithHistory([
+      [{ user: 'U_A', bot_profile: { name: 'Sleuth-dev' } }],
+      [{ user: 'U_A', bot_profile: { name: 'Sleuth-dev' } }, { user: 'U_HUMAN' }],
+    ]);
+    await expect(DiscoverBotUserIdAsync(Client, CHANNEL, 'sleuth-dev')).resolves.toBe('U_A');
   });
 
   test('ignores human messages that happen to carry a matching username', async () => {
@@ -145,5 +177,76 @@ describe('slack-harness-drive — posting and reply matching', () => {
     const Client = MakeClient({ Replies: [[]] });
     await expect(RunAsync(MakeOptions({ TimeoutMs: POLL_INTERVAL_MS + 500 }), Client)).resolves.toBe(3);
     expect(Client.chat.postMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('slack-harness-drive — token loading', () => {
+  const SavedEnv = process.env.SLACK_DEV_USER_TOKEN;
+  /** @type {string} */
+  let TempDir;
+
+  beforeEach(() => { TempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-token-')); });
+  afterEach(() => {
+    if(SavedEnv === undefined) delete process.env.SLACK_DEV_USER_TOKEN;
+    else process.env.SLACK_DEV_USER_TOKEN = SavedEnv;
+    fs.rmSync(TempDir, { recursive: true, force: true });
+  });
+
+  /** @param {string} ArgContents */
+  function WriteTokenFile(ArgContents) {
+    const FilePath = path.join(TempDir, 'token.txt');
+    fs.writeFileSync(FilePath, ArgContents);
+    return FilePath;
+  }
+
+  test('accepts a user token from the file', () => {
+    delete process.env.SLACK_DEV_USER_TOKEN;
+    expect(LoadToken(WriteTokenFile('xoxp-file-token\n'))).toBe('xoxp-file-token');
+  });
+
+  test('strips a leading VAR= prefix in the file', () => {
+    delete process.env.SLACK_DEV_USER_TOKEN;
+    expect(LoadToken(WriteTokenFile('SLACK_DEV_USER_TOKEN=xoxp-file-token\n'))).toBe('xoxp-file-token');
+  });
+
+  test('rejects a BOT token in the file', () => {
+    delete process.env.SLACK_DEV_USER_TOKEN;
+    expect(() => LoadToken(WriteTokenFile('xoxb-bot-token'))).toThrow(/not a user \(xoxp\) token/);
+  });
+
+  test('the env var does NOT bypass the user-token check — an exported xoxb- is refused', () => {
+    process.env.SLACK_DEV_USER_TOKEN = 'xoxb-exported-bot-token';
+    // the file is valid, so a pass here would mean the env value was used unchecked
+    const FilePath = WriteTokenFile('xoxp-file-token');
+    expect(() => LoadToken(FilePath)).toThrow(/SLACK_DEV_USER_TOKEN.*not a user \(xoxp\) token/);
+  });
+
+  test('the env var wins when it IS a user token, and the error never echoes a token', () => {
+    process.env.SLACK_DEV_USER_TOKEN = 'xoxp-env-token';
+    expect(LoadToken(WriteTokenFile('xoxp-file-token'))).toBe('xoxp-env-token');
+    process.env.SLACK_DEV_USER_TOKEN = 'xoxb-secret-value';
+    try {
+      LoadToken(WriteTokenFile('xoxp-file-token'));
+      throw new Error('expected a refusal');
+    } catch(ArgError) {
+      expect(ArgError.message).not.toContain('xoxb-secret-value');
+    }
+  });
+});
+
+describe('smoke-dev-gh168.sh', () => {
+  const ScriptText = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'smoke-dev-gh168.sh'), 'utf8');
+
+  test('runs the cross-vendor refusal case UNCONDITIONALLY (GH-174 retired the router-mode gate)', () => {
+    // The gate made the script print "all passed" on an active-mode workspace without ever
+    // testing the precedence path — the one this repo just fixed. It must not come back.
+    expect(ScriptText).toContain(`--text "switch-models:'openai claude opus'" --expect "'openai claude opus' not found"`);
+    expect(ScriptText).not.toMatch(/if .*router mode.*active/i);
+    expect(ScriptText).not.toMatch(/SKIPPED the cross-vendor refusal/i);
+  });
+
+  test('pins the bot by ID, never by name, so it cannot drift onto another app mid-run', () => {
+    expect(ScriptText).toContain('--bot-user-id ${SLEUTH_DEV_BOT_USER_ID:-U0917484FM4}');
+    expect(ScriptText).not.toContain('--bot-name');
   });
 });

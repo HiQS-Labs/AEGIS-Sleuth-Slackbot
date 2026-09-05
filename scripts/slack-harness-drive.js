@@ -27,6 +27,7 @@ const { WebClient } = require('@slack/web-api');
 const DEFAULT_TIMEOUT_MS = 45000;
 const MAX_TIMEOUT_MS = 120000;
 const POLL_INTERVAL_MS = 2000;
+const MAX_HISTORY_PAGES = 20;
 const DEFAULT_TOKEN_FILE = path.join(os.homedir(), 'secrets', 'sleuth', 'aegis-dev-user-token.txt');
 
 /**
@@ -76,10 +77,14 @@ function PrintUsage() {
  * @returns {string}
  */
 function LoadToken(ArgTokenFile) {
+  // Validate AFTER choosing the source, never per-source: the env var used to short-circuit the
+  // check, so an exported `xoxb-` bot token would run this harness — and a bot token can never
+  // trigger a command (the app ignores its own messages), so the run would look like a dead bot.
   const FromEnv = (process.env.SLACK_DEV_USER_TOKEN || '').trim();
-  if(FromEnv) return FromEnv;
-  const Raw = fs.readFileSync(ArgTokenFile, 'utf8').trim().replace(/^[A-Za-z_]+=/, '');
-  if(!Raw.startsWith('xoxp-')) throw new Error(`Token in ${ArgTokenFile} is not a user (xoxp) token — the bot token cannot trigger commands.`);
+  const Source = FromEnv ? 'SLACK_DEV_USER_TOKEN' : ArgTokenFile;
+  const Raw = FromEnv || fs.readFileSync(ArgTokenFile, 'utf8').trim().replace(/^[A-Za-z_]+=/, '');
+  if(!Raw.startsWith('xoxp-'))
+    throw new Error(`Token from ${Source} is not a user (xoxp) token — a bot token cannot trigger commands.`);
   return Raw;
 }
 
@@ -118,14 +123,23 @@ async function ResolveChannelIdAsync(ArgClient, ArgName) {
  * @returns {Promise<string>}
  */
 async function DiscoverBotUserIdAsync(ArgClient, ArgChannelID, ArgBotName) {
-  const History = await ArgClient.conversations.history({ channel: ArgChannelID, limit: 200 });
   /** @type {Set<string>} */
   const Candidates = new Set();
-  for(const Message of History.messages || []) {
-    if(!Message.user || !Message.bot_profile) continue;
-    const Name = String(Message.bot_profile.name || Message.username || '').toLowerCase();
-    if(Name === ArgBotName) Candidates.add(Message.user);
-  }
+  // Page the WHOLE history, not just the first 200 messages: a second same-named app posting
+  // earlier than one page would otherwise be invisible, and "sole candidate on page 1" is not
+  // "unambiguous in this channel". Bounded so a busy channel cannot spin forever.
+  let Cursor;
+  let PagesRead = 0;
+  do {
+    const History = await ArgClient.conversations.history({ channel: ArgChannelID, limit: 200, cursor: Cursor });
+    for(const Message of History.messages || []) {
+      if(!Message.user || !Message.bot_profile) continue;
+      const Name = String(Message.bot_profile.name || Message.username || '').toLowerCase();
+      if(Name === ArgBotName) Candidates.add(Message.user);
+    }
+    Cursor = History.response_metadata?.next_cursor || undefined;
+    PagesRead++;
+  } while(Cursor && PagesRead < MAX_HISTORY_PAGES);
   if(Candidates.size === 1) return /** @type {string} */ (Array.from(Candidates)[0]);
   if(Candidates.size === 0)
     throw new Error(`No recent message from a bot named "${ArgBotName}" in this channel — pass --bot-user-id instead.`);
@@ -217,6 +231,7 @@ if(require.main === module) {
 }
 
 module.exports = {
+  LoadToken,
   ParseArgs,
   ValidateOptions,
   RunAsync,

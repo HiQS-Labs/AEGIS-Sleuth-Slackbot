@@ -55,11 +55,18 @@ and polls the thread for the bot's reply, so a real command can be driven end-to
 against dev — `npm run slack:harness:post` posts as the bot, which the app ignores by design, so it
 could never trigger anything. Bot identity resolves by ID or an unambiguous name match (the first
 version returned the first name hit and, once its own posts shifted the history window, addressed a
-different app mid-run); conflicting selectors (`--channel` with `--channel-id`, `--bot-name` with
-`--bot-user-id`) are refused rather than silently ranked. The Slack client is injected, and
-`tests/slack-harness-drive.test.js` covers every safety claim it makes — dry-run never posting,
-ambiguous names refusing, only the addressed bot counting as the reply, `--expect` failing with
-exit 4, timeout with exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev.
+different app mid-run) — and discovery pages the whole channel history, because "sole candidate on
+page one" is not "unambiguous in this channel". Conflicting selectors (`--channel` with
+`--channel-id`, `--bot-name` with `--bot-user-id`) are refused rather than silently ranked, and the
+`xoxp-` user-token check runs on whichever source wins, so an exported `SLACK_DEV_USER_TOKEN`
+holding a bot token can no longer slip past it. The Slack client is injected, and
+`tests/slack-harness-drive.test.js` (22 cases) covers every safety claim — dry-run never posting,
+ambiguity refusing across page boundaries, only the addressed bot counting as the reply, token
+rejection from both sources without echoing a token, `--expect` failing with exit 4, timeout with
+exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev in every router mode;
+a test pins that its cross-vendor refusal case stays ungated, since gating it would hide exactly the
+precedence regression GH-174 fixes. `models` keeps a short curated list of common exact model IDs
+alongside the alias table, so an unaliased ID like `o1` stays discoverable.
 
 ## 1.4.322 - 2026-09-04
 

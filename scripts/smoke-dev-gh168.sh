@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # GH-168 smoke against the DEV bot, driven as a user (see scripts/slack-harness-drive.js).
 #
-# Read this before adding a case: with the GH-397 router in `active` mode, Flash Lite reinterprets
-# EVERY mention before the deterministic command router sees it (src/chat-module.js:1205-1208), so
-# an exact quoted command is not guaranteed to reach the code you think you are testing. Observed
-# 2026-09-05: `switch-models:'openai claude opus'` — one quoted value, expected to be REFUSED —
-# was split by the router into default='openai' + complex='claude opus' and BOTH were switched.
-# The refusal case below therefore only runs when the router is off/shadow.
+# Every case runs unconditionally, in every router mode. There WAS a gate here: with the GH-397
+# router `active`, Flash Lite re-read `switch-models:'openai claude opus'` — one quoted value the
+# literal route captures whole — as default='openai' + complex='claude opus' and switched BOTH
+# (dev, 2026-09-05). GH-174 fixed exactly that: an incumbent route match now wins over the model's
+# reading, so the refusal case is meaningful in active mode and gating it would hide the very
+# regression this script exists to catch. tests/smoke-dev-gh168.test.js pins that it stays ungated.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,12 +18,7 @@ $D --text "models" --expect '*Aliases*'
 $D --text "run-diagnostics" --expect 'Alias pins: OK'
 $D --text "rmm ifl change model to Open AI" --expect "resolved from 'Open AI'"
 
-# Deterministic refusal (cross-vendor phrase must NOT switch anything). Router-active rewrites this
-# one, so gate it rather than assert a failure that is not the resolver's.
-if $D --text "models" | grep -q 'System router mode: `active`'; then
-  echo "smoke-dev-gh168: SKIPPED the cross-vendor refusal case — router mode is active (see header)."
-else
-  $D --text "switch-models:'openai claude opus'" --expect "'openai claude opus' not found"
-fi
+# Deterministic refusal: a cross-vendor phrase must switch NOTHING, whatever the router mode.
+$D --text "switch-models:'openai claude opus'" --expect "'openai claude opus' not found"
 
 echo "smoke-dev-gh168: all passed"
