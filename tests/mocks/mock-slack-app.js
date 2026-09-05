@@ -3,6 +3,19 @@
 /**
  * Lightweight logger for test harness use.
  */
+/**
+ * GH-169: default a simulated event field only when the caller did not supply the key at all, so a
+ * malformed-payload corpus can deliver an explicit `''`, `null`, or `undefined` the way a partial
+ * Slack payload does. `||` swallowed all three; `??` still swallows `null` and `undefined`.
+ * @param {object} ArgInfo Partial event info from the caller.
+ * @param {string} ArgKey Field name.
+ * @param {any} ArgDefault Value used only when the key is absent.
+ * @returns {any}
+ */
+function FieldOrDefault(ArgInfo, ArgKey, ArgDefault) {
+  return Object.hasOwn(ArgInfo, ArgKey) ? ArgInfo[ArgKey] : ArgDefault;
+}
+
 class MockLogger {
   constructor() {
     this.DebugMessages = [];
@@ -599,11 +612,11 @@ class MockSlackApp {
    */
   async SimulateAppMentionAsync(ArgEventInfo) {
     const AppMentionEvent = {
-      channel: ArgEventInfo.channel || 'C_TEST',
-      text: ArgEventInfo.text || `${this.AppMentionString} ping`,
-      ts: ArgEventInfo.ts || this.#MakeMessageTS(),
+      channel: FieldOrDefault(ArgEventInfo, 'channel', 'C_TEST'),
+      text: FieldOrDefault(ArgEventInfo, 'text', `${this.AppMentionString} ping`),
+      ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
       thread_ts: ArgEventInfo.thread_ts,
-      user: ArgEventInfo.user || 'U_TEST',
+      user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
       files: ArgEventInfo.files,
     };
     return await this.#DispatchHandlersAsync(this.#AppMentionHandlers, AppMentionEvent, 'app_mention');
@@ -616,11 +629,11 @@ class MockSlackApp {
    */
   async SimulateMessageAsync(ArgEventInfo) {
     const MessageEvent = {
-      channel: ArgEventInfo.channel || 'C_TEST',
-      text: ArgEventInfo.text || 'test message',
-      ts: ArgEventInfo.ts || this.#MakeMessageTS(),
+      channel: FieldOrDefault(ArgEventInfo, 'channel', 'C_TEST'),
+      text: FieldOrDefault(ArgEventInfo, 'text', 'test message'),
+      ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
       thread_ts: ArgEventInfo.thread_ts,
-      user: ArgEventInfo.user || 'U_TEST',
+      user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
       subtype: ArgEventInfo.subtype,
       files: ArgEventInfo.files,
       channel_type: ArgEventInfo.channel_type,

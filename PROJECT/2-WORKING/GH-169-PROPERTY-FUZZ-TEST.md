@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Recon traced both targets and the mock/production dispatch chains; intake parked and rated (40/20/50/90); plan written on `feat/gh169-property-fuzz` @ `4a79ed7` | Codex relay plan review, then implement `tests/property-fuzz.test.js` and the two-token `MockSlackApp` change, run the gates, final relay QA, PR into `development` |
+| Codex plan review r1 (`relay-system/2026-09-05/gh169-property-fuzz-plan-qa.md`): 3 Blockers + 4 Shoulds, all implemented in this revision; the test and the mock helper are written and green on three seeds; the corpus caught one out-of-contract `app_mention` throw, filed separately | Codex plan review r2 on this revision, then the full gate run (`npm test`, `npm run build`, `pdda.sh run`), final relay QA on the committed implementation, PR into `development` |
 
 ## Observed problem
 
@@ -100,11 +100,15 @@ Aliases are now resolved as **whole values** at the executor handlers by `Resolv
   - `app_mention` (L1541-1548): `text`, `user`, `channel`, `ts`, `thread_ts` pass through raw;
     `files` normalized to an array.
   - `reaction_added` (L1505-1511): `user`, `reaction`, `item.channel`, `item.ts` raw.
-- Mock gap: `SimulateMessageAsync` and `SimulateAppMentionAsync` default `text` and `user` with
-  `||`, so an explicit `''` or `null` is replaced by the default. Production delivers `text: ''`
-  (a string) and `user: undefined` (bot-authored messages). No existing caller passes `''` or
-  `null` for those fields (grep below), so switching those four defaults to `??` is
-  behavior-preserving for every current test and lets the corpus deliver the two reachable shapes.
+- Mock gap: `SimulateMessageAsync` and `SimulateAppMentionAsync` default `channel`, `text`, `ts`
+  and `user` with `||`, so an explicit `''`, `null` or `undefined` is replaced by the default.
+  Production delivers `text: ''` (a string) and `user: undefined` (bot-authored messages), and the
+  issue's corpus also names absent `channel`/`ts`/`text`. Codex r1 (Blocker 1): `??` would still
+  swallow `null` and `undefined`, so the change is a module-level `FieldOrDefault(ArgInfo, ArgKey,
+  ArgDefault)` that defaults **only when the key is absent** (`Object.hasOwn`), applied at the eight
+  `channel`/`text`/`ts`/`user` sites of the two simulators. Behavior for every caller that omits a
+  key is unchanged; a caller that passes an explicitly `undefined` variable now delivers
+  `undefined`, which is what production would do. The full `npm test` run is the check for that.
 - Handlers registered on these events: `ChatModule` registers all four kinds (L295-300, L740);
   `RemindersModule` registers `message` (L480, GitHub comment relay) and its own reminder
   handlers. `new RemindersModule(SlackApp)` constructs without starting timers
@@ -126,20 +130,21 @@ and its shared mock `tests/mocks/mock-slack-app.js`. No new runner, no new mock,
 | # | Requirement (issue) | Where it is met | Check |
 |---|---|---|---|
 | R1 | `MarkdownToMrkdwn` never throws, returns a string, fenced content untouched | `tests/property-fuzz.test.js` block 1 | 200 draws at 4k + 5 at 40k; a fenced block inserted into every draw is found verbatim in the output |
-| R2 | Per-draw wall-clock bound `<50ms` at 4k, `<1000ms` at 40k | block 1, each draw | `expect(elapsedMs).toBeLessThan(bound)` per draw, seed in the failure message |
+| R2 | Per-draw wall-clock bound `<50ms` at 4k, `<5000ms` at 40k (the issue suggested 1000ms; raised after measuring 1638ms under the full parallel suite, see Risks) | block 1, each draw, plus four fixed 40k inputs that hit the L41 link regex on every run | `TimedUnder` throws with the seed in the message when a draw exceeds its bound; a negative-control test proves the helper fails at bound `0` |
 | R3 | Normalizer never throws / never `undefined`; `NormalizedText` string, `Notes` string[] | block 2a | 200 draws through `NormalizeDirectCommandTextAsync`; also `ResolveModelAliasAsync` returns `{ ModelId: string, Note: string\|null }` on the same draws |
 | R4 | Junk that is not an alias resolves to itself | block 2b | letter-free draws (no alias contains zero letters) through `ResolveModelAliasAsync`: `Note === null` and `ModelId` equals the sanitized input |
 | R5 | Every configured alias resolves to its pin | block 2b | for each of the 53 `ModelAliases` rows: `Match`, `Match.toUpperCase()`, `Match` with doubled inner spaces, and `'Match'` in single quotes all yield `ModelId === Replace` and a non-null `Note`; issue text "every alias embedded whole in random text" is re-read as whole-value per GH-168's field-only contract, and a value with random junk appended must NOT resolve (refusal, not a guess) |
 | R6 | `<20ms` per call | block 2a/2b, each draw | as R2, for both entries |
-| R7 | Corpus through all four `Simulate*` hooks: never reject, never unhandled throw, `unhandledRejection` armed | block 3 | three-part invariant above; listener installed in `beforeAll`, removed in `afterAll` |
+| R7 | Corpus through all four `Simulate*` hooks: never reject, never unhandled throw, `unhandledRejection` armed | block 3 | three-part invariant above with a `setImmediate` drain before the assertion; listener installed in `beforeAll`, removed in `afterAll` |
 | R8 | Seeded `mulberry32`; `PROPERTY_SEED` honored and printed; families: metacharacters, whitespace/newline runs, zero-width, bidi override, lone surrogates, astral + ZWJ emoji, unbalanced delimiters | top of the file | seed appears in every `test()` name; `PROPERTY_SEED=<n>` reproduces the draw byte-for-byte (verified once in the PR evidence) |
 | R9 | No new dependency; green under `npm test` | `package.json` unchanged | `git diff --stat` shows no `package*.json` change |
 
 ## Smallest affected surface
 
 - **New:** `tests/property-fuzz.test.js` (one file, three `describe` blocks, a 10-line generator).
-- **Changed:** `tests/mocks/mock-slack-app.js` L603, L605, L620, L623: `||` to `??` on the `text`
-  and `user` defaults of the two message-shaped simulators. Nothing else in the mock moves.
+- **Changed:** `tests/mocks/mock-slack-app.js`: one module-level helper `FieldOrDefault` (absent-key
+  default via `Object.hasOwn`) and its use at the eight `channel`/`text`/`ts`/`user` sites in
+  `SimulateAppMentionAsync` and `SimulateMessageAsync`. Nothing else in the mock moves.
 - **Unchanged:** every `src/` file, `package.json`, `package-lock.json`, jest config.
 
 ## Corpus (block 3), restricted to production-reachable shapes
@@ -147,22 +152,38 @@ and its shared mock `tests/mocks/mock-slack-app.js`. No new runner, no new mock,
 Each shape runs through every hook it applies to, with `ChatModule` and `RemindersModule` both
 registered and `WorkspaceAI` mocked (`recommendation: 'ignore'` so the reminder path stays quiet).
 
-- `message` / `app_mention` `text`: `''`, whitespace-only, 40 000 chars, NUL, lone surrogate,
-  RTL override, ZWJ sequence, a single 4-byte emoji, the app mention string with nothing after it,
-  an `app_mention` whose text does not contain the mention string at all.
-- `message` `user`: `undefined` (bot-authored); `subtype`: `bot_message`, `file_share`,
-  `message_changed` (reachable through the mock; production drops subtype messages earlier, so
-  these document the handler's own tolerance and are labelled as such).
+- `message` / `app_mention` string `text`: `''`, whitespace-only, 40 000 chars, NUL, lone high and
+  lone low surrogate, RTL override, ZWJ family emoji, a single astral emoji, a zero-width run,
+  unbalanced brackets, the app mention string with nothing after it, an `app_mention` whose text
+  does not contain the mention string at all.
+- Missing fields (Codex r1, Blocker 1): `message` with `user` `undefined` (bot-authored; reachable,
+  `src/slack-app.js:1631` passes it raw) and `null`; `channel`/`ts`/`text` `undefined` and `text`
+  `null` on `message` (mock-reachable only: Slack always supplies `channel`/`ts`, and :1600 drops a
+  non-string `text` before dispatch). `app_mention` with `user`/`channel`/`ts` `undefined`
+  (mock-reachable only).
+- Subtypes, labelled per `src/slack-app.js:1592-1648` (Codex r1, Should 3): `file_share` reaches the
+  handlers in production; `bot_message`, `message_changed`, `message_deleted` are dropped before
+  dispatch and are mock-reachable only.
 - `thread_ts`: equal to `ts`; present with no parent in the mock's message store.
 - `files`: `[]`, `[{}]`, one entry whose `mimetype` contradicts `filetype`.
 - `channel_type`: `im`, `mpim`, `group`, `'not-a-type'`.
-- `reaction_added`: unknown `reaction` name, `item.ts` that no message has, `user` `undefined`.
-- `block_actions`: `ChatModule.ChatGoogleSearchActionId` with `value` `''`, `null`, 40 000 chars.
+- `reaction_added`: unknown `reaction` name, `item.ts` that no message has, `user` `null`, a
+  `wrench` triage reaction on a missing message.
+- `block_actions`: `ChatModule.ChatGoogleSearchActionId` with `value` `''`, 40 000 chars, NUL plus a
+  lone surrogate. A `null` value is normalized to `''` by the mock exactly as production does
+  (`src/slack-app.js:1668-1675`), so it is not a separate row (Codex r1, Should 3).
 
-Any shape that fails is triaged in the same branch: a guard of a few lines inside the two modules
-already under test is in scope; anything larger is filed as its own issue and the shape is kept in
-the corpus under jest's `test.failing` (jest 30.3.0) so it flips green when fixed and the suite
-stays green meanwhile.
+**Triage rule for a failing shape (Codex r1, Blocker 3):** a shape that leaves an
+`Error in <event> handler:` entry blocks this PR until it is fixed, or it is removed from the corpus
+as out-of-contract with the reason recorded here and a follow-up issue filed. No `test.failing`.
+
+**Applied once already.** The first run of the corpus caught `app_mention` with `text` `undefined`
+or `null`: `src/chat-command-router.js:111` calls `.match` on it, and every `app_mention` handler
+assumes a string, while `src/slack-app.js:1543` passes `ArgEvent.text` raw (the `message` path
+guards at :1600). Slack's `app_mention` contract always carries `text`, so the two rows are
+out-of-contract and were removed; the assumption is filed as GH-172
+(https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172), linked from the test comment and
+the PR, with the one-line dispatch guard that would let the rows return.
 
 ## Non-goals
 
@@ -175,25 +196,34 @@ stays green meanwhile.
 
 - **Dependencies:** none unmerged. Base `4a79ed7` already includes PR #170 (GH-88/168 plans and
   the executor-side alias resolution), so the normalizer under test is the current one.
-- **Risk — flaky wall-clock bounds on a loaded CI runner.** Mitigation: bounds are 10x the measured
-  worst case at 4k (`<50ms` vs ~1ms measured) and ~2x at 40k (`<1000ms` vs 593ms); the 40k draws are
-  five, not two hundred. If CI proves noisy the 40k bound is the only knob, and it is one constant.
-- **Risk — the `??` change alters an existing test.** Mitigation: grep shows no caller passes `''`
-  or `null` for `text`/`user`; full `npm test` is the check.
+- **Risk — flaky wall-clock bounds on a loaded runner.** Observed, not hypothetical: inside the full
+  parallel `npm test` on 2026-09-05 the fixed "40k nested brackets" case took 1638ms against the
+  issue's suggested 1000ms (593ms isolated). The 40k bound is therefore `5000ms`: it absorbs
+  worker contention while a real catastrophic-backtracking regression, which grows superlinearly
+  with input, still trips it. 4k stays `50ms` (~1ms measured, 50x margin) and the resolver `20ms`
+  (assets warmed first). All three live in one place at the top of the test file.
+- **Risk — the absent-key default alters an existing test.** A caller that passes an explicitly
+  `undefined` variable for `channel`/`text`/`ts`/`user` now delivers `undefined` instead of the
+  default. Full `npm test` is the check; a broken caller is fixed at the call site, not by
+  weakening the helper.
 - **Risk — a corpus shape exposes a real handler throw.** That is the point; triage rule above.
-- **Rollback:** revert the one new file and the four-token mock change. No data, config, or
-  runtime path is touched.
+- **Rollback:** revert the one new file and the mock helper with its eight call sites. No data,
+  config, or runtime path is touched.
 
 ## Implementation order (with verification inline)
 
 1. Write `tests/property-fuzz.test.js`: `mulberry32`, `PROPERTY_SEED` handling, weighted family
-   generator, block 1 (R1, R2), block 2 (R3-R6), block 3 (R7). Verify: `npx jest tests/property-fuzz.test.js`
-   green; run twice with the printed seed and `diff` the two outputs of a debug dump of the first
-   ten draws to prove R8 replay.
-2. Change the four `||` defaults to `??` in `tests/mocks/mock-slack-app.js`. Verify: the corpus
-   `''`-text and `undefined`-user shapes now reach the handlers (assert on the mock logger's
-   `InfoMessages` carrying the empty text once, as a one-time check in the PR evidence, not as a
-   permanent assertion).
+   generator, block 1 (R1, R2, plus four deterministic 40k ReDoS inputs that hit the L41 link
+   regex on every run — Codex r1, Should 1), block 2 (R3-R6, with `LoadCommandIntentAssetsAsync`
+   warmed in `beforeAll` so the per-draw bound measures regex work, not the first disk read —
+   Codex r1, Should 2 — and a separate cold smoke test for the load itself), block 3 (R7, with a
+   `setImmediate` drain between dispatch and assertion so a fire-and-forget rejection inside a
+   handler is observed — Codex r1, Blocker 2). Verify: `npx jest tests/property-fuzz.test.js`
+   green on three seeds; the same seed twice produces identical draws (R8).
+2. Add `FieldOrDefault` to `tests/mocks/mock-slack-app.js` and use it at the eight
+   `channel`/`text`/`ts`/`user` sites. Verify: the missing-field corpus rows reach the handlers
+   (the first run proved it by catching the `app_mention` non-string text throw), and the full
+   `npm test` stays green.
 3. Red controls, run once each and pasted into the PR: (a) set the 4k bound to `0` and confirm block 1
    fails with the seed in the message, restore; (b) register a throwing `HandleMessage` handler on
    the mock inside a scratch test and confirm block 3's three-part invariant fails on the
@@ -205,7 +235,23 @@ stays green meanwhile.
 6. Update this doc's status table and the acceptance map with results; final Codex relay QA; PR
    into `development`.
 
-## Grep evidence for the `??` change
+## Rating rationale (2026-09-05)
+
+- **Severity 20.** No observed consequence. A 13-input pathological probe on 2026-09-04 found zero
+  throws and a worst case of 593ms on 40k unbalanced brackets, on a renderer whose input is
+  bot-generated digest text. This is a regression net, not a fix. The one throw the corpus later
+  caught is out of Slack's contract (see the corpus section) and is filed separately.
+- **Priority 40.** Above the severity-led 20 because the operator queued it for execution now and
+  it doubles as the GH-168 alias-path regression net. Nothing is blocked on it.
+- **Appeal 50.** Neutral; the operator stated no desirability preference.
+- **Effort 90 (cheapness).** One test file and a small mock helper, no dependency, about an hour.
+- **Recurrence.** Issues created 2026-08-22..2026-09-05: 23 total, 1 crash/parse-class and that one
+  is GH-169 itself. Prior window 2026-08-08..2026-08-21: 63 total, 1 crash/parse-class. No
+  same-class incident in either window. Title search only; comments and reopenings not inspected,
+  so the trend is "no evidence of recurrence", not "proven zero".
+
+## Evidence for the mock change
 
 `rg -n "Simulate(Message|AppMention)Async\(\{[^}]*(text|user):\s*(''|\"\"|null)" tests scripts`
-returned no matches on `4a79ed7`.
+returned no matches on `4a79ed7` (no caller passes an explicit empty or null literal). Callers that
+pass a variable are covered by the full `npm test` run recorded in the PR.
