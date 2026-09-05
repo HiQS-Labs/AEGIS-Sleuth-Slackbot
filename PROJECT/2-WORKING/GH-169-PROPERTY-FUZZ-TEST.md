@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Codex plan review r1 (`relay-system/2026-09-05/gh169-property-fuzz-plan-qa.md`): 3 Blockers + 4 Shoulds, all implemented in this revision; the test and the mock helper are written and green on three seeds; the corpus caught one out-of-contract `app_mention` throw, filed separately | Codex plan review r2 on this revision, then the full gate run (`npm test`, `npm run build`, `pdda.sh run`), final relay QA on the committed implementation, PR into `development` |
+| Codex plan review r2 (`relay-system/2026-09-05/gh169-property-fuzz-plan-qa.md`): 3 Blockers + 3 Shoulds, all implemented in revision 3 — identity oracle for the resolver fall-through, production-faithful absent-field delivery in the mock with a fidelity test, explicit jest budgets on the 40k tests, exact 40k sizing, durable red controls; r1's 7 findings already folded in; corpus caught one out-of-contract `app_mention` throw, filed as GH-172 | Codex round 3 (final round of this relay), then CHANGELOG entry and the full gate run, final relay QA on the committed implementation, PR into `development` |
 
 ## Observed problem
 
@@ -132,10 +132,10 @@ and its shared mock `tests/mocks/mock-slack-app.js`. No new runner, no new mock,
 | R1 | `MarkdownToMrkdwn` never throws, returns a string, fenced content untouched | `tests/property-fuzz.test.js` block 1 | 200 draws at 4k + 5 at 40k; a fenced block inserted into every draw is found verbatim in the output |
 | R2 | Per-draw wall-clock bound `<50ms` at 4k, `<5000ms` at 40k (the issue suggested 1000ms; raised after measuring 1638ms under the full parallel suite, see Risks) | block 1, each draw, plus four fixed 40k inputs that hit the L41 link regex on every run | `TimedUnder` throws with the seed in the message when a draw exceeds its bound; a negative-control test proves the helper fails at bound `0` |
 | R3 | Normalizer never throws / never `undefined`; `NormalizedText` string, `Notes` string[] | block 2a | 200 draws through `NormalizeDirectCommandTextAsync`; also `ResolveModelAliasAsync` returns `{ ModelId: string, Note: string\|null }` on the same draws |
-| R4 | Junk that is not an alias resolves to itself | block 2b | letter-free draws (no alias contains zero letters) through `ResolveModelAliasAsync`: `Note === null` and `ModelId` equals the sanitized input |
+| R4 | Junk that is not an alias resolves to itself | block 2b | letter-free draws (no alias contains zero letters) through `ResolveModelAliasAsync`: `Note === null` and `ModelId` **equals** `ExpectedUntouched(input)`, a test-local restatement of the sanitizer, so a resolver that returned `''` for everything fails (Codex r2, Blocker 1); the appended-junk refusal asserts the same identity |
 | R5 | Every configured alias resolves to its pin | block 2b | for each of the 53 `ModelAliases` rows: `Match`, `Match.toUpperCase()`, `Match` with doubled inner spaces, and `'Match'` in single quotes all yield `ModelId === Replace` and a non-null `Note`; issue text "every alias embedded whole in random text" is re-read as whole-value per GH-168's field-only contract, and a value with random junk appended must NOT resolve (refusal, not a guess) |
-| R6 | `<20ms` per call | block 2a/2b, each draw | as R2, for both entries |
-| R7 | Corpus through all four `Simulate*` hooks: never reject, never unhandled throw, `unhandledRejection` armed | block 3 | three-part invariant above with a `setImmediate` drain before the assertion; listener installed in `beforeAll`, removed in `afterAll` |
+| R6 | `<100ms` per call (issue suggested 20ms; raised after a 25.7ms one-off with assets warmed, see Risks) | block 2a/2b, each draw | as R2, for both entries |
+| R7 | Corpus through all four `Simulate*` hooks: never reject, never unhandled throw, `unhandledRejection` armed | block 3 | three-part invariant with a `setImmediate` drain before the assertion. **Deviation, measured:** the issue's `process.on('unhandledRejection')` listener cannot work under jest — see "Fire-and-forget rejections under jest" below — so the third part is enforced by jest-circus's own handler, which the drain makes fire inside the test; no listener is installed |
 | R8 | Seeded `mulberry32`; `PROPERTY_SEED` honored and printed; families: metacharacters, whitespace/newline runs, zero-width, bidi override, lone surrogates, astral + ZWJ emoji, unbalanced delimiters | top of the file | seed appears in every `test()` name; `PROPERTY_SEED=<n>` reproduces the draw byte-for-byte (verified once in the PR evidence) |
 | R9 | No new dependency; green under `npm test` | `package.json` unchanged | `git diff --stat` shows no `package*.json` change |
 
@@ -143,8 +143,12 @@ and its shared mock `tests/mocks/mock-slack-app.js`. No new runner, no new mock,
 
 - **New:** `tests/property-fuzz.test.js` (one file, three `describe` blocks, a 10-line generator).
 - **Changed:** `tests/mocks/mock-slack-app.js`: one module-level helper `FieldOrDefault` (absent-key
-  default via `Object.hasOwn`) and its use at the eight `channel`/`text`/`ts`/`user` sites in
-  `SimulateAppMentionAsync` and `SimulateMessageAsync`. Nothing else in the mock moves.
+  default via `Object.hasOwn`) at the eight `channel`/`text`/`ts`/`user` sites in
+  `SimulateAppMentionAsync` and `SimulateMessageAsync` and at the `user` site in
+  `SimulateReactionAddedAsync`; and, per Codex r2 Blocker 2, the two simulators now deliver absent
+  `thread_ts`/`files` exactly as `src/slack-app.js` does (`message`: `thread_ts` `null`, `files`
+  always an array; `app_mention`: `files` `[]`, `thread_ts` raw). A fidelity test in the new file
+  captures the delivered events and asserts those values. Nothing else in the mock moves.
 - **Unchanged:** every `src/` file, `package.json`, `package-lock.json`, jest config.
 
 ## Corpus (block 3), restricted to production-reachable shapes
@@ -173,6 +177,26 @@ registered and `WorkspaceAI` mocked (`recommendation: 'ignore'` so the reminder 
   lone surrogate. A `null` value is normalized to `''` by the mock exactly as production does
   (`src/slack-app.js:1668-1675`), so it is not a separate row (Codex r1, Should 3).
 
+**Fire-and-forget rejections under jest (measured 2026-09-05, jest 30.3.0).** Two throwaway
+probes, run and deleted in the task clone:
+
+1. A `process.on('unhandledRejection')` listener registered inside a test, followed by an
+   un-awaited `Promise.reject` and a `setImmediate` drain: `listenerCount` 1, listener never
+   called (`seen: []`), and jest-circus reported the rejection as that test's failure. The
+   test-context `process` is jest's proxy; the real process's handler is jest's own.
+2. The same body under `test.failing`: jest reported *"Failing test passed even though it was
+   supposed to fail"* and, separately, the rejection — `test.failing` inverts the body's own
+   errors, not the attributed rejection.
+
+Consequences: the listener in the issue text is dead code in this runner and is not installed;
+the observable that does work is "keep the rejection inside the test's lifetime" (the drain), and
+jest fails the test. A permanent green control for that branch is impossible without disabling
+jest's handler, so Codex r2 Should 3 is met for the handler-throw branch (permanent control in the
+file) and **recorded, not controlled** for the fire-and-forget branch: a run-once control on
+2026-09-05 (handler returns `true` after an un-awaited `Promise.reject`) failed the test with
+`control: fire-and-forget rejection` attributed at the handler line, which is the required
+behavior.
+
 **Triage rule for a failing shape (Codex r1, Blocker 3):** a shape that leaves an
 `Error in <event> handler:` entry blocks this PR until it is fixed, or it is removed from the corpus
 as out-of-contract with the reason recorded here and a follow-up issue filed. No `test.failing`.
@@ -200,8 +224,10 @@ the PR, with the one-line dispatch guard that would let the rows return.
   parallel `npm test` on 2026-09-05 the fixed "40k nested brackets" case took 1638ms against the
   issue's suggested 1000ms (593ms isolated). The 40k bound is therefore `5000ms`: it absorbs
   worker contention while a real catastrophic-backtracking regression, which grows superlinearly
-  with input, still trips it. 4k stays `50ms` (~1ms measured, 50x margin) and the resolver `20ms`
-  (assets warmed first). All three live in one place at the top of the test file.
+  with input, still trips it. 4k stays `50ms` (~1ms measured, 50x margin). The resolver bound is
+  `100ms`, not the issue's suggested `20ms`: with assets warmed, one draw measured 25.7ms on a
+  single isolated run (seed 99991, draw 112) and under 1ms on two re-runs of the same seed, so
+  20ms sits inside scheduler noise. All three live in one place at the top of the test file.
 - **Risk — the absent-key default alters an existing test.** A caller that passes an explicitly
   `undefined` variable for `channel`/`text`/`ts`/`user` now delivers `undefined` instead of the
   default. Full `npm test` is the check; a broken caller is fixed at the call site, not by
@@ -216,7 +242,8 @@ the PR, with the one-line dispatch guard that would let the rows return.
    generator, block 1 (R1, R2, plus four deterministic 40k ReDoS inputs that hit the L41 link
    regex on every run — Codex r1, Should 1), block 2 (R3-R6, with `LoadCommandIntentAssetsAsync`
    warmed in `beforeAll` so the per-draw bound measures regex work, not the first disk read —
-   Codex r1, Should 2 — and a separate cold smoke test for the load itself), block 3 (R7, with a
+   Codex r1, Should 2 — plus a warm smoke test that both public entries return their stated shapes;
+   it does not claim to prove first-load behavior, Codex r2, Should 2), block 3 (R7, with a
    `setImmediate` drain between dispatch and assertion so a fire-and-forget rejection inside a
    handler is observed — Codex r1, Blocker 2). Verify: `npx jest tests/property-fuzz.test.js`
    green on three seeds; the same seed twice produces identical draws (R8).
@@ -224,15 +251,25 @@ the PR, with the one-line dispatch guard that would let the rows return.
    `channel`/`text`/`ts`/`user` sites. Verify: the missing-field corpus rows reach the handlers
    (the first run proved it by catching the `app_mention` non-string text throw), and the full
    `npm test` stays green.
-3. Red controls, run once each and pasted into the PR: (a) set the 4k bound to `0` and confirm block 1
-   fails with the seed in the message, restore; (b) register a throwing `HandleMessage` handler on
-   the mock inside a scratch test and confirm block 3's three-part invariant fails on the
-   `Error in message handler:` log entry, delete the scratch test.
-4. Gates, un-sandboxed (GH-164: sandboxed jest retargets HEAD): `npm test`, `npm run build`,
+3. Red controls (Codex r2, Should 3): permanent in the file — (a) the bound helper at bound `0`
+   must throw naming the seed; (b) a bare mock with a throwing `HandleMessage` handler must make
+   the invariant fail on the `Error in message handler:` entry. Run once and recorded above —
+   (c) a handler that returns normally but leaves an un-awaited rejecting promise fails the test
+   through jest's own handler once the drain surfaces it; no green form of (c) exists under jest.
+   None is a corpus shape and none uses `test.failing`.
+4. Test budgets (Codex r2, Blocker 3): the 4k and 40k draw tests and each deterministic 40k case
+   carry an explicit jest timeout of draws × bound + 5s, so a slow draw fails through `TimedUnder`
+   with the seed rather than through jest's default 5s budget. Generated 40k inputs are sized
+   after the sentinel block so they are at most 40 000 code units, and the unclosed-links fixed
+   case repeats 3333 times (39 996) rather than 4000 (Codex r2, Should 1).
+5. Gates, un-sandboxed (GH-164: sandboxed jest retargets HEAD): `npm test`, `npm run build`,
    `bash utils/pdda/pdda.sh run` (error count must not exceed the 29 pre-existing on the clean
-   clone), `utils/sanitize-scan.sh` via the pre-commit hook.
-5. Append the CHANGELOG entry under the unreleased heading; do not bump `package.json` `version`.
-6. Update this doc's status table and the acceptance map with results; final Codex relay QA; PR
+   clone plus this doc's own `roadmap-coverage` line, which the check raises because it reads the
+   frozen `ROADMAP.md` while the pointer lives in `releases.db` — the same gap as eight other
+   active docs), `utils/sanitize-scan.sh` via the pre-commit hook.
+6. Add the CHANGELOG entry as a new `## 1.4.323` heading with the TL;DR + `**Technical:**` shape
+   `validate:changelog-tone` enforces; do not bump `package.json` `version`.
+7. Update this doc's status table and the acceptance map with results; final Codex relay QA; PR
    into `development`.
 
 ## Rating rationale (2026-09-05)

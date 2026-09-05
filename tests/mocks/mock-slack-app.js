@@ -617,7 +617,8 @@ class MockSlackApp {
       ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
       thread_ts: ArgEventInfo.thread_ts,
       user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
-      files: ArgEventInfo.files,
+      // production normalizes absent files to [] (src/slack-app.js #OnAppMentionAsync).
+      files: ArgEventInfo.files ?? [],
     };
     return await this.#DispatchHandlersAsync(this.#AppMentionHandlers, AppMentionEvent, 'app_mention');
   }
@@ -632,10 +633,12 @@ class MockSlackApp {
       channel: FieldOrDefault(ArgEventInfo, 'channel', 'C_TEST'),
       text: FieldOrDefault(ArgEventInfo, 'text', 'test message'),
       ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
-      thread_ts: ArgEventInfo.thread_ts,
+      // production delivers thread_ts as null when absent and files as an array always
+      // (src/slack-app.js #OnMessageAsync); mirror both so a corpus sees what handlers see.
+      thread_ts: 'thread_ts' in ArgEventInfo ? ArgEventInfo.thread_ts : null,
       user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
       subtype: ArgEventInfo.subtype,
-      files: ArgEventInfo.files,
+      files: Array.isArray(ArgEventInfo.files) ? ArgEventInfo.files : [],
       channel_type: ArgEventInfo.channel_type,
     };
     return await this.#DispatchHandlersAsync(this.#MessageHandlers, MessageEvent, 'message');
@@ -670,7 +673,7 @@ class MockSlackApp {
    */
   async SimulateReactionAddedAsync(ArgEventInfo) {
     const ReactionEvent = {
-      user: ArgEventInfo.user || 'U_TEST',
+      user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
       reaction: ArgEventInfo.reaction || 'white_check_mark',
       item: {
         channel: ArgEventInfo.item?.channel || 'C_TEST',

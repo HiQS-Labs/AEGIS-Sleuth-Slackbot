@@ -100,7 +100,29 @@ function Draw(ArgRng, ArgLength, ArgFamilies) {
 // catastrophic-backtracking regression, which grows superlinearly, still trips it.
 const Bound4kMs = 50;
 const Bound40kMs = 5000;
-const BoundResolverMs = 20;
+// resolver/normalizer: sub-millisecond typical at 2k, but one draw measured 25.7ms on a single
+// isolated run (seed 99991, draw 112) and under 1ms on the next two runs of the same seed, so the
+// 20ms the issue suggested is inside scheduler noise. 100ms still catches a catastrophic regex.
+const BoundResolverMs = 100;
+const Draws4k = 200;
+const Draws40k = 5;
+
+/**
+ * What ResolveModelAlias returns for a value that matches no alias: the sanitized input itself
+ * (`ModelId: Raw` at the fall-through, src/command-intent-resolver.js). Re-stated here from
+ * NormalizeFreeformText + SanitizeSingleQuotedValue so the identity can be asserted, not just
+ * "no note" — a resolver returning '' for everything would otherwise pass.
+ * @param {string} ArgValue
+ * @returns {string}
+ */
+function ExpectedUntouched(ArgValue) {
+  const Normalized = String(ArgValue || '')
+    .replace(/[“”]/g, '"')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Normalized.trim().replace(/'/g, '');
+}
 
 /**
  * Time one call and fail with the seed and draw label in the message when it exceeds the bound.
@@ -139,53 +161,65 @@ async function TimedUnderAsync(ArgFn, ArgBoundMs, ArgLabel) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Append a fenced block carrying content that WOULD be rewritten outside a fence. The random body
- * may itself contain an odd number of fence lines, which would invert fence parity, so close it
- * first when needed.
- * @param {string} ArgBody
+ * Draw a body and append a fenced block carrying content that WOULD be rewritten outside a
+ * fence, keeping the whole input at or under ArgTargetLength code units. The random body may
+ * itself contain an odd number of fence lines, which would invert fence parity, so it is closed
+ * first when needed (parity is recomputed after the body is trimmed to size).
+ * @param {() => number} ArgRng
+ * @param {number} ArgTargetLength
  * @param {number} ArgIndex
  * @returns {{ Input: string, Sentinel: string }}
  */
-function WithFencedSentinel(ArgBody, ArgIndex) {
-  const OpenFences = ArgBody.split('\n').filter((ArgLine) => /^\s*```/.test(ArgLine)).length;
-  const Closer = OpenFences % 2 === 1 ? '\n```' : '';
+function DrawWithFencedSentinel(ArgRng, ArgTargetLength, ArgIndex) {
   const Sentinel = `**FENCE_SENTINEL_${ArgIndex}** [x](https://example.com/y) # not a heading`;
-  return { Input: `${ArgBody}${Closer}\n\`\`\`\n${Sentinel}\n\`\`\`\n`, Sentinel };
+  const Block = `\n\`\`\`\n${Sentinel}\n\`\`\`\n`;
+  const MaxCloser = '\n```'.length;
+  const Body = Draw(ArgRng, ArgTargetLength, AllFamilies).slice(0, ArgTargetLength - Block.length - MaxCloser);
+  const OpenFences = Body.split('\n').filter((ArgLine) => /^\s*```/.test(ArgLine)).length;
+  const Closer = OpenFences % 2 === 1 ? '\n```' : '';
+  const Input = `${Body}${Closer}${Block}`;
+  if(Input.length > ArgTargetLength) throw new Error(`generator bug: ${Input.length} > ${ArgTargetLength}`);
+  return { Input, Sentinel };
 }
 
 describe(`GH-169 MarkdownToMrkdwn property (PROPERTY_SEED=${Seed})`, () => {
   test(`200 draws at 4k: never throws, returns a string, fenced content untouched, <${Bound4kMs}ms each`, () => {
     const Rng = Mulberry32(Seed);
     for(let Index = 0; Index < 200; Index++) {
-      const { Input, Sentinel } = WithFencedSentinel(Draw(Rng, 4000, AllFamilies), Index);
+      const { Input, Sentinel } = DrawWithFencedSentinel(Rng, 4000, Index);
       const Out = TimedUnder(() => MarkdownToMrkdwn(Input), Bound4kMs, `MarkdownToMrkdwn draw ${Index} (4k)`);
       expect(typeof Out).toBe('string');
       expect(Out).toContain(Sentinel);
     }
-  });
+  }, Draws4k * Bound4kMs + 5000);
 
+  // jest's default per-test budget is 5000ms; five draws at up to Bound40kMs each would hit it
+  // before TimedUnder could report the seed, so the test budget is stated explicitly.
   test(`5 draws at 40k: never throws, <${Bound40kMs}ms each`, () => {
     const Rng = Mulberry32(Seed ^ 0x40000);
-    for(let Index = 0; Index < 5; Index++) {
-      const { Input, Sentinel } = WithFencedSentinel(Draw(Rng, 40000, AllFamilies), Index);
+    for(let Index = 0; Index < Draws40k; Index++) {
+      const { Input, Sentinel } = DrawWithFencedSentinel(Rng, 40000, Index);
+      expect(Input.length).toBeLessThanOrEqual(40000);
       const Out = TimedUnder(() => MarkdownToMrkdwn(Input), Bound40kMs, `MarkdownToMrkdwn draw ${Index} (40k)`);
       expect(typeof Out).toBe('string');
       expect(Out).toContain(Sentinel);
     }
-  });
+  }, Draws40k * Bound40kMs + 5000);
 
   // the link regex at src/markdown-to-mrkdwn.js:41 is quadratic on unbalanced brackets (593ms at
-  // 40k measured on 2026-09-04). These fixed inputs hit that path on every run regardless of seed,
-  // so the bound is a lasting ReDoS tripwire and not a seed-dependent lottery.
+  // 40k measured on 2026-09-04). These fixed inputs, each at or under 40k code units, hit that
+  // path on every run regardless of seed, so the bound is a lasting ReDoS tripwire and not a
+  // seed-dependent lottery.
   test.each([
     ['40k nested brackets', '['.repeat(20000) + ']'.repeat(20000)],
-    ['4000 unclosed links', '[a](http://x'.repeat(4000)],
+    ['3333 unclosed links (39 996 chars)', '[a](http://x'.repeat(3333)],
     ['40k nested parens after a bracket', '[' + '('.repeat(20000) + ')'.repeat(19999)],
     ['20k heading spaces then a hash', '# x' + ' '.repeat(20000) + '#'],
   ])(`deterministic 40k ReDoS tripwire: %s stays under ${Bound40kMs}ms`, (ArgLabel, ArgInput) => {
+    expect(ArgInput.length).toBeLessThanOrEqual(40000);
     const Out = TimedUnder(() => MarkdownToMrkdwn(ArgInput), Bound40kMs, `MarkdownToMrkdwn fixed case "${ArgLabel}"`);
     expect(typeof Out).toBe('string');
-  });
+  }, Bound40kMs + 5000);
 
   test('negative control: the bound helper fails loudly and names the seed', () => {
     expect(() => TimedUnder(() => MarkdownToMrkdwn('# x'), 0, 'control')).toThrow(/PROPERTY_SEED=/);
@@ -203,7 +237,7 @@ describe(`GH-169 command normalizer + alias resolver property (PROPERTY_SEED=${S
     await LoadCommandIntentAssetsAsync();
   });
 
-  test('cold smoke: both public entries load their assets and return their stated shapes', async () => {
+  test('warm smoke: both public entries return their stated shapes (assets already loaded in beforeAll)', async () => {
     const Normalized = await NormalizeDirectCommandTextAsync('help');
     expect(typeof Normalized.NormalizedText).toBe('string');
     expect(Array.isArray(Normalized.Notes)).toBe(true);
@@ -236,6 +270,8 @@ describe(`GH-169 command normalizer + alias resolver property (PROPERTY_SEED=${S
       );
       expect(typeof First.ModelId).toBe('string');
       expect(First.Note).toBeNull();
+      // the fall-through contract is identity on the sanitized input, not merely "no note".
+      expect(First.ModelId).toBe(ExpectedUntouched(Input));
       expect(First.ModelId).not.toMatch(/[a-z]/i);
       // a refused value stays refused, and re-resolving it changes nothing but whitespace: the
       // sanitizer trims BEFORE it strips single quotes (SanitizeSingleQuotedValue), so a quote
@@ -265,7 +301,7 @@ describe(`GH-169 command normalizer + alias resolver property (PROPERTY_SEED=${S
       // GH-168 contract: whole value only — an alias with anything appended is a refusal, not a guess.
       const Refused = await ResolveModelAliasAsync(`${Row.Match} zzz`);
       expect(Refused.Note).toBeNull();
-      expect(Refused.ModelId).not.toBe(Row.Replace);
+      expect(Refused.ModelId).toBe(ExpectedUntouched(`${Row.Match} zzz`));
       // every pin is a fixed point of the resolver.
       const Pin = await ResolveModelAliasAsync(Row.Replace);
       expect(Pin).toEqual({ ModelId: Row.Replace, Note: null });
@@ -307,18 +343,19 @@ const StringTextShapes = [
   ['unbalanced brackets', '[[[[remind]]]] me'],
 ];
 
+// How a fire-and-forget rejection inside a handler is observed, and why there is no listener here.
+// GH-169 asked for a process.on('unhandledRejection') listener armed for the test. Measured on
+// 2026-09-05 (jest 30.3.0): a listener registered on the test-context `process` never fires
+// (listenerCount 1, seen []), because jest-circus installs its own handler on the real process
+// and attributes the rejection to the running test, failing it. A `test.failing` control cannot
+// absorb that either — the rejection is reported beside the test as a separate error. So the
+// working mechanism is: keep the rejection inside the test's lifetime (the setImmediate drain in
+// ExpectHandledCleanly) and let jest fail the test. A permanent green control for that branch is
+// therefore impossible without disabling jest's handler; the run-once control and both probes are
+// recorded in PROJECT/2-WORKING/GH-169-PROPERTY-FUZZ-TEST.md.
 describe(`GH-169 malformed Slack event corpus through MockSlackApp (PROPERTY_SEED=${Seed})`, () => {
-  /** @type {unknown[]} */
-  const Unhandled = [];
-  const OnUnhandled = (ArgReason) => { Unhandled.push(ArgReason); };
-
   beforeAll(() => {
-    process.on('unhandledRejection', OnUnhandled);
     ConfigureMockWorkspaceAI(MockWorkspaceAI, { recommendation: 'ignore' });
-  });
-
-  afterAll(() => {
-    process.off('unhandledRejection', OnUnhandled);
   });
 
   /**
@@ -339,7 +376,8 @@ describe(`GH-169 malformed Slack event corpus through MockSlackApp (PROPERTY_SEE
    * nothing rejected unhandled. A handler throw is caught and logged by #DispatchHandlersAsync
    * (mirroring src/slack-app.js:1524-1530, :1561-1570, :1643-1648), so the log entry is the only
    * trace it leaves. A promise a handler starts and does not await rejects on a LATER turn, so the
-   * assertion waits one macrotask before reading either trace.
+   * helper waits one macrotask before reading the log; that same drain is what lets jest's own
+   * unhandled-rejection handler attribute such a rejection to this test (see the note above).
    * @param {MockSlackApp} ArgSlackApp
    * @param {string} ArgLabel
    * @param {() => Promise<boolean>} ArgDispatch
@@ -352,8 +390,44 @@ describe(`GH-169 malformed Slack event corpus through MockSlackApp (PROPERTY_SEE
     const HandlerErrors = ArgSlackApp.Logger.ErrorMessages.slice(ErrorsBefore)
       .filter((ArgEntry) => /Error in .* handler/.test(String(ArgEntry)));
     expect({ Shape: ArgLabel, HandlerErrors }).toEqual({ Shape: ArgLabel, HandlerErrors: [] });
-    expect({ Shape: ArgLabel, Unhandled }).toEqual({ Shape: ArgLabel, Unhandled: [] });
   }
+
+  // durable red control for the invariant's handler-throw branch (Codex r2, Should 3): a handler
+  // that throws must make ExpectHandledCleanly fail through the handler-error log. Not a corpus
+  // shape; it registers its own bare app so the real modules are not involved. The
+  // fire-and-forget branch has no green control for the reason in the note above the describe.
+  test('red control: a throwing message handler fails the invariant through the handler-error log', async () => {
+    const SlackApp = new MockSlackApp({});
+    SlackApp.HandleMessage(async () => { throw new Error('control: synchronous handler throw'); });
+    await expect(ExpectHandledCleanly(SlackApp, 'control/throw', () => SlackApp.SimulateMessageAsync({ text: 'ping' })))
+      .rejects.toThrow(/HandlerErrors/);
+  });
+
+  // payload fidelity (Codex r2, Blocker 2): what the mock delivers for absent fields must match
+  // what src/slack-app.js delivers, or the corpus is exercising shapes production never sends.
+  test('the mock delivers absent fields the way production does', async () => {
+    const SlackApp = new MockSlackApp({});
+    /** @type {any[]} */
+    const Seen = [];
+    SlackApp.HandleMessage(async (_, ArgEvent) => { Seen.push({ kind: 'message', ...ArgEvent }); return true; });
+    SlackApp.HandleAppMention(async (_, ArgEvent) => { Seen.push({ kind: 'app_mention', ...ArgEvent }); return true; });
+    SlackApp.HandleReactionAdded(async (_, ArgEvent) => { Seen.push({ kind: 'reaction_added', ...ArgEvent }); return true; });
+
+    await SlackApp.SimulateMessageAsync({ text: 'ping' });
+    await SlackApp.SimulateMessageAsync({ text: 'ping', user: undefined, files: 'not-an-array' });
+    await SlackApp.SimulateAppMentionAsync({ text: 'ping' });
+    await SlackApp.SimulateReactionAddedAsync({ user: null });
+
+    // message: thread_ts null when absent, files always an array (src/slack-app.js #OnMessageAsync).
+    expect(Seen[0]).toMatchObject({ kind: 'message', thread_ts: null, files: [], user: 'U_TEST' });
+    expect(Seen[1]).toMatchObject({ kind: 'message', files: [] });
+    expect(Object.hasOwn(Seen[1], 'user') && Seen[1].user === undefined).toBe(true);
+    // app_mention: files [] when absent, thread_ts raw (src/slack-app.js #OnAppMentionAsync).
+    expect(Seen[2]).toMatchObject({ kind: 'app_mention', files: [] });
+    expect(Seen[2].thread_ts).toBeUndefined();
+    // reaction_added: an explicit null user is preserved, not swallowed to U_TEST.
+    expect(Seen[3]).toMatchObject({ kind: 'reaction_added', user: null });
+  });
 
   test.each(StringTextShapes)('message text: %s', async (ArgLabel, ArgText) => {
     const SlackApp = BuildApp();
