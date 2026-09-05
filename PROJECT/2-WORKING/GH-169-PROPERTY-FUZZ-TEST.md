@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **R7 decided and amended by the owner on 2026-09-05** (issue body + comment `#issuecomment-5554971229`): the mechanism is the `setImmediate` drain plus jest-circus enforcement, with the no-capture-assertion and no-green-control trade-offs stated. That closes the only open item from Codex r3. All 16 findings across three plan-review rounds are now implemented, modified with evidence, or settled by owner decision | Final QA relay on the committed implementation, then PR into `development` |
+| **Complete and open for merge.** R7 amended by the owner on 2026-09-05 (issue body + `#issuecomment-5554971229`), closing the only item Codex escalated. Final QA relay on the committed implementation (`relay-system/2026-09-05/gh169-final-qa.md`, `26f4c16`) returned **Approved**: six `[Pass]` findings, no Blocker/Should/Nit, with an explicit whole-file sweep of both changed test files. PR [#175](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/175) into `development` | Await CI + merge. On merge: move this doc to `PROJECT/3-COMPLETED/` with a `## Lessons Learned (For Future Agents)` section, and repoint the ledger row. GH-172 (the `app_mention` non-string `text` guard this corpus found) stays open and unscheduled |
 
 ## Observed problem
 
