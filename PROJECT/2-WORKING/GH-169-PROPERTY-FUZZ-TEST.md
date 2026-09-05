@@ -50,23 +50,35 @@ worst case, so this is a regression net, not a fix.
 - The link regex at L41 is quadratic on unbalanced `[[[[...]]]]`: 593ms at 40k chars. Parked in
   `PARKED/2026-09-04-ate-fuzz-fit-probe.md`; the property test pins the bound, it does not fix it.
 
-### Target 2 — command normalizer, `src/command-intent-resolver.js`
+### Target 2 — command normalizer and the GH-168 alias resolver, `src/command-intent-resolver.js`
 
-- Public entry `NormalizeDirectCommandTextAsync(ArgCommandText)` (L357). It awaits
-  `LoadCommandIntentAssetsAsync` (L90) which reads `data/static/ai/command-catalog.json` and
-  `data/static/ai/command-normalization.json` from disk once and caches them; no network. Then
-  `ApplyNormalizationRules` (L144) runs `NormalizeFreeformText` and, per `ModelAliases` entry (53
-  entries today), builds a whole-phrase regex via `BuildWholePhraseRegex` (L123, `\b` + escaped
-  segments + `\s+`, flags `ig`) and `.replace()`s it, pushing a `Match -> Replace` note on change.
-  Then the six `DirectCommandPatterns` are tried with `new RegExp(Pattern, 'i')` (L373).
-- `ApplyNormalizationRules` is not exported (exports at L709). The test drives the exported entry;
-  no export change.
-- Only `ResolveRmmIntentAsync` (L517) touches `WorkspaceAI`. The test never calls it.
-- Alias caveat that shapes one property: several aliases are substrings of others
-  (`gpt` vs `gpt 5`, `claude` vs `claude opus 5`); the rules apply in file order, so the
-  "every alias yields exactly one note" property must be stated per *canonical* alias embedded
-  alone, and the assertion is "at least one note whose `Replace` matches, and the `Replace` value
-  is present in `NormalizedText`", not "exactly one note".
+Correction (2026-09-05, after a live probe): the first draft of this section described alias
+substitution inside `ApplyNormalizationRules`. That is the pre-GH-168 code. On `4a79ed7`
+(`faed729`, merged in PR #170) `ApplyNormalizationRules` (L151) only runs `NormalizeFreeformText`
+and always returns `Notes: []`; its JSDoc (L140-146) says why. Probe:
+`NormalizeDirectCommandTextAsync("use gpt 5 please")` returns the text unchanged with zero notes.
+Aliases are now resolved as **whole values** at the executor handlers by `ResolveModelAlias`
+(L209) via the exported `ResolveModelAliasAsync` (L236), called from
+`src/chat-commands/model-switch-command.js` L58/L90 and `set-channel-model-command.js` L36.
+
+- **Entry A — `NormalizeDirectCommandTextAsync(ArgCommandText)`** (L357 area): awaits
+  `LoadCommandIntentAssetsAsync` (L90), which reads `command-catalog.json` and
+  `command-normalization.json` under `data/static/ai/` once and caches them; no network. Runs
+  `NormalizeFreeformText`, then the argument-invariant commands, then the six
+  `DirectCommandPatterns` with `new RegExp(Pattern, 'i')`. Returns `{ NormalizedText, Notes }`.
+  Property scope: never throws, shape holds, `Notes` is always `[]` on this build, per-call bound.
+- **Entry B — `ResolveModelAliasAsync(ArgValue)`** (L236): hermetic (same asset load).
+  `ResolveModelAlias` sanitizes (`NormalizeFreeformText` + `SanitizeSingleQuotedValue`), looks the
+  whole lower-cased value up in a first-row-wins `Map` built from `ModelAliases` (53 rows, 53
+  unique keys, verified), then tries stripping one vendor prefix from `VendorPrefixProviders`
+  (`open ai` / `anthropic` / `google`) and accepts only when the pin's provider matches, else
+  returns the value unchanged with `Note: null`. Returns `{ ModelId, Note }`.
+  Existing coverage: `tests/command-intent-resolver.test.js` L179-230 (fixed cases: exact rows,
+  vendor prefix accept/refuse, empty input, table exposure). The property test adds the
+  table-driven and random-junk sides those fixed cases do not: every row, case and whitespace
+  variants, and letter-free junk.
+- Only `ResolveRmmIntentAsync` (L517 area) touches `WorkspaceAI`. The test never calls it.
+- Nothing is exported for this; both entries are already public.
 
 ### Target 3 — the handler chain through `MockSlackApp`, `tests/mocks/mock-slack-app.js`
 
@@ -115,10 +127,10 @@ and its shared mock `tests/mocks/mock-slack-app.js`. No new runner, no new mock,
 |---|---|---|---|
 | R1 | `MarkdownToMrkdwn` never throws, returns a string, fenced content untouched | `tests/property-fuzz.test.js` block 1 | 200 draws at 4k + 5 at 40k; a fenced block inserted into every draw is found verbatim in the output |
 | R2 | Per-draw wall-clock bound `<50ms` at 4k, `<1000ms` at 40k | block 1, each draw | `expect(elapsedMs).toBeLessThan(bound)` per draw, seed in the failure message |
-| R3 | Normalizer never throws / never `undefined`; `NormalizedText` string, `Notes` string[] | block 2 | 200 draws through `NormalizeDirectCommandTextAsync` |
-| R4 | No alias phrase means zero notes | block 2 | generator with the alias words excluded; `Notes.length === 0` |
-| R5 | Each configured alias embedded whole in random text yields a matching note and its `Replace` value | block 2 | loop over `ModelAliases` from the JSON asset; see caveat above for the exact assertion |
-| R6 | `<20ms` per normalizer call | block 2, each draw | as R2 |
+| R3 | Normalizer never throws / never `undefined`; `NormalizedText` string, `Notes` string[] | block 2a | 200 draws through `NormalizeDirectCommandTextAsync`; also `ResolveModelAliasAsync` returns `{ ModelId: string, Note: string\|null }` on the same draws |
+| R4 | Junk that is not an alias resolves to itself | block 2b | letter-free draws (no alias contains zero letters) through `ResolveModelAliasAsync`: `Note === null` and `ModelId` equals the sanitized input |
+| R5 | Every configured alias resolves to its pin | block 2b | for each of the 53 `ModelAliases` rows: `Match`, `Match.toUpperCase()`, `Match` with doubled inner spaces, and `'Match'` in single quotes all yield `ModelId === Replace` and a non-null `Note`; issue text "every alias embedded whole in random text" is re-read as whole-value per GH-168's field-only contract, and a value with random junk appended must NOT resolve (refusal, not a guess) |
+| R6 | `<20ms` per call | block 2a/2b, each draw | as R2, for both entries |
 | R7 | Corpus through all four `Simulate*` hooks: never reject, never unhandled throw, `unhandledRejection` armed | block 3 | three-part invariant above; listener installed in `beforeAll`, removed in `afterAll` |
 | R8 | Seeded `mulberry32`; `PROPERTY_SEED` honored and printed; families: metacharacters, whitespace/newline runs, zero-width, bidi override, lone surrogates, astral + ZWJ emoji, unbalanced delimiters | top of the file | seed appears in every `test()` name; `PROPERTY_SEED=<n>` reproduces the draw byte-for-byte (verified once in the PR evidence) |
 | R9 | No new dependency; green under `npm test` | `package.json` unchanged | `git diff --stat` shows no `package*.json` change |
