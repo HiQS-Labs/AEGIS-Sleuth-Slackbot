@@ -33,6 +33,30 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.323 - 2026-09-05
+
+When you type an exact command, you get that command. The experimental first-responder router no
+longer re-reads a command you spelled out correctly and does something else with it.
+
+**Technical:** GH-174, found live on dev by the new harness below. `#TryRouterActiveTakeoverAsync`
+ran ahead of the deterministic command router (`src/chat-module.js`), so in `active` mode Flash Lite
+re-parsed every mention as prose — including exact syntax. Observed: `switch-models:'openai claude
+opus'`, ONE quoted value the literal route captures whole and GH-168 refuses as a cross-vendor
+phrase, was resolved by the model into `default='openai'` + `complex='claude opus'` and **both
+models were switched**. Takeover is now gated on `MatchRouteName` returning null, so an incumbent
+match always wins; the model is still consulted and the corpus record still written when the
+incumbent matches (`routerOutcome: 'matched'` with `executed: false`), so GH-397's comparison data
+is unaffected. Two integration regressions: the exact-quoted-command case (validated once, whole,
+refused — neither invented switch happens) and a control proving free text still reaches the router.
+The negative control was verified by removing the gate and watching the test go red.
+
+Also adds `scripts/slack-harness-drive.js`: posts `<@bot> <command>` with an `xoxp` **user** token
+and polls the thread for the bot's reply, so a real command can be driven end-to-end from a laptop
+against dev — `npm run slack:harness:post` posts as the bot, which the app ignores by design, so it
+could never trigger anything. Bot identity resolves by ID or an unambiguous name match (the first
+version returned the first name hit and, once its own posts shifted the history window, addressed a
+different app mid-run). `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev.
+
 ## 1.4.322 - 2026-09-04
 
 You can now switch models by the names people actually use — "ChatGPT", "OpenAI", "Claude",
