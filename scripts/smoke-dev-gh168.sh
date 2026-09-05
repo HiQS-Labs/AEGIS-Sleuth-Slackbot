@@ -12,7 +12,12 @@ cd "$(dirname "$0")/.."
 
 # Pin the bot by ID. Name discovery reads the channel history, which THIS SCRIPT mutates as it
 # runs, so a name lookup can drift onto another app mid-smoke (observed 2026-09-05).
-D="node scripts/slack-harness-drive.js --channel-id ${SLEUTH_DEV_CHANNEL_ID:-C0A6969SU30} --bot-user-id ${SLEUTH_DEV_BOT_USER_ID:-U0917484FM4} --execute"
+#
+# This repo is PUBLIC: workspace identifiers are supplied by the operator, never committed. The
+# real values for this workspace are in the gitignored temp/SOP.md §3.6c.
+: "${SLEUTH_DEV_CHANNEL_ID:?set SLEUTH_DEV_CHANNEL_ID (see temp/SOP.md SOP section 3.6c)}"
+: "${SLEUTH_DEV_BOT_USER_ID:?set SLEUTH_DEV_BOT_USER_ID (see temp/SOP.md SOP section 3.6c)}"
+D="node scripts/slack-harness-drive.js --channel-id ${SLEUTH_DEV_CHANNEL_ID} --bot-user-id ${SLEUTH_DEV_BOT_USER_ID} --execute"
 
 $D --text "models" --expect '*Aliases*'
 $D --text "run-diagnostics" --expect 'Alias pins: OK'
