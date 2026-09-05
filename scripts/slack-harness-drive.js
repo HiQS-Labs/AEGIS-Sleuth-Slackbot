@@ -201,23 +201,38 @@ async function RunAsync(ArgOptions, ArgClientInstance) {
   const Posted = await Client.chat.postMessage({ channel: ChannelID, text: Text });
   const ThreadTs = /** @type {string} */ (Posted.ts);
   const Deadline = Date.now() + Options.TimeoutMs;
+  /** @type {string[]} */
+  const SeenTs = [];
+  /** @type {string[]} */
+  const ReplyTexts = [];
+
+  // A command can answer in SEVERAL messages — `rmm ifl` posts "On it — running …" and THEN the
+  // command's own reply. Taking the first one made a passing command look like a failed --expect
+  // (dev, 2026-09-05). So: with --expect, keep collecting until one reply matches or the deadline
+  // passes; without it, the first reply is the answer.
   while(Date.now() < Deadline) {
     await SleepAsync(POLL_INTERVAL_MS);
     const Thread = await Client.conversations.replies({ channel: ChannelID, ts: ThreadTs, limit: 50 });
     // only the bot we addressed counts — a different app answering in-thread is not our reply.
-    const Reply = (Thread.messages || []).find((Message) => Message.ts !== ThreadTs && Message.user === BotUserID);
-    if(!Reply) continue;
-    const ReplyText = String(Reply.text || '');
-    console.log('--- bot reply ---');
-    console.log(ReplyText);
-    if(Options.Expect && !ReplyText.includes(Options.Expect)) {
-      console.error(`EXPECT FAILED: reply does not contain ${JSON.stringify(Options.Expect)}`);
-      return 4;
+    const Replies = (Thread.messages || []).filter((Message) => Message.ts !== ThreadTs && Message.user === BotUserID);
+    for(const Reply of Replies) {
+      if(SeenTs.includes(String(Reply.ts))) continue;
+      SeenTs.push(String(Reply.ts));
+      const ReplyText = String(Reply.text || '');
+      ReplyTexts.push(ReplyText);
+      console.log('--- bot reply ---');
+      console.log(ReplyText);
+      if(!Options.Expect) return 0;
+      if(ReplyText.includes(Options.Expect)) return 0;
     }
-    return 0;
   }
-  console.error(`TIMEOUT: no bot reply within ${Options.TimeoutMs} ms (thread ${ThreadTs}).`);
-  return 3;
+
+  if(ReplyTexts.length === 0) {
+    console.error(`TIMEOUT: no bot reply within ${Options.TimeoutMs} ms (thread ${ThreadTs}).`);
+    return 3;
+  }
+  console.error(`EXPECT FAILED: none of the ${ReplyTexts.length} bot replies contain ${JSON.stringify(Options.Expect)}`);
+  return 4;
 }
 
 if(require.main === module) {
