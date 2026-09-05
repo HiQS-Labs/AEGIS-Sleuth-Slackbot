@@ -33,6 +33,37 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.324 - 2026-09-05
+
+If a malformed mention ever reached me, I used to reply "sorry, something went wrong handling
+that: Cannot read properties of undefined (reading 'match')" — an internal error pasted into the
+channel. Now I treat a mention with no usable text as an empty request and answer normally, so you
+get help instead of a stack-trace fragment.
+
+**Technical:** GH-172. `SlackApp.#OnAppMentionAsync` built its `AppMentionEventInfo` with
+`text: ArgEvent.text` raw, while `#OnMessageAsync` had refused a non-string `text` before dispatch
+since the beginning. Every registered `app_mention` handler assumes a string —
+`src/chat-command-router.js` calls `.match` on it, `src/reminders-app-mention-handler.js` and
+`src/chat-module.js` call `.replace` — so a payload whose `text` was `undefined`, `null`, or a
+non-string landed as a `TypeError` inside the handler chain; the chain caught it and the GH-113
+unified error report then posted that TypeError's message to the channel. The dispatch now coerces:
+`text: typeof ArgEvent.text === 'string' ? ArgEvent.text : ''`. Coercing rather than dropping the
+event is deliberate and differs from the `message` path: an `app_mention` is a person addressing
+the bot directly, and silence is exactly the failure mode GH-113 exists to prevent, so the handlers
+run against an empty command and answer with help. Only `text` is guarded; `channel`, `ts`,
+`thread_ts` and `user` are still forwarded raw, and `files` keeps its existing `?? []`. New
+`tests/slack-app-app-mention-text-guard.test.js` drives the real Bolt-registered callback with six
+malformed payloads (undefined, null, absent key, number, object, array) and asserts handlers
+receive a string with no `Error in app_mention handler:` entry logged, plus verbatim pass-through
+of a well-formed text, preservation of an explicit empty string, a red control, and a scope check
+that the other fields are untouched. Reverting the one-line guard turns six of the ten red, so the
+suite is a real instrument. Found by the GH-169 malformed-event corpus, which had to exclude these
+two shapes as out-of-contract; with this guard they become production-reachable and can return to
+that corpus once both changes are on `development`.
+
+<!-- ponytail: this entry is numbered 1.4.324 because GH-169 (PR #175) already claims 1.4.323 on
+     its own unmerged branch. If that PR lands after this one, renumber at merge time. -->
+
 ## 1.4.322 - 2026-09-04
 
 You can now switch models by the names people actually use — "ChatGPT", "OpenAI", "Claude",
