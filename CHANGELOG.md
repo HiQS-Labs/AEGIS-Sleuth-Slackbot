@@ -55,7 +55,11 @@ and polls the thread for the bot's reply, so a real command can be driven end-to
 against dev — `npm run slack:harness:post` posts as the bot, which the app ignores by design, so it
 could never trigger anything. Bot identity resolves by ID or an unambiguous name match (the first
 version returned the first name hit and, once its own posts shifted the history window, addressed a
-different app mid-run). `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev.
+different app mid-run); conflicting selectors (`--channel` with `--channel-id`, `--bot-name` with
+`--bot-user-id`) are refused rather than silently ranked. The Slack client is injected, and
+`tests/slack-harness-drive.test.js` covers every safety claim it makes — dry-run never posting,
+ambiguous names refusing, only the addressed bot counting as the reply, `--expect` failing with
+exit 4, timeout with exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev.
 
 ## 1.4.322 - 2026-09-04
 

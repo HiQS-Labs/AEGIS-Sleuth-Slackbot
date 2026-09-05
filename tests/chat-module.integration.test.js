@@ -1804,6 +1804,18 @@ describe('ChatModule integration via MockSlackApp', () => {
       // NEGATIVE CONTROL: neither of the model's two invented switches happened.
       expect(Posted).not.toContain("Default model switched to 'gpt-5.6-terra'");
       expect(Posted).not.toContain("Complex model switched to 'claude-opus-5'");
+
+      // GH-397 corpus is NOT collateral damage: the deferral is still recorded, and is
+      // distinguishable from a low-confidence decline (matched incumbent + high-confidence
+      // candidate + executed:false). Without this, deleting AppendRecordAsync would pass.
+      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
+      const Deferral = Records[Records.length - 1];
+      expect(Deferral.mode).toBe('active');
+      expect(Deferral.routerOutcome).toBe('matched');
+      expect(Deferral.matchedRoute).toBe('switch-models');
+      expect(Deferral.executed).toBe(false);
+      expect(Deferral.candidate.canonicalCommand).toBe(`switch-models:default='openai',complex='claude opus'`);
+      expect(Deferral.candidate.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     test('GH-174: takeover still fires when the deterministic router matches nothing', async () => {

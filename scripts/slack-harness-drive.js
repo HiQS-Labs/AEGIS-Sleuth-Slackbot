@@ -143,11 +143,38 @@ function SleepAsync(ArgMs) {
 async function MainAsync() {
   const Options = ParseArgs(process.argv.slice(2));
   if(Options.Help) { PrintUsage(); return 0; }
-  if(!Options.Channel && !Options.ChannelID) throw new Error('--channel or --channel-id is required.');
-  if(!Options.BotName && !Options.BotUserID) throw new Error('--bot-name or --bot-user-id is required.');
-  if(!Options.Text || !Options.Text.trim()) throw new Error('--text is required.');
+  ValidateOptions(Options);
 
   const Client = new WebClient(LoadToken(Options.TokenFile));
+  return RunAsync(Options, Client);
+}
+
+/**
+ * Validate a parsed option set. Conflicting selectors are REFUSED, not silently ranked: a stale
+ * copied ID alongside a human-readable name would otherwise target a different channel or app than
+ * the operator is reading on the command line, and this command exists to be safe before a real post.
+ * @param {ReturnType<typeof ParseArgs>} ArgOptions
+ * @returns {void}
+ */
+function ValidateOptions(ArgOptions) {
+  if(ArgOptions.Channel && ArgOptions.ChannelID)
+    throw new Error('Pass --channel OR --channel-id, not both — they can disagree.');
+  if(ArgOptions.BotName && ArgOptions.BotUserID)
+    throw new Error('Pass --bot-name OR --bot-user-id, not both — they can disagree.');
+  if(!ArgOptions.Channel && !ArgOptions.ChannelID) throw new Error('--channel or --channel-id is required.');
+  if(!ArgOptions.BotName && !ArgOptions.BotUserID) throw new Error('--bot-name or --bot-user-id is required.');
+  if(!ArgOptions.Text || !ArgOptions.Text.trim()) throw new Error('--text is required.');
+}
+
+/**
+ * Post the command (unless dry-run) and wait for the addressed bot's reply.
+ * @param {ReturnType<typeof ParseArgs>} ArgOptions Validated options.
+ * @param {WebClient} ArgClientInstance Slack client — injected so this is testable without a token.
+ * @returns {Promise<number>} process exit code
+ */
+async function RunAsync(ArgOptions, ArgClientInstance) {
+  const Options = ArgOptions;
+  const Client = ArgClientInstance;
   const Auth = await Client.auth.test();
   const ChannelID = Options.ChannelID || await ResolveChannelIdAsync(Client, /** @type {string} */ (Options.Channel));
   const BotUserID = Options.BotUserID || await DiscoverBotUserIdAsync(Client, ChannelID, /** @type {string} */ (Options.BotName));
@@ -179,10 +206,21 @@ async function MainAsync() {
   return 3;
 }
 
-MainAsync().then((ArgCode) => process.exit(ArgCode)).catch((error) => {
-  console.error(`slack-harness-drive: ${error.message}`);
-  // Slack names the gap on missing_scope — print it so the operator knows what to grant/reinstall.
-  if(error?.data?.error === 'missing_scope')
-    console.error(`  needed: ${error.data.needed || '?'}\n  token has: ${error.data.provided || '?'}`);
-  process.exit(2);
-});
+if(require.main === module) {
+  MainAsync().then((ArgCode) => process.exit(ArgCode)).catch((error) => {
+    console.error(`slack-harness-drive: ${error.message}`);
+    // Slack names the gap on missing_scope — print it so the operator knows what to grant/reinstall.
+    if(error?.data?.error === 'missing_scope')
+      console.error(`  needed: ${error.data.needed || '?'}\n  token has: ${error.data.provided || '?'}`);
+    process.exit(2);
+  });
+}
+
+module.exports = {
+  ParseArgs,
+  ValidateOptions,
+  RunAsync,
+  ResolveChannelIdAsync,
+  DiscoverBotUserIdAsync,
+  POLL_INTERVAL_MS,
+};
