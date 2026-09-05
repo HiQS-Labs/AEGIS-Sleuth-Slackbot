@@ -246,7 +246,10 @@ describe('smoke-dev-gh168.sh', () => {
   });
 
   test('pins the bot by ID, never by name, so it cannot drift onto another app mid-run', () => {
-    expect(ScriptText).toContain('--bot-user-id ${SLEUTH_DEV_BOT_USER_ID:-U0917484FM4}');
+    // the ID itself is operator-supplied (public repo — never committed), so pin the SHAPE
+    expect(ScriptText).toContain('--bot-user-id ${SLEUTH_DEV_BOT_USER_ID}');
+    expect(ScriptText).toMatch(/SLEUTH_DEV_BOT_USER_ID:\?/);   // required, no default
+    expect(ScriptText).toMatch(/SLEUTH_DEV_CHANNEL_ID:\?/);
     expect(ScriptText).not.toContain('--bot-name');
   });
 });

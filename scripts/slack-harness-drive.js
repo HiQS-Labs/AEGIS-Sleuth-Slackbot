@@ -113,7 +113,7 @@ async function ResolveChannelIdAsync(ArgClient, ArgName) {
  *
  * REFUSES on ambiguity rather than guessing (2026-09-05): the first version returned the first
  * name match and, once this harness's own posts shifted the history window, silently resolved a
- * DIFFERENT bot — so run 1 addressed `U0917484FM4` and run 2 addressed `U032TCHJ8`, which never
+ * DIFFERENT bot — so run 1 addressed `$SLEUTH_DEV_BOT_USER_ID` and run 2 addressed `U032TCHJ8`, which never
  * replied. A mention aimed at the wrong app is worse than an error: it looks like a hung bot.
  * Every distinct candidate must agree, and only messages carrying a `bot_profile` are considered.
  *
