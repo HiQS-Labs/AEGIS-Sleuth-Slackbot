@@ -85,6 +85,12 @@ async function HandleModelsCommandAsync(
     'To inspect this channel’s effective model: `@Sleuth AI show-channel-model`',
     ...AliasRows,
     '',
+    // Exact IDs always work, aliased or not — without this line a common unaliased ID like `o1` or
+    // `gpt-4-turbo` has no discoverability at all. Deliberately short and clearly separate from the
+    // alias table above; ask "what models are available?" for the live, authoritative catalog.
+    '*Common exact model IDs* (no alias needed): `gpt-4o-mini`, `gpt-4o`, `gpt-4-turbo`, `o1-mini`, `o1`, `gpt-5-mini`, `gpt-5`',
+    'For the live list your workspace can actually use, ask: `@Sleuth AI what models are available?`',
+    '',
     '_Note: GPT-5-family models can be noticeably slower than `gpt-4o-mini` for threaded chats. Switching to a `claude-*` or `gemini-*` model requires the workspace to have the respective API key configured._'
   ].join('\n');
 

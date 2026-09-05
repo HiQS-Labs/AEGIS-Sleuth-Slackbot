@@ -1779,6 +1779,61 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(SlackApp.SentMessages.some((ArgM) => /\*Sleuth AI — Command Reference\*/.test(ArgM.text))).toBe(false);
     });
 
+    test('GH-174: an exact quoted command wins over the model\'s reading of it', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      await WriteWorkspaceFixtureAsync(TestWorkspaceInfo);
+      // The live dev failure, reproduced: Flash Lite reads ONE quoted value as prose and splits it
+      // into two model fields, confidently. Before the fix this executed and switched both models.
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'model-switch-both', confidence: 0.97, rationale: 'two vendors named',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: 'openai', complex_model_name: 'claude opus',
+        channel_model_name: '', query_text: '', user_mention: '',
+      });
+
+      const Handled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_ADMIN', text: `${SlackApp.AppMentionString} switch-models:'openai claude opus'`,
+      });
+
+      const WorkspaceAI = mockWorkspaceAIInstances[0];
+      expect(Handled).toBe(true);
+      // the deterministic route ran: ONE value, validated whole, and GH-168 refuses the cross-vendor phrase
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledTimes(1);
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('openai claude opus');
+      const Posted = SlackApp.SentMessages.map((ArgM) => ArgM.text).join('\n');
+      // NEGATIVE CONTROL: neither of the model's two invented switches happened.
+      expect(Posted).not.toContain("Default model switched to 'gpt-5.6-terra'");
+      expect(Posted).not.toContain("Complex model switched to 'claude-opus-5'");
+
+      // GH-397 corpus is NOT collateral damage: the deferral is still recorded, and is
+      // distinguishable from a low-confidence decline (matched incumbent + high-confidence
+      // candidate + executed:false). Without this, deleting AppendRecordAsync would pass.
+      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
+      const Deferral = Records[Records.length - 1];
+      expect(Deferral.mode).toBe('active');
+      expect(Deferral.routerOutcome).toBe('matched');
+      expect(Deferral.matchedRoute).toBe('switch-models');
+      expect(Deferral.executed).toBe(false);
+      expect(Deferral.candidate.canonicalCommand).toBe(`switch-models:default='openai',complex='claude opus'`);
+      expect(Deferral.candidate.confidence).toBeGreaterThanOrEqual(0.9);
+    });
+
+    test('GH-174: takeover still fires when the deterministic router matches nothing', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'commands', confidence: 0.98, rationale: 'wants the command list',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: '', complex_model_name: '', channel_model_name: '', query_text: '', user_mention: '',
+      });
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_ADMIN', text: `${SlackApp.AppMentionString} what can you do for me`,
+      });
+
+      // free text matches no route, so the router keeps its whole purpose
+      expect(SlackApp.SentMessages.some((ArgM) => /\*Sleuth AI — Command Reference\*/.test(ArgM.text))).toBe(true);
+    });
+
     test('shadow mode leaves production behavior unchanged', async () => {
       const SlackApp = await ArmModeAsync('shadow');
       // A real command still routes normally while shadow observes.

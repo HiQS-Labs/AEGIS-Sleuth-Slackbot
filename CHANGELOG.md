@@ -33,6 +33,41 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.323 - 2026-09-05
+
+When you type an exact command, you get that command. The experimental first-responder router no
+longer re-reads a command you spelled out correctly and does something else with it.
+
+**Technical:** GH-174, found live on dev by the new harness below. `#TryRouterActiveTakeoverAsync`
+ran ahead of the deterministic command router (`src/chat-module.js`), so in `active` mode Flash Lite
+re-parsed every mention as prose — including exact syntax. Observed: `switch-models:'openai claude
+opus'`, ONE quoted value the literal route captures whole and GH-168 refuses as a cross-vendor
+phrase, was resolved by the model into `default='openai'` + `complex='claude opus'` and **both
+models were switched**. Takeover is now gated on `MatchRouteName` returning null, so an incumbent
+match always wins; the model is still consulted and the corpus record still written when the
+incumbent matches (`routerOutcome: 'matched'` with `executed: false`), so GH-397's comparison data
+is unaffected. Two integration regressions: the exact-quoted-command case (validated once, whole,
+refused — neither invented switch happens) and a control proving free text still reaches the router.
+The negative control was verified by removing the gate and watching the test go red.
+
+Also adds `scripts/slack-harness-drive.js`: posts `<@bot> <command>` with an `xoxp` **user** token
+and polls the thread for the bot's reply, so a real command can be driven end-to-end from a laptop
+against dev — `npm run slack:harness:post` posts as the bot, which the app ignores by design, so it
+could never trigger anything. Bot identity resolves by ID or an unambiguous name match (the first
+version returned the first name hit and, once its own posts shifted the history window, addressed a
+different app mid-run) — and discovery pages the whole channel history, because "sole candidate on
+page one" is not "unambiguous in this channel". Conflicting selectors (`--channel` with
+`--channel-id`, `--bot-name` with `--bot-user-id`) are refused rather than silently ranked, and the
+`xoxp-` user-token check runs on whichever source wins, so an exported `SLACK_DEV_USER_TOKEN`
+holding a bot token can no longer slip past it. The Slack client is injected, and
+`tests/slack-harness-drive.test.js` (22 cases) covers every safety claim — dry-run never posting,
+ambiguity refusing across page boundaries, only the addressed bot counting as the reply, token
+rejection from both sources without echoing a token, `--expect` failing with exit 4, timeout with
+exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev in every router mode;
+a test pins that its cross-vendor refusal case stays ungated, since gating it would hide exactly the
+precedence regression GH-174 fixes. `models` keeps a short curated list of common exact model IDs
+alongside the alias table, so an unaliased ID like `o1` stays discoverable.
+
 ## 1.4.322 - 2026-09-04
 
 You can now switch models by the names people actually use — "ChatGPT", "OpenAI", "Claude",
