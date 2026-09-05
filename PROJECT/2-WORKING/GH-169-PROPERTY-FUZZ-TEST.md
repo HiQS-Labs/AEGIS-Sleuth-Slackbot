@@ -189,7 +189,20 @@ probes, run and deleted in the task clone:
    supposed to fail"* and, separately, the rejection — `test.failing` inverts the body's own
    errors, not the attributed rejection.
 
-Consequences: the listener in the issue text is dead code in this runner and is not installed;
+3. **A real listener IS reachable — via a custom test environment.** A ~10-line
+   `class extends require('jest-environment-node').TestEnvironment` whose constructor runs outside
+   the sandbox and sets `this.global.__RealProcess = process`; a listener registered on that object
+   inside a test **fired** (`seen: ["rej via real process"]`, `listenerCount` 2). So "the listener
+   cannot work" is too strong, and an earlier draft of this section said so wrongly. The accurate
+   statement is narrower: it is reachable only by pointing `package.json` `jest.testEnvironment` at
+   a custom file for all 130 suites, **and it adds no detection** — jest-circus failed the same test
+   on the same rejection in the same run, with or without the listener.
+4. Every other reference to the emitter is the sandbox proxy or inert: `globalThis.process`,
+   `require('process')`, `require('node:process')` are identical to the sandbox `process` and fired
+   0 times; `Object.getPrototypeOf(process)` and `process.constructor.prototype` also fired 0.
+
+Consequences: the listener in the issue text buys nothing this runner does not already do, and is
+not installed;
 the observable that does work is "keep the rejection inside the test's lifetime" (the drain), and
 jest fails the test. A permanent green control for that branch is impossible without disabling
 jest's handler, so Codex r2 Should 3 is met for the handler-throw branch (permanent control in the
@@ -197,6 +210,14 @@ file) and **recorded, not controlled** for the fire-and-forget branch: a run-onc
 2026-09-05 (handler returns `true` after an un-awaited `Promise.reject`) failed the test with
 `control: fire-and-forget rejection` attributed at the handler line, which is the required
 behavior.
+
+**Second opinion (agy, `relay-system/2026-09-05/gh169-r7-agy-opinion.md`, 2026-09-05).** Asked to
+choose between amending R7 to the measured mechanism (A), adopting the custom environment (B), or
+naming a third way (C), agy answered **A**: jest-circus already intercepts the rejection and fails
+the test, so the detection exists; a repo-wide `testEnvironment` change plus a `__RealProcess`
+global across all 130 suites is a disproportionate cost for literal compliance with no added
+detection; and there is no clean C (monkey-patching `global.Promise` is more brittle than B). It
+found no error in any of the four probes.
 
 **Triage rule for a failing shape (Codex r1, Blocker 3):** a shape that leaves an
 `Error in <event> handler:` entry blocks this PR until it is fixed, or it is removed from the corpus
