@@ -258,6 +258,13 @@ describe(`GH-169 command normalizer + alias resolver property (PROPERTY_SEED=${S
       expect(Array.isArray(Result.Notes)).toBe(true);
       // GH-168: aliases are no longer substituted inside free text, so Notes is always empty here.
       expect(Result.Notes).toEqual([]);
+      // R3 also covers the resolver on these general draws (letters included): shape and bound
+      // only — identity is the letter-free loop's job, since a general draw may contain an alias.
+      const Resolved = await TimedUnderAsync(
+        () => ResolveModelAliasAsync(Input), BoundResolverMs, `ResolveModelAliasAsync general draw ${Index}`
+      );
+      expect(typeof Resolved.ModelId).toBe('string');
+      expect(Resolved.Note === null || typeof Resolved.Note === 'string').toBe(true);
     }
   });
 
@@ -501,6 +508,7 @@ describe(`GH-169 malformed Slack event corpus through MockSlackApp (PROPERTY_SEE
     ['unknown reaction name', { reaction: 'definitely_not_an_emoji' }],
     ['item.ts with no such message', { item: { channel: 'C_TEST', ts: '1600000000.000000' } }],
     ['user null', { user: null, reaction: 'white_check_mark' }],
+    ['user undefined (production forwards the field raw)', { user: undefined, reaction: 'white_check_mark' }],
     ['wrench triage on a missing message', { reaction: 'wrench', item: { channel: 'C_TEST', ts: '1600000000.000001' } }],
   ])('reaction_added shape: %s', async (ArgLabel, ArgEvent) => {
     const SlackApp = BuildApp();

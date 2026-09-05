@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Codex plan review r2 (`relay-system/2026-09-05/gh169-property-fuzz-plan-qa.md`): 3 Blockers + 3 Shoulds, all implemented in revision 3 — identity oracle for the resolver fall-through, production-faithful absent-field delivery in the mock with a fidelity test, explicit jest budgets on the 40k tests, exact 40k sizing, durable red controls; r1's 7 findings already folded in; corpus caught one out-of-contract `app_mention` throw, filed as GH-172 | Codex round 3 (final round of this relay), then CHANGELOG entry and the full gate run, final relay QA on the committed implementation, PR into `development` |
+| Codex plan review ended at the round cap `Escalated` (r3: 2 Blockers, 1 Should, 3 Passes). Blocker 1 (resolver shape on the general draws) and the Should (`reaction_added` `user` undefined) are implemented in revision 4; r1's 7 and r2's 6 findings were all folded in earlier. Full suite, build and CHANGELOG entry done; branch pushed | **Blocked on one operator decision:** Codex r3 Blocker 2 holds that R7's literal "install a `process.on('unhandledRejection')` listener" is not met by the measured deviation (see "Fire-and-forget rejections under jest"). Owner to either amend R7 to the drain + jest-circus mechanism (recommended; it is what actually observes the rejection in this runner) or name an approved listener mechanism. Then: final QA relay on the committed implementation, PR into `development` |
 
 ## Observed problem
 
@@ -131,7 +131,7 @@ and its shared mock `tests/mocks/mock-slack-app.js`. No new runner, no new mock,
 |---|---|---|---|
 | R1 | `MarkdownToMrkdwn` never throws, returns a string, fenced content untouched | `tests/property-fuzz.test.js` block 1 | 200 draws at 4k + 5 at 40k; a fenced block inserted into every draw is found verbatim in the output |
 | R2 | Per-draw wall-clock bound `<50ms` at 4k, `<5000ms` at 40k (the issue suggested 1000ms; raised after measuring 1638ms under the full parallel suite, see Risks) | block 1, each draw, plus four fixed 40k inputs that hit the L41 link regex on every run | `TimedUnder` throws with the seed in the message when a draw exceeds its bound; a negative-control test proves the helper fails at bound `0` |
-| R3 | Normalizer never throws / never `undefined`; `NormalizedText` string, `Notes` string[] | block 2a | 200 draws through `NormalizeDirectCommandTextAsync`; also `ResolveModelAliasAsync` returns `{ ModelId: string, Note: string\|null }` on the same draws |
+| R3 | Normalizer never throws / never `undefined`; `NormalizedText` string, `Notes` string[] | block 2a | 200 general 2k draws through `NormalizeDirectCommandTextAsync`, and on each of the same draws `ResolveModelAliasAsync` is called under its bound and checked for `{ ModelId: string, Note: string\|null }` (Codex r3, Blocker 1; identity stays with the letter-free loop because a general draw may contain an alias) |
 | R4 | Junk that is not an alias resolves to itself | block 2b | letter-free draws (no alias contains zero letters) through `ResolveModelAliasAsync`: `Note === null` and `ModelId` **equals** `ExpectedUntouched(input)`, a test-local restatement of the sanitizer, so a resolver that returned `''` for everything fails (Codex r2, Blocker 1); the appended-junk refusal asserts the same identity |
 | R5 | Every configured alias resolves to its pin | block 2b | for each of the 53 `ModelAliases` rows: `Match`, `Match.toUpperCase()`, `Match` with doubled inner spaces, and `'Match'` in single quotes all yield `ModelId === Replace` and a non-null `Note`; issue text "every alias embedded whole in random text" is re-read as whole-value per GH-168's field-only contract, and a value with random junk appended must NOT resolve (refusal, not a guess) |
 | R6 | `<100ms` per call (issue suggested 20ms; raised after a 25.7ms one-off with assets warmed, see Risks) | block 2a/2b, each draw | as R2, for both entries |
@@ -171,8 +171,9 @@ registered and `WorkspaceAI` mocked (`recommendation: 'ignore'` so the reminder 
 - `thread_ts`: equal to `ts`; present with no parent in the mock's message store.
 - `files`: `[]`, `[{}]`, one entry whose `mimetype` contradicts `filetype`.
 - `channel_type`: `im`, `mpim`, `group`, `'not-a-type'`.
-- `reaction_added`: unknown `reaction` name, `item.ts` that no message has, `user` `null`, a
-  `wrench` triage reaction on a missing message.
+- `reaction_added`: unknown `reaction` name, `item.ts` that no message has, `user` `null` and
+  `user` `undefined` (production forwards the field raw, `src/slack-app.js:1505-1511`; Codex r3
+  Should), a `wrench` triage reaction on a missing message.
 - `block_actions`: `ChatModule.ChatGoogleSearchActionId` with `value` `''`, 40 000 chars, NUL plus a
   lone surrogate. A `null` value is normalized to `''` by the mock exactly as production does
   (`src/slack-app.js:1668-1675`), so it is not a separate row (Codex r1, Should 3).

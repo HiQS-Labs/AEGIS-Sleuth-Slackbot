@@ -33,6 +33,48 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.323 - 2026-09-05
+
+Nothing changes in what I do in Slack. What changes is how I get tested: every run now throws a
+few hundred seeded, deliberately nasty strings at my Markdown renderer and my model-name
+resolver, and feeds a corpus of partial or malformed Slack events through the real handlers, so a
+regex that starts to hang or a handler that starts to crash on odd input shows up in `npm test`
+before it shows up in a channel.
+
+**Technical:** GH-169. New `tests/property-fuzz.test.js`, no new dependency: a ten-line
+`mulberry32` seeded from `PROPERTY_SEED` (else the clock), with the seed printed in every describe
+name so any failure replays with `PROPERTY_SEED=<n> npx jest tests/property-fuzz.test.js`. The
+generator draws from weighted families — printable ASCII, Markdown metacharacters, whitespace
+runs, zero-width characters, bidi overrides, lone surrogates and ZWJ emoji, unbalanced delimiters
+(the high-yield vectors from the XYZ-forge GH-299 soak). Block 1 runs `MarkdownToMrkdwn` over 200
+draws at 4k and 5 at 40k with a per-draw wall-clock bound (`50ms` / `5000ms`) and a fenced
+sentinel that must survive untouched, plus four fixed inputs of at most 40k that hit the quadratic
+link regex at `src/markdown-to-mrkdwn.js:41` on every run so the bound is a lasting ReDoS tripwire;
+the 40k bound is 5000ms rather than the issue's suggested 1000ms because the bracket case measured
+1638ms under the full parallel suite (593ms isolated), and every long test carries an explicit jest
+budget so a slow draw fails naming its seed. Block 2 warms `LoadCommandIntentAssetsAsync` then
+checks `NormalizeDirectCommandTextAsync` (shape, `Notes` always empty since GH-168) and
+`ResolveModelAliasAsync` on the same draws (shape, `<100ms`), then letter-free junk (refused, and
+`ModelId` equals the sanitized input by a test-local restatement of the sanitizer) and every
+`ModelAliases` row (resolves to its pin in four spellings, refuses with junk appended, every pin is
+a fixed point). Block 3 drives a malformed-event corpus through all four `MockSlackApp` hooks with
+`ChatModule` and `RemindersModule` registered and `WorkspaceAI` mocked: the dispatch resolves, no
+`Error in <event> handler:` entry is logged, and a `setImmediate` drain keeps any fire-and-forget
+rejection inside the test so jest attributes it — a `process.on('unhandledRejection')` listener
+registered inside a jest test was measured never to fire (jest-circus owns that event), so none is
+installed. Shapes are labelled by production reachability per `src/slack-app.js`. To deliver `''`,
+`null` and `undefined` the way a partial payload does, `tests/mocks/mock-slack-app.js` gains
+`FieldOrDefault`, which defaults `channel`/`text`/`ts`/`user` only when the key is absent (`||`
+and `??` both swallowed the explicit values), and the simulators now deliver absent
+`thread_ts`/`files` exactly as production does, pinned by a fidelity test; the rest of the suite
+is unchanged by it. The corpus caught one out-of-contract shape on its first run — `app_mention`
+with non-string `text` throws at `src/chat-command-router.js:111` because the dispatcher passes
+`ArgEvent.text` raw where the `message` path guards — filed as GH-172 and excluded with the reason
+in the test. The XYZ-forge ATE / fuzz-loop tooling was assessed for this and declined
+(CLI-shaped, destructive per-variation repo reset, tests the harness not the bot). Plan reviewed
+by Codex via the relay harness over three rounds; every finding folded in except the R7 wording,
+escalated to the issue owner.
+
 ## 1.4.322 - 2026-09-04
 
 You can now switch models by the names people actually use — "ChatGPT", "OpenAI", "Claude",
