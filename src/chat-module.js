@@ -654,7 +654,7 @@ class ChatModule {
     Router.Register({
       Pattern: /^models$/i,
       Route: 'models',
-      Handle: (ArgEventInfo) => HandleModelsCommandAsync(
+      Handle: async (ArgEventInfo) => HandleModelsCommandAsync(
         this.#SlackApp,
         ArgEventInfo,
         (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
@@ -665,7 +665,9 @@ class ChatModule {
           model: this.#RouterShadow.EffectiveModelName(),
           armed: this.#RouterShadow.IsArmed(),
           confidenceMin: this.#RouterShadow.ActiveConfidenceMin(),
-        }
+        },
+        // GH-168: the alias table the executor resolves against, shown as one list.
+        await CommandIntentResolver.GetModelAliasRowsAsync()
       ),
     });
 

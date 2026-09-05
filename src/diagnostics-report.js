@@ -6,6 +6,7 @@ const { execSync } = require('child_process');
 const workspaces = require('./workspaces');
 const diagnostics = require('./diagnostics');
 const { GetProviderDescriptorForModel, GetDefaultProviderDescriptor } = require('./ai-providers');
+const { GetModelAliasRowsAsync } = require('./command-intent-resolver');
 
 /**
  * WeakMap cache for Slack connectivity results keyed by SlackApp instance.
@@ -210,6 +211,42 @@ function FormatDiagnosticsBaselineLines(ArgFacts) {
 }
 
 /**
+ * GH-168: verify every alias pin (`Replace` value in `ModelAliases`) against the live catalogs.
+ * Three outcomes, never conflated: OK; STALE (a SUCCESSFUL catalog that lacks the pin);
+ * UNVERIFIABLE (the pin's provider is not configured or its catalog fetch failed — an unfetched
+ * catalog is never called stale). Best-effort per provider; never throws.
+ * @param {any} ArgWorkspaceAI Workspace AI — must expose GetAvailableModelCatalogStatusByProviderAsync.
+ * @returns {Promise<string>} One report line.
+ */
+async function VerifyModelAliasPinsAsync(ArgWorkspaceAI) {
+  const Rows = await GetModelAliasRowsAsync();
+  const Pins = Array.from(new Set(Rows.map((ArgRow) => String(ArgRow.Replace || '').trim()).filter(Boolean)));
+  if(Pins.length === 0) return '• Alias pins: OK (none declared)';
+  if(typeof ArgWorkspaceAI?.GetAvailableModelCatalogStatusByProviderAsync !== 'function')
+    return '• Alias pins: UNVERIFIABLE — no catalog access';
+
+  const Statuses = await ArgWorkspaceAI.GetAvailableModelCatalogStatusByProviderAsync();
+  /** @type {string[]} */
+  const Stale = [];
+  /** @type {Map<string, string>} */
+  const Unverifiable = new Map();
+  for(const Pin of Pins) {
+    const Descriptor = GetProviderDescriptorForModel(Pin) || GetDefaultProviderDescriptor();
+    const Status = Statuses?.[Descriptor.Id];
+    if(!Status || !Status.configured) { Unverifiable.set(Descriptor.Id, 'not configured'); continue; }
+    if(!Status.ok) { Unverifiable.set(Descriptor.Id, `catalog error${Status.error ? `: ${Status.error}` : ''}`); continue; }
+    if(!Array.isArray(Status.modelIds) || !Status.modelIds.includes(Pin)) Stale.push(`${Pin} (${Descriptor.Id})`);
+  }
+
+  if(Stale.length === 0 && Unverifiable.size === 0) return `• Alias pins: OK (${Pins.length} verified)`;
+  const Parts = [];
+  if(Stale.length > 0) Parts.push(`STALE — ${Stale.join(', ')}`);
+  if(Unverifiable.size > 0)
+    Parts.push(`UNVERIFIABLE — ${Array.from(Unverifiable, ([ProviderId, Reason]) => `${ProviderId} (${Reason})`).join(', ')}`);
+  return `• Alias pins: ${Parts.join('; ')}`;
+}
+
+/**
  * Build the complete report for the user-triggered `run-diagnostics` command.
  * @param {any} ArgSlackApp Slack app instance.
  * @param {string} ArgChannelId Channel where command was run.
@@ -269,6 +306,13 @@ async function BuildDiagnosticsCommandReportAsync(ArgSlackApp, ArgChannelId, Arg
       if(Info.ok) OutputLines.push(`• ${Info.label} API connectivity: OK`);
       else OutputLines.push(`• ${Info.label} API connectivity: FAILED - ${Info.error || 'unknown error'}`);
     }
+  }
+
+  // GH-168: a retired alias pin should be caught here, before a user hits "alias pin is stale".
+  try {
+    OutputLines.push(await VerifyModelAliasPinsAsync(ArgDeps?.WorkspaceAI));
+  } catch(error) {
+    OutputLines.push(`• Alias pins: UNVERIFIABLE — ${/** @type {Error} */ (error).message}`);
   }
 
   if(!process.env.GOOGLE_API_KEY) {
@@ -331,6 +375,7 @@ async function BuildErrorReportAsync(ArgSlackApp, ArgChannelId, ArgSummaryMessag
 
 module.exports = {
   CollectDiagnosticsBaselineAsync,
+  VerifyModelAliasPinsAsync,
   FormatDiagnosticsBaselineLines,
   BuildDiagnosticsCommandReportAsync,
   FormatErrorReport,

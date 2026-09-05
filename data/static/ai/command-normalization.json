@@ -1,56 +1,262 @@
 {
   "ModelAliases": [
-    { "Match": "chatgpt 5.5", "Replace": "gpt-5.5" },
-    { "Match": "gpt 5.5", "Replace": "gpt-5.5" },
-    { "Match": "gpt5.5", "Replace": "gpt-5.5" },
-    { "Match": "chatgpt 5 mini", "Replace": "gpt-5-mini" },
-    { "Match": "gpt 5 mini", "Replace": "gpt-5-mini" },
-    { "Match": "gpt5 mini", "Replace": "gpt-5-mini" },
-    { "Match": "chatgpt 5", "Replace": "gpt-5" },
-    { "Match": "gpt 5", "Replace": "gpt-5" },
-    { "Match": "gpt5", "Replace": "gpt-5" },
-    { "Match": "chatgpt 4o mini", "Replace": "gpt-4o-mini" },
-    { "Match": "gpt 4o mini", "Replace": "gpt-4o-mini" },
-    { "Match": "gpt4o mini", "Replace": "gpt-4o-mini" },
-    { "Match": "chatgpt 4o", "Replace": "gpt-4o" },
-    { "Match": "gpt 4o", "Replace": "gpt-4o" },
-    { "Match": "gpt4o", "Replace": "gpt-4o" },
-    { "Match": "anthropic claude fable 5", "Replace": "claude-fable-5" },
-    { "Match": "anthropic fable 5", "Replace": "claude-fable-5" },
-    { "Match": "claude fable 5", "Replace": "claude-fable-5" },
-    { "Match": "fable 5", "Replace": "claude-fable-5" },
-    { "Match": "fable5", "Replace": "claude-fable-5" }
+    {
+      "Match": "chatgpt 5.5",
+      "Replace": "gpt-5.5"
+    },
+    {
+      "Match": "gpt 5.5",
+      "Replace": "gpt-5.5"
+    },
+    {
+      "Match": "gpt5.5",
+      "Replace": "gpt-5.5"
+    },
+    {
+      "Match": "chatgpt 5 mini",
+      "Replace": "gpt-5-mini"
+    },
+    {
+      "Match": "gpt 5 mini",
+      "Replace": "gpt-5-mini"
+    },
+    {
+      "Match": "gpt5 mini",
+      "Replace": "gpt-5-mini"
+    },
+    {
+      "Match": "chatgpt 5",
+      "Replace": "gpt-5"
+    },
+    {
+      "Match": "gpt 5",
+      "Replace": "gpt-5"
+    },
+    {
+      "Match": "gpt5",
+      "Replace": "gpt-5"
+    },
+    {
+      "Match": "chatgpt 4o mini",
+      "Replace": "gpt-4o-mini"
+    },
+    {
+      "Match": "gpt 4o mini",
+      "Replace": "gpt-4o-mini"
+    },
+    {
+      "Match": "gpt4o mini",
+      "Replace": "gpt-4o-mini"
+    },
+    {
+      "Match": "chatgpt 4o",
+      "Replace": "gpt-4o"
+    },
+    {
+      "Match": "gpt 4o",
+      "Replace": "gpt-4o"
+    },
+    {
+      "Match": "gpt4o",
+      "Replace": "gpt-4o"
+    },
+    {
+      "Match": "anthropic claude fable 5",
+      "Replace": "claude-fable-5"
+    },
+    {
+      "Match": "anthropic fable 5",
+      "Replace": "claude-fable-5"
+    },
+    {
+      "Match": "claude fable 5",
+      "Replace": "claude-fable-5"
+    },
+    {
+      "Match": "fable 5",
+      "Replace": "claude-fable-5"
+    },
+    {
+      "Match": "fable5",
+      "Replace": "claude-fable-5"
+    },
+    {
+      "Match": "openai",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "open ai",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "chatgpt",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "chat gpt",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "gpt",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "gpt 5.6 terra",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "chatgpt 5.6 terra",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "terra",
+      "Replace": "gpt-5.6-terra"
+    },
+    {
+      "Match": "gpt 6",
+      "Replace": "gpt-6-astra"
+    },
+    {
+      "Match": "gpt6",
+      "Replace": "gpt-6-astra"
+    },
+    {
+      "Match": "gpt 6 astra",
+      "Replace": "gpt-6-astra"
+    },
+    {
+      "Match": "astra",
+      "Replace": "gpt-6-astra"
+    },
+    {
+      "Match": "anthropic",
+      "Replace": "claude-haiku-4-5-20251001"
+    },
+    {
+      "Match": "claude",
+      "Replace": "claude-haiku-4-5-20251001"
+    },
+    {
+      "Match": "haiku",
+      "Replace": "claude-haiku-4-5-20251001"
+    },
+    {
+      "Match": "claude haiku",
+      "Replace": "claude-haiku-4-5-20251001"
+    },
+    {
+      "Match": "haiku 4.5",
+      "Replace": "claude-haiku-4-5-20251001"
+    },
+    {
+      "Match": "claude haiku 4.5",
+      "Replace": "claude-haiku-4-5-20251001"
+    },
+    {
+      "Match": "sonnet",
+      "Replace": "claude-sonnet-5"
+    },
+    {
+      "Match": "claude sonnet",
+      "Replace": "claude-sonnet-5"
+    },
+    {
+      "Match": "sonnet 5",
+      "Replace": "claude-sonnet-5"
+    },
+    {
+      "Match": "claude sonnet 5",
+      "Replace": "claude-sonnet-5"
+    },
+    {
+      "Match": "opus",
+      "Replace": "claude-opus-5"
+    },
+    {
+      "Match": "claude opus",
+      "Replace": "claude-opus-5"
+    },
+    {
+      "Match": "opus 5",
+      "Replace": "claude-opus-5"
+    },
+    {
+      "Match": "claude opus 5",
+      "Replace": "claude-opus-5"
+    },
+    {
+      "Match": "google",
+      "Replace": "gemini-3.8-flash"
+    },
+    {
+      "Match": "gemini",
+      "Replace": "gemini-3.8-flash"
+    },
+    {
+      "Match": "gemini flash",
+      "Replace": "gemini-3.8-flash"
+    },
+    {
+      "Match": "flash",
+      "Replace": "gemini-3.8-flash"
+    },
+    {
+      "Match": "gemini 3.8 flash",
+      "Replace": "gemini-3.8-flash"
+    },
+    {
+      "Match": "gemini pro",
+      "Replace": "gemini-2.5-pro"
+    },
+    {
+      "Match": "gemini 2.5 pro",
+      "Replace": "gemini-2.5-pro"
+    }
   ],
   "DirectCommandPatterns": [
     {
       "IntentId": "model-switch-both",
       "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*default\\s*=\\s*['\"]([^'\"]+)['\"]\\s*,\\s*complex\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
-      "Arguments": ["DefaultModelName", "ComplexModelName"]
+      "Arguments": [
+        "DefaultModelName",
+        "ComplexModelName"
+      ]
     },
     {
       "IntentId": "model-switch-both",
       "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*complex\\s*=\\s*['\"]([^'\"]+)['\"]\\s*,\\s*default\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
-      "Arguments": ["ComplexModelName", "DefaultModelName"]
+      "Arguments": [
+        "ComplexModelName",
+        "DefaultModelName"
+      ]
     },
     {
       "IntentId": "model-switch-default",
       "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*default\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
-      "Arguments": ["DefaultModelName"]
+      "Arguments": [
+        "DefaultModelName"
+      ]
     },
     {
       "IntentId": "model-switch-complex",
       "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*complex\\s*=\\s*['\"]([^'\"]+)['\"]\\s*$",
-      "Arguments": ["ComplexModelName"]
+      "Arguments": [
+        "ComplexModelName"
+      ]
     },
     {
       "IntentId": "model-switch-default",
       "Pattern": "^(?:switch(?:-|\\s+)models?|model(?:-|\\s+)switch)\\s*:?\\s*['\"]([^'\"]+)['\"]\\s*$",
-      "Arguments": ["DefaultModelName"]
+      "Arguments": [
+        "DefaultModelName"
+      ]
     },
     {
       "IntentId": "set-channel-model",
       "Pattern": "^set(?:-|\\s+)channel(?:-|\\s+)model\\s*:?\\s*['\"]([^'\"]+)['\"]\\s*$",
-      "Arguments": ["ChannelModelName"]
+      "Arguments": [
+        "ChannelModelName"
+      ]
     }
   ]
 }

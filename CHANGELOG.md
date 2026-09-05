@@ -33,6 +33,35 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.322 - 2026-09-04
+
+You can now switch models by the names people actually use — "ChatGPT", "OpenAI", "Claude",
+"Sonnet", "Gemini" — and I'll tell you which exact model that resolved to. If a phrase doesn't
+map cleanly, I refuse rather than guess.
+
+**Technical:** GH-168. Model aliases are now resolved as whole values, at the executor. The
+`ModelAliases` table in `data/static/ai/command-normalization.json` gains vendor defaults
+(`openai`/`chatgpt`/`gpt` → `gpt-5.6-terra`, `anthropic`/`claude`/`haiku` →
+`claude-haiku-4-5-20251001`, `google`/`gemini` → `gemini-3.8-flash`), family pins (`sonnet` →
+`claude-sonnet-5`, `opus` → `claude-opus-5`, `gemini pro` → `gemini-2.5-pro`) and explicit
+flagship rows (`gpt 6`/`astra` → `gpt-6-astra`; bare `gpt` deliberately stays on the everyday
+model). `ResolveModelAliasAsync` in `src/command-intent-resolver.js` does a staged entire-value
+lookup — whole value, then one stripped leading vendor word accepted only when the pin belongs to
+that vendor's provider — so a `chatgpt 5` row can no longer rewrite the inside of
+`chatgpt 5.6 terra`, an exact ID is never touched, and `openai claude opus` is refused instead of
+silently switching vendors (contract per xyz-3-agents-swarm#551). The anywhere-in-text alias
+substitution is removed from `ApplyNormalizationRules` and `BuildCanonicalCommand`, and rule 8 of
+`rmm-instructions.md` now tells the model to copy the phrase verbatim, so canonical commands carry
+the raw value and `model-switch-command.js` / `set-channel-model-command.js` (the choke point for
+direct, `rmm ifl`, and router-active) report `(resolved from 'ChatGPT')`; a pin the live catalog no
+longer lists is reported as a stale alias. `models` renders an `*Aliases*` section from the same
+table (the hand-typed "Common … Models" lines are gone); `run-diagnostics` gains
+`VerifyModelAliasPinsAsync` with OK / STALE / UNVERIFIABLE outcomes. Tests: resolver table + refusal
+controls, both executor handlers (new `tests/set-channel-model-command.test.js`), integration
+(direct, `rmm ifl`, `models`), diagnostics probe. Plan reviewed by Codex twice via the relay harness
+(round cap, all findings folded in). Companion: GH-88 Phase 5 (did-you-mean reply for what no table
+can map) follows.
+
 ## 1.4.321 - 2026-09-02
 
 The twice-daily progress digest now reads properly in Slack: real bold, real bullets, and no stray
