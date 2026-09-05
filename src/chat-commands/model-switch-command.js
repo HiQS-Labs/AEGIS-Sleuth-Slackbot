@@ -1,3 +1,5 @@
+const { ResolveModelAliasAsync } = require('../command-intent-resolver');
+
 /**
  * Handle the `switch-models` admin command — runtime change of the default and/or complex
  * (date-extraction) model. Validates each requested model against the live provider
@@ -50,48 +52,61 @@ async function HandleModelSwitchCommandAsync(
 
   try {
     if(ArgRequestedDefaultModel) {
-      const Validation = await ArgWorkspaceAI.GetModelAvailabilityAsync(ArgRequestedDefaultModel);
+      // GH-168: resolve vendor/family aliases ("ChatGPT", "sonnet") to a pinned ID here, at the
+      // executor, so every entry path (direct, rmm ifl, router-active) resolves once and the reply
+      // can say what it resolved from. An exact ID passes through untouched.
+      const DefaultAlias = await ResolveModelAliasAsync(ArgRequestedDefaultModel);
+      const DefaultModelId = DefaultAlias.ModelId;
+      const DefaultProvenance = DefaultAlias.Note ? ` (resolved from '${ArgRequestedDefaultModel}')` : '';
+      const Validation = await ArgWorkspaceAI.GetModelAvailabilityAsync(DefaultModelId);
 
       if(!Validation.ok) {
         if(Validation.reason === 'provider-not-configured')
           Results.push(Validation.error);
         else if(Validation.reason === 'catalog-unavailable')
-          Results.push(`Couldn't verify '${ArgRequestedDefaultModel}' right now: ${Validation.error}`);
+          Results.push(`Couldn't verify '${DefaultModelId}' right now: ${Validation.error}`);
+        else if(DefaultAlias.Note)
+          Results.push(`'${ArgRequestedDefaultModel}' → '${DefaultModelId}' is not in this workspace's ${Validation.providerLabel} catalog — the alias pin is stale. Default still using '${CurrentDefaultModel}'`);
         else
           Results.push(`'${ArgRequestedDefaultModel}' not found. Default still using '${CurrentDefaultModel}'`);
       } else {
-        ArgWorkspaceAI.DefaultModelName = ArgRequestedDefaultModel;
+        ArgWorkspaceAI.DefaultModelName = DefaultModelId;
 
         if(ArgRemindersModule?.WorkspaceAI) {
-          ArgRemindersModule.WorkspaceAI.DefaultModelName = ArgRequestedDefaultModel;
+          ArgRemindersModule.WorkspaceAI.DefaultModelName = DefaultModelId;
         }
 
         // mutate the shared WorkspaceInfo so the next persist+restart picks up the new default.
-        ArgWorkspaceAI.WorkspaceInfo.DEFAULT_MODEL_NAME = ArgRequestedDefaultModel;
+        ArgWorkspaceAI.WorkspaceInfo.DEFAULT_MODEL_NAME = DefaultModelId;
 
         ArgInvalidateSystemInstructionsTemplate();
 
-        Results.push(`Default model switched to '${ArgRequestedDefaultModel}'`);
-        Changes.push(`default: '${CurrentDefaultModel}' → '${ArgRequestedDefaultModel}'`);
+        Results.push(`Default model switched to '${DefaultModelId}'${DefaultProvenance}`);
+        Changes.push(`default: '${CurrentDefaultModel}' → '${DefaultModelId}'`);
       }
     }
 
     if(ArgRequestedComplexModel) {
-      const Validation = await ArgWorkspaceAI.GetModelAvailabilityAsync(ArgRequestedComplexModel);
+      const ComplexAlias = await ResolveModelAliasAsync(ArgRequestedComplexModel);
+      const ComplexModelId = ComplexAlias.ModelId;
+      const ComplexProvenance = ComplexAlias.Note ? ` (resolved from '${ArgRequestedComplexModel}')` : '';
+      const Validation = await ArgWorkspaceAI.GetModelAvailabilityAsync(ComplexModelId);
 
       if(!Validation.ok) {
         if(Validation.reason === 'provider-not-configured')
           Results.push(Validation.error);
         else if(Validation.reason === 'catalog-unavailable')
-          Results.push(`Couldn't verify '${ArgRequestedComplexModel}' right now: ${Validation.error}`);
+          Results.push(`Couldn't verify '${ComplexModelId}' right now: ${Validation.error}`);
+        else if(ComplexAlias.Note)
+          Results.push(`'${ArgRequestedComplexModel}' → '${ComplexModelId}' is not in this workspace's ${Validation.providerLabel} catalog — the alias pin is stale. Complex still using '${CurrentComplexModel}'`);
         else
           Results.push(`'${ArgRequestedComplexModel}' not found. Complex still using '${CurrentComplexModel}'`);
       } else {
         if(ArgRemindersModule?.WorkspaceAI) {
-          ArgRemindersModule.WorkspaceAI.ComplexModelName = ArgRequestedComplexModel;
-          ArgWorkspaceAI.WorkspaceInfo.COMPLEX_MODEL_NAME = ArgRequestedComplexModel;
-          Results.push(`Complex model switched to '${ArgRequestedComplexModel}'`);
-          Changes.push(`complex: '${CurrentComplexModel}' → '${ArgRequestedComplexModel}'`);
+          ArgRemindersModule.WorkspaceAI.ComplexModelName = ComplexModelId;
+          ArgWorkspaceAI.WorkspaceInfo.COMPLEX_MODEL_NAME = ComplexModelId;
+          Results.push(`Complex model switched to '${ComplexModelId}'${ComplexProvenance}`);
+          Changes.push(`complex: '${CurrentComplexModel}' → '${ComplexModelId}'`);
         } else {
           Results.push(`Cannot update complex model: reminders module not available`);
         }

@@ -662,7 +662,25 @@ describe('ChatModule integration via MockSlackApp', () => {
       const WorkspaceAI = mockWorkspaceAIInstances[0];
       expect(WasHandled).toBe(true);
       expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5');
-      expect(SlackApp.SentMessages[0].text).toContain("Default model switched to 'gpt-5'");
+      // GH-168: the executor resolved the alias and says so.
+      expect(SlackApp.SentMessages[0].text).toContain("Default model switched to 'gpt-5' (resolved from 'gpt 5')");
+    });
+
+    test("resolves a vendor name typed directly ('ChatGPT') to its pin at the executor (GH-168)", async () => {
+      const SlackApp = new MockSlackApp({ AdminUsers: ['U_ADMIN'], WorkspaceInfo: TestWorkspaceInfo });
+      new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+      await WriteWorkspaceFixtureAsync(TestWorkspaceInfo);
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_GENERAL',
+        user: 'U_ADMIN',
+        text: `${SlackApp.AppMentionString} switch-models:'ChatGPT'`,
+      });
+
+      const WorkspaceAI = mockWorkspaceAIInstances[0];
+      expect(WasHandled).toBe(true);
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5.6-terra');
+      expect(SlackApp.SentMessages[0].text).toContain("Default model switched to 'gpt-5.6-terra' (resolved from 'ChatGPT')");
     });
   });
 
@@ -725,6 +743,40 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5');
       expect(SlackApp.SentMessages[0].text).toContain("On it — running");
       expect(SlackApp.SentMessages[1].text).toContain("Default model switched to 'gpt-5'");
+    });
+
+    test('rmm ifl keeps the raw model phrase and the executor reports the resolution (GH-168)', async () => {
+      const SlackApp = new MockSlackApp({ AdminUsers: ['U_ADMIN'], WorkspaceInfo: TestWorkspaceInfo });
+      new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+      await WriteWorkspaceFixtureAsync(TestWorkspaceInfo);
+
+      // rule 8 now tells the model to copy the phrase verbatim — this is what it returns.
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'model-switch-default',
+        confidence: 0.95,
+        rationale: 'User asked to switch the default model.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: 'Open AI',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: '',
+        user_mention: '',
+      });
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_GENERAL',
+        user: 'U_ADMIN',
+        text: `${SlackApp.AppMentionString} rmm ifl change model to Open AI`,
+      });
+
+      const WorkspaceAI = mockWorkspaceAIInstances[0];
+      expect(WasHandled).toBe(true);
+      // the canonical command carries the RAW phrase …
+      expect(SlackApp.SentMessages[0].text).toContain(`switch-models:'Open AI'`);
+      // … and the executor is the one place that resolves it.
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5.6-terra');
+      expect(SlackApp.SentMessages[1].text).toContain("Default model switched to 'gpt-5.6-terra' (resolved from 'Open AI')");
     });
 
     test('rmm ifl refuses commands that are not pre-authorized for automatic execution', async () => {
@@ -817,6 +869,10 @@ describe('ChatModule integration via MockSlackApp', () => {
       // GH-397: the models command surfaces the first-responder (router) tier.
       expect(SlackApp.SentMessages[1].text).toContain('System router mode: `off`');
       expect(SlackApp.SentMessages[1].text).toContain('System router model (first responder): `gemini-3.1-flash-lite`');
+      // GH-168: the alias table is rendered from the same JSON the executor resolves against.
+      expect(SlackApp.SentMessages[1].text).toContain('*Aliases*');
+      expect(SlackApp.SentMessages[1].text).toContain('`gpt-5.6-terra` ← openai, open ai, chatgpt');
+      expect(SlackApp.SentMessages[1].text).not.toContain('*Common OpenAI Models*');
     });
   });
 

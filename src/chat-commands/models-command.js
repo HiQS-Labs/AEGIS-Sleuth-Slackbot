@@ -16,6 +16,10 @@
  *   GH-397 first-responder (router) state: the current mode, the effective router model, whether the
  *   router is actually armed for this workspace, and the active-mode confidence floor. Omitted when
  *   the caller has no router module (older call sites / tests) — the router rows are then skipped.
+ * @param {Array<{ Match: string, Replace: string }>} [ArgModelAliasRows] GH-168: the loaded alias
+ *   table (`CommandIntentResolver.GetModelAliasRowsAsync()`), rendered as the `*Aliases*` section so
+ *   the one list users see is the one the executor resolves against. No provider I/O. Omitted by
+ *   older call sites — the section is then skipped.
  * @returns {Promise<void>}
  */
 async function HandleModelsCommandAsync(
@@ -24,7 +28,8 @@ async function HandleModelsCommandAsync(
   ArgBuildChannelModelStatus,
   ArgChannelModelSettings,
   ArgRemindersModule,
-  ArgRouterInfo
+  ArgRouterInfo,
+  ArgModelAliasRows
 ) {
   const ChannelModelStatus = ArgBuildChannelModelStatus(ArgEventInfo.channel);
   const ComplexModel = ArgRemindersModule?.WorkspaceAI?.ComplexModelName || 'not available';
@@ -38,6 +43,22 @@ async function HandleModelsCommandAsync(
         ArgRouterInfo.mode !== 'off' && !ArgRouterInfo.armed ? ' _(idle — not armed for this workspace)_' : ''
       }`,
       `System router model (first responder): \`${ArgRouterInfo.model}\``,
+    ]
+    : [];
+
+  // GH-168: alias rows grouped by pin, straight from the table — never a second hand-typed list.
+  /** @type {Map<string, string[]>} */
+  const AliasesByPin = new Map();
+  for(const Row of Array.isArray(ArgModelAliasRows) ? ArgModelAliasRows : []) {
+    if(!Row?.Match || !Row?.Replace) continue;
+    if(!AliasesByPin.has(Row.Replace)) AliasesByPin.set(Row.Replace, []);
+    /** @type {string[]} */ (AliasesByPin.get(Row.Replace)).push(Row.Match);
+  }
+  const AliasRows = AliasesByPin.size > 0
+    ? [
+      '',
+      '*Aliases* (say any of these instead of the exact ID; the exact ID always works too):',
+      ...Array.from(AliasesByPin, ([Pin, Matches]) => `• \`${Pin}\` ← ${Matches.join(', ')}`),
     ]
     : [];
 
@@ -62,10 +83,8 @@ async function HandleModelsCommandAsync(
     'To override the model for this channel: `@Sleuth AI set-channel-model:\'gpt-4o\'`',
     'To remove this channel’s override: `@Sleuth AI clear-channel-model`',
     'To inspect this channel’s effective model: `@Sleuth AI show-channel-model`',
+    ...AliasRows,
     '',
-    '*Common OpenAI Models*: `gpt-4o-mini`, `gpt-4o`, `gpt-4-turbo`, `o1-mini`, `o1`, `gpt-3.5-turbo`, `gpt-5-mini`, `gpt-5`, `gpt-5.5`',
-    '*Common Anthropic Claude Models* (require `ANTHROPIC_API_KEY` on the workspace): `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-opus-4-7`',
-    '*Common Google Gemini Models* (require `GEMINI_API_KEY` on the workspace): `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gemini-3.5-flash`',
     '_Note: GPT-5-family models can be noticeably slower than `gpt-4o-mini` for threaded chats. Switching to a `claude-*` or `gemini-*` model requires the workspace to have the respective API key configured._'
   ].join('\n');
 

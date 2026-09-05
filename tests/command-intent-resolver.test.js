@@ -1,7 +1,9 @@
 'use strict';
 
 const {
+  GetModelAliasRowsAsync,
   NormalizeDirectCommandTextAsync,
+  ResolveModelAliasAsync,
   ResolveRmmIntentAsync,
   RetrieveScoredCandidates,
 } = require('../src/command-intent-resolver');
@@ -29,10 +31,12 @@ describe('command-intent-resolver', () => {
     expect(TestGithubSync.NormalizedText).toBe('test github sync');
   });
 
-  test('normalizes relaxed direct switch-models syntax and GPT-5 aliases', async () => {
+  test('normalizes relaxed direct switch-models syntax but carries the model value RAW (GH-168)', async () => {
+    // the executor handler resolves aliases and reports "resolved from"; pre-routing text
+    // normalization must no longer rewrite the quoted model field.
     const Result = await NormalizeDirectCommandTextAsync(`model-switch 'chatgpt 5'`);
-    expect(Result.NormalizedText).toBe(`switch-models:'gpt-5'`);
-    expect(Result.Notes).toContain('chatgpt 5 -> gpt-5');
+    expect(Result.NormalizedText).toBe(`switch-models:'chatgpt 5'`);
+    expect(Result.Notes).toEqual([]);
   });
 
   test('builds a canonical command from the structured rmm model response', async () => {
@@ -60,7 +64,8 @@ describe('command-intent-resolver', () => {
     });
 
     expect(Result.IntentId).toBe('model-switch-complex');
-    expect(Result.CanonicalCommand).toBe(`switch-models:complex='gpt-5'`);
+    // GH-168: the canonical command keeps the raw phrase; the executor resolves it.
+    expect(Result.CanonicalCommand).toBe(`switch-models:complex='gpt 5'`);
     expect(WorkspaceAI.ProcessMessageWithJsonResponseAsync.mock.calls[0][3]).toBe('gpt-4o');
   });
 
@@ -168,6 +173,60 @@ describe('command-intent-resolver', () => {
       expect(PromptB).toContain('open_total: 1');
       expect(PromptB).toContain('top_clients_by_open: Acme (1)');
       expect(PromptB).not.toContain('Client A');
+    });
+  });
+
+  describe('ResolveModelAliasAsync (GH-168) — entire-value, field-only, refuses rather than guesses', () => {
+    test.each([
+      // vendor defaults
+      ['ChatGPT', 'gpt-5.6-terra'], ['Open AI', 'gpt-5.6-terra'], ['openai', 'gpt-5.6-terra'], ['chat gpt', 'gpt-5.6-terra'],
+      ['gpt', 'gpt-5.6-terra'],
+      ['Anthropic', 'claude-haiku-4-5-20251001'], ['Claude', 'claude-haiku-4-5-20251001'], ['haiku', 'claude-haiku-4-5-20251001'],
+      ['Google', 'gemini-3.8-flash'], ['gemini', 'gemini-3.8-flash'],
+      // family pins
+      ['Claude Sonnet', 'claude-sonnet-5'], ['sonnet', 'claude-sonnet-5'], ['opus 5', 'claude-opus-5'],
+      ['gemini pro', 'gemini-2.5-pro'], ['gemini flash', 'gemini-3.8-flash'],
+      // explicit flagship rows — bare "gpt" must NOT land here
+      ['gpt 6', 'gpt-6-astra'], ['astra', 'gpt-6-astra'],
+      // prose forms of a pinned model
+      ['chatgpt 5.6 terra', 'gpt-5.6-terra'], ['gpt 5.6 terra', 'gpt-5.6-terra'],
+      // existing rows still resolve, and can no longer touch a longer value
+      ['chatgpt 5', 'gpt-5'], ['gpt 5', 'gpt-5'], ['gpt 4o mini', 'gpt-4o-mini'],
+      // leading vendor word stripped once, accepted only on a provider match
+      ['openai chatgpt 5.6 terra', 'gpt-5.6-terra'], ['open ai chatgpt 5.6 terra', 'gpt-5.6-terra'],
+      ['anthropic claude sonnet 5', 'claude-sonnet-5'], ['google gemini pro', 'gemini-2.5-pro'],
+    ])('%s -> %s (with a provenance note)', async (Input, Expected) => {
+      const Result = await ResolveModelAliasAsync(Input);
+      expect(Result.ModelId).toBe(Expected);
+      expect(Result.Note).toBe(`${Input.replace(/\s+/g, ' ').trim()} -> ${Expected}`);
+    });
+
+    test.each([
+      // exact / structured IDs are never rewritten (no separate guard needed — they are not keys)
+      'gpt-5.6-terra', 'o3-mini', 'claude-haiku-4-5-20251001', 'acme-sonnet-1', 'gpt-5-mini',
+      // unknown value falls through unchanged -> the catalog validator refuses it
+      'openai gpt-9', 'gpt 9 ultra',
+      // NEGATIVE CONTROLS (refusal observed, xyz-3-agents-swarm#551): a stripped vendor prefix that
+      // lands on another vendor's pin is a miss, never a cross-vendor switch
+      'openai claude opus', 'anthropic gpt', 'google gpt',
+    ])('%s is returned unchanged with no note', async (Input) => {
+      const Result = await ResolveModelAliasAsync(Input);
+      expect(Result.ModelId).toBe(Input);
+      expect(Result.Note).toBeNull();
+    });
+
+    test('empty and whitespace-only input resolve to an empty ID', async () => {
+      expect((await ResolveModelAliasAsync('')).ModelId).toBe('');
+      expect((await ResolveModelAliasAsync('   ')).ModelId).toBe('');
+    });
+
+    test('GetModelAliasRowsAsync exposes the loaded table as plain rows', async () => {
+      const Rows = await GetModelAliasRowsAsync();
+      expect(Rows.length).toBeGreaterThan(20);
+      expect(Rows).toEqual(expect.arrayContaining([{ Match: 'chatgpt', Replace: 'gpt-5.6-terra' }]));
+      // every declared pin belongs to a known provider prefix (a pin nobody can route is a typo)
+      const { GetProviderDescriptorForModel } = require('../src/ai-providers');
+      for(const Row of Rows) expect(GetProviderDescriptorForModel(Row.Replace)).not.toBeNull();
     });
   });
 

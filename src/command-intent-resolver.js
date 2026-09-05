@@ -3,6 +3,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { RenderSnapshotContextLines } = require('./workspace-snapshot');
+const { GetProviderDescriptorForModel } = require('./ai-providers');
 
 /** @typedef {import('./workspace-ai')} WorkspaceAI */
 
@@ -108,18 +109,6 @@ async function LoadCommandIntentAssetsAsync() {
 }
 
 /**
- * @param {string} ArgText
- * @returns {string}
- */
-function NormalizeFreeformText(ArgText) {
-  return String(ArgText || '')
-    .replace(/[“”]/g, '"')
-    .replace(/[’]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
  * @param {string} ArgValue
  * @returns {string}
  */
@@ -138,26 +127,30 @@ function BuildWholePhraseRegex(ArgPhrase) {
 
 /**
  * @param {string} ArgText
+ * @returns {string}
+ */
+function NormalizeFreeformText(ArgText) {
+  return String(ArgText || '')
+    .replace(/[“”]/g, '"')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Normalize free-form command text. GH-168: model aliases are NO LONGER substituted here —
+ * substituting a phrase anywhere in the text let a `chatgpt 5` row rewrite the inside of
+ * `chatgpt 5.6 terra`, and it destroyed the raw value the executor needs to report
+ * "resolved from '…'". Model fields are resolved as whole values by ResolveModelAlias at the
+ * executor handlers instead. `Notes` is kept in the return shape for the callers that render it.
+ * @param {string} ArgText
  * @param {CommandNormalizationConfig} ArgNormalizationConfig
  * @returns {{ NormalizedText: string, Notes: string[] }}
  */
-function ApplyNormalizationRules(ArgText, ArgNormalizationConfig) {
-  let NormalizedText = NormalizeFreeformText(ArgText);
-  /** @type {string[]} */
-  const Notes = [];
-
-  for(const AliasEntry of ArgNormalizationConfig.ModelAliases) {
-    const AliasRegex = BuildWholePhraseRegex(AliasEntry.Match);
-    const ReplacedText = NormalizedText.replace(AliasRegex, AliasEntry.Replace);
-    if(ReplacedText !== NormalizedText) {
-      Notes.push(`${AliasEntry.Match} -> ${AliasEntry.Replace}`);
-      NormalizedText = ReplacedText;
-    }
-  }
-
+function ApplyNormalizationRules(ArgText, ArgNormalizationConfig) { // eslint-disable-line no-unused-vars
   return {
-    NormalizedText: NormalizeFreeformText(NormalizedText),
-    Notes,
+    NormalizedText: NormalizeFreeformText(ArgText),
+    Notes: [],
   };
 }
 
@@ -170,13 +163,88 @@ function SanitizeSingleQuotedValue(ArgValue) {
 }
 
 /**
- * @param {string} ArgValue
- * @param {CommandNormalizationConfig} ArgNormalizationConfig
- * @returns {string}
+ * Leading vendor words a user may prefix a model phrase with, and the provider a stripped-prefix
+ * retry must land on. `openai claude opus` strips to `claude opus` -> an Anthropic pin, which is a
+ * provider mismatch -> refused, never a cross-vendor switch (GH-168, Codex round 2).
+ * @type {Array<{ Pattern: RegExp, ProviderId: string }>}
  */
-function NormalizeModelName(ArgValue, ArgNormalizationConfig) {
-  const { NormalizedText } = ApplyNormalizationRules(ArgValue, ArgNormalizationConfig);
-  return SanitizeSingleQuotedValue(NormalizedText);
+const VendorPrefixProviders = [
+  { Pattern: /^open\s?ai\s+/, ProviderId: 'openai' },
+  { Pattern: /^anthropic\s+/, ProviderId: 'anthropic' },
+  { Pattern: /^google\s+/, ProviderId: 'gemini' },
+];
+
+/** @type {Map<string, string>|null} */
+let CachedModelAliasMap = null;
+
+/**
+ * Entire-value alias map (lower-cased `Match` -> `Replace`), first table row wins on a duplicate.
+ * @param {CommandNormalizationConfig} ArgNormalizationConfig
+ * @returns {Map<string, string>}
+ */
+function GetModelAliasMap(ArgNormalizationConfig) {
+  if(CachedModelAliasMap) return CachedModelAliasMap;
+  const AliasMap = new Map();
+  for(const Row of ArgNormalizationConfig.ModelAliases || []) {
+    const Key = NormalizeFreeformText(Row.Match).toLowerCase();
+    const Value = String(Row.Replace || '').trim();
+    if(Key && Value && !AliasMap.has(Key)) AliasMap.set(Key, Value);
+  }
+  CachedModelAliasMap = AliasMap;
+  return AliasMap;
+}
+
+/**
+ * Resolve a user-typed model field to a model ID (GH-168). Staged, field-only, entire-value:
+ *   1. the whole value is a declared alias -> its pin;
+ *   2. else strip ONE leading vendor word and retry, accepted only when the pin belongs to that
+ *      vendor's provider;
+ *   3. else unchanged — an exact ID, or an unknown name the catalog validator will refuse.
+ * No substring replacement anywhere: a declared key can never rewrite part of a longer value, so
+ * "exact always wins" needs no separate guard.
+ * @param {string} ArgValue Raw model field (quotes already stripped by the command regex).
+ * @param {CommandNormalizationConfig} ArgNormalizationConfig
+ * @returns {{ ModelId: string, Note: string|null }} `Note` is `'<raw> -> <pin>'` when an alias fired.
+ */
+function ResolveModelAlias(ArgValue, ArgNormalizationConfig) {
+  const Raw = SanitizeSingleQuotedValue(NormalizeFreeformText(ArgValue));
+  if(!Raw) return { ModelId: '', Note: null };
+
+  const AliasMap = GetModelAliasMap(ArgNormalizationConfig);
+  const Key = Raw.toLowerCase();
+  const Direct = AliasMap.get(Key);
+  if(Direct) return { ModelId: Direct, Note: `${Raw} -> ${Direct}` };
+
+  for(const Vendor of VendorPrefixProviders) {
+    const Match = Key.match(Vendor.Pattern);
+    if(!Match) continue;
+    const Rest = Key.slice(Match[0].length).trim();
+    const Pin = Rest ? AliasMap.get(Rest) : undefined;
+    const Descriptor = Pin ? GetProviderDescriptorForModel(Pin) : null;
+    if(Pin && Descriptor && Descriptor.Id === Vendor.ProviderId) return { ModelId: Pin, Note: `${Raw} -> ${Pin}` };
+    break; // ponytail: a stripped prefix that does not land on its own vendor is a refusal, not a guess
+  }
+
+  return { ModelId: Raw, Note: null };
+}
+
+/**
+ * Executor-facing alias resolution — loads the table on first use.
+ * @param {string} ArgValue
+ * @returns {Promise<{ ModelId: string, Note: string|null }>}
+ */
+async function ResolveModelAliasAsync(ArgValue) {
+  await LoadCommandIntentAssetsAsync();
+  return ResolveModelAlias(ArgValue, /** @type {CommandNormalizationConfig} */ (CachedNormalizationConfig));
+}
+
+/**
+ * The loaded alias table, for display (the `models` command). File I/O once; no provider I/O.
+ * @returns {Promise<Array<{ Match: string, Replace: string }>>}
+ */
+async function GetModelAliasRowsAsync() {
+  await LoadCommandIntentAssetsAsync();
+  return (CachedNormalizationConfig?.ModelAliases || []).map((ArgRow) => ({ Match: ArgRow.Match, Replace: ArgRow.Replace }));
 }
 
 /**
@@ -203,9 +271,11 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
   if(!CachedNormalizationConfig)
     throw new Error('command normalization config must be loaded before building canonical commands.');
 
-  const DefaultModelName = NormalizeModelName(ArgArguments.DefaultModelName || '', CachedNormalizationConfig);
-  const ComplexModelName = NormalizeModelName(ArgArguments.ComplexModelName || '', CachedNormalizationConfig);
-  const ChannelModelName = NormalizeModelName(ArgArguments.ChannelModelName || '', CachedNormalizationConfig);
+  // GH-168: model fields are passed through RAW (quotes stripped, whitespace collapsed) so the
+  // executor handler can resolve the alias and say what it resolved from.
+  const DefaultModelName = SanitizeSingleQuotedValue(NormalizeFreeformText(ArgArguments.DefaultModelName || ''));
+  const ComplexModelName = SanitizeSingleQuotedValue(NormalizeFreeformText(ArgArguments.ComplexModelName || ''));
+  const ChannelModelName = SanitizeSingleQuotedValue(NormalizeFreeformText(ArgArguments.ChannelModelName || ''));
   const QueryText = String(ArgArguments.QueryText || '').trim().replace(/\s+/g, ' ');
   const UserMention = String(ArgArguments.UserMention || '').trim();
 
@@ -708,6 +778,8 @@ function RetrieveArgumentInvariantCommands() {
 
 module.exports = {
   BuildCanonicalCommand,
+  GetModelAliasRowsAsync,
+  ResolveModelAliasAsync,
   BuildCanonicalCommandIntentIds,
   BuildSyntaxTemplate,
   GetCommandCatalogEntryByIdAsync,
