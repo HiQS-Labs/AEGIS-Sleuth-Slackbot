@@ -80,13 +80,24 @@ order, never resolution — the resolver tests pass unchanged.
 - [x] Flags advisory end to end: `gemini pro` resolves to `gemini-2.5-pro`; the flag shows in
       `run-diagnostics`.
 - [x] Unknown names refuse exactly as #168 shipped (pass-through → validation → not found).
-- [ ] Deploy to development verified per `temp/SOP.md` — see Evidence.
+- [x] Deploy to development verified per `temp/SOP.md` — see Evidence.
 
-## Evidence
+## Evidence (PR #180 carries the full transcript)
 
-Filled in on the PR: gate outputs, the red/green mutation transcript, and the development-deploy
-verification (deployment id, service restart time, `run-diagnostics` reply, `rmm change model to
-ChatGPT` reply, unknown-name refusal).
+- Gates (un-sandboxed): jest 2298/2298 (131 suites), node:test 116/116, `tsc` clean, secret scan
+  clean, `validate:changelog-tone` clean, `validate:model-catalog` OK.
+- Red before green: hand-edited `Replace` → `--check` exit 1 + 3 sync cases red; flag surfacing
+  removed → 2 diagnostics cases red; resolver default-on-miss → 4 cases red (incl. GH-168's
+  refusal test). Each reverted.
+- Development deploy: DeployHQ `d415dc27-6996-4bc0-8370-cf4e74846415`, branch
+  `feat/gh173-model-catalog-sync` → `af182b0`, completed in 315 s with all 5 build gates executed;
+  host `sleuth-app` active, MainPID started 2026-09-06 04:06:39 UTC, new symbols present by
+  content grep. Live in `#2-sleuth-dev-branch`: `run-diagnostics` shows the
+  `• Alias catalog: HiQS-Labs/Model-catalog v1.0.0 … flagged: … gemini pro → gemini-2.5-pro
+  [unverified-generation]` line; `switch-models:'ChatGPT'` → `Default model switched to
+  'gpt-5.6-terra' (resolved from 'ChatGPT')`; `switch-models:'no-such-model-gh173-live'` →
+  `'no-such-model-gh173-live' not found. Default still using 'gemini-3.8-flash'`. Default restored
+  to `gemini-3.8-flash` afterwards.
 
 ## Known, not touched
 
