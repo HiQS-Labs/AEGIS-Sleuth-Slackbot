@@ -154,6 +154,12 @@ function CheckSync(ArgOptions = {}) {
     Problems.push('command-normalization.json ModelAliasesCatalog does not match the pin record (tag/version/sha256)');
 
   const Expected = RenderNativeRows(Catalog);
+  // PR #180 review (P3): the pin's own row count was the one unverified number in a file whose job
+  // is verification. Cross-check both recorded counts against the rows the copy actually yields.
+  if(Number(Pin.native_rows) !== Expected.length)
+    Problems.push(`pin record says native_rows=${Pin.native_rows}; the vendored catalog yields ${Expected.length} native rows`);
+  if(Info && Number(Info.NativeRows) !== Expected.length)
+    Problems.push(`ModelAliasesCatalog.NativeRows=${Info.NativeRows}; the vendored catalog yields ${Expected.length} native rows`);
   const Actual = Array.isArray(Normalization.ModelAliases) ? Normalization.ModelAliases : [];
   if(Actual.length !== Expected.length)
     Problems.push(`ModelAliases has ${Actual.length} rows; the vendored catalog has ${Expected.length} native rows (must be 1:1)`);

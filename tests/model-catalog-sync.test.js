@@ -152,6 +152,14 @@ describe('model-catalog sync (GH-173)', () => {
       expect(CheckSync({ RootDir: Root }).join('\n')).toMatch(/sha256 .* != pin/);
     });
 
+    test('a mistyped native_rows in the pin record turns --check red (PR #180 review)', () => {
+      const { Root, Dst } = MakeScratchRoot();
+      const P = ReadJson(path.join(Dst, 'model-catalog.pin.json'));
+      P.native_rows = 52;
+      fs.writeFileSync(path.join(Dst, 'model-catalog.pin.json'), JSON.stringify(P, null, 2));
+      expect(CheckSync({ RootDir: Root }).join('\n')).toContain('pin record says native_rows=52; the vendored catalog yields 53');
+    });
+
     test('a missing vendored copy is a named problem, not a throw or a pass', () => {
       const { Root, Dst } = MakeScratchRoot();
       fs.unlinkSync(path.join(Dst, 'model-catalog.json'));
