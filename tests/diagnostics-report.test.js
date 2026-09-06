@@ -233,6 +233,27 @@ describe('DiagnosticsReport', () => {
       }
     });
   });
+  describe('DescribeModelAliasCatalogAsync (GH-173)', () => {
+    const { DescribeModelAliasCatalogAsync } = require('../src/diagnostics-report');
+
+    it('names the catalog version the alias table was synced from, read from the synced file', async () => {
+      const Line = await DescribeModelAliasCatalogAsync();
+      expect(Line).toMatch(/^• Alias catalog: HiQS-Labs\/Model-catalog v1\.0\.0 \(v1\.0\.0, 53 rows, synced \d{4}-\d{2}-\d{2}\)/);
+    });
+
+    it('surfaces flagged pins (gemini pro → unverified-generation) as advisory diagnostics, not refusals', async () => {
+      const Line = await DescribeModelAliasCatalogAsync();
+      expect(Line).toContain('flagged: ');
+      expect(Line).toContain('gemini pro → gemini-2.5-pro [unverified-generation]');
+      expect(Line).not.toContain('STALE');
+    });
+
+    it('reports VerifiedOn coverage from the provenance columns', async () => {
+      const Line = await DescribeModelAliasCatalogAsync();
+      expect(Line).toMatch(/\d+\/53 rows verified on \d{4}-\d{2}-\d{2}/);
+    });
+  });
+
   describe('VerifyModelAliasPinsAsync (GH-168)', () => {
     const { GetModelAliasRowsAsync } = require('../src/command-intent-resolver');
     const { GetProviderDescriptorForModel } = require('../src/ai-providers');
@@ -287,6 +308,9 @@ describe('DiagnosticsReport', () => {
         WorkspaceAI: MockWorkspaceAI, StatsModule: MockStatsModule, RemindersModule: MockRemindersModule, NotionModule: null,
       });
       expect(Report).toMatch(/• Alias pins: OK \(\d+ verified\)/);
+      // GH-173: the catalog line rides directly under the pins line, from the synced file.
+      expect(Report).toMatch(/• Alias catalog: HiQS-Labs\/Model-catalog v1\.0\.0 \(v1\.0\.0, 53 rows/);
+      expect(Report).toContain('gemini pro → gemini-2.5-pro [unverified-generation]');
     });
   });
 });

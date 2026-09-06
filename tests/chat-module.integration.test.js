@@ -871,7 +871,11 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(SlackApp.SentMessages[1].text).toContain('System router model (first responder): `gemini-3.1-flash-lite`');
       // GH-168: the alias table is rendered from the same JSON the executor resolves against.
       expect(SlackApp.SentMessages[1].text).toContain('*Aliases*');
-      expect(SlackApp.SentMessages[1].text).toContain('`gpt-5.6-terra` ← openai, open ai, chatgpt');
+      // GH-173: rows now arrive in Model-catalog order (a build-time sync), so assert the pin's
+      // alias group by membership, not by the old hand-maintained row order.
+      const TerraLine = SlackApp.SentMessages[1].text.split('\n').find((ArgLine) => ArgLine.startsWith('• `gpt-5.6-terra` ← '));
+      expect(TerraLine).toBeDefined();
+      for(const Alias of ['openai', 'open ai', 'chatgpt']) expect(TerraLine.split(' ← ')[1].split(', ')).toContain(Alias);
       expect(SlackApp.SentMessages[1].text).not.toContain('*Common OpenAI Models*');
     });
   });
