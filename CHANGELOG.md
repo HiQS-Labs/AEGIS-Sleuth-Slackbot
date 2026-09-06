@@ -33,6 +33,44 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.324 - 2026-09-05
+
+The model nicknames I understand ("ChatGPT", "Sonnet", "Gemini Pro" …) now come from one shared,
+versioned catalog that the whole HiQS toolchain uses, so a correction made once reaches me on the
+next sync instead of drifting. `run-diagnostics` tells you which catalog version I'm on and which
+pins carry a warning flag.
+
+**Technical:** GH-173 (Model-catalog Phase 2; umbrella HiQS-Labs/Model-catalog#1). The GH-168
+resolver shipped over a hand-maintained `ModelAliases` table; this converts its table INPUT to a
+build-time sync and changes no loader or resolver code. `scripts/sync-model-catalog.js`
+(`npm run sync:model-catalog -- --tag vX.Y.Z`) fetches the catalog at a git tag, verifies its sha256
+(against the committed pin, or an operator-supplied `--expect-sha256` when moving tags — a fetch is
+never self-certifying), keeps a byte-identical vendored copy at `data/static/ai/model-catalog.json`
+beside `model-catalog.pin.json`, filters `target: "native"`, and rewrites the `ModelAliases` section
+of `data/static/ai/command-normalization.json` as `{ Match, Replace, Source, VerifiedOn, Flags }` plus
+a `ModelAliasesCatalog` header; every other key in that file is hand-maintained and carried through.
+Nothing reads the catalog at runtime. Data reconciliation against the previous table: same 53
+`Match` keys, same 53 `Replace` values — 0 added, 0 removed, 0 repinned; only provenance and row
+order changed. `GetModelAliasRowsAsync` still exposes only `Match`/`Replace`; one additive accessor,
+`GetModelAliasProvenanceAsync`, feeds the new `run-diagnostics` line
+(`DescribeModelAliasCatalogAsync`): `• Alias catalog: HiQS-Labs/Model-catalog v1.0.0 (v1.0.0, 53
+rows, synced …) — 31/53 rows verified on 2026-09-04; flagged: gemini pro → gemini-2.5-pro
+[unverified-generation], …`. The GH-168 pins line keeps its exact semantics (STALE only for a
+successful catalog lacking the pin; UNVERIFIABLE for an unconfigured/failed provider); flags are
+advisory and surface only there — a flagged row resolves normally. `npm run validate:model-catalog`
+(`--check`) and `tests/model-catalog-sync.test.js` (18 cases) pin the vendored sha256, the version,
+the 1:1 row reconciliation, the provenance columns, and the resolver contract over the synced rows
+(`ChatGPT` → `gpt-5.6-terra` with the provenance note; unknown names pass through to validation;
+exact IDs untouched); five negative controls on scratch copies (hand-edited `Replace`, removed row,
+flipped vendored row, stale pin sha, missing copy) and the sync-recipe round trip. Three mutation
+transcripts observed red then reverted: a hand-edited `Replace` in the tracked table (`--check` +
+3 cases), flag surfacing removed from diagnostics (2 cases), resolver defaulting on a miss (4 cases,
+including GH-168's refusal test). The `models` integration assertion was made order-independent
+(rows now arrive in catalog order). Verification: jest 2298/2298 (131 suites), node:test 116/116,
+`tsc` clean, secret scan clean, un-sandboxed (the web-api suites need to bind a port). Deploy to
+development and live verification recorded on the PR. Reversibility: **Easy** — revert the PR; the
+resolver never changed and the table returns to its hand-maintained form with identical pins.
+
 ## 1.4.323 - 2026-09-05
 
 When you type an exact command, you get that command. The experimental first-responder router no
