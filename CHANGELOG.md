@@ -33,6 +33,108 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.324 - 2026-09-05
+
+The model nicknames I understand ("ChatGPT", "Sonnet", "Gemini Pro" …) now come from one shared,
+versioned catalog that the whole HiQS toolchain uses, so a correction made once reaches me on the
+next sync instead of drifting. `run-diagnostics` tells you which catalog version I'm on and which
+pins carry a warning flag.
+
+**Technical:** GH-173 (Model-catalog Phase 2; umbrella HiQS-Labs/Model-catalog#1). The GH-168
+resolver shipped over a hand-maintained `ModelAliases` table; this converts its table INPUT to a
+build-time sync and changes no loader or resolver code. `scripts/sync-model-catalog.js`
+(`npm run sync:model-catalog -- --tag vX.Y.Z`) fetches the catalog at a git tag, verifies its sha256
+(against the committed pin, or an operator-supplied `--expect-sha256` when moving tags — a fetch is
+never self-certifying), keeps a byte-identical vendored copy at `data/static/ai/model-catalog.json`
+beside `model-catalog.pin.json`, filters `target: "native"`, and rewrites the `ModelAliases` section
+of `data/static/ai/command-normalization.json` as `{ Match, Replace, Source, VerifiedOn, Flags }` plus
+a `ModelAliasesCatalog` header; every other key in that file is hand-maintained and carried through.
+Nothing reads the catalog at runtime. Data reconciliation against the previous table: same 53
+`Match` keys, same 53 `Replace` values — 0 added, 0 removed, 0 repinned; only provenance and row
+order changed. `GetModelAliasRowsAsync` still exposes only `Match`/`Replace`; one additive accessor,
+`GetModelAliasProvenanceAsync`, feeds the new `run-diagnostics` line
+(`DescribeModelAliasCatalogAsync`): `• Alias catalog: HiQS-Labs/Model-catalog v1.0.0 (v1.0.0, 53
+rows, synced …) — 31/53 rows verified on 2026-09-04; flagged: gemini pro → gemini-2.5-pro
+[unverified-generation], …`. The GH-168 pins line keeps its exact semantics (STALE only for a
+successful catalog lacking the pin; UNVERIFIABLE for an unconfigured/failed provider); flags are
+advisory and surface only there — a flagged row resolves normally. `npm run validate:model-catalog`
+(`--check`) and `tests/model-catalog-sync.test.js` (18 cases) pin the vendored sha256, the version,
+the 1:1 row reconciliation, the provenance columns, and the resolver contract over the synced rows
+(`ChatGPT` → `gpt-5.6-terra` with the provenance note; unknown names pass through to validation;
+exact IDs untouched); five negative controls on scratch copies (hand-edited `Replace`, removed row,
+flipped vendored row, stale pin sha, missing copy) and the sync-recipe round trip. Three mutation
+transcripts observed red then reverted: a hand-edited `Replace` in the tracked table (`--check` +
+3 cases), flag surfacing removed from diagnostics (2 cases), resolver defaulting on a miss (4 cases,
+including GH-168's refusal test). The `models` integration assertion was made order-independent
+(rows now arrive in catalog order). Verification: jest 2298/2298 (131 suites), node:test 116/116,
+`tsc` clean, secret scan clean, un-sandboxed (the web-api suites need to bind a port). Deploy to
+development and live verification recorded on the PR. Reversibility: **Easy** — revert the PR; the
+resolver never changed and the table returns to its hand-maintained form with identical pins.
+
+## 1.4.323 - 2026-09-05
+
+When you type an exact command, you get that command. The experimental first-responder router no
+longer re-reads a command you spelled out correctly and does something else with it.
+
+**Technical:** GH-174, found live on dev by the new harness below. `#TryRouterActiveTakeoverAsync`
+ran ahead of the deterministic command router (`src/chat-module.js`), so in `active` mode Flash Lite
+re-parsed every mention as prose — including exact syntax. Observed: `switch-models:'openai claude
+opus'`, ONE quoted value the literal route captures whole and GH-168 refuses as a cross-vendor
+phrase, was resolved by the model into `default='openai'` + `complex='claude opus'` and **both
+models were switched**. Takeover is now gated on `MatchRouteName` returning null, so an incumbent
+match always wins; the model is still consulted and the corpus record still written when the
+incumbent matches (`routerOutcome: 'matched'` with `executed: false`), so GH-397's comparison data
+is unaffected. Two integration regressions: the exact-quoted-command case (validated once, whole,
+refused — neither invented switch happens) and a control proving free text still reaches the router.
+The negative control was verified by removing the gate and watching the test go red.
+
+Also adds `scripts/slack-harness-drive.js`: posts `<@bot> <command>` with an `xoxp` **user** token
+and polls the thread for the bot's reply, so a real command can be driven end-to-end from a laptop
+against dev — `npm run slack:harness:post` posts as the bot, which the app ignores by design, so it
+could never trigger anything. Bot identity resolves by ID or an unambiguous name match (the first
+version returned the first name hit and, once its own posts shifted the history window, addressed a
+different app mid-run) — and discovery pages the whole channel history, because "sole candidate on
+page one" is not "unambiguous in this channel". Conflicting selectors (`--channel` with
+`--channel-id`, `--bot-name` with `--bot-user-id`) are refused rather than silently ranked, and the
+`xoxp-` user-token check runs on whichever source wins, so an exported `SLACK_DEV_USER_TOKEN`
+holding a bot token can no longer slip past it. The Slack client is injected, and
+`tests/slack-harness-drive.test.js` (22 cases) covers every safety claim — dry-run never posting,
+ambiguity refusing across page boundaries, only the addressed bot counting as the reply, token
+rejection from both sources without echoing a token, `--expect` failing with exit 4, timeout with
+exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev in every router mode;
+a test pins that its cross-vendor refusal case stays ungated, since gating it would hide exactly the
+precedence regression GH-174 fixes. `models` keeps a short curated list of common exact model IDs
+alongside the alias table, so an unaliased ID like `o1` stays discoverable.
+
+## 1.4.322 - 2026-09-04
+
+You can now switch models by the names people actually use — "ChatGPT", "OpenAI", "Claude",
+"Sonnet", "Gemini" — and I'll tell you which exact model that resolved to. If a phrase doesn't
+map cleanly, I refuse rather than guess.
+
+**Technical:** GH-168. Model aliases are now resolved as whole values, at the executor. The
+`ModelAliases` table in `data/static/ai/command-normalization.json` gains vendor defaults
+(`openai`/`chatgpt`/`gpt` → `gpt-5.6-terra`, `anthropic`/`claude`/`haiku` →
+`claude-haiku-4-5-20251001`, `google`/`gemini` → `gemini-3.8-flash`), family pins (`sonnet` →
+`claude-sonnet-5`, `opus` → `claude-opus-5`, `gemini pro` → `gemini-2.5-pro`) and explicit
+flagship rows (`gpt 6`/`astra` → `gpt-6-astra`; bare `gpt` deliberately stays on the everyday
+model). `ResolveModelAliasAsync` in `src/command-intent-resolver.js` does a staged entire-value
+lookup — whole value, then one stripped leading vendor word accepted only when the pin belongs to
+that vendor's provider — so a `chatgpt 5` row can no longer rewrite the inside of
+`chatgpt 5.6 terra`, an exact ID is never touched, and `openai claude opus` is refused instead of
+silently switching vendors (contract per xyz-3-agents-swarm#551). The anywhere-in-text alias
+substitution is removed from `ApplyNormalizationRules` and `BuildCanonicalCommand`, and rule 8 of
+`rmm-instructions.md` now tells the model to copy the phrase verbatim, so canonical commands carry
+the raw value and `model-switch-command.js` / `set-channel-model-command.js` (the choke point for
+direct, `rmm ifl`, and router-active) report `(resolved from 'ChatGPT')`; a pin the live catalog no
+longer lists is reported as a stale alias. `models` renders an `*Aliases*` section from the same
+table (the hand-typed "Common … Models" lines are gone); `run-diagnostics` gains
+`VerifyModelAliasPinsAsync` with OK / STALE / UNVERIFIABLE outcomes. Tests: resolver table + refusal
+controls, both executor handlers (new `tests/set-channel-model-command.test.js`), integration
+(direct, `rmm ifl`, `models`), diagnostics probe. Plan reviewed by Codex twice via the relay harness
+(round cap, all findings folded in). Companion: GH-88 Phase 5 (did-you-mean reply for what no table
+can map) follows.
+
 ## 1.4.321 - 2026-09-02
 
 The twice-daily progress digest now reads properly in Slack: real bold, real bullets, and no stray

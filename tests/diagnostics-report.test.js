@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  VerifyModelAliasPinsAsync,
   CollectDiagnosticsBaselineAsync,
   FormatDiagnosticsBaselineLines,
   BuildDiagnosticsCommandReportAsync,
@@ -230,6 +231,86 @@ describe('DiagnosticsReport', () => {
       for(const Line of UserBaselineLines) {
         expect(ErrorReport).toContain(Line);
       }
+    });
+  });
+  describe('DescribeModelAliasCatalogAsync (GH-173)', () => {
+    const { DescribeModelAliasCatalogAsync } = require('../src/diagnostics-report');
+
+    it('names the catalog version the alias table was synced from, read from the synced file', async () => {
+      const Line = await DescribeModelAliasCatalogAsync();
+      expect(Line).toMatch(/^• Alias catalog: HiQS-Labs\/Model-catalog v1\.0\.0 \(v1\.0\.0, 53 rows, synced \d{4}-\d{2}-\d{2}\)/);
+    });
+
+    it('surfaces flagged pins (gemini pro → unverified-generation) as advisory diagnostics, not refusals', async () => {
+      const Line = await DescribeModelAliasCatalogAsync();
+      expect(Line).toContain('flagged: ');
+      expect(Line).toContain('gemini pro → gemini-2.5-pro [unverified-generation]');
+      expect(Line).not.toContain('STALE');
+    });
+
+    it('reports VerifiedOn coverage from the provenance columns', async () => {
+      const Line = await DescribeModelAliasCatalogAsync();
+      expect(Line).toMatch(/\d+\/53 rows verified on \d{4}-\d{2}-\d{2}/);
+    });
+  });
+
+  describe('VerifyModelAliasPinsAsync (GH-168)', () => {
+    const { GetModelAliasRowsAsync } = require('../src/command-intent-resolver');
+    const { GetProviderDescriptorForModel } = require('../src/ai-providers');
+
+    /** Build a catalog-status object that lists EVERY declared pin under its provider. */
+    async function MakeHealthyStatuses() {
+      const Rows = await GetModelAliasRowsAsync();
+      /** @type {Record<string, { label: string, configured: boolean, ok: boolean, modelIds: string[], error?: string }>} */
+      const Statuses = {
+        openai: { label: 'OpenAI', configured: true, ok: true, modelIds: [] },
+        anthropic: { label: 'Anthropic Claude', configured: true, ok: true, modelIds: [] },
+        gemini: { label: 'Google Gemini', configured: true, ok: true, modelIds: [] },
+      };
+      for(const Row of Rows) {
+        const Descriptor = GetProviderDescriptorForModel(Row.Replace);
+        if(Descriptor && !Statuses[Descriptor.Id].modelIds.includes(Row.Replace)) Statuses[Descriptor.Id].modelIds.push(Row.Replace);
+      }
+      return Statuses;
+    }
+
+    it('reports OK when every pin is listed by a healthy catalog', async () => {
+      const Statuses = await MakeHealthyStatuses();
+      const Line = await VerifyModelAliasPinsAsync({ GetAvailableModelCatalogStatusByProviderAsync: jest.fn().mockResolvedValue(Statuses) });
+      expect(Line).toMatch(/^• Alias pins: OK \(\d+ verified\)$/);
+    });
+
+    it('reports STALE only for a pin missing from a SUCCESSFUL catalog', async () => {
+      const Statuses = await MakeHealthyStatuses();
+      Statuses.gemini.modelIds = Statuses.gemini.modelIds.filter((Id) => Id !== 'gemini-2.5-pro');
+      const Line = await VerifyModelAliasPinsAsync({ GetAvailableModelCatalogStatusByProviderAsync: jest.fn().mockResolvedValue(Statuses) });
+      expect(Line).toBe('• Alias pins: STALE — gemini-2.5-pro (gemini)');
+    });
+
+    it('never calls an unfetched catalog stale: unconfigured and failed providers are UNVERIFIABLE', async () => {
+      const Statuses = await MakeHealthyStatuses();
+      Statuses.anthropic = { label: 'Anthropic Claude', configured: false, ok: false, modelIds: [] };
+      Statuses.gemini = { label: 'Google Gemini', configured: true, ok: false, modelIds: [], error: 'HTTP 500' };
+      const Line = await VerifyModelAliasPinsAsync({ GetAvailableModelCatalogStatusByProviderAsync: jest.fn().mockResolvedValue(Statuses) });
+      expect(Line).toBe('• Alias pins: UNVERIFIABLE — anthropic (not configured), gemini (catalog error: HTTP 500)');
+      expect(Line).not.toContain('STALE');
+    });
+
+    it('is UNVERIFIABLE, not a throw, when the workspace AI has no catalog access', async () => {
+      expect(await VerifyModelAliasPinsAsync({})).toBe('• Alias pins: UNVERIFIABLE — no catalog access');
+      expect(await VerifyModelAliasPinsAsync(null)).toBe('• Alias pins: UNVERIFIABLE — no catalog access');
+    });
+
+    it('run-diagnostics carries the alias-pin line', async () => {
+      const Statuses = await MakeHealthyStatuses();
+      MockWorkspaceAI.GetAvailableModelCatalogStatusByProviderAsync = jest.fn().mockResolvedValue(Statuses);
+      const Report = await BuildDiagnosticsCommandReportAsync(MockSlackApp, 'C_ENABLED', {
+        WorkspaceAI: MockWorkspaceAI, StatsModule: MockStatsModule, RemindersModule: MockRemindersModule, NotionModule: null,
+      });
+      expect(Report).toMatch(/• Alias pins: OK \(\d+ verified\)/);
+      // GH-173: the catalog line rides directly under the pins line, from the synced file.
+      expect(Report).toMatch(/• Alias catalog: HiQS-Labs\/Model-catalog v1\.0\.0 \(v1\.0\.0, 53 rows/);
+      expect(Report).toContain('gemini pro → gemini-2.5-pro [unverified-generation]');
     });
   });
 });

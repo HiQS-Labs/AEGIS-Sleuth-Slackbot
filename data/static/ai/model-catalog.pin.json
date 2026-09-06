@@ -1,0 +1,11 @@
+{
+  "repo": "HiQS-Labs/Model-catalog",
+  "tag": "v1.0.0",
+  "version": "1.0.0",
+  "updated": "2026-09-05",
+  "catalog_sha256": "9ff019fd40320183c531c519644835c9586e92475bae3f30b9ee893cec948a97",
+  "source": "https://raw.githubusercontent.com/HiQS-Labs/Model-catalog/v1.0.0/data/catalog.json",
+  "native_rows": 53,
+  "synced_on": "2026-09-05",
+  "_comment": "GH-173: pin record for the vendored Model-catalog copy. Verified by `node scripts/sync-model-catalog.js --check` (tests/model-catalog-sync.test.js). Rewrite with the sync script in a sync PR; never by hand."
+}

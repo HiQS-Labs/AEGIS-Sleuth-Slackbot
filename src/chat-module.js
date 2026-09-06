@@ -654,7 +654,7 @@ class ChatModule {
     Router.Register({
       Pattern: /^models$/i,
       Route: 'models',
-      Handle: (ArgEventInfo) => HandleModelsCommandAsync(
+      Handle: async (ArgEventInfo) => HandleModelsCommandAsync(
         this.#SlackApp,
         ArgEventInfo,
         (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID),
@@ -665,7 +665,9 @@ class ChatModule {
           model: this.#RouterShadow.EffectiveModelName(),
           armed: this.#RouterShadow.IsArmed(),
           confidenceMin: this.#RouterShadow.ActiveConfidenceMin(),
-        }
+        },
+        // GH-168: the alias table the executor resolves against, shown as one list.
+        await CommandIntentResolver.GetModelAliasRowsAsync()
       ),
     });
 
@@ -918,10 +920,19 @@ class ChatModule {
 
   /**
    * GH-397 active router mode: let Gemini Flash Lite resolve the command and, above the confidence
-   * floor, execute it (FULL takeover — any canonical command, including Risk-tagged ones, per the
+   * floor, execute it (takeover of any canonical command, including Risk-tagged ones, per the
    * operator decision). Always logs a corpus record. Returns true only when it actually executed a
    * command; otherwise false so the caller falls back to the normal resolver. Never throws — a
    * resolve/execute/log failure degrades to false (normal pipeline runs).
+   *
+   * GH-174: **the deterministic router wins whenever it matches.** Takeover is now gated on
+   * `MatchRouteName` returning null. Before this, an exact quoted command was handed to Flash Lite
+   * as prose and could be re-parsed into something else entirely — live on dev, one value,
+   * `switch-models:'openai claude opus'`, was split into `default='openai'` +
+   * `complex='claude opus'` and BOTH models were switched, where the literal route captures the
+   * whole phrase as one default and GH-168 refuses it. A quoted argument is data, not prose.
+   * The model is still consulted and the record still written when the incumbent matches, so the
+   * corpus keeps the comparison the experiment exists to collect — only the authority is removed.
    * @param {SlackApp} ArgSlackApp
    * @param {import('./slack-app').AppMentionEventInfo} ArgEventInfo
    * @param {string} ArgRawText Original (un-normalized) mention text — the corpus signal.
@@ -953,7 +964,10 @@ class ChatModule {
     const Candidate = await this.#RouterShadow.ResolveCandidateAsync(ArgRawText, ArgEventInfo.channel);
 
     let Executed = false;
-    if(this.#RouterShadow.ShouldExecute(Candidate)) {
+    // GH-174: an incumbent match means the user typed a real command — run THAT, not the model's
+    // reading of it. `executed: false` alongside `routerOutcome: 'matched'` is the corpus signal
+    // that the router deferred.
+    if(!IncumbentRoute && this.#RouterShadow.ShouldExecute(Candidate)) {
       try {
         Executed = await this.#CommandRouter.RouteAsync(/** @type {string} */ (Candidate.canonicalCommand), ArgEventInfo);
       } catch(Error) {

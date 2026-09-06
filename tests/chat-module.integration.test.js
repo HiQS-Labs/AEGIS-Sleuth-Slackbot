@@ -662,7 +662,25 @@ describe('ChatModule integration via MockSlackApp', () => {
       const WorkspaceAI = mockWorkspaceAIInstances[0];
       expect(WasHandled).toBe(true);
       expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5');
-      expect(SlackApp.SentMessages[0].text).toContain("Default model switched to 'gpt-5'");
+      // GH-168: the executor resolved the alias and says so.
+      expect(SlackApp.SentMessages[0].text).toContain("Default model switched to 'gpt-5' (resolved from 'gpt 5')");
+    });
+
+    test("resolves a vendor name typed directly ('ChatGPT') to its pin at the executor (GH-168)", async () => {
+      const SlackApp = new MockSlackApp({ AdminUsers: ['U_ADMIN'], WorkspaceInfo: TestWorkspaceInfo });
+      new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+      await WriteWorkspaceFixtureAsync(TestWorkspaceInfo);
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_GENERAL',
+        user: 'U_ADMIN',
+        text: `${SlackApp.AppMentionString} switch-models:'ChatGPT'`,
+      });
+
+      const WorkspaceAI = mockWorkspaceAIInstances[0];
+      expect(WasHandled).toBe(true);
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5.6-terra');
+      expect(SlackApp.SentMessages[0].text).toContain("Default model switched to 'gpt-5.6-terra' (resolved from 'ChatGPT')");
     });
   });
 
@@ -725,6 +743,40 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5');
       expect(SlackApp.SentMessages[0].text).toContain("On it — running");
       expect(SlackApp.SentMessages[1].text).toContain("Default model switched to 'gpt-5'");
+    });
+
+    test('rmm ifl keeps the raw model phrase and the executor reports the resolution (GH-168)', async () => {
+      const SlackApp = new MockSlackApp({ AdminUsers: ['U_ADMIN'], WorkspaceInfo: TestWorkspaceInfo });
+      new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+      await WriteWorkspaceFixtureAsync(TestWorkspaceInfo);
+
+      // rule 8 now tells the model to copy the phrase verbatim — this is what it returns.
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'model-switch-default',
+        confidence: 0.95,
+        rationale: 'User asked to switch the default model.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: 'Open AI',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: '',
+        user_mention: '',
+      });
+
+      const WasHandled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_GENERAL',
+        user: 'U_ADMIN',
+        text: `${SlackApp.AppMentionString} rmm ifl change model to Open AI`,
+      });
+
+      const WorkspaceAI = mockWorkspaceAIInstances[0];
+      expect(WasHandled).toBe(true);
+      // the canonical command carries the RAW phrase …
+      expect(SlackApp.SentMessages[0].text).toContain(`switch-models:'Open AI'`);
+      // … and the executor is the one place that resolves it.
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('gpt-5.6-terra');
+      expect(SlackApp.SentMessages[1].text).toContain("Default model switched to 'gpt-5.6-terra' (resolved from 'Open AI')");
     });
 
     test('rmm ifl refuses commands that are not pre-authorized for automatic execution', async () => {
@@ -817,6 +869,14 @@ describe('ChatModule integration via MockSlackApp', () => {
       // GH-397: the models command surfaces the first-responder (router) tier.
       expect(SlackApp.SentMessages[1].text).toContain('System router mode: `off`');
       expect(SlackApp.SentMessages[1].text).toContain('System router model (first responder): `gemini-3.1-flash-lite`');
+      // GH-168: the alias table is rendered from the same JSON the executor resolves against.
+      expect(SlackApp.SentMessages[1].text).toContain('*Aliases*');
+      // GH-173: rows now arrive in Model-catalog order (a build-time sync), so assert the pin's
+      // alias group by membership, not by the old hand-maintained row order.
+      const TerraLine = SlackApp.SentMessages[1].text.split('\n').find((ArgLine) => ArgLine.startsWith('• `gpt-5.6-terra` ← '));
+      expect(TerraLine).toBeDefined();
+      for(const Alias of ['openai', 'open ai', 'chatgpt']) expect(TerraLine.split(' ← ')[1].split(', ')).toContain(Alias);
+      expect(SlackApp.SentMessages[1].text).not.toContain('*Common OpenAI Models*');
     });
   });
 
@@ -1721,6 +1781,61 @@ describe('ChatModule integration via MockSlackApp', () => {
 
       // did NOT execute the command; fell through to generic AI chat instead
       expect(SlackApp.SentMessages.some((ArgM) => /\*Sleuth AI — Command Reference\*/.test(ArgM.text))).toBe(false);
+    });
+
+    test('GH-174: an exact quoted command wins over the model\'s reading of it', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      await WriteWorkspaceFixtureAsync(TestWorkspaceInfo);
+      // The live dev failure, reproduced: Flash Lite reads ONE quoted value as prose and splits it
+      // into two model fields, confidently. Before the fix this executed and switched both models.
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'model-switch-both', confidence: 0.97, rationale: 'two vendors named',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: 'openai', complex_model_name: 'claude opus',
+        channel_model_name: '', query_text: '', user_mention: '',
+      });
+
+      const Handled = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_ADMIN', text: `${SlackApp.AppMentionString} switch-models:'openai claude opus'`,
+      });
+
+      const WorkspaceAI = mockWorkspaceAIInstances[0];
+      expect(Handled).toBe(true);
+      // the deterministic route ran: ONE value, validated whole, and GH-168 refuses the cross-vendor phrase
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledTimes(1);
+      expect(WorkspaceAI.GetModelAvailabilityAsync).toHaveBeenCalledWith('openai claude opus');
+      const Posted = SlackApp.SentMessages.map((ArgM) => ArgM.text).join('\n');
+      // NEGATIVE CONTROL: neither of the model's two invented switches happened.
+      expect(Posted).not.toContain("Default model switched to 'gpt-5.6-terra'");
+      expect(Posted).not.toContain("Complex model switched to 'claude-opus-5'");
+
+      // GH-397 corpus is NOT collateral damage: the deferral is still recorded, and is
+      // distinguishable from a low-confidence decline (matched incumbent + high-confidence
+      // candidate + executed:false). Without this, deleting AppendRecordAsync would pass.
+      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
+      const Deferral = Records[Records.length - 1];
+      expect(Deferral.mode).toBe('active');
+      expect(Deferral.routerOutcome).toBe('matched');
+      expect(Deferral.matchedRoute).toBe('switch-models');
+      expect(Deferral.executed).toBe(false);
+      expect(Deferral.candidate.canonicalCommand).toBe(`switch-models:default='openai',complex='claude opus'`);
+      expect(Deferral.candidate.confidence).toBeGreaterThanOrEqual(0.9);
+    });
+
+    test('GH-174: takeover still fires when the deterministic router matches nothing', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'commands', confidence: 0.98, rationale: 'wants the command list',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: '', complex_model_name: '', channel_model_name: '', query_text: '', user_mention: '',
+      });
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_ADMIN', text: `${SlackApp.AppMentionString} what can you do for me`,
+      });
+
+      // free text matches no route, so the router keeps its whole purpose
+      expect(SlackApp.SentMessages.some((ArgM) => /\*Sleuth AI — Command Reference\*/.test(ArgM.text))).toBe(true);
     });
 
     test('shadow mode leaves production behavior unchanged', async () => {

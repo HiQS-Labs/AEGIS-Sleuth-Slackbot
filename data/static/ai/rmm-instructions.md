@@ -19,10 +19,7 @@ Rules:
    - reminder search/list commands are different from web-search commands.
 6. If the user mentions one model name without saying "complex", "date extraction", or "this channel", prefer the workspace default model switch.
 7. If the user explicitly says "both", or clearly supplies different default and complex targets, choose the "model-switch-both" intent.
-8. Normalize obvious model aliases mentally:
-   - "gpt5" / "gpt 5" / "chatgpt 5" => "gpt-5"
-   - "gpt5 mini" / "gpt 5 mini" / "chatgpt 5 mini" => "gpt-5-mini"
-   - "gpt5.5" / "gpt 5.5" / "chatgpt 5.5" => "gpt-5.5"
+8. Copy the user's model phrase verbatim into the model field (`default_model_name`, `complex_model_name`, or `channel_model_name`): "chatgpt 5" stays "chatgpt 5", "Open AI" stays "Open AI", "sonnet" stays "sonnet". Do not normalize, expand, correct, or guess model aliases or IDs — the executor resolves them and reports what it resolved from.
 9. If the user uses vague search language without naming a search source or a concrete topic, treat it as ambiguous and ask a clarification question. Examples: "search things", "help search", "find something", "look stuff up". In those cases, ask whether they want web search, reminder search, or Notion search.
 10. If the user asks to search Google or explicitly says Google/Gemini, prefer the Gemini web-search command. If the user clearly wants a generic web lookup and also supplies a concrete topic or query, prefer the OpenAI web-search command.
 11. Return structured data only. Do not add prose outside the JSON fields.

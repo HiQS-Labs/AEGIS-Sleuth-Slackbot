@@ -25,6 +25,8 @@
     "reconstruct:github": "node scripts/reconstruct-github-reminders.js",
     "validate:ai": "node scripts/validate-ai-prompts.js",
     "validate:commands": "node scripts/validate-command-catalog.js",
+    "sync:model-catalog": "node scripts/sync-model-catalog.js",
+    "validate:model-catalog": "node scripts/sync-model-catalog.js --check",
     "catalog-editor": "node tools/catalog-server.js",
     "validate:fsm": "node scripts/validate-fsm-invariants.js",
     "validate:workspace-isolation": "node scripts/validate-workspace-isolation.js",
