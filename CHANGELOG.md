@@ -200,7 +200,10 @@ holding a bot token can no longer slip past it. The Slack client is injected, an
 `tests/slack-harness-drive.test.js` (22 cases) covers every safety claim — dry-run never posting,
 ambiguity refusing across page boundaries, only the addressed bot counting as the reply, token
 rejection from both sources without echoing a token, `--expect` failing with exit 4, timeout with
-exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev in every router mode;
+exit 3. A command can answer in several messages (`rmm ifl` posts "On it — running …" before the
+command's own reply), so with `--expect` the harness keeps reading until a reply matches or the
+window closes, rather than judging the first one. `scripts/smoke-dev-gh168.sh` asserts the four
+GH-168 surfaces on dev in every router mode;
 a test pins that its cross-vendor refusal case stays ungated, since gating it would hide exactly the
 precedence regression GH-174 fixes. `models` keeps a short curated list of common exact model IDs
 alongside the alias table, so an unaliased ID like `o1` stays discoverable.
