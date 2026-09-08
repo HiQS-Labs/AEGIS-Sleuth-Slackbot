@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 23 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -30,6 +30,8 @@ Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-139 · ask-code: re-introduce file references / citations lost from the ask-self generation | — | [GH-139-ASK-CODE-CITATIONS.md](PROJECT/1-INBOX/GH-139-ASK-CODE-CITATIONS.md) · [#139](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/139) |
 | GH-152 · Add download skill: fetch my active Sleuth reminders live via SSH | — | [GH-152-DOWNLOAD-REMINDERS-SKILL.md](PROJECT/3-COMPLETED/GH-152-DOWNLOAD-REMINDERS-SKILL.md) · [#152](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/152) |
 | GH-168 · Model alias resolver: vendor/family names resolve to a pinned model ID before catalog validation | — | [GH-168-MODEL-ALIAS-RESOLVER.md](PROJECT/1-INBOX/GH-168-MODEL-ALIAS-RESOLVER.md) · [#168](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/168) |
+| GH-173 · Consume Model-catalog v1 (Phase 2): sync ModelAliases from the shared catalog + provenance-aware diagnostics | — | [GH-173-MODEL-CATALOG-SYNC.md](PROJECT/1-INBOX/GH-173-MODEL-CATALOG-SYNC.md) · [#173](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/173) |
+| GH-169 · Seeded property test: MarkdownToMrkdwn + command normalizer, plus a malformed-Slack-event corpus through MockSlackApp | — | [GH-169-PROPERTY-FUZZ-TEST.md](PROJECT/2-WORKING/GH-169-PROPERTY-FUZZ-TEST.md) · [#169](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/169) |
 | GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
 
 ## Queue
