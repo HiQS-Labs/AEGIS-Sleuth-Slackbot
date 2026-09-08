@@ -33,6 +33,41 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.327 - 2026-09-07
+
+If a malformed mention ever reached me, I used to reply "sorry, something went wrong handling
+that: Cannot read properties of undefined (reading 'match')" — an internal error pasted into the
+channel. Now I treat a mention with no usable text as an empty request and answer normally, so you
+get help instead of a stack-trace fragment.
+
+**Technical:** GH-172. `SlackApp.#OnAppMentionAsync` built its `AppMentionEventInfo` with
+`text: ArgEvent.text` raw, while `#OnMessageAsync` had refused a non-string `text` before dispatch
+since the beginning. Every registered `app_mention` handler assumes a string —
+`src/chat-command-router.js` calls `.match` on it, `src/reminders-app-mention-handler.js` and
+`src/chat-module.js` call `.replace` — so a payload whose `text` was `undefined`, `null`, or a
+non-string landed as a `TypeError` inside the handler chain; the chain caught it and the GH-113
+unified error report then posted that TypeError's message to the channel. The dispatch now coerces:
+`text: typeof ArgEvent.text === 'string' ? ArgEvent.text : ''`. Coercing rather than dropping the
+event is deliberate and differs from the `message` path: an `app_mention` is a person addressing
+the bot directly, and silence is exactly the failure mode GH-113 exists to prevent, so the handlers
+run against an empty command and answer with help. Only `text` is guarded; `channel`, `ts`,
+`thread_ts` and `user` are still forwarded raw, and `files` keeps its existing `?? []`. New
+`tests/slack-app-app-mention-text-guard.test.js` drives the real Bolt-registered callback with six
+malformed payloads (undefined, null, absent key, number, object, array) and asserts handlers
+receive a string with no `Error in app_mention handler:` entry logged, plus verbatim pass-through
+of a well-formed text, preservation of an explicit empty string, a red control, and a scope check
+that the other fields are untouched. Reverting the one-line guard turns six of the ten red, so the
+suite is a real instrument. Found by the GH-169 malformed-event corpus, which had to exclude these
+two shapes as out-of-contract; with this guard they become production-reachable and can return to
+that corpus. They are now back in it: `tests/property-fuzz.test.js` carries `text undefined` and
+`text null` as `app_mention` rows again. Returning them needed a second change — `MockSlackApp`
+was applying production's `files` normalization but not this new `text` coercion, so the two rows
+would have failed on the mock's divergence from the real dispatcher rather than on anything real.
+`SimulateAppMentionAsync` now mirrors the coercion, with the same citation the `files` line
+already carries. That is not circular: the guard itself is proven against the real Bolt-registered
+callback in `tests/slack-app-app-mention-text-guard.test.js`, and the corpus rows cover what the
+handler chain downstream of it does with an empty command.
+
 ## 1.4.326 - 2026-09-07
 
 Nothing changes in what I do in Slack. What changes is how I get tested: every run now throws a

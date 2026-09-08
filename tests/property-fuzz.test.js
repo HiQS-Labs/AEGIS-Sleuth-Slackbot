@@ -469,15 +469,22 @@ describe(`GH-169 malformed Slack event corpus through MockSlackApp (PROPERTY_SEE
     await ExpectHandledCleanly(SlackApp, `message/${ArgLabel}`, () => SlackApp.SimulateMessageAsync(ArgEvent));
   });
 
-  // `text` undefined/null on app_mention is deliberately NOT here: the first run of this corpus
-  // caught it (src/chat-command-router.js:111 calls .match on it and every app_mention handler
-  // assumes a string, while src/slack-app.js:1543 passes ArgEvent.text raw). Slack's app_mention
-  // contract always carries text, so the shape is out of contract today; the assumption is filed
-  // as GH-172 with the one-line dispatch guard that would let the two rows return.
+  // The `text` rows are back. The first run of this corpus caught a real defect here —
+  // src/chat-command-router.js:111 calls `.match` on it and every app_mention handler assumes a
+  // string, while slack-app.js passed `ArgEvent.text` through raw — so the two rows were held out
+  // and filed as GH-172. Two things had to change for them to return: production now coerces a
+  // non-string `text` to '' (src/slack-app.js:1551), and MockSlackApp mirrors that coercion the
+  // way it already mirrors the `files` normalization. Without the second, these rows would fail on
+  // the mock's own divergence from the dispatcher rather than on anything real. The guard itself
+  // is proven against the real Bolt-registered callback in
+  // tests/slack-app-app-mention-text-guard.test.js — that is the test that fails if the guard is
+  // removed; these rows cover what the handler chain downstream of it does with an empty command.
   test.each([
     ['user undefined', { user: undefined }],
     ['channel undefined', { channel: undefined }],
     ['ts undefined', { ts: undefined }],
+    ['text undefined', { text: undefined }],
+    ['text null', { text: null }],
   ])('app_mention missing field (mock-reachable only): %s', async (ArgLabel, ArgEvent) => {
     const SlackApp = BuildApp();
     await ExpectHandledCleanly(SlackApp, `app_mention/${ArgLabel}`, () => SlackApp.SimulateAppMentionAsync(ArgEvent));

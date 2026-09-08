@@ -16,6 +16,17 @@ function FieldOrDefault(ArgInfo, ArgKey, ArgDefault) {
   return Object.hasOwn(ArgInfo, ArgKey) ? ArgInfo[ArgKey] : ArgDefault;
 }
 
+/**
+ * GH-172: the app_mention `text` coercion production applies before dispatch
+ * (src/slack-app.js #OnAppMentionAsync). Kept as a named sibling of FieldOrDefault so the
+ * divergence that made this necessary stays visible: every registered handler assumes a string.
+ * @param {any} ArgText Raw text from the simulated payload.
+ * @returns {string}
+ */
+function CoerceMentionText(ArgText) {
+  return typeof ArgText === 'string' ? ArgText : '';
+}
+
 class MockLogger {
   constructor() {
     this.DebugMessages = [];
@@ -613,7 +624,12 @@ class MockSlackApp {
   async SimulateAppMentionAsync(ArgEventInfo) {
     const AppMentionEvent = {
       channel: FieldOrDefault(ArgEventInfo, 'channel', 'C_TEST'),
-      text: FieldOrDefault(ArgEventInfo, 'text', `${this.AppMentionString} ping`),
+      // GH-172: production coerces a non-string `text` to '' before any handler sees it
+      // (src/slack-app.js #OnAppMentionAsync). Mirror that, or this mock hands the chain a shape
+      // the real dispatcher can no longer produce and a corpus row fails on the mock's own gap.
+      // The coercion itself is tested against the real Bolt callback in
+      // tests/slack-app-app-mention-text-guard.test.js, so mirroring it here is not circular.
+      text: CoerceMentionText(FieldOrDefault(ArgEventInfo, 'text', `${this.AppMentionString} ping`)),
       ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
       thread_ts: ArgEventInfo.thread_ts,
       user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),

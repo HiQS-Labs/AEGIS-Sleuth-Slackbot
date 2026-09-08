@@ -1541,7 +1541,14 @@ class SlackApp {
     // capture essential information from the app_mention event.
     const AppMentionInfo =  /** @type {AppMentionEventInfo} */ ({
       channel: ArgEvent.channel,
-      text: ArgEvent.text,
+      // GH-172: every registered app_mention handler assumes a string — CommandRouter calls
+      // `.match`, ChatModule and RemindersAppMentionHandler call `.replace` — so a payload whose
+      // `text` is not a string became a TypeError inside the chain, and the GH-113 fallback then
+      // posted that TypeError to the channel. Coerce rather than drop the event (as #OnMessageAsync
+      // does for its own subtype cases): an app_mention is a person addressing us directly, and
+      // silence is the failure mode GH-113 exists to prevent, so the handlers run against an empty
+      // command and answer with help instead.
+      text: typeof ArgEvent.text === 'string' ? ArgEvent.text : '',
       ts: ArgEvent.ts,
       thread_ts: ArgEvent.thread_ts,
       user: ArgEvent.user,
