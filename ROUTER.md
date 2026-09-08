@@ -29,10 +29,10 @@ it. `development` is intentionally unprotected: CI runs there but does not block
 - `ARCHITECTURE.md` = living canonical system design; `ARCHITECTURE-DECISIONS.md` = graph-derived
   snapshot of past decisions (regenerated via `codebase-memory-mcp`, not hand-authored — see its file
   header for regen steps)
-- `ROADMAP-DASHBOARD.md` = the generated, read-only view of the roadmap ledger (read this; regenerate
-  with `utils/roadmap-dashboard.sh`)
-- `ROADMAP.md` = LEGACY ledger, frozen since the `ROADMAP_SOURCE=releases` flip (`.pdda-mode`,
-  2026-08-26) — `releases.db` (via `releases.sql`) is the source of truth; write via
+- `ROADMAP-DASHBOARD.md` = the generated, human-readable view of the roadmap ledger (read this for
+  current work; regenerate with `utils/roadmap-dashboard.sh`)
+- `ROADMAP.md` = LEGACY pointer ledger, frozen since the `ROADMAP_SOURCE=releases` flip — `releases.db` (via `releases.sql`) is the source of truth
+  (the flip is recorded in `.pdda-mode`, 2026-08-26). Write via
   `python3 utils/py/releases_app.py roadmap add`, never by editing this file. The marathon scheduling
   layer (`utils/marathon-plan.sh`, vendored via `.xyz/`) still parses this frozen file directly and
   has not been updated for releases-mode upstream — a known gap (same one XYZ-forge's own GH-243
@@ -55,16 +55,18 @@ it. `development` is intentionally unprotected: CI runs there but does not block
    points to for detailed inventories.
 3. Read `GUIDING-PRINCIPLES.md` if the task touches doc governance, roadmap hygiene, or the PDDA
    layer itself. -> expect the north star PDDA's checks answer to.
-4. For repo-management, doc-governance, or "what changed recently" tasks, read `CHANGELOG.md` (top
-   entries), `PROJECT/PDDA.md`, and `ROADMAP-DASHBOARD.md` (or `python3 utils/py/releases_app.py
-   roadmap list`) in that order before going further. -> expect current operational state and the
+4. Read `ROADMAP-DASHBOARD.md` (or `python3 utils/py/releases_app.py roadmap list`) to find the
+   active effort or parked intake. -> expect links outward to the canonical `PROJECT/**` docs; the
+   roadmap is a pointer ledger, not a plan body. (`ROADMAP.md` is the frozen legacy file — do not
+   read it for current state or edit it.)
+5. For repo-management, doc-governance, or "what changed recently" tasks, read `CHANGELOG.md` (top
+   entries) and `PROJECT/PDDA.md` before going further. -> expect current operational state and the
    source of truth for lifecycle/enforcement rules; recent work concentrates here, not in
-   `README.md`. (`ROADMAP.md` is the frozen legacy file — do not read it for current state or edit
-   it.)
-5. Read `README.md` for the product's purpose and baseline usage. -> expect a short explanation of
-   what Sleuth does; this is a conditional background read, not required once step 4 already covers
+   `README.md`.
+6. Read `README.md` for the product's purpose and baseline usage. -> expect a short explanation of
+   what Sleuth does; this is a conditional background read, not required once step 5 already covers
    the task.
-6. Before reporting success on repo changes, run `utils/pdda/pdda.sh run` or a narrower check
+7. Before reporting success on repo changes, run `utils/pdda/pdda.sh run` or a narrower check
    (`utils/pdda/pdda.sh <check>`). -> expect deterministic findings first, then any LLM review.
 
 ## Debugging an AI decision (analysis, extraction, synthesis, triggers)
