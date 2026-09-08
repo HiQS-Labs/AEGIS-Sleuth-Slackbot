@@ -33,6 +33,28 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.325 - 2026-09-07
+
+Nothing you can see from Slack changed here — this one is for the people maintaining me. Two
+branches that both touched my release ledger could not be merged at all, and now they can.
+
+**Technical:** GH-183. `INSERT_RE` in `utils/py/releases_app.py` compiled without `re.DOTALL`, so a
+`roadmap_items` row whose `raw_text` carries an embedded newline — dumped as a multi-line statement
+— could never match. `parse_dump` then never cleared its buffer, swallowed every following
+statement, and died at EOF with `refused: rule=dump-parse: unparseable trailing statement`. That
+took out `check --rebuild`, which is the *only* documented resolution for a divergent-dump git merge
+(the `merge-rebuild` receipt it appends is the one legal fork point in the receipt-chain rule). The
+failure reproduced on pristine `development` at `cca1b90`, not just on merged branches, and plain
+`check` exits 0 throughout — so nothing surfaced it. Fix is `re.S` on the compile.
+
+Also adds `tests/ledger-dump-rebuild.test.js`, the first automated coverage for `releases_app.py` at
+all: the committed `releases.sql` parses, a synthetic embedded-newline row parses without swallowing
+the statement after it, a genuinely truncated statement is still refused (so the fix cannot be
+satisfied by deleting the refusal), and `check --rebuild` against a throwaway copy of the real
+ledger bumps the generation, appends exactly one `merge-rebuild` receipt, and leaves a `.bak`. The
+suite skips rather than fails where `python3` is absent. Verified red before green: 3 of the 4 fail
+with the fix reverted.
+
 ## 1.4.324 - 2026-09-05
 
 The model nicknames I understand ("ChatGPT", "Sonnet", "Gemini Pro" …) now come from one shared,

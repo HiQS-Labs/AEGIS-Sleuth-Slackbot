@@ -3241,7 +3241,12 @@ def cmd_check(args):
 # inserts, resolving parent GIDs to fresh integer ids in dump order — the "deterministic
 # renumbering on rebuild" the grammar promises.
 
-INSERT_RE = re.compile(r"^INSERT INTO ([a-z_]+)\(([^)]*)\) VALUES\((.*)\);$")
+# GH-183: re.S is load-bearing. A roadmap_items row whose raw_text carries an embedded
+# newline is dumped as a MULTI-LINE statement, and without DOTALL the `(.*)` can never
+# span it. parse_dump then never clears its buffer, swallows every following statement,
+# and dies at EOF with "unparseable trailing statement" — which took out `check --rebuild`,
+# the ONLY documented way to resolve a divergent-dump git merge, for the whole repo.
+INSERT_RE = re.compile(r"^INSERT INTO ([a-z_]+)\(([^)]*)\) VALUES\((.*)\);$", re.S)
 
 
 def _split_values(blob):
