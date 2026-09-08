@@ -2,11 +2,11 @@
 gh_issue: 169
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/169
 title: "Seeded property test: MarkdownToMrkdwn + command normalizer, plus a malformed-Slack-event corpus through MockSlackApp"
-status: Active (2-WORKING — plan under Codex review)
+status: Shipped
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-09-07
 owner: noelsaw1
-branch: feat/gh169-property-fuzz
+branch: development
 base_sha: 4a79ed7
 doc_type: feedback
 effort: 1
@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| **Complete and open for merge.** R7 amended by the owner on 2026-09-05 (issue body + `#issuecomment-5554971229`), closing the only item Codex escalated. Final QA relay on the committed implementation (`relay-system/2026-09-05/gh169-final-qa.md`, `26f4c16`) returned **Approved**: six `[Pass]` findings, no Blocker/Should/Nit, with an explicit whole-file sweep of both changed test files. PR [#175](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/175) into `development` | Await CI + merge. On merge: move this doc to `PROJECT/3-COMPLETED/` with a `## Lessons Learned (For Future Agents)` section, and repoint the ledger row. GH-172 (the `app_mention` non-string `text` guard this corpus found) stays open and unscheduled |
+| **Shipped.** PR [#175](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/175) merged to `development` 2026-09-07 (`cd590fa`), released as `1.4.326`. R7 was amended by the owner on 2026-09-05 (issue body + `#issuecomment-5554971229`), closing the only item Codex escalated. Final QA relay on the committed implementation (`relay-system/2026-09-05/gh169-final-qa.md`, `26f4c16`) returned **Approved**: six `[Pass]` findings, no Blocker/Should/Nit, with an explicit whole-file sweep of both changed test files. | Nothing. GH-172, the `app_mention` non-string `text` guard this corpus found, shipped separately in PR [#176](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/176) (`1.4.327`), which also restored the two corpus rows held out here. |
 
 ## Observed problem
 
@@ -314,3 +314,47 @@ the PR, with the one-line dispatch guard that would let the rows return.
 `rg -n "Simulate(Message|AppMention)Async\(\{[^}]*(text|user):\s*(''|\"\"|null)" tests scripts`
 returned no matches on `4a79ed7` (no caller passes an explicit empty or null literal). Callers that
 pass a variable are covered by the full `npm test` run recorded in the PR.
+
+## Lessons Learned (For Future Agents)
+
+**A corpus that finds a bug on its first run is doing its job — do not hide the finding.** The
+malformed-event corpus caught a real defect immediately: `app_mention` with a non-string `text`
+threw at `src/chat-command-router.js:111`. The three tempting moves were all wrong — keep the row
+red (a permanently failing suite teaches people to ignore it), wrap it in `test.failing` (jest
+reports "Failing test passed even though it was supposed to fail" and lists the rejection
+separately anyway), or quietly delete the shape. What worked: hold the two rows out with a comment
+naming exactly why and what would let them back, file the defect as GH-172, and fix it separately.
+Both landed the same day, and #176 restored the rows.
+
+**Mirror the production dispatcher in the mock, or a corpus row fails on the mock's own gap.**
+Restoring those rows in #176 did *not* work on the GH-172 guard alone. `MockSlackApp` mirrors
+`SlackApp.#OnAppMentionAsync`'s normalization — it already did so for `files` — but it had not
+picked up the new `text` coercion, so the rows still failed, now on a divergence between the mock
+and the real dispatcher rather than on anything real. If you add a normalization to a dispatcher,
+add it to the simulator in the same change. The pairing is safe from circularity only because the
+guard itself is proven against the real Bolt-registered callback in
+`tests/slack-app-app-mention-text-guard.test.js`; the corpus rows cover what the handler chain
+downstream of it does.
+
+**Wall-clock bounds flake under a parallel suite — measure under load, not in isolation.** The
+fixed 40k-nested-bracket ReDoS tripwire took 593ms run alone and 1638ms under the full parallel
+`npm test`. The bound had to go to 5000ms, and the resolver bound from 20ms to 100ms after a single
+warmed draw measured 25.7ms. A timing bound set from an isolated run is a future flake. Set it from
+the loaded run and record the measurement next to the constant so the next person does not
+"tighten" it back.
+
+**`process.on('unhandledRejection')` registered inside a jest test never fires.** The plan's R7
+originally asked for an armed listener. Under jest 30.3.0 the test-context `process` is a proxy;
+`listenerCount` reads 1 but the handler is never called, and jest-circus's own handler attributes
+the rejection to the running test. Registering it in a custom `testEnvironment` *does* work — an
+earlier flat claim that it "cannot fire under jest" was too strong — but that was more machinery
+than the requirement was worth. What shipped instead: keep the rejection inside the test's lifetime
+with an `await new Promise((r) => setImmediate(r))` drain and assert the observable trace (the mock
+logger's `Error in <event> handler:` entries). Raise a deviation like this with the reviewer early;
+Codex treats a documented deviation as an owner decision, not as a pass.
+
+**Assess borrowed tooling honestly before porting it.** XYZ-forge's ATE and `fuzz-loop.sh` were
+evaluated for this and declined: CLI-shaped, destructive per-variation `git reset --hard` +
+`git clean -fdx`, and they test the harness rather than the bot. The hand-rolled ~500-line jest
+file with no new dependency was the right size. "We already have a tool for that" is not the same
+as "that tool fits here".
