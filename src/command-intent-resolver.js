@@ -248,6 +248,28 @@ async function GetModelAliasRowsAsync() {
 }
 
 /**
+ * GH-173: the alias table WITH its provenance columns, plus the catalog it was synced from —
+ * the data source for the `run-diagnostics` catalog line. Additive read of the same cached file
+ * (`scripts/sync-model-catalog.js` writes `ModelAliasesCatalog` and the `Source`/`VerifiedOn`/
+ * `Flags` columns); the resolver itself still reads only `Match`/`Replace` above. Flags are
+ * advisory metadata for diagnostics — a flagged row resolves exactly like any other.
+ * @returns {Promise<{ Catalog: { Repo?: string, Tag?: string, Version?: string, Sha256?: string, SyncedOn?: string, NativeRows?: number }|null, Rows: Array<{ Match: string, Replace: string, Source: string|null, VerifiedOn: string|null, Flags: string[] }> }>}
+ */
+async function GetModelAliasProvenanceAsync() {
+  await LoadCommandIntentAssetsAsync();
+  const Config = /** @type {any} */ (CachedNormalizationConfig) || {};
+  const Catalog = Config.ModelAliasesCatalog && typeof Config.ModelAliasesCatalog === 'object' ? Config.ModelAliasesCatalog : null;
+  const Rows = (Config.ModelAliases || []).map((/** @type {any} */ ArgRow) => ({
+    Match: String(ArgRow.Match || ''),
+    Replace: String(ArgRow.Replace || ''),
+    Source: ArgRow.Source ? String(ArgRow.Source) : null,
+    VerifiedOn: ArgRow.VerifiedOn ? String(ArgRow.VerifiedOn) : null,
+    Flags: Array.isArray(ArgRow.Flags) ? ArgRow.Flags.map(String) : [],
+  }));
+  return { Catalog, Rows };
+}
+
+/**
  * @param {string} ArgIntentId
  * @returns {Promise<CommandCatalogEntry|null>}
  */
@@ -779,6 +801,7 @@ function RetrieveArgumentInvariantCommands() {
 module.exports = {
   BuildCanonicalCommand,
   GetModelAliasRowsAsync,
+  GetModelAliasProvenanceAsync,
   ResolveModelAliasAsync,
   BuildCanonicalCommandIntentIds,
   BuildSyntaxTemplate,
