@@ -6,6 +6,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 SOURCE_FILE="${ROADMAP_DASHBOARD_SOURCE:-"$ROOT/ROADMAP.md"}"
+# GH-187: the ledger CLI is VENDORED, at .xyz/utils/py/releases_app.py. There is deliberately no
+# tracked copy under utils/py/ — one used to exist, drifted ~1700 lines behind upstream, and lost
+# the roadmap verbs this repo needs. If .xyz/ is absent the repo has not been vendored yet; the
+# caller below already falls back to the legacy file rather than emitting an empty dashboard.
+RELEASES_APP="${RELEASES_APP:-"$ROOT/.xyz/utils/py/releases_app.py"}"
 OUTPUT_FILE="${ROADMAP_DASHBOARD_OUTPUT:-"$ROOT/ROADMAP-DASHBOARD.md"}"
 
 usage() {
@@ -45,13 +50,13 @@ RENDERED="$TMP_DIR/ROADMAP-DASHBOARD.md"
 # any failure here falls back to the legacy file rather than emitting an empty dashboard.
 if [ -z "${ROADMAP_DASHBOARD_SOURCE:-}" ] \
    && grep -q "ROADMAP_SOURCE=releases" "$ROOT/.pdda-mode" 2>/dev/null \
-   && [ -f "$ROOT/releases.db" ] && command -v python3 >/dev/null 2>&1; then
+   && [ -f "$ROOT/releases.db" ] && [ -f "$RELEASES_APP" ] && command -v python3 >/dev/null 2>&1; then
   DB_SRC="$TMP_DIR/roadmap-from-db.md"
   DB_JSON="$TMP_DIR/roadmap-rows.json"
   # JSON goes through a temp file passed as argv — `python3 -` takes its PROGRAM from the
   # heredoc on stdin, so piping data in as well would feed the parser nothing (the PR #240
   # rollup.sh bug, same shape).
-  if python3 "$ROOT/utils/py/releases_app.py" roadmap list --json > "$DB_JSON" 2>/dev/null \
+  if python3 "$RELEASES_APP" roadmap list --json > "$DB_JSON" 2>/dev/null \
      && python3 - "$DB_JSON" > "$DB_SRC" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:

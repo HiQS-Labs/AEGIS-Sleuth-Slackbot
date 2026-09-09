@@ -8,7 +8,7 @@ goal: >
   FROZEN. Kept for history and for utils/marathon-plan.sh's still-direct parsing of the Ledger
   section below (not yet repointed at the DB — see ROUTER.md's "RELEASES DB" section). New
   intake and current state live in the RELEASES DB: park with
-  `python3 utils/py/releases_app.py roadmap add`, read via ROADMAP-DASHBOARD.md or
+  `python3 .xyz/utils/py/releases_app.py roadmap add`, read via ROADMAP-DASHBOARD.md or
   `releases_app.py roadmap list`. Do not hand-edit this file.
 ---
 
@@ -16,7 +16,7 @@ goal: >
 
 > **FROZEN — legacy file, do not edit.** Since the `ROADMAP_SOURCE=releases` flip (`.pdda-mode`,
 > 2026-08-26), `releases.db` is the roadmap's source of truth. Read current state at
-> [ROADMAP-DASHBOARD.md](ROADMAP-DASHBOARD.md) or `python3 utils/py/releases_app.py roadmap list`;
+> [ROADMAP-DASHBOARD.md](ROADMAP-DASHBOARD.md) or `python3 .xyz/utils/py/releases_app.py roadmap list`;
 > park new intake with `releases_app.py roadmap add`. See `ROUTER.md` -> "RELEASES DB" for the full
 > contract. This file is kept only because `utils/marathon-plan.sh` still parses its Ledger section
 > directly and has not yet been updated for releases-mode.
