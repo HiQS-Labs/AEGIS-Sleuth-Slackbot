@@ -15,11 +15,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const RepoRoot = path.resolve(__dirname, '..');
-const AppPath = path.join(RepoRoot, 'utils', 'py', 'releases_app.py');
+// GH-187: the ledger CLI is vendored. The tracked copy this test originally pointed at was a fork
+// that had drifted ~1700 lines behind upstream, and it is deleted. `.xyz/` is gitignored, so a
+// clone that has not been vendored yet simply has no CLI to exercise — that is a skip, not a
+// failure, exactly as an absent python3 is.
+const AppPath = path.join(RepoRoot, '.xyz', 'utils', 'py', 'releases_app.py');
 const DumpPath = path.join(RepoRoot, 'releases.sql');
 
 const HasPython = spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0;
-const Describe = HasPython ? describe : describe.skip;
+const HasVendoredApp = fs.existsSync(AppPath);
+const Describe = HasPython && HasVendoredApp ? describe : describe.skip;
 
 /** Run a short python program with releases_app.py importable as `App`. */
 function RunPython(ArgSource) {
