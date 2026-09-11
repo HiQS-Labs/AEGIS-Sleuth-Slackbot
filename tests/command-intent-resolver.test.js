@@ -298,4 +298,32 @@ describe('command-intent-resolver', () => {
     expect(BuildCanonicalCommand('dnd', { QueryText: 'mute workspace reminders' })).toBe('dnd workspace on');
     expect(BuildCanonicalCommand('dnd', { QueryText: 'unmute workspace' })).toBe('dnd workspace off');
   });
+
+  test('ResolveRmmIntentAsync preserves interrogative safety even when LLM normalizes query_text to an action', async () => {
+    const WorkspaceAI = {
+      DefaultModelName: 'gpt-4o-mini',
+      ComplexModelName: 'gpt-4o',
+      ProcessMessageWithJsonResponseAsync: jest.fn().mockResolvedValue({
+        intent_id: 'dnd',
+        confidence: 0.9,
+        rationale: 'User is asking whether to mute reminders.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: '',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: 'mute reminders',
+        user_mention: '',
+      }),
+    };
+
+    const Result = await ResolveRmmIntentAsync(WorkspaceAI, 'should I mute reminders?', {
+      RequestMode: 'suggest',
+      ChannelID: 'C_TEST',
+      ChannelModelStatus: { override: null, defaultModel: 'gpt-4o-mini', effectiveModel: 'gpt-4o-mini' },
+    });
+
+    expect(Result.IntentId).toBe('dnd');
+    expect(Result.CanonicalCommand).toBe('dnd status');
+  });
 });

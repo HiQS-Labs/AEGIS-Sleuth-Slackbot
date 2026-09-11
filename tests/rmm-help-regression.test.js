@@ -399,7 +399,7 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
     expect(SlackApp.SentMessages[1].text).toContain('AEGIS Sleuth Reminders DND / Silent Mode Status');
   });
 
-  test('15. rmm ifl "should I mute reminders?" executes dnd status and never enables DND', async () => {
+  test('15. rmm ifl "should I mute reminders?" executes dnd status even when model normalizes query_text to "mute reminders"', async () => {
     const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
     SlackApp.IsChannelCreatorAsync = jest.fn().mockResolvedValue(true);
     SlackApp.IsAdminOrOwnerAsync = jest.fn().mockResolvedValue(false);
@@ -418,7 +418,7 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
     new ChatModule(SlackApp, EmptyWorkspaceStats, MockReminders, null, null);
     mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
       intent_id: 'dnd',
-      query_text: 'should I mute reminders?',
+      query_text: 'mute reminders',
       rationale: 'User is asking if reminders should be muted.',
     }));
 

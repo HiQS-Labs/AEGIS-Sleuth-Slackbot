@@ -692,7 +692,7 @@ async function ResolveRmmIntentAsync(ArgWorkspaceAI, ArgUserText, ArgOptions = {
     DefaultModelName: AiResponse.default_model_name,
     ComplexModelName: AiResponse.complex_model_name,
     ChannelModelName: AiResponse.channel_model_name,
-    QueryText: AiResponse.query_text || (IntentId === 'dnd' ? ArgUserText : undefined),
+    QueryText: IntentId === 'dnd' ? ArgUserText : AiResponse.query_text,
     UserMention: AiResponse.user_mention,
   });
 
