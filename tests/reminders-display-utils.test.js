@@ -7,6 +7,7 @@ const {
   MAX_COMPACT_SUMMARY_LENGTH,
   REMINDER_DUE_SECTIONS,
   ExtractCompactSummary,
+  ExtractKeyTaskSummaries,
   BuildCompactReminderLine,
   ToWebSafeSummary,
   BuildCompactTextForReminder,
@@ -262,5 +263,92 @@ describe('BuildCompactTextForReminder (parity with the shared line builder)', ()
       '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT>'
     );
     expect(SlackApp.GetPermaLinkAsync).toHaveBeenCalledWith('C1', '123.456');
+  });
+});
+
+describe('multi-task delivery — a trigger group is one record with N Key tasks', () => {
+  // Prod incident, 2026-09-11 07:31 PT: "I re-assigned LTVera 485 and 483 to you. Please review
+  // them tomorrow morning." confirmed TWO bullets ("Tasks for Today at 7:31 AM: • Review LTVera
+  // 485 • Review LTVera 483") and delivered ONE line naming only 485. One trigger group = one
+  // record holding both tasks; the delivery render read `lines.find('•')` and dropped task 2.
+  const ReminderMessageText = [
+    '<@U_NOEL>, <@U_JOSE> - please follow up on <https://x.slack.com/archives/C1/p1|this>:',
+    '><@U_JOSE> I re-assigned LTVera 485 and 483 to you. Please review them tomorrow morning.',
+    '',
+    'Key task(s):',
+    '• Review LTVera 485',
+    '  _LTVera 485 was re-assigned to the mentioned user._',
+    '• Review LTVera 483',
+    '  _LTVera 483 was re-assigned to the mentioned user._',
+  ].join('\n');
+
+  /** @returns {any} */
+  function MakeReminder() {
+    return {
+      ReminderID: 'R_MULTI',
+      ReminderMessageText,
+      OriginalChannelID: 'C1',
+      OriginalMessageID: '123.456',
+      CreatedOn: new Date(Date.UTC(2026, 8, 10, 20, 56, 0)),
+      ShouldPostOn: new Date(Date.UTC(2026, 8, 11, 14, 31, 0)),
+      AssigneeIDs: ['U_JOSE'],
+      OriginalSenderID: 'U_NOEL',
+    };
+  }
+
+  /** @returns {any} */
+  function MakeSlackApp() {
+    return {
+      BotUserID: 'U_BOT',
+      WorkspaceInfo: { MAIN_TIMEZONE: 'UTC' },
+      Logger: { info() {}, warn() {}, error() {} },
+      GetPermaLinkAsync: jest.fn().mockResolvedValue(null),
+    };
+  }
+
+  test('ExtractKeyTaskSummaries returns every stored task, in order', () => {
+    expect(ExtractKeyTaskSummaries(ReminderMessageText)).toEqual([
+      'Review LTVera 485',
+      'Review LTVera 483',
+    ]);
+  });
+
+  test('ExtractKeyTaskSummaries is empty for a record with no Key task bullets', () => {
+    expect(ExtractKeyTaskSummaries('<@U1> - please follow up:\n>just a quoted note')).toEqual([]);
+  });
+
+  test('delivery (IncludeAllKeyTasks) renders every task the confirmation promised', async () => {
+    const Line = await BuildCompactTextForReminder(
+      MakeSlackApp(), MakeReminder(), 'X', undefined, { IncludeAllKeyTasks: true },
+    );
+
+    // task 1 stays on the canonical compact line; task 2 gets its own indented bullet.
+    expect(Line).toContain('X.) Review LTVera 485');
+    expect(Line).toContain('\n   • Review LTVera 483');
+    expect(Line.split('\n')).toHaveLength(2);
+  });
+
+  test('list surfaces stay one line per reminder (option off by default)', async () => {
+    const Line = await BuildCompactTextForReminder(MakeSlackApp(), MakeReminder(), 'X');
+
+    expect(Line.split('\n')).toHaveLength(1);
+    expect(Line).not.toContain('Review LTVera 483');
+  });
+
+  test('extra task lines precede the rationale annotation', async () => {
+    const Line = await BuildCompactTextForReminder(
+      MakeSlackApp(), MakeReminder(), 'X',
+      { R_MULTI: 'oldest unstarted review' },
+      { IncludeAllKeyTasks: true },
+    );
+
+    const Lines = Line.split('\n');
+    expect(Lines).toHaveLength(3);
+    expect(Lines[1]).toBe('   • Review LTVera 483');
+    expect(Lines[2]).toBe('   ↳ oldest unstarted review');
+  });
+
+  test('ExtractCompactSummary is unchanged — still the FIRST task only', () => {
+    expect(ExtractCompactSummary(ReminderMessageText)).toBe('Review LTVera 485');
   });
 });
