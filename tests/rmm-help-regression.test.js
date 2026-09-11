@@ -283,4 +283,55 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
     expect(SlackApp.SentMessages[0].text).toContain('Replace the bracketed placeholders');
     expect(SlackApp.SentMessages[0].text).not.toContain('I need one clarification');
   });
+
+  test('11. rmm "how do I turn on DND?" suggests dnd syntax with mixed permission disclosure', async () => {
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
+      intent_id: 'dnd',
+      rationale: 'User asked how to turn on DND.',
+    }));
+
+    await SimulateAsync(SlackApp, 'rmm how do I turn on DND?');
+
+    expect(SlackApp.SentMessages).toHaveLength(1);
+    expect(SlackApp.SentMessages[0].text).toContain(
+      `*Closest command:* \`${SlackApp.AppMentionString} dnd on\``
+    );
+    expect(SlackApp.SentMessages[0].text).toContain(
+      '_Requires channel creator or workspace admin access (workspace toggles require admin)._'
+    );
+    expect(SlackApp.SentMessages[0].text).not.toContain(
+      '_Requires workspace admin or owner access._'
+    );
+  });
+
+  test('12. rmm ifl "turn on dnd in this channel" executes for a channel creator', async () => {
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    SlackApp.IsChannelCreatorAsync = jest.fn().mockResolvedValue(true);
+    SlackApp.IsAdminOrOwnerAsync = jest.fn().mockResolvedValue(false);
+
+    const DndSettings = {
+      SetChannelDndAsync: jest.fn().mockResolvedValue(undefined),
+      IsChannelDnd: jest.fn().mockReturnValue(false),
+      IsWorkspaceDnd: jest.fn().mockReturnValue(false),
+    };
+    const MockReminders = {
+      GetDndSettings: () => DndSettings,
+    };
+
+    new ChatModule(SlackApp, EmptyWorkspaceStats, MockReminders, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
+      intent_id: 'dnd',
+      query_text: 'on',
+      rationale: 'User wants to enable DND for this channel.',
+    }));
+
+    await SimulateAsync(SlackApp, 'rmm ifl turn on dnd in this channel');
+
+    expect(SlackApp.SentMessages.length).toBeGreaterThanOrEqual(2);
+    expect(SlackApp.SentMessages[0].text).toContain(`On it — running \`${SlackApp.AppMentionString} dnd on\``);
+    expect(DndSettings.SetChannelDndAsync).toHaveBeenCalledWith('C_GENERAL', true);
+    expect(SlackApp.SentMessages[1].text).toContain('Do Not Disturb (DND) / Silent Mode has been enabled for this channel');
+  });
 });

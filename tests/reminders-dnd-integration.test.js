@@ -380,5 +380,117 @@ describe('RemindersModule DND Integration', () => {
       await Reminders.StopAsync();
       await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
     });
+
+    test('holds reminder when origin channel is in DND even if target channel is not in DND', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('split_dest_origin_dnd');
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+
+      const Paths = GetRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const PastDate = new Date(Date.now() - 3600 * 1000);
+      const SeededReminders = [
+        {
+          ReminderID: 'rem-split-origin',
+          TargetChannelID: 'C_TARGET_OPEN',
+          OriginalChannelID: 'C_ORIGIN_DND',
+          TargetUserID: 'U123',
+          AssigneeID: 'U123',
+          ReminderMessageText: 'Split destination origin DND task',
+          ShouldPostOn: PastDate.toISOString(),
+          CreatedOn: new Date().toISOString(),
+          State: 'scheduled',
+          IgnoreSnooze: false,
+        }
+      ];
+      await fs.writeFile(Paths.reminders, JSON.stringify(SeededReminders), 'utf8');
+      // Origin channel is in DND, target channel is NOT
+      await fs.writeFile(Paths.dnd, JSON.stringify({ workspace: false, channels: ['C_ORIGIN_DND'] }), 'utf8');
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      SlackApp.GetChannelIdAsync = jest.fn().mockImplementation(async name => `C_${name}`);
+      SlackApp.GetChannelNameAsync = jest.fn().mockImplementation(async id => id.toLowerCase());
+      SlackApp.IsChannelMemberAsync = jest.fn().mockResolvedValue(true);
+
+      const Reminders = new RemindersModule(SlackApp, WorkspaceAIInstance);
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+
+      await Reminders.CheckRemindersNowAsync();
+
+      // Neither target nor origin should receive a post while origin is in DND (whole reminder held)
+      const DeliveryMessages = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Split destination origin DND task'));
+      expect(DeliveryMessages.length).toBe(0);
+
+      const PendingReminders = Reminders.GetPendingReminders();
+      expect(PendingReminders[0].State).toBe('overdue');
+
+      // Now turn off origin DND
+      await Reminders.GetDndSettings().SetChannelDndAsync('C_ORIGIN_DND', false);
+      await Reminders.CheckRemindersNowAsync();
+
+      // Both target and origin receive their posts now
+      const DeliveryAfter = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Split destination origin DND task'));
+      expect(DeliveryAfter.length).toBe(2);
+      expect(DeliveryAfter.map(m => m.channel).sort()).toEqual(['C_ORIGIN_DND', 'C_TARGET_OPEN']);
+      expect(PendingReminders[0].State).toBe('scheduled');
+
+      await Reminders.StopAsync();
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+    });
+
+    test('delivers reminder held by DND beyond 24 hours on normal check once DND is disabled', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('dnd_held_over_24h');
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+
+      const Paths = GetRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      // Overdue by 30 hours (> 24 hours threshold)
+      const Over30HoursAgo = new Date(Date.now() - 30 * 3600 * 1000);
+      const SeededReminders = [
+        {
+          ReminderID: 'rem-dnd-30h',
+          TargetChannelID: 'C_MAIN',
+          OriginalChannelID: 'C_MAIN',
+          TargetUserID: 'U123',
+          AssigneeID: 'U123',
+          ReminderMessageText: 'Reminder held during long DND period',
+          ShouldPostOn: Over30HoursAgo.toISOString(),
+          CreatedOn: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
+          State: 'scheduled',
+          IgnoreSnooze: false,
+        }
+      ];
+      await fs.writeFile(Paths.reminders, JSON.stringify(SeededReminders), 'utf8');
+      // Workspace DND is active
+      await fs.writeFile(Paths.dnd, JSON.stringify({ workspace: true, channels: [] }), 'utf8');
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      SlackApp.GetChannelIdAsync = jest.fn().mockImplementation(async name => `C_${name}`);
+      SlackApp.GetChannelNameAsync = jest.fn().mockImplementation(async id => id.toLowerCase());
+      SlackApp.IsChannelMemberAsync = jest.fn().mockResolvedValue(true);
+
+      const Reminders = new RemindersModule(SlackApp, WorkspaceAIInstance);
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+
+      // Normal check (ArgForceProcessAll = false): DND holds the reminder and marks DndHeld = true
+      await Reminders.CheckRemindersNowAsync();
+
+      expect(SlackApp.SentMessages.filter(m => m.text && m.text.includes('Reminder held during long DND period')).length).toBe(0);
+      const PendingReminders = Reminders.GetPendingReminders();
+      expect(PendingReminders[0].State).toBe('overdue');
+      expect(PendingReminders[0].DndHeld).toBe(true);
+
+      // Now disable DND
+      await Reminders.GetDndSettings().SetWorkspaceDndAsync(false);
+
+      // Run normal check again (ArgForceProcessAll = false)
+      await Reminders.CheckRemindersNowAsync();
+
+      // The held reminder must post immediately despite being > 24 hours overdue!
+      const Delivered = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Reminder held during long DND period'));
+      expect(Delivered.length).toBe(1);
+      expect(PendingReminders[0].State).toBe('scheduled');
+      expect(PendingReminders[0].DndHeld).toBe(false);
+
+      await Reminders.StopAsync();
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+    });
   });
 });

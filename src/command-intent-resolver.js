@@ -10,7 +10,7 @@ const { GetProviderDescriptorForModel } = require('./ai-providers');
 /**
  * @typedef {Object} CommandCatalogEntry
  * @property {string} Id
- * @property {'public'|'admin'} Permission
+ * @property {'public'|'admin'|'mixed'} Permission
  * @property {'low'|'medium'|'high'} Risk
  * @property {boolean} CanExecuteWithIfl
  * @property {string} Description

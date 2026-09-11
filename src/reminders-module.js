@@ -109,6 +109,7 @@ const { CollectDiagnosticsBaselineAsync, FormatDiagnosticsBaselineLines } = requ
  * @property {boolean} [GitHubRelayStarted] When true, at least one message has already been relayed; the first relay includes the Slack thread permalink (backwards compatible).
  * @property {string|null} [clientId] Stable client slug (e.g. "client-a"), stamped at creation or resolved at read time. Null when unmatched (backwards compatible).
  * @property {string|null} [projectId] Project identifier — null in v1; reserved for a future phase (backwards compatible).
+ * @property {boolean} [DndHeld] When true, this reminder was held by DND while due/overdue and remains eligible for delivery on the next check after DND is disabled, bypassing the 24-hour age threshold (backwards compatible).
  * @property {'scheduled'|'due'|'overdue'|'snoozed'|'posting'|'posted'|'rescheduled'|'failed'|'completed'|'canceled'|'dead-letter'} [State]
  * Reminder lifecycle state. Managed exclusively via #TransitionReminderState() — never set directly.
  * Optional because legacy reminders may lack it; backfilled to 'scheduled' on load.
@@ -739,6 +740,7 @@ class RemindersModule {
       ReminderID: crypto.randomUUID(),
       CreatedOn: new Date(),
       IgnoreSnooze: false,
+      DndHeld: false,
       State: RemindersModule.ReminderState.Scheduled,
     });
 
@@ -3971,19 +3973,29 @@ class RemindersModule {
     // Auto-post threshold: 24 hours. Reminders overdue by more than 24h accumulate in 'overdue'
     // (visible in "show my reminders" past-due buckets) without flooding Slack on restart.
     const AutoPostThresholdMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds.
+    let StateOrDataChanged = MarkPassChanged;
 
     const RemindersToPost = this.#PendingRemindersQueue.filter(ArgReminder => {
       if(ArgReminder.State !== RemindersModule.ReminderState.Overdue) return false;
-      if(this.#ShouldSuppressReminderForDnd(ArgReminder)) return false;
+      const OverdueByMs = CurrentDateTime.getTime() - ArgReminder.ShouldPostOn.getTime();
+      const IsWithinThreshold = OverdueByMs <= AutoPostThresholdMs;
+
+      if(this.#ShouldSuppressReminderForDnd(ArgReminder)) {
+        if(!ArgReminder.DndHeld) {
+          ArgReminder.DndHeld = true;
+          StateOrDataChanged = true;
+        }
+        return false;
+      }
       if(RetryEligibleIDs.has(ArgReminder.ReminderID)) return true; // retry-eligible: always post.
       if(ArgForceProcessAll) return true;                            // force mode: bypass age threshold.
-      const OverdueByMs = CurrentDateTime.getTime() - ArgReminder.ShouldPostOn.getTime();
-      return OverdueByMs <= AutoPostThresholdMs;
+      if(ArgReminder.DndHeld) return true;                           // held by DND: eligible for delivery once DND cleared.
+      return IsWithinThreshold;
     });
 
-    // exit early if nothing to post (persist mark-pass state changes if any occurred).
+    // exit early if nothing to post (persist mark-pass or DND-held state changes if any occurred).
     if(RemindersToPost.length === 0) {
-      if(MarkPassChanged) await this.#SaveRemindersAsync();
+      if(StateOrDataChanged) await this.#SaveRemindersAsync();
       return;
     }
 
@@ -4174,6 +4186,7 @@ class RemindersModule {
         );
         ReminderToPost.ShouldPostOn = NextPostDate;
         ReminderToPost.IgnoreSnooze = false;
+        ReminderToPost.DndHeld = false;
         this.#TransitionReminderState(ReminderToPost, RemindersModule.ReminderState.Rescheduled, 'next-day');
         this.#TransitionReminderState(ReminderToPost, RemindersModule.ReminderState.Scheduled, 'waiting-next-cycle');
 

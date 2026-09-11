@@ -136,7 +136,7 @@ const CommandCatalogPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'c
 /**
  * @typedef {Object} CommandCatalogEntry
  * @property {string} Id
- * @property {'public'|'admin'} Permission
+ * @property {'public'|'admin'|'mixed'} Permission
  * @property {'low'|'medium'|'high'} Risk
  * @property {boolean} CanExecuteWithIfl
  * @property {string} Description
@@ -402,11 +402,18 @@ function BuildCommandsListSectionLines(ArgCatalog, ArgPermission, ArgAppMentionS
 function BuildCommandsReferenceLinesFromCatalog(ArgCatalog, ArgAppMentionString = '@Sleuth AI') {
   ValidateCommandCatalogShape(ArgCatalog);
 
+  const MixedLines = BuildCommandsListSectionLines(ArgCatalog, 'mixed', ArgAppMentionString);
+
   return [
     DefaultCommandsIntroLine,
     '',
     '*:lock: Admin Commands* _(workspace admin or owner only)_',
     ...BuildCommandsListSectionLines(ArgCatalog, 'admin', ArgAppMentionString),
+    ...(MixedLines.length > 0 ? [
+      '',
+      '*:gear: Channel & Workspace Settings* _(channel creator or workspace admin)_',
+      ...MixedLines,
+    ] : []),
     '',
     '*:busts_in_silhouette: User Commands*',
     ...BuildCommandsListSectionLines(ArgCatalog, 'public', ArgAppMentionString),

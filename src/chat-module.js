@@ -1142,7 +1142,9 @@ class ChatModule {
 
       const PermissionLine = Resolution.CatalogEntry.Permission === 'admin'
         ? '_Requires workspace admin or owner access._'
-        : '_Available to any workspace user._';
+        : Resolution.CatalogEntry.Permission === 'mixed'
+          ? '_Requires channel creator or workspace admin access (workspace toggles require admin)._'
+          : '_Available to any workspace user._';
 
       // discovery path — resolver picked an intent but the user did not supply the argument.
       if(!Resolution.CanonicalCommand && Resolution.SyntaxTemplate) {
