@@ -10,7 +10,7 @@ const { GetProviderDescriptorForModel } = require('./ai-providers');
 /**
  * @typedef {Object} CommandCatalogEntry
  * @property {string} Id
- * @property {'public'|'admin'} Permission
+ * @property {'public'|'admin'|'mixed'} Permission
  * @property {'low'|'medium'|'high'} Risk
  * @property {boolean} CanExecuteWithIfl
  * @property {string} Description
@@ -356,6 +356,25 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
     return 'enable reminders';
   case 'disable-reminders':
     return 'disable reminders';
+  case 'dnd': {
+    const Lower = (QueryText || '').toLowerCase();
+    const IsWorkspace = Lower.includes('workspace') || Lower.includes('group') || Lower.includes('all channel') || Lower.includes('global');
+    const IsOff = /\b(off|unmute|disable|stop|resume)\b/i.test(Lower) || Lower.includes('turn off');
+    const IsInterrogative = /\?/.test(Lower) ||
+      /\b(how|should|can|could|would|why|what|is|are|check|status)\b/i.test(Lower) ||
+      Lower.trim() === 'dnd' ||
+      Lower.trim() === 'dnd?';
+    const IsExplicitOn = !IsInterrogative && !IsOff && (/\b(on|turn\s+on|enable|mute|start|activate|pause)\b/i.test(Lower) || /\bdnd\s+on\b/i.test(Lower));
+    const IsExplicitOff = !IsInterrogative && IsOff;
+
+    const ChannelMatch = QueryText.match(/<#([a-zA-Z0-9_-]+)(?:\|[^>]+)?>/);
+    const TargetChannel = (!IsWorkspace && ChannelMatch) ? ` <#${ChannelMatch[1]}>` : '';
+
+    if(IsExplicitOff) return IsWorkspace ? 'dnd workspace off' : `dnd off${TargetChannel}`;
+    if(IsExplicitOn) return IsWorkspace ? 'dnd workspace on' : `dnd on${TargetChannel}`;
+    // Default to non-mutating 'dnd status' for all interrogatives, questions, and ambiguous text.
+    return `dnd status${TargetChannel}`;
+  }
   case 'process-reminders-now':
     return 'process reminders now';
   case 'github-sync-now':
@@ -673,7 +692,7 @@ async function ResolveRmmIntentAsync(ArgWorkspaceAI, ArgUserText, ArgOptions = {
     DefaultModelName: AiResponse.default_model_name,
     ComplexModelName: AiResponse.complex_model_name,
     ChannelModelName: AiResponse.channel_model_name,
-    QueryText: AiResponse.query_text,
+    QueryText: IntentId === 'dnd' ? ArgUserText : AiResponse.query_text,
     UserMention: AiResponse.user_mention,
   });
 
@@ -738,7 +757,7 @@ const BuildCanonicalCommandIntentIds = new Set([
   'search-reminders-here', 'search-my-reminders', 'show-reminders', 'show-reminders-for-user',
   'show-reminders-here', 'show-github-reminders', 'show-my-reminders', 'summarize-week',
   'enable-reminders',
-  'disable-reminders', 'process-reminders-now', 'github-sync-now', 'test-github-sync',
+  'disable-reminders', 'dnd', 'process-reminders-now', 'github-sync-now', 'test-github-sync',
   'show-stats', 'ping', 'set-channel-model', 'model-switch-default', 'model-switch-complex',
   'model-switch-both', 'version', 'changelog', 'view-stratalist', 'rmm',
   'ask-code', 'recall',

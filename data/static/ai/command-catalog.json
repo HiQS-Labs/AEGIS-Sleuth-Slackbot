@@ -1340,6 +1340,65 @@
     "HelpSection": "Reminders"
   },
   {
+    "Id": "dnd",
+    "Permission": "mixed",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Toggle Do Not Disturb (DND) / Silent Mode for reminder notifications in the current channel (or workspace-wide with 'workspace on/off').",
+    "SyntaxExamples": [
+      "@Sleuth AI dnd on",
+      "@Sleuth AI dnd off",
+      "@Sleuth AI dnd workspace on",
+      "@Sleuth AI dnd workspace off",
+      "@Sleuth AI dnd status"
+    ],
+    "Aliases": [
+      "dnd",
+      "dnd on",
+      "dnd off",
+      "dnd status",
+      "dnd workspace on",
+      "dnd workspace off",
+      "silent mode",
+      "silent mode on",
+      "silent mode off",
+      "quiet mode",
+      "quiet mode on",
+      "quiet mode off",
+      "mute reminders",
+      "unmute reminders"
+    ],
+    "IntentPhrases": [
+      "turn on dnd",
+      "turn off dnd",
+      "turn on silent mode",
+      "turn off silent mode",
+      "silence reminder notifications",
+      "mute reminders in this channel",
+      "unmute reminders in this channel",
+      "mute workspace reminders",
+      "unmute workspace reminders",
+      "check dnd status",
+      "are reminders on dnd"
+    ],
+    "ArgumentHints": [
+      "[on|off]",
+      "[workspace on|workspace off]",
+      "status"
+    ],
+    "DisambiguationNotes": [
+      "Use this when the user wants to toggle DND or silent mode for reminder notifications, either on the current channel or workspace-wide."
+    ],
+    "RegisteredRoutes": [
+      "dnd"
+    ],
+    "IncludeInHelp": true,
+    "IncludeInCommandsList": true,
+    "HelpOrder": 22,
+    "CommandsListOrder": 280,
+    "HelpSection": "Reminders"
+  },
+  {
     "Id": "process-reminders-now",
     "Permission": "admin",
     "Risk": "medium",

@@ -88,6 +88,7 @@ const HandleRmmCommandAsync = require('./chat-commands/rmm-command');
 const HandleShowMeCommandAsync = require('./chat-commands/show-me-command');
 const HandleShowMeProjectsCommandAsync = require('./chat-commands/show-me-projects-command');
 const HandleRefreshClientsCommandAsync = require('./chat-commands/refresh-clients-command');
+const HandleDndCommandAsync = require('./chat-commands/dnd-command');
 const HandleRecallCommandAsync = require('./chat-commands/recall-command');
 const { FileGithubIssueAsync } = require('./github-issue-filer');
 const { NormalizeDirectCommandTextAsync } = require('./command-intent-resolver');
@@ -260,6 +261,15 @@ class ChatModule {
 
     // initialize the WorkspaceAI instance using the workspace info and stats.
     this.#WorkspaceAI = new WorkspaceAI(this.#SlackApp.WorkspaceInfo, ArgWorkspaceStats);
+
+    if(this.#SlackApp) {
+      if(this.#RemindersModule && !this.#SlackApp.RemindersModule) {
+        this.#SlackApp.RemindersModule = this.#RemindersModule;
+      }
+      if(!this.#SlackApp.WorkspaceAI) {
+        this.#SlackApp.WorkspaceAI = this.#WorkspaceAI;
+      }
+    }
 
     // initialize the per-channel model override store. Disk load is deferred to StartAsync so
     // construction stays synchronous and matches the pattern used by other modules.
@@ -621,6 +631,14 @@ class ChatModule {
       Route: 'run daily digest',
       Handle: (ArgEventInfo) => HandleRunDailyDigestCommandAsync(
         this.#SlackApp, ArgEventInfo, this.#RemindersModule
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^dnd(?:\s+(.+))?$/i,
+      Route: 'dnd',
+      Handle: (ArgEventInfo, ArgArgString) => HandleDndCommandAsync(
+        this.#SlackApp, ArgEventInfo, this.#RemindersModule, ArgArgString
       ),
     });
 
@@ -1133,7 +1151,9 @@ class ChatModule {
 
       const PermissionLine = Resolution.CatalogEntry.Permission === 'admin'
         ? '_Requires workspace admin or owner access._'
-        : '_Available to any workspace user._';
+        : Resolution.CatalogEntry.Permission === 'mixed'
+          ? '_Requires channel creator or workspace admin access (workspace toggles require admin)._'
+          : '_Available to any workspace user._';
 
       // discovery path — resolver picked an intent but the user did not supply the argument.
       if(!Resolution.CanonicalCommand && Resolution.SyntaxTemplate) {

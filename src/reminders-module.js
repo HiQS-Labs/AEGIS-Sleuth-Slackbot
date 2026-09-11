@@ -7,6 +7,7 @@ const WorkspaceAI = require('./workspace-ai');
 const workspaces = require('./workspaces');
 const DateUtils = require('./date-utils');
 const RemindersChannelSettings = require('./reminders-channel-settings');
+const RemindersDndSettings = require('./reminders-dnd-settings');
 const RemindersAIPipeline = require('./reminders-ai-pipeline');
 const RemindersReactionHandler = require('./reminders-reaction-handler');
 const RemindersAppMentionHandler = require('./reminders-app-mention-handler');
@@ -108,6 +109,7 @@ const { CollectDiagnosticsBaselineAsync, FormatDiagnosticsBaselineLines } = requ
  * @property {boolean} [GitHubRelayStarted] When true, at least one message has already been relayed; the first relay includes the Slack thread permalink (backwards compatible).
  * @property {string|null} [clientId] Stable client slug (e.g. "client-a"), stamped at creation or resolved at read time. Null when unmatched (backwards compatible).
  * @property {string|null} [projectId] Project identifier — null in v1; reserved for a future phase (backwards compatible).
+ * @property {boolean} [DndHeld] When true, this reminder was held by DND while due/overdue and remains eligible for delivery on the next check after DND is disabled, bypassing the 24-hour age threshold (backwards compatible).
  * @property {'scheduled'|'due'|'overdue'|'snoozed'|'posting'|'posted'|'rescheduled'|'failed'|'completed'|'canceled'|'dead-letter'} [State]
  * Reminder lifecycle state. Managed exclusively via #TransitionReminderState() — never set directly.
  * Optional because legacy reminders may lack it; backfilled to 'scheduled' on load.
@@ -179,6 +181,12 @@ class RemindersModule {
    * @type {RemindersChannelSettings}
    */
   #ChannelSettings;
+
+  /**
+   * DND settings manager for channel-level and workspace-level reminder suppression.
+   * @type {RemindersDndSettings}
+   */
+  #DndSettings;
 
   /**
    * AI pipeline for reminder analysis, date extraction, and deduplication.
@@ -417,6 +425,9 @@ class RemindersModule {
   constructor(ArgSlackApp) {
     // save the Slack app instance.
     this.#SlackApp = ArgSlackApp;
+    if(this.#SlackApp) {
+      this.#SlackApp.RemindersModule = this;
+    }
 
     this.#AppMentionHandler = new RemindersAppMentionHandler({
       GetPendingReminders: () => this.#PendingRemindersQueue,
@@ -732,6 +743,7 @@ class RemindersModule {
       ReminderID: crypto.randomUUID(),
       CreatedOn: new Date(),
       IgnoreSnooze: false,
+      DndHeld: false,
       State: RemindersModule.ReminderState.Scheduled,
     });
 
@@ -1212,6 +1224,9 @@ class RemindersModule {
   async StartAsync(ArgWorkspaceStats) {
     // initialize the WorkspaceAI instance.
     this.#WorkspaceAI = new WorkspaceAI(this.#SlackApp.WorkspaceInfo, ArgWorkspaceStats);
+    if(this.#SlackApp && !this.#SlackApp.WorkspaceAI) {
+      this.#SlackApp.WorkspaceAI = this.#WorkspaceAI;
+    }
 
     // populate snooze days from workspace configuration.
     this.#SnoozeDays = new Set(
@@ -1236,6 +1251,7 @@ class RemindersModule {
     this.#TrashedExamplesFilePath = path.join(RemindersDirPath, `${WorkspaceName}_trashed_examples.jsonl`);
     this.#TrashedExamplesCursorFilePath = path.join(RemindersDirPath, `${WorkspaceName}_trashed_examples_cursor.json`);
     const EnabledChannelsFilePath = path.join(RemindersDirPath, `${WorkspaceName}_enabled_channels.json`);
+    const DndSettingsFilePath = path.join(RemindersDirPath, `${WorkspaceName}_dnd.json`);
 
     // load Sleuth's own completion history (powers the weekly summary; independent of Slack Lists).
     this.#CompletionStore = new CompletionStore(
@@ -1263,6 +1279,9 @@ class RemindersModule {
 
     // instantiate the channel settings manager.
     this.#ChannelSettings = new RemindersChannelSettings(this.#SlackApp, EnabledChannelsFilePath);
+
+    // instantiate the DND / silent mode settings manager.
+    this.#DndSettings = new RemindersDndSettings(this.#SlackApp, DndSettingsFilePath);
 
     // instantiate the AI pipeline for reminder analysis, date extraction, and deduplication.
     this.#AIPipeline = new RemindersAIPipeline(this.#WorkspaceAI, this.#SlackApp, () => this.#PendingRemindersQueue);
@@ -1348,8 +1367,9 @@ class RemindersModule {
       this.#SlackApp.Logger.error("starting with default reminder counter state due to error:", error);
     }
 
-    // load enabled channels from disk.
+    // load enabled channels and DND settings from disk.
     await this.#ChannelSettings.LoadEnabledChannelsAsync();
+    await this.#DndSettings.LoadAsync();
 
     // indicate that the reminders system is starting and where the reminders are being loaded from.
     this.#SlackApp.Logger.info("initializing reminders system from file:", this.#ReminderFilePath);
@@ -1411,6 +1431,24 @@ class RemindersModule {
   }
 
   /**
+   * Run the overdue reminders check immediately.
+   * Intended for debug and manual testing.
+   * @param {boolean} [ArgForceProcessAll=false]
+   * @returns {Promise<void>}
+   */
+  async CheckRemindersNowAsync(ArgForceProcessAll = false) {
+    await this.#CheckRemindersAsync(ArgForceProcessAll);
+  }
+
+  /**
+   * Return a snapshot copy of the pending reminders queue.
+   * @returns {ReminderInfo[]}
+   */
+  GetPendingReminders() {
+    return [...this.#PendingRemindersQueue];
+  }
+
+  /**
    * Stop the reminders system.
    * @returns {Promise<void>}
    */
@@ -1442,6 +1480,31 @@ class RemindersModule {
    */
   AreRemindersEnabledForChannel(ArgChannelID) {
     return this.#ChannelSettings ? this.#ChannelSettings.AreRemindersEnabledForChannel(ArgChannelID) : false;
+  }
+
+  /**
+   * Get DND settings manager.
+   * @returns {RemindersDndSettings}
+   */
+  GetDndSettings() {
+    return this.#DndSettings;
+  }
+
+  /**
+   * Check if DND is active for a channel (either channel-level or workspace-level).
+   * @param {string} ArgChannelID Channel ID to check.
+   * @returns {boolean}
+   */
+  IsDndActiveForChannel(ArgChannelID) {
+    return this.#DndSettings ? this.#DndSettings.IsDndActiveForChannel(ArgChannelID) : false;
+  }
+
+  /**
+   * Check if any DND setting is active across workspace or channels.
+   * @returns {boolean}
+   */
+  HasAnyDndActive() {
+    return this.#DndSettings ? this.#DndSettings.HasAnyDndActive() : false;
   }
 
   /**
@@ -3364,6 +3427,61 @@ class RemindersModule {
       this.#SlackApp.Logger.info(`daily digest force-run requested, bypassing duplicate-send guard`);
 
 
+    const ReminderChannelID = await this.#GetReminderChannelIdAsync('');
+    if(!ReminderChannelID) {
+      this.#SlackApp.Logger.error('could not determine reminder channel for daily digest');
+      return;
+    }
+
+    // DND GUARD: If DND is enabled on workspace or any channels, post a status notice on the main
+    // defined reminder channel in lieu of the morning reminders and suppress all digest threads.
+    // Checked before snooze-guard so DND notices post even on snooze days.
+    if(this.#DndSettings && this.#DndSettings.HasAnyDndActive()) {
+      const IsWorkspaceDnd = this.#DndSettings.IsWorkspaceDnd();
+      const DndChannelIDs = this.#DndSettings.GetDndChannelIds();
+
+      const ScopeDescriptions = [];
+      if(IsWorkspaceDnd) ScopeDescriptions.push('this workspace');
+      if(DndChannelIDs.length > 0) {
+        const FormattedChannels = DndChannelIDs.map(ArgID => `<#${ArgID}>`).join(', ');
+        ScopeDescriptions.push(`the following channel(s): ${FormattedChannels}`);
+      }
+
+      const TurnOnCommands = [];
+      if(IsWorkspaceDnd) {
+        TurnOnCommands.push('`@Sleuth AI dnd workspace off`');
+      }
+      for(const ChannelID of DndChannelIDs) {
+        if(ChannelID === ReminderChannelID) {
+          TurnOnCommands.push('`@Sleuth AI dnd off`');
+        } else {
+          TurnOnCommands.push(`\`@Sleuth AI dnd off <#${ChannelID}>\` (or \`@Sleuth AI dnd off\` in <#${ChannelID}>)`);
+        }
+      }
+      const TurnOnCommand = TurnOnCommands.join(' or ') || '`@Sleuth AI dnd off`';
+
+      const DndNoticeText = `Note: AEGIS Sleuth Reminders are DND on ${ScopeDescriptions.join(' and ')}. Use ${TurnOnCommand} to turn them on.`;
+
+      try {
+        await this.#SlackApp.PostMessageTextAsync(
+          ReminderChannelID,
+          undefined,
+          DndNoticeText,
+          undefined,
+          { Tag: 'daily-digest-dnd-notice' }
+        );
+        this.#SlackApp.Logger.info(
+          `[dnd-guard] daily digest suppressed due to active DND (${ScopeDescriptions.join(', ')}); posted DND notice to ${ReminderChannelID}`
+        );
+      } catch(error) {
+        this.#SlackApp.Logger.error(`[dnd-guard] failed to post DND status notice to ${ReminderChannelID}:`, error);
+      }
+
+      this.#LastDailyDigestDate = TodayDateString;
+      await this.#SaveReminderCounterAsync();
+      return;
+    }
+
     const CurrentDayName = this.#GetCurrentDayName();
     const SnoozedToday = this.#IsSnoozedToday();
 
@@ -3378,12 +3496,6 @@ class RemindersModule {
         await this.#SaveReminderCounterAsync();
         return;
       }
-    }
-
-    const ReminderChannelID = await this.#GetReminderChannelIdAsync('');
-    if(!ReminderChannelID) {
-      this.#SlackApp.Logger.error('could not determine reminder channel for daily digest');
-      return;
     }
 
     let RemindersByUser = this.#BuildReminderMapByUser();
@@ -3786,6 +3898,26 @@ class RemindersModule {
   }
 
   /**
+   * Determine whether any destination for an overdue reminder is suppressed by DND.
+   * If any required destination is in DND, the entire reminder is held so it is not
+   * partially delivered and rescheduled before all destinations can receive it.
+   * DND suppression is unconditional — it cannot be bypassed by force mode.
+   * @param {ReminderInfo} ArgReminder Reminder being evaluated.
+   * @returns {boolean}
+   */
+  #ShouldSuppressReminderForDnd(ArgReminder) {
+    if(!this.#DndSettings) return false;
+    if(this.#DndSettings.IsWorkspaceDnd()) return true;
+
+    if(this.#DndSettings.IsChannelDnd(ArgReminder.TargetChannelID)) return true;
+
+    const HasSeparateOrigin = ArgReminder.OriginalChannelID && ArgReminder.OriginalChannelID !== ArgReminder.TargetChannelID;
+    if(HasSeparateOrigin && this.#DndSettings.IsChannelDnd(ArgReminder.OriginalChannelID)) return true;
+
+    return false;
+  }
+
+  /**
    * Determine whether today is a configured snooze day.
    * @returns {boolean}
    */
@@ -3853,18 +3985,29 @@ class RemindersModule {
     // Auto-post threshold: 24 hours. Reminders overdue by more than 24h accumulate in 'overdue'
     // (visible in "show my reminders" past-due buckets) without flooding Slack on restart.
     const AutoPostThresholdMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds.
+    let StateOrDataChanged = MarkPassChanged;
 
     const RemindersToPost = this.#PendingRemindersQueue.filter(ArgReminder => {
       if(ArgReminder.State !== RemindersModule.ReminderState.Overdue) return false;
+      const OverdueByMs = CurrentDateTime.getTime() - ArgReminder.ShouldPostOn.getTime();
+      const IsWithinThreshold = OverdueByMs <= AutoPostThresholdMs;
+
+      if(this.#ShouldSuppressReminderForDnd(ArgReminder)) {
+        if(!ArgReminder.DndHeld) {
+          ArgReminder.DndHeld = true;
+          StateOrDataChanged = true;
+        }
+        return false;
+      }
       if(RetryEligibleIDs.has(ArgReminder.ReminderID)) return true; // retry-eligible: always post.
       if(ArgForceProcessAll) return true;                            // force mode: bypass age threshold.
-      const OverdueByMs = CurrentDateTime.getTime() - ArgReminder.ShouldPostOn.getTime();
-      return OverdueByMs <= AutoPostThresholdMs;
+      if(ArgReminder.DndHeld) return true;                           // held by DND: eligible for delivery once DND cleared.
+      return IsWithinThreshold;
     });
 
-    // exit early if nothing to post (persist mark-pass state changes if any occurred).
+    // exit early if nothing to post (persist mark-pass or DND-held state changes if any occurred).
     if(RemindersToPost.length === 0) {
-      if(MarkPassChanged) await this.#SaveRemindersAsync();
+      if(StateOrDataChanged) await this.#SaveRemindersAsync();
       return;
     }
 
@@ -3962,8 +4105,9 @@ class RemindersModule {
       }
 
       // if the original channel is not a test channel (or does not exist, which may be the case for very old reminders
-      // where the original channel was not stored), post the reminder in the target channel as usual.
-      if(!OriginalChannelIsTest) {
+      // where the original channel was not stored) and not in DND, post the reminder in the target channel as usual.
+      const TargetChannelIsDnd = Boolean(this.#DndSettings?.IsDndActiveForChannel(TargetChannelID));
+      if(!OriginalChannelIsTest && !TargetChannelIsDnd) {
         try {
           // post the compact reminder message to the target channel.
           await this.#SlackApp.PostMessageTextAsync(
@@ -3991,8 +4135,9 @@ class RemindersModule {
         }
       }
 
-      // post the reminder message to the original channel if different from the target channel.
-      if(OriginalChannelID !== TargetChannelID) {
+      // post the reminder message to the original channel if different from the target channel and not in DND.
+      const OriginalChannelIsDnd = Boolean(this.#DndSettings?.IsDndActiveForChannel(OriginalChannelID));
+      if(OriginalChannelID !== TargetChannelID && !OriginalChannelIsDnd) {
         try {
           // post the compact reminder message to the original channel.
           await this.#SlackApp.PostMessageTextAsync(
@@ -4053,6 +4198,7 @@ class RemindersModule {
         );
         ReminderToPost.ShouldPostOn = NextPostDate;
         ReminderToPost.IgnoreSnooze = false;
+        ReminderToPost.DndHeld = false;
         this.#TransitionReminderState(ReminderToPost, RemindersModule.ReminderState.Rescheduled, 'next-day');
         this.#TransitionReminderState(ReminderToPost, RemindersModule.ReminderState.Scheduled, 'waiting-next-cycle');
 

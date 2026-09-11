@@ -33,6 +33,21 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.328 - 2026-09-10
+
+You can now mute reminder notifications with Do Not Disturb (DND) / Silent Mode! Use `@Sleuth AI dnd on` or `@Sleuth AI dnd off` to quiet notifications in a specific channel, or `@Sleuth AI dnd workspace on/off` for the entire workspace. While DND is active, due reminders are kept safely on hold without spamming your channels, and the morning digest prints a concise DND status notice on your main reminders channel so nobody misses what's paused.
+
+**Technical:** GH-191. Added channel-level and workspace-level Do Not Disturb (DND) / silent mode for reminder notifications.
+- Persisted DND settings in `src/reminders-dnd-settings.js` under `data/runtime/reminders/${WorkspaceName}_dnd.json` with workspace boolean and channel ID set, backed by serialized file writes.
+- Implemented `src/chat-commands/dnd-command.js` handling `@Sleuth AI dnd [on|off]`, `@Sleuth AI dnd workspace [on|off]`, and `@Sleuth AI dnd status`. Enforces permission checks (channel creator or workspace admin for channel toggles, workspace admin for workspace toggles).
+- Registered primary `dnd` route in `src/chat-module.js` closing over `this.#SlackApp` (tenant isolated, guarded by `validate:workspace-isolation`).
+- Added canonical command building in `src/command-intent-resolver.js` and catalog entries in `data/static/ai/command-catalog.json` supporting RMM natural language aliases (`CanExecuteWithIfl: true`).
+- Integrated DND suppression into `src/reminders-module.js`:
+  - Due reminders evaluate `#ShouldSuppressReminderForDnd`: held in `Overdue` state during DND without advancing due date or mutating state outside FSM invariants (`validate:fsm` clean). Reminders deliver and reschedule normally once DND is deactivated.
+  - Delivery checks suppress target and origin posts if either channel or the workspace has DND active.
+  - `#RunDailyTaskDigestAsync` checks `HasAnyDndActive()`: posts a status notice to the configured `ReminderChannelID` explaining which channel(s) or workspace are in DND and command hints to turn them back on in lieu of morning reminder threads.
+- Comprehensive test coverage in `tests/reminders-dnd-settings.test.js`, `tests/dnd-command.test.js`, and `tests/reminders-dnd-integration.test.js`.
+
 ## 1.4.327 - 2026-09-07
 
 If a malformed mention ever reached me, I used to reply "sorry, something went wrong handling

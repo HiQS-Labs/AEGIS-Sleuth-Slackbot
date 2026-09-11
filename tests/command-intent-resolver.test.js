@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  BuildCanonicalCommand,
   GetModelAliasRowsAsync,
   NormalizeDirectCommandTextAsync,
   ResolveModelAliasAsync,
@@ -244,5 +245,85 @@ describe('command-intent-resolver', () => {
     // Genuine off-topic chatter scores far below a wrong-syntax near-miss — the separation the probe relies on.
     const Chat = await RetrieveScoredCandidates('thanks so much, have a great weekend everyone');
     expect(NearMiss[0].Score).toBeGreaterThan(Chat[0].Score);
+  });
+
+  test('resolves dnd intents to canonical dnd commands', async () => {
+    const WorkspaceAI = {
+      DefaultModelName: 'gpt-4o-mini',
+      ComplexModelName: 'gpt-4o',
+      ProcessMessageWithJsonResponseAsync: jest.fn().mockResolvedValue({
+        intent_id: 'dnd',
+        confidence: 0.95,
+        rationale: 'User wants to turn on DND for this channel.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: '',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: 'on',
+        user_mention: '',
+      }),
+    };
+
+    const Result = await ResolveRmmIntentAsync(WorkspaceAI, 'turn on dnd in this channel', {
+      RequestMode: 'suggest',
+      ChannelID: 'C_TEST',
+      ChannelModelStatus: { override: null, defaultModel: 'gpt-4o-mini', effectiveModel: 'gpt-4o-mini' },
+    });
+
+    expect(Result.IntentId).toBe('dnd');
+    expect(Result.CanonicalCommand).toBe('dnd on');
+  });
+
+  test('BuildCanonicalCommand safely maps interrogative and ambiguous DND phrases to dnd status', () => {
+    // Interrogative phrases must never resolve to mutating 'dnd on'
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'are reminders on dnd' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'is dnd active' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'is dnd on in this workspace?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'how do I turn on dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'how to enable dnd' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'should I mute reminders?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'can I turn on dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'turn on dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'check dnd' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd status' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd' })).toBe('dnd status');
+
+    // Mutating commands require explicit action words
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'turn on dnd in this channel' })).toBe('dnd on');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'mute reminders' })).toBe('dnd on');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'turn off dnd' })).toBe('dnd off');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'unmute reminders' })).toBe('dnd off');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'mute workspace reminders' })).toBe('dnd workspace on');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'unmute workspace' })).toBe('dnd workspace off');
+  });
+
+  test('ResolveRmmIntentAsync preserves interrogative safety even when LLM normalizes query_text to an action', async () => {
+    const WorkspaceAI = {
+      DefaultModelName: 'gpt-4o-mini',
+      ComplexModelName: 'gpt-4o',
+      ProcessMessageWithJsonResponseAsync: jest.fn().mockResolvedValue({
+        intent_id: 'dnd',
+        confidence: 0.9,
+        rationale: 'User is asking whether to mute reminders.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: '',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: 'mute reminders',
+        user_mention: '',
+      }),
+    };
+
+    const Result = await ResolveRmmIntentAsync(WorkspaceAI, 'should I mute reminders?', {
+      RequestMode: 'suggest',
+      ChannelID: 'C_TEST',
+      ChannelModelStatus: { override: null, defaultModel: 'gpt-4o-mini', effectiveModel: 'gpt-4o-mini' },
+    });
+
+    expect(Result.IntentId).toBe('dnd');
+    expect(Result.CanonicalCommand).toBe('dnd status');
   });
 });
