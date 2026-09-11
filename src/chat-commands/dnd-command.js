@@ -34,13 +34,37 @@ async function HandleDndCommandAsync(
 
   const Tokens = (ArgArgString || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
 
-  const KnownScopeTokens = new Set(['workspace', 'group', 'global', 'channel', 'here', 'this']);
+  const KnownScopeTokens = new Set(['workspace', 'group', 'global', 'channel', 'here', 'this', 'in', 'for']);
   const KnownOnTokens = new Set(['on', 'enable', 'start', 'mute']);
   const KnownOffTokens = new Set(['off', 'disable', 'stop', 'unmute']);
   const KnownStatusTokens = new Set(['status', 'check']);
 
+  const ChannelMentionMatch = (ArgArgString || '').match(/<#([a-zA-Z0-9_-]+)(?:\|[^>]+)?>/);
+  let ExplicitTargetChannel = null;
+  if(ChannelMentionMatch) {
+    ExplicitTargetChannel = ChannelMentionMatch[1];
+  } else {
+    const RawIdToken = Tokens.find(
+      Token => !KnownScopeTokens.has(Token) &&
+               !KnownOnTokens.has(Token) &&
+               !KnownOffTokens.has(Token) &&
+               !KnownStatusTokens.has(Token) &&
+               /^[cg][a-z0-9_-]{4,}$/i.test(Token)
+    );
+    if(RawIdToken) {
+      ExplicitTargetChannel = RawIdToken.toUpperCase();
+    }
+  }
+
+  const TargetChannelID = ExplicitTargetChannel || ArgEventInfo.channel;
+
   const UnrecognizedTokens = Tokens.filter(
-    Token => !KnownScopeTokens.has(Token) && !KnownOnTokens.has(Token) && !KnownOffTokens.has(Token) && !KnownStatusTokens.has(Token)
+    Token => !KnownScopeTokens.has(Token) &&
+             !KnownOnTokens.has(Token) &&
+             !KnownOffTokens.has(Token) &&
+             !KnownStatusTokens.has(Token) &&
+             !Token.startsWith('<#') &&
+             (!ExplicitTargetChannel || Token.toLowerCase() !== ExplicitTargetChannel.toLowerCase())
   );
 
   const HasOn = Tokens.some(Token => KnownOnTokens.has(Token));
@@ -52,7 +76,7 @@ async function HandleDndCommandAsync(
     await ArgSlackApp.PostMessageTextAsync(
       ArgEventInfo.channel,
       ArgEventInfo.ts,
-      `Unrecognized or conflicting DND command: \`${ArgArgString}\`.\nUsage:\n• \`@Sleuth AI dnd [on|off]\` (current channel)\n• \`@Sleuth AI dnd workspace [on|off]\` (entire workspace)\n• \`@Sleuth AI dnd status\``
+      `Unrecognized or conflicting DND command: \`${ArgArgString}\`.\nUsage:\n• \`@Sleuth AI dnd [on|off]\` (current channel)\n• \`@Sleuth AI dnd [on|off] <#channel>\` (target channel)\n• \`@Sleuth AI dnd workspace [on|off]\` (entire workspace)\n• \`@Sleuth AI dnd status\``
     );
     return;
   }
@@ -69,13 +93,17 @@ async function HandleDndCommandAsync(
   // If no action or status requested, report current DND status.
   if(!Action || Action === 'status') {
     const IsWorkspaceDnd = DndSettings.IsWorkspaceDnd();
-    const IsChannelDnd = DndSettings.IsChannelDnd(ArgEventInfo.channel);
+    const IsChannelDnd = DndSettings.IsChannelDnd(TargetChannelID);
     const DndChannels = DndSettings.GetDndChannelIds();
+
+    const ChannelLabel = TargetChannelID === ArgEventInfo.channel
+      ? `Current Channel (<#${ArgEventInfo.channel}>)`
+      : `Channel <#${TargetChannelID}>`;
 
     const Lines = [
       '*AEGIS Sleuth Reminders DND / Silent Mode Status:*',
       `• *Workspace DND:* ${IsWorkspaceDnd ? ':no_bell: *ON* (all reminder notifications suppressed workspace-wide)' : ':bell: OFF'}`,
-      `• *Current Channel (<#${ArgEventInfo.channel}>) DND:* ${IsChannelDnd ? ':no_bell: *ON* (reminders suppressed in this channel)' : ':bell: OFF'}`,
+      `• *${ChannelLabel} DND:* ${IsChannelDnd ? ':no_bell: *ON* (reminders suppressed in this channel)' : ':bell: OFF'}`,
     ];
 
     if(DndChannels.length > 0) {
@@ -130,7 +158,7 @@ async function HandleDndCommandAsync(
   }
 
   // Handle Channel DND toggle.
-  const IsCreator = await ArgSlackApp.IsChannelCreatorAsync(ArgEventInfo.channel, ArgEventInfo.user);
+  const IsCreator = await ArgSlackApp.IsChannelCreatorAsync(TargetChannelID, ArgEventInfo.user);
   const IsAdminOrOwner = IsCreator ? false : await ArgSlackApp.IsAdminOrOwnerAsync(ArgEventInfo.user);
   if(!IsCreator && !IsAdminOrOwner) {
     await ArgSlackApp.PostMessageTextAsync(
@@ -142,19 +170,26 @@ async function HandleDndCommandAsync(
   }
 
   const TurnOn = Action === 'on';
-  await DndSettings.SetChannelDndAsync(ArgEventInfo.channel, TurnOn);
+  await DndSettings.SetChannelDndAsync(TargetChannelID, TurnOn);
+
+  const ChannelLabel = TargetChannelID === ArgEventInfo.channel
+    ? `this channel (<#${TargetChannelID}>)`
+    : `<#${TargetChannelID}>`;
+  const TurnOffHint = TargetChannelID === ArgEventInfo.channel
+    ? '`@Sleuth AI dnd off`'
+    : `\`@Sleuth AI dnd off <#${TargetChannelID}>\``;
 
   if(TurnOn) {
     await ArgSlackApp.PostMessageTextAsync(
       ArgEventInfo.channel,
       ArgEventInfo.ts,
-      `Do Not Disturb (DND) / Silent Mode has been enabled for this channel (<#${ArgEventInfo.channel}>). Reminder notifications for this channel are paused. Turn it off with \`@Sleuth AI dnd off\`.`
+      `Do Not Disturb (DND) / Silent Mode has been enabled for ${ChannelLabel}. Reminder notifications for this channel are paused. Turn it off with ${TurnOffHint}.`
     );
   } else {
     await ArgSlackApp.PostMessageTextAsync(
       ArgEventInfo.channel,
       ArgEventInfo.ts,
-      `Do Not Disturb (DND) / Silent Mode has been disabled for this channel (<#${ArgEventInfo.channel}>). Reminder notifications for this channel are active.`
+      `Do Not Disturb (DND) / Silent Mode has been disabled for ${ChannelLabel}. Reminder notifications for this channel are active.`
     );
   }
 }

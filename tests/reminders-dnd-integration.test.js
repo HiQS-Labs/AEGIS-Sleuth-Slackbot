@@ -160,6 +160,57 @@ describe('RemindersModule DND Integration', () => {
       await Reminders.StopAsync();
       await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
     });
+
+    test('posts actionable targeted channel notice when main reminder channel is open and another channel is DND, and executing command lifts DND', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('digest_other_channel');
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      SlackApp.GetChannelIdAsync = jest.fn().mockResolvedValue('C_MAIN');
+      SlackApp.IsAdminOrOwnerAsync = jest.fn().mockResolvedValue(true);
+
+      const Reminders = new RemindersModule(SlackApp, WorkspaceAIInstance);
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+
+      // Main channel is NOT DND, but C_OTHER is DND
+      await Reminders.GetDndSettings().SetChannelDndAsync('C_OTHER', true);
+
+      // Run daily digest
+      await Reminders.RunDailyDigestNowAsync();
+
+      // Notice should be posted to C_MAIN
+      const PostedMessages = SlackApp.SentMessages;
+      const DndNotice = PostedMessages.find(m => m.text && m.text.includes('AEGIS Sleuth Reminders are DND'));
+      expect(DndNotice).toBeDefined();
+      expect(DndNotice.channel).toBe('C_MAIN');
+      expect(DndNotice.text).toContain('Note: AEGIS Sleuth Reminders are DND on the following channel(s): <#C_OTHER>.');
+      // Must contain actionable targeted command
+      expect(DndNotice.text).toContain('@Sleuth AI dnd off <#C_OTHER>');
+
+      // Now simulate executing the suggested targeted command
+      const HandleDndCommandAsync = require('../src/chat-commands/dnd-command');
+      await HandleDndCommandAsync(
+        SlackApp,
+        { user: 'U_ADMIN', channel: 'C_MAIN', ts: '1700000000.000002' },
+        Reminders,
+        'off <#C_OTHER>'
+      );
+
+      // Verify C_OTHER DND is now lifted
+      expect(Reminders.GetDndSettings().IsChannelDnd('C_OTHER')).toBe(false);
+      expect(Reminders.GetDndSettings().HasAnyDndActive()).toBe(false);
+
+      // Clear messages and re-run digest
+      SlackApp.SentMessages = [];
+      await Reminders.RunDailyDigestNowAsync();
+
+      // DND notice is no longer posted because DND was lifted
+      const SecondNotice = SlackApp.SentMessages.find(m => m.text && m.text.includes('AEGIS Sleuth Reminders are DND'));
+      expect(SecondNotice).toBeUndefined();
+
+      await Reminders.StopAsync();
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+    });
   });
 
   describe('Due Reminder Post DND Suppression', () => {

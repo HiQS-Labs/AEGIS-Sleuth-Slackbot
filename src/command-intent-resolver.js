@@ -358,13 +358,24 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
     return 'disable reminders';
   case 'dnd': {
     const Lower = (QueryText || '').toLowerCase();
-    const IsWorkspace = Lower.includes('workspace') || Lower.includes('group') || Lower.includes('all channel');
-    const IsOff = Lower.includes('off') || Lower.includes('unmute') || Lower.includes('disable') || Lower.includes('resume');
-    const IsStatus = Lower.includes('status') || Lower.includes('check') || Lower.includes('what');
+    const IsWorkspace = Lower.includes('workspace') || Lower.includes('group') || Lower.includes('all channel') || Lower.includes('global');
+    const IsOff = /\b(off|unmute|disable|stop|resume)\b/i.test(Lower) || Lower.includes('turn off');
+    const IsHowToOn = /\bhow\s+(?:do\s+i\s+|to\s+)?(?:turn\s+on|enable|mute)\b/i.test(Lower);
+    const IsStatus = !IsHowToOn && (
+      Lower.includes('status') ||
+      Lower.includes('check') ||
+      Lower.includes('what') ||
+      /\b(are|is)\b/i.test(Lower) ||
+      Lower.trim() === 'dnd' ||
+      Lower.trim() === 'dnd?'
+    );
+    const IsExplicitOn = IsHowToOn || (!IsStatus && (/\b(on|turn\s+on|enable|mute|start|activate|pause)\b/i.test(Lower) || /\bdnd\s+on\b/i.test(Lower)));
 
     if(IsStatus) return 'dnd status';
-    if(IsWorkspace) return IsOff ? 'dnd workspace off' : 'dnd workspace on';
-    return IsOff ? 'dnd off' : 'dnd on';
+    if(IsOff) return IsWorkspace ? 'dnd workspace off' : 'dnd off';
+    if(IsExplicitOn) return IsWorkspace ? 'dnd workspace on' : 'dnd on';
+    // Default to non-mutating 'dnd status' when ambiguous.
+    return 'dnd status';
   }
   case 'process-reminders-now':
     return 'process reminders now';
@@ -683,7 +694,7 @@ async function ResolveRmmIntentAsync(ArgWorkspaceAI, ArgUserText, ArgOptions = {
     DefaultModelName: AiResponse.default_model_name,
     ComplexModelName: AiResponse.complex_model_name,
     ChannelModelName: AiResponse.channel_model_name,
-    QueryText: AiResponse.query_text,
+    QueryText: AiResponse.query_text || (IntentId === 'dnd' ? ArgUserText : undefined),
     UserMention: AiResponse.user_mention,
   });
 

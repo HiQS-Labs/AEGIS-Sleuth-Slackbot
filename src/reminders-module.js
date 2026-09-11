@@ -3447,12 +3447,18 @@ class RemindersModule {
         ScopeDescriptions.push(`the following channel(s): ${FormattedChannels}`);
       }
 
-      let TurnOnCommand = '`@Sleuth AI dnd off`';
-      if(IsWorkspaceDnd && DndChannelIDs.length > 0) {
-        TurnOnCommand = '`@Sleuth AI dnd workspace off` or `@Sleuth AI dnd off`';
-      } else if(IsWorkspaceDnd) {
-        TurnOnCommand = '`@Sleuth AI dnd workspace off`';
+      const TurnOnCommands = [];
+      if(IsWorkspaceDnd) {
+        TurnOnCommands.push('`@Sleuth AI dnd workspace off`');
       }
+      for(const ChannelID of DndChannelIDs) {
+        if(ChannelID === ReminderChannelID) {
+          TurnOnCommands.push('`@Sleuth AI dnd off`');
+        } else {
+          TurnOnCommands.push(`\`@Sleuth AI dnd off <#${ChannelID}>\` (or \`@Sleuth AI dnd off\` in <#${ChannelID}>)`);
+        }
+      }
+      const TurnOnCommand = TurnOnCommands.join(' or ') || '`@Sleuth AI dnd off`';
 
       const DndNoticeText = `Note: AEGIS Sleuth Reminders are DND on ${ScopeDescriptions.join(' and ')}. Use ${TurnOnCommand} to turn them on.`;
 

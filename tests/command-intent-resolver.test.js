@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  BuildCanonicalCommand,
   GetModelAliasRowsAsync,
   NormalizeDirectCommandTextAsync,
   ResolveModelAliasAsync,
@@ -272,5 +273,24 @@ describe('command-intent-resolver', () => {
 
     expect(Result.IntentId).toBe('dnd');
     expect(Result.CanonicalCommand).toBe('dnd on');
+  });
+
+  test('BuildCanonicalCommand safely maps interrogative and ambiguous DND phrases to dnd status', () => {
+    // Interrogative phrases must never resolve to mutating 'dnd on'
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'are reminders on dnd' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'is dnd active' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'is dnd on in this workspace?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'check dnd' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd status' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd' })).toBe('dnd status');
+
+    // Mutating commands require explicit action words
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'turn on dnd in this channel' })).toBe('dnd on');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'mute reminders' })).toBe('dnd on');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'turn off dnd' })).toBe('dnd off');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'unmute reminders' })).toBe('dnd off');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'mute workspace reminders' })).toBe('dnd workspace on');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'unmute workspace' })).toBe('dnd workspace off');
   });
 });

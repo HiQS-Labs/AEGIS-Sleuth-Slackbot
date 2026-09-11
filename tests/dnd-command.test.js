@@ -154,4 +154,44 @@ describe('HandleDndCommandAsync', () => {
       expect.stringContaining('Unrecognized or conflicting DND command: `on off`.')
     );
   });
+
+  test('toggles targeted channel DND when authorized as admin or target channel creator', async () => {
+    const Env = MakeEnv({ IsAdmin: true });
+
+    await HandleDndCommandAsync(Env.SlackApp, Env.EventInfo, Env.RemindersModule, 'off <#C_OTHER>');
+    expect(Env.SlackApp.IsChannelCreatorAsync).toHaveBeenCalledWith('C_OTHER', 'U_USER');
+    expect(Env.DndSettings.SetChannelDndAsync).toHaveBeenCalledWith('C_OTHER', false);
+    expect(Env.SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      'C_CHANNEL',
+      '1700000000.000001',
+      expect.stringContaining('Do Not Disturb (DND) / Silent Mode has been disabled for <#C_OTHER>.')
+    );
+  });
+
+  test('blocks targeted channel DND when user lacks creator and admin permissions', async () => {
+    const Env = MakeEnv({ IsAdmin: false, IsCreator: false });
+
+    await HandleDndCommandAsync(Env.SlackApp, Env.EventInfo, Env.RemindersModule, 'on <#C_OTHER>');
+    expect(Env.SlackApp.IsChannelCreatorAsync).toHaveBeenCalledWith('C_OTHER', 'U_USER');
+    expect(Env.SlackApp.IsAdminOrOwnerAsync).toHaveBeenCalledWith('U_USER');
+    expect(Env.DndSettings.SetChannelDndAsync).not.toHaveBeenCalled();
+    expect(Env.SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      'C_CHANNEL',
+      '1700000000.000001',
+      expect.stringContaining('Only the channel creator or a workspace admin/owner can change channel DND settings.')
+    );
+  });
+
+  test('reports targeted channel status when checking status with channel mention', async () => {
+    const Env = MakeEnv({ DndChannels: ['C_OTHER'] });
+
+    await HandleDndCommandAsync(Env.SlackApp, Env.EventInfo, Env.RemindersModule, 'status <#C_OTHER>');
+    expect(Env.DndSettings.IsChannelDnd).toHaveBeenCalledWith('C_OTHER');
+    expect(Env.SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      'C_CHANNEL',
+      '1700000000.000001',
+      expect.stringContaining('*Channel <#C_OTHER> DND:* :no_bell: *ON*')
+    );
+  });
 });
+

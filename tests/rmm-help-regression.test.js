@@ -334,4 +334,36 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
     expect(DndSettings.SetChannelDndAsync).toHaveBeenCalledWith('C_GENERAL', true);
     expect(SlackApp.SentMessages[1].text).toContain('Do Not Disturb (DND) / Silent Mode has been enabled for this channel');
   });
+
+  test('13. rmm ifl "are reminders on dnd" executes dnd status and never enables DND', async () => {
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    SlackApp.IsChannelCreatorAsync = jest.fn().mockResolvedValue(true);
+    SlackApp.IsAdminOrOwnerAsync = jest.fn().mockResolvedValue(false);
+
+    const DndSettings = {
+      SetChannelDndAsync: jest.fn().mockResolvedValue(undefined),
+      SetWorkspaceDndAsync: jest.fn().mockResolvedValue(undefined),
+      IsChannelDnd: jest.fn().mockReturnValue(false),
+      IsWorkspaceDnd: jest.fn().mockReturnValue(false),
+      GetDndChannelIds: jest.fn().mockReturnValue([]),
+    };
+    const MockReminders = {
+      GetDndSettings: () => DndSettings,
+    };
+
+    new ChatModule(SlackApp, EmptyWorkspaceStats, MockReminders, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
+      intent_id: 'dnd',
+      query_text: 'are reminders on dnd',
+      rationale: 'User is asking if reminders are on DND.',
+    }));
+
+    await SimulateAsync(SlackApp, 'rmm ifl are reminders on dnd');
+
+    expect(SlackApp.SentMessages.length).toBeGreaterThanOrEqual(2);
+    expect(SlackApp.SentMessages[0].text).toContain(`On it — running \`${SlackApp.AppMentionString} dnd status\``);
+    expect(DndSettings.SetChannelDndAsync).not.toHaveBeenCalled();
+    expect(DndSettings.SetWorkspaceDndAsync).not.toHaveBeenCalled();
+    expect(SlackApp.SentMessages[1].text).toContain('AEGIS Sleuth Reminders DND / Silent Mode Status');
+  });
 });
