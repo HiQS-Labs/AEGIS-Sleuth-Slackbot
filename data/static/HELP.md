@@ -14,6 +14,7 @@ Use exact commands when you know what you want. If you do not, ask `@Sleuth AI h
 *Reminders*
 - `@Sleuth AI enable reminders` — Enable automatic reminder detection in the current channel.
 - `@Sleuth AI disable reminders` — Disable automatic reminder detection in the current channel.
+- `@Sleuth AI dnd on` — Toggle Do Not Disturb (DND) / Silent Mode for reminder notifications on this channel or the entire workspace.
 - `@Sleuth AI search reminders invoice` — Search pending reminders across the workspace by keyword or close typo match.
 - `@Sleuth AI search-projects` — Show high-level PROJECT-tagged reminders, a shortcut for searching reminders by the PROJECT keyword. Trailing keywords narrow within projects.
 - `@Sleuth AI search my reminders invoice` — Search reminders the user created, is assigned to, or is mentioned in.

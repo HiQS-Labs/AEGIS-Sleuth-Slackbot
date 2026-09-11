@@ -245,4 +245,32 @@ describe('command-intent-resolver', () => {
     const Chat = await RetrieveScoredCandidates('thanks so much, have a great weekend everyone');
     expect(NearMiss[0].Score).toBeGreaterThan(Chat[0].Score);
   });
+
+  test('resolves dnd intents to canonical dnd commands', async () => {
+    const WorkspaceAI = {
+      DefaultModelName: 'gpt-4o-mini',
+      ComplexModelName: 'gpt-4o',
+      ProcessMessageWithJsonResponseAsync: jest.fn().mockResolvedValue({
+        intent_id: 'dnd',
+        confidence: 0.95,
+        rationale: 'User wants to turn on DND for this channel.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: '',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: 'on',
+        user_mention: '',
+      }),
+    };
+
+    const Result = await ResolveRmmIntentAsync(WorkspaceAI, 'turn on dnd in this channel', {
+      RequestMode: 'suggest',
+      ChannelID: 'C_TEST',
+      ChannelModelStatus: { override: null, defaultModel: 'gpt-4o-mini', effectiveModel: 'gpt-4o-mini' },
+    });
+
+    expect(Result.IntentId).toBe('dnd');
+    expect(Result.CanonicalCommand).toBe('dnd on');
+  });
 });

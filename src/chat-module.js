@@ -88,6 +88,7 @@ const HandleRmmCommandAsync = require('./chat-commands/rmm-command');
 const HandleShowMeCommandAsync = require('./chat-commands/show-me-command');
 const HandleShowMeProjectsCommandAsync = require('./chat-commands/show-me-projects-command');
 const HandleRefreshClientsCommandAsync = require('./chat-commands/refresh-clients-command');
+const HandleDndCommandAsync = require('./chat-commands/dnd-command');
 const HandleRecallCommandAsync = require('./chat-commands/recall-command');
 const { FileGithubIssueAsync } = require('./github-issue-filer');
 const { NormalizeDirectCommandTextAsync } = require('./command-intent-resolver');
@@ -621,6 +622,14 @@ class ChatModule {
       Route: 'run daily digest',
       Handle: (ArgEventInfo) => HandleRunDailyDigestCommandAsync(
         this.#SlackApp, ArgEventInfo, this.#RemindersModule
+      ),
+    });
+
+    Router.Register({
+      Pattern: /^dnd(?:\s+(.+))?$/i,
+      Route: 'dnd',
+      Handle: (ArgEventInfo, ArgArgString) => HandleDndCommandAsync(
+        this.#SlackApp, ArgEventInfo, this.#RemindersModule, ArgArgString
       ),
     });
 

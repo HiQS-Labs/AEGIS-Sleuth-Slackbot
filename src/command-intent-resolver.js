@@ -356,6 +356,16 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
     return 'enable reminders';
   case 'disable-reminders':
     return 'disable reminders';
+  case 'dnd': {
+    const Lower = (QueryText || '').toLowerCase();
+    const IsWorkspace = Lower.includes('workspace') || Lower.includes('group') || Lower.includes('all channel');
+    const IsOff = Lower.includes('off') || Lower.includes('unmute') || Lower.includes('disable') || Lower.includes('resume');
+    const IsStatus = Lower.includes('status') || Lower.includes('check') || Lower.includes('what');
+
+    if(IsStatus) return 'dnd status';
+    if(IsWorkspace) return IsOff ? 'dnd workspace off' : 'dnd workspace on';
+    return IsOff ? 'dnd off' : 'dnd on';
+  }
   case 'process-reminders-now':
     return 'process reminders now';
   case 'github-sync-now':
@@ -738,7 +748,7 @@ const BuildCanonicalCommandIntentIds = new Set([
   'search-reminders-here', 'search-my-reminders', 'show-reminders', 'show-reminders-for-user',
   'show-reminders-here', 'show-github-reminders', 'show-my-reminders', 'summarize-week',
   'enable-reminders',
-  'disable-reminders', 'process-reminders-now', 'github-sync-now', 'test-github-sync',
+  'disable-reminders', 'dnd', 'process-reminders-now', 'github-sync-now', 'test-github-sync',
   'show-stats', 'ping', 'set-channel-model', 'model-switch-default', 'model-switch-complex',
   'model-switch-both', 'version', 'changelog', 'view-stratalist', 'rmm',
   'ask-code', 'recall',
