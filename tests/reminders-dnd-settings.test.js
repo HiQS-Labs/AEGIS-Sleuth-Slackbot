@@ -134,5 +134,47 @@ describe('RemindersDndSettings', () => {
       expect(Settings.IsDndActiveForChannel('C1')).toBe(true);
       expect(Settings.IsDndActiveForChannel('C2')).toBe(true);
     });
+
+    test('validates and sanitizes malformed persisted values', async () => {
+      const Logger = new MockLogger();
+      const Settings = new RemindersDndSettings({ Logger }, TestFilePath);
+
+      // Non-boolean workspace and mixed non-string channels
+      const MalformedData = {
+        workspace: 'true', // string, not boolean
+        channels: ['C_VALID', '', null, 123, '   ', 'C_VALID2']
+      };
+      await fs.writeFile(TestFilePath, JSON.stringify(MalformedData), 'utf8');
+
+      await Settings.LoadAsync();
+
+      expect(Settings.IsWorkspaceDnd()).toBe(false); // String 'true' ignored, treated as false
+      expect(Settings.GetDndChannelIds()).toEqual(['C_VALID', 'C_VALID2']);
+      expect(Settings.IsChannelDnd('C_VALID')).toBe(true);
+      expect(Settings.IsChannelDnd('')).toBe(false);
+    });
+
+    test('rolls back in-memory state when SetWorkspaceDndAsync save fails', async () => {
+      const Logger = new MockLogger();
+      const Settings = new RemindersDndSettings({ Logger }, TestFilePath);
+      await Settings.LoadAsync();
+      expect(Settings.IsWorkspaceDnd()).toBe(false);
+
+      // Make SaveAsync fail by pointing to an invalid directory path
+      const InvalidSettings = new RemindersDndSettings({ Logger }, '/invalid/dir/path/file.json');
+      await expect(InvalidSettings.SetWorkspaceDndAsync(true)).rejects.toThrow();
+      expect(InvalidSettings.IsWorkspaceDnd()).toBe(false);
+    });
+
+    test('rolls back in-memory state when SetChannelDndAsync save fails', async () => {
+      const Logger = new MockLogger();
+      const InvalidSettings = new RemindersDndSettings({ Logger }, '/invalid/dir/path/file.json');
+      expect(InvalidSettings.IsChannelDnd('C_FAIL')).toBe(false);
+
+      await expect(InvalidSettings.SetChannelDndAsync('C_FAIL', true)).rejects.toThrow();
+      expect(InvalidSettings.IsChannelDnd('C_FAIL')).toBe(false);
+      expect(InvalidSettings.GetDndChannelIds()).toEqual([]);
+    });
   });
 });
+

@@ -1344,7 +1344,7 @@
     "Permission": "mixed",
     "Risk": "low",
     "CanExecuteWithIfl": true,
-    "Description": "Toggle Do Not Disturb (DND) / Silent Mode for reminder notifications on this channel or the entire workspace.",
+    "Description": "Toggle Do Not Disturb (DND) / Silent Mode for reminder notifications in the current channel (or workspace-wide with 'workspace on/off').",
     "SyntaxExamples": [
       "@Sleuth AI dnd on",
       "@Sleuth AI dnd off",

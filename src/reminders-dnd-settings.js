@@ -64,8 +64,15 @@ class RemindersDndSettings {
 
       const Parsed = JSON.parse(FileText);
       if(Parsed && typeof Parsed === 'object' && !Array.isArray(Parsed)) {
-        this.#WorkspaceDnd = Boolean(Parsed.workspace);
-        this.#ChannelDnd = new Set(Array.isArray(Parsed.channels) ? Parsed.channels : []);
+        this.#WorkspaceDnd = typeof Parsed.workspace === 'boolean' ? Parsed.workspace : false;
+        this.#ChannelDnd = new Set();
+        if(Array.isArray(Parsed.channels)) {
+          for(const ChannelID of Parsed.channels) {
+            if(typeof ChannelID === 'string' && ChannelID.trim().length > 0) {
+              this.#ChannelDnd.add(ChannelID);
+            }
+          }
+        }
       } else {
         this.#WorkspaceDnd = false;
         this.#ChannelDnd = new Set();
@@ -156,9 +163,15 @@ class RemindersDndSettings {
   async SetWorkspaceDndAsync(ArgEnabled) {
     const NextState = Boolean(ArgEnabled);
     if(this.#WorkspaceDnd !== NextState) {
+      const PreviousState = this.#WorkspaceDnd;
       this.#WorkspaceDnd = NextState;
-      await this.SaveAsync();
-      this.#SlackApp.Logger.info(`workspace DND set to ${NextState}`);
+      try {
+        await this.SaveAsync();
+        this.#SlackApp.Logger.info(`workspace DND set to ${NextState}`);
+      } catch(error) {
+        this.#WorkspaceDnd = PreviousState;
+        throw error;
+      }
     }
   }
 
@@ -175,12 +188,22 @@ class RemindersDndSettings {
 
     if(NextState && !CurrentlyEnabled) {
       this.#ChannelDnd.add(ArgChannelID);
-      await this.SaveAsync();
-      this.#SlackApp.Logger.info(`channel DND enabled for ${ArgChannelID}`);
+      try {
+        await this.SaveAsync();
+        this.#SlackApp.Logger.info(`channel DND enabled for ${ArgChannelID}`);
+      } catch(error) {
+        this.#ChannelDnd.delete(ArgChannelID);
+        throw error;
+      }
     } else if(!NextState && CurrentlyEnabled) {
       this.#ChannelDnd.delete(ArgChannelID);
-      await this.SaveAsync();
-      this.#SlackApp.Logger.info(`channel DND disabled for ${ArgChannelID}`);
+      try {
+        await this.SaveAsync();
+        this.#SlackApp.Logger.info(`channel DND disabled for ${ArgChannelID}`);
+      } catch(error) {
+        this.#ChannelDnd.add(ArgChannelID);
+        throw error;
+      }
     }
   }
 }
