@@ -284,7 +284,7 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
     expect(SlackApp.SentMessages[0].text).not.toContain('I need one clarification');
   });
 
-  test('11. rmm "how do I turn on DND?" suggests dnd syntax with mixed permission disclosure', async () => {
+  test('11. rmm "how do I turn on DND?" suggests dnd status with mixed permission disclosure', async () => {
     const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
     new ChatModule(SlackApp, EmptyWorkspaceStats, null, null, null);
     mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
@@ -296,7 +296,7 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
 
     expect(SlackApp.SentMessages).toHaveLength(1);
     expect(SlackApp.SentMessages[0].text).toContain(
-      `*Closest command:* \`${SlackApp.AppMentionString} dnd on\``
+      `*Closest command:* \`${SlackApp.AppMentionString} dnd status\``
     );
     expect(SlackApp.SentMessages[0].text).toContain(
       '_Requires channel creator or workspace admin access (workspace toggles require admin)._'
@@ -359,6 +359,70 @@ describe('rmm/help regression coverage — 10 scenarios', () => {
     }));
 
     await SimulateAsync(SlackApp, 'rmm ifl are reminders on dnd');
+
+    expect(SlackApp.SentMessages.length).toBeGreaterThanOrEqual(2);
+    expect(SlackApp.SentMessages[0].text).toContain(`On it — running \`${SlackApp.AppMentionString} dnd status\``);
+    expect(DndSettings.SetChannelDndAsync).not.toHaveBeenCalled();
+    expect(DndSettings.SetWorkspaceDndAsync).not.toHaveBeenCalled();
+    expect(SlackApp.SentMessages[1].text).toContain('AEGIS Sleuth Reminders DND / Silent Mode Status');
+  });
+
+  test('14. rmm ifl "how do I turn on dnd?" executes dnd status and never enables DND', async () => {
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    SlackApp.IsChannelCreatorAsync = jest.fn().mockResolvedValue(true);
+    SlackApp.IsAdminOrOwnerAsync = jest.fn().mockResolvedValue(false);
+
+    const DndSettings = {
+      SetChannelDndAsync: jest.fn().mockResolvedValue(undefined),
+      SetWorkspaceDndAsync: jest.fn().mockResolvedValue(undefined),
+      IsChannelDnd: jest.fn().mockReturnValue(false),
+      IsWorkspaceDnd: jest.fn().mockReturnValue(false),
+      GetDndChannelIds: jest.fn().mockReturnValue([]),
+    };
+    const MockReminders = {
+      GetDndSettings: () => DndSettings,
+    };
+
+    new ChatModule(SlackApp, EmptyWorkspaceStats, MockReminders, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
+      intent_id: 'dnd',
+      query_text: 'how do I turn on dnd?',
+      rationale: 'User is asking how to turn on DND.',
+    }));
+
+    await SimulateAsync(SlackApp, 'rmm ifl how do I turn on dnd?');
+
+    expect(SlackApp.SentMessages.length).toBeGreaterThanOrEqual(2);
+    expect(SlackApp.SentMessages[0].text).toContain(`On it — running \`${SlackApp.AppMentionString} dnd status\``);
+    expect(DndSettings.SetChannelDndAsync).not.toHaveBeenCalled();
+    expect(DndSettings.SetWorkspaceDndAsync).not.toHaveBeenCalled();
+    expect(SlackApp.SentMessages[1].text).toContain('AEGIS Sleuth Reminders DND / Silent Mode Status');
+  });
+
+  test('15. rmm ifl "should I mute reminders?" executes dnd status and never enables DND', async () => {
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: TestWorkspaceInfo });
+    SlackApp.IsChannelCreatorAsync = jest.fn().mockResolvedValue(true);
+    SlackApp.IsAdminOrOwnerAsync = jest.fn().mockResolvedValue(false);
+
+    const DndSettings = {
+      SetChannelDndAsync: jest.fn().mockResolvedValue(undefined),
+      SetWorkspaceDndAsync: jest.fn().mockResolvedValue(undefined),
+      IsChannelDnd: jest.fn().mockReturnValue(false),
+      IsWorkspaceDnd: jest.fn().mockReturnValue(false),
+      GetDndChannelIds: jest.fn().mockReturnValue([]),
+    };
+    const MockReminders = {
+      GetDndSettings: () => DndSettings,
+    };
+
+    new ChatModule(SlackApp, EmptyWorkspaceStats, MockReminders, null, null);
+    mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(BuildLlmResponse({
+      intent_id: 'dnd',
+      query_text: 'should I mute reminders?',
+      rationale: 'User is asking if reminders should be muted.',
+    }));
+
+    await SimulateAsync(SlackApp, 'rmm ifl should I mute reminders?');
 
     expect(SlackApp.SentMessages.length).toBeGreaterThanOrEqual(2);
     expect(SlackApp.SentMessages[0].text).toContain(`On it — running \`${SlackApp.AppMentionString} dnd status\``);

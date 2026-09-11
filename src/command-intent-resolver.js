@@ -360,22 +360,20 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
     const Lower = (QueryText || '').toLowerCase();
     const IsWorkspace = Lower.includes('workspace') || Lower.includes('group') || Lower.includes('all channel') || Lower.includes('global');
     const IsOff = /\b(off|unmute|disable|stop|resume)\b/i.test(Lower) || Lower.includes('turn off');
-    const IsHowToOn = /\bhow\s+(?:do\s+i\s+|to\s+)?(?:turn\s+on|enable|mute)\b/i.test(Lower);
-    const IsStatus = !IsHowToOn && (
-      Lower.includes('status') ||
-      Lower.includes('check') ||
-      Lower.includes('what') ||
-      /\b(are|is)\b/i.test(Lower) ||
+    const IsInterrogative = /\?/.test(Lower) ||
+      /\b(how|should|can|could|would|why|what|is|are|check|status)\b/i.test(Lower) ||
       Lower.trim() === 'dnd' ||
-      Lower.trim() === 'dnd?'
-    );
-    const IsExplicitOn = IsHowToOn || (!IsStatus && (/\b(on|turn\s+on|enable|mute|start|activate|pause)\b/i.test(Lower) || /\bdnd\s+on\b/i.test(Lower)));
+      Lower.trim() === 'dnd?';
+    const IsExplicitOn = !IsInterrogative && !IsOff && (/\b(on|turn\s+on|enable|mute|start|activate|pause)\b/i.test(Lower) || /\bdnd\s+on\b/i.test(Lower));
+    const IsExplicitOff = !IsInterrogative && IsOff;
 
-    if(IsStatus) return 'dnd status';
-    if(IsOff) return IsWorkspace ? 'dnd workspace off' : 'dnd off';
-    if(IsExplicitOn) return IsWorkspace ? 'dnd workspace on' : 'dnd on';
-    // Default to non-mutating 'dnd status' when ambiguous.
-    return 'dnd status';
+    const ChannelMatch = QueryText.match(/<#([a-zA-Z0-9_-]+)(?:\|[^>]+)?>/);
+    const TargetChannel = (!IsWorkspace && ChannelMatch) ? ` <#${ChannelMatch[1]}>` : '';
+
+    if(IsExplicitOff) return IsWorkspace ? 'dnd workspace off' : `dnd off${TargetChannel}`;
+    if(IsExplicitOn) return IsWorkspace ? 'dnd workspace on' : `dnd on${TargetChannel}`;
+    // Default to non-mutating 'dnd status' for all interrogatives, questions, and ambiguous text.
+    return `dnd status${TargetChannel}`;
   }
   case 'process-reminders-now':
     return 'process reminders now';

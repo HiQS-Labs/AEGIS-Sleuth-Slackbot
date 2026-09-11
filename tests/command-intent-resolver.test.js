@@ -280,6 +280,11 @@ describe('command-intent-resolver', () => {
     expect(BuildCanonicalCommand('dnd', { QueryText: 'are reminders on dnd' })).toBe('dnd status');
     expect(BuildCanonicalCommand('dnd', { QueryText: 'is dnd active' })).toBe('dnd status');
     expect(BuildCanonicalCommand('dnd', { QueryText: 'is dnd on in this workspace?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'how do I turn on dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'how to enable dnd' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'should I mute reminders?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'can I turn on dnd?' })).toBe('dnd status');
+    expect(BuildCanonicalCommand('dnd', { QueryText: 'turn on dnd?' })).toBe('dnd status');
     expect(BuildCanonicalCommand('dnd', { QueryText: 'check dnd' })).toBe('dnd status');
     expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd status' })).toBe('dnd status');
     expect(BuildCanonicalCommand('dnd', { QueryText: 'dnd?' })).toBe('dnd status');
