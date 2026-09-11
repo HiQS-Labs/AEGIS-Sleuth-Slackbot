@@ -425,6 +425,9 @@ class RemindersModule {
   constructor(ArgSlackApp) {
     // save the Slack app instance.
     this.#SlackApp = ArgSlackApp;
+    if(this.#SlackApp) {
+      this.#SlackApp.RemindersModule = this;
+    }
 
     this.#AppMentionHandler = new RemindersAppMentionHandler({
       GetPendingReminders: () => this.#PendingRemindersQueue,
@@ -1221,6 +1224,9 @@ class RemindersModule {
   async StartAsync(ArgWorkspaceStats) {
     // initialize the WorkspaceAI instance.
     this.#WorkspaceAI = new WorkspaceAI(this.#SlackApp.WorkspaceInfo, ArgWorkspaceStats);
+    if(this.#SlackApp && !this.#SlackApp.WorkspaceAI) {
+      this.#SlackApp.WorkspaceAI = this.#WorkspaceAI;
+    }
 
     // populate snooze days from workspace configuration.
     this.#SnoozeDays = new Set(

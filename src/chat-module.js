@@ -262,6 +262,15 @@ class ChatModule {
     // initialize the WorkspaceAI instance using the workspace info and stats.
     this.#WorkspaceAI = new WorkspaceAI(this.#SlackApp.WorkspaceInfo, ArgWorkspaceStats);
 
+    if(this.#SlackApp) {
+      if(this.#RemindersModule && !this.#SlackApp.RemindersModule) {
+        this.#SlackApp.RemindersModule = this.#RemindersModule;
+      }
+      if(!this.#SlackApp.WorkspaceAI) {
+        this.#SlackApp.WorkspaceAI = this.#WorkspaceAI;
+      }
+    }
+
     // initialize the per-channel model override store. Disk load is deferred to StartAsync so
     // construction stays synchronous and matches the pattern used by other modules.
     const WorkspaceName = this.#SlackApp.WorkspaceInfo.WORKSPACE_NAME;

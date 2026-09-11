@@ -262,28 +262,46 @@ class SlackApp {
 
   /**
    * Reminders module bound to this workspace.
-   *
-   * Declared as a getter, not a field: command-catalog.js replaces this accessor on
-   * SlackApp.prototype with one that resolves the module bound to this workspace. A class
-   * field would install an own property on every instance, which shadows that prototype
-   * accessor and makes every read return null. This getter is the fallback that applies
-   * only when the anti-containment hooks failed to install.
-   *
+   * @type {import('./reminders-module')|null}
+   */
+  #RemindersModule = null;
+
+  /**
+   * Workspace AI instance bound to this workspace.
+   * @type {import('./workspace-ai')|null}
+   */
+  #WorkspaceAI = null;
+
+  /**
+   * Reminders module bound to this workspace.
    * @returns {import('./reminders-module')|null}
    */
   get RemindersModule() {
-    return null;
+    return this.#RemindersModule;
+  }
+
+  /**
+   * Set the reminders module bound to this workspace.
+   * @param {import('./reminders-module')|null} ArgRemindersModule
+   */
+  set RemindersModule(ArgRemindersModule) {
+    this.#RemindersModule = ArgRemindersModule;
   }
 
   /**
    * Workspace AI instance bound to this workspace.
-   *
-   * Declared as a getter for the same reason as RemindersModule above — see that comment.
-   *
    * @returns {import('./workspace-ai')|null}
    */
   get WorkspaceAI() {
-    return null;
+    return this.#WorkspaceAI;
+  }
+
+  /**
+   * Set the workspace AI instance bound to this workspace.
+   * @param {import('./workspace-ai')|null} ArgWorkspaceAI
+   */
+  set WorkspaceAI(ArgWorkspaceAI) {
+    this.#WorkspaceAI = ArgWorkspaceAI;
   }
 
   /**
