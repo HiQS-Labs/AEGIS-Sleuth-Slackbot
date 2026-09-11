@@ -534,3 +534,11 @@ docs/incident-report-*.md
 
 # Parked/deferred task notes (operator-local)
 PARKED/
+
+# RELEASES ledger byproducts (GH-32 tooling). `releases_app.py gen` writes RELEASES.generated.md
+# and its .drift report; `check --rebuild` leaves releases.db.bak. None is tracked, and until now
+# none was ignored, so any `git add -A` after a ledger operation staged them. The drift report also
+# embeds an absolute local path, which fails utils/sanitize-scan.sh (absolute-local-path MEDIUM) —
+# caught by chance in the #175 merge because the scan happened to run before the commit.
+RELEASES.generated.md*
+releases.db.bak

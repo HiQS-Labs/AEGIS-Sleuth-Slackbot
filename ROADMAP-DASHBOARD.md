@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 23 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -31,6 +31,8 @@ Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-152 · Add download skill: fetch my active Sleuth reminders live via SSH | — | [GH-152-DOWNLOAD-REMINDERS-SKILL.md](PROJECT/3-COMPLETED/GH-152-DOWNLOAD-REMINDERS-SKILL.md) · [#152](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/152) |
 | GH-168 · Model alias resolver: vendor/family names resolve to a pinned model ID before catalog validation | — | [GH-168-MODEL-ALIAS-RESOLVER.md](PROJECT/1-INBOX/GH-168-MODEL-ALIAS-RESOLVER.md) · [#168](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/168) |
 | GH-173 · Consume Model-catalog v1 (Phase 2): sync ModelAliases from the shared catalog + provenance-aware diagnostics | — | [GH-173-MODEL-CATALOG-SYNC.md](PROJECT/1-INBOX/GH-173-MODEL-CATALOG-SYNC.md) · [#173](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/173) |
+| GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
+| GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
 
 ## Queue
 
@@ -63,7 +65,7 @@ Summary: 14 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 
 ## Completed
 
-Summary: 40 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 1 · 🔮 0 · 🔲 0
+Summary: 41 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 2 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -88,6 +90,7 @@ Summary: 40 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 1 · �
 | Reminder-render primitive (GH-391) | ✅ | [PROJECT/3-COMPLETED/GH-391-REMINDER-RENDER-PRIMITIVE.md](PROJECT/3-COMPLETED/GH-391-REMINDER-RENDER-PRIMITIVE.md) |
 | NaN completion timestamp bypasses time-window filter (GH-393) | — | [PROJECT/3-COMPLETED/GH-393-NAN-TIMESTAMP-FILTER.md](PROJECT/3-COMPLETED/GH-393-NAN-TIMESTAMP-FILTER.md) |
 | Missing/blank Candidate.title guard (GH-399) | — | [PROJECT/3-COMPLETED/GH-399-CANDIDATE-TITLE-GUARD.md](PROJECT/3-COMPLETED/GH-399-CANDIDATE-TITLE-GUARD.md) |
+| GH-169 · Seeded property test: MarkdownToMrkdwn + command normalizer, plus a malformed-Slack-event corpus through MockSlackApp | ✅ | [GH-169-PROPERTY-FUZZ-TEST.md](PROJECT/3-COMPLETED/GH-169-PROPERTY-FUZZ-TEST.md) · [#169](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/169) |
 | Sleuth hardening marathon (GH-383 + GH-387 + GH-388) | — | [GH-383](PROJECT/3-COMPLETED/GH-383-CHANNEL-PRIVACY-CACHE.md) · [GH-387](PROJECT/3-COMPLETED/GH-387-WORKSPACE-ISOLATION-GUARD.md) · [GH-388](PROJECT/3-COMPLETED/GH-388-NO-SILENT-FAILURES.md) |
 | Reminder task-text quality (GH-337) | — | [PROJECT/3-COMPLETED/GH-337-REMINDER-TASK-TEXT.md](PROJECT/3-COMPLETED/GH-337-REMINDER-TASK-TEXT.md) |
 | Task bucketing (P2-TASK-BUCKETING) | — | [PROJECT/3-COMPLETED/P2-TASK-BUCKETING.md](PROJECT/3-COMPLETED/P2-TASK-BUCKETING.md) |

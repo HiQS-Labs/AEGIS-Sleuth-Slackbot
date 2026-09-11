@@ -33,6 +33,120 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.328 - 2026-09-10
+
+You can now mute reminder notifications with Do Not Disturb (DND) / Silent Mode! Use `@Sleuth AI dnd on` or `@Sleuth AI dnd off` to quiet notifications in a specific channel, or `@Sleuth AI dnd workspace on/off` for the entire workspace. While DND is active, due reminders are kept safely on hold without spamming your channels, and the morning digest prints a concise DND status notice on your main reminders channel so nobody misses what's paused.
+
+**Technical:** GH-191. Added channel-level and workspace-level Do Not Disturb (DND) / silent mode for reminder notifications.
+- Persisted DND settings in `src/reminders-dnd-settings.js` under `data/runtime/reminders/${WorkspaceName}_dnd.json` with workspace boolean and channel ID set, backed by serialized file writes.
+- Implemented `src/chat-commands/dnd-command.js` handling `@Sleuth AI dnd [on|off]`, `@Sleuth AI dnd workspace [on|off]`, and `@Sleuth AI dnd status`. Enforces permission checks (channel creator or workspace admin for channel toggles, workspace admin for workspace toggles).
+- Registered primary `dnd` route in `src/chat-module.js` closing over `this.#SlackApp` (tenant isolated, guarded by `validate:workspace-isolation`).
+- Added canonical command building in `src/command-intent-resolver.js` and catalog entries in `data/static/ai/command-catalog.json` supporting RMM natural language aliases (`CanExecuteWithIfl: true`).
+- Integrated DND suppression into `src/reminders-module.js`:
+  - Due reminders evaluate `#ShouldSuppressReminderForDnd`: held in `Overdue` state during DND without advancing due date or mutating state outside FSM invariants (`validate:fsm` clean). Reminders deliver and reschedule normally once DND is deactivated.
+  - Delivery checks suppress target and origin posts if either channel or the workspace has DND active.
+  - `#RunDailyTaskDigestAsync` checks `HasAnyDndActive()`: posts a status notice to the configured `ReminderChannelID` explaining which channel(s) or workspace are in DND and command hints to turn them back on in lieu of morning reminder threads.
+- Comprehensive test coverage in `tests/reminders-dnd-settings.test.js`, `tests/dnd-command.test.js`, and `tests/reminders-dnd-integration.test.js`.
+
+## 1.4.327 - 2026-09-07
+
+If a malformed mention ever reached me, I used to reply "sorry, something went wrong handling
+that: Cannot read properties of undefined (reading 'match')" — an internal error pasted into the
+channel. Now I treat a mention with no usable text as an empty request and answer normally, so you
+get help instead of a stack-trace fragment.
+
+**Technical:** GH-172. `SlackApp.#OnAppMentionAsync` built its `AppMentionEventInfo` with
+`text: ArgEvent.text` raw, while `#OnMessageAsync` had refused a non-string `text` before dispatch
+since the beginning. Every registered `app_mention` handler assumes a string —
+`src/chat-command-router.js` calls `.match` on it, `src/reminders-app-mention-handler.js` and
+`src/chat-module.js` call `.replace` — so a payload whose `text` was `undefined`, `null`, or a
+non-string landed as a `TypeError` inside the handler chain; the chain caught it and the GH-113
+unified error report then posted that TypeError's message to the channel. The dispatch now coerces:
+`text: typeof ArgEvent.text === 'string' ? ArgEvent.text : ''`. Coercing rather than dropping the
+event is deliberate and differs from the `message` path: an `app_mention` is a person addressing
+the bot directly, and silence is exactly the failure mode GH-113 exists to prevent, so the handlers
+run against an empty command and answer with help. Only `text` is guarded; `channel`, `ts`,
+`thread_ts` and `user` are still forwarded raw, and `files` keeps its existing `?? []`. New
+`tests/slack-app-app-mention-text-guard.test.js` drives the real Bolt-registered callback with six
+malformed payloads (undefined, null, absent key, number, object, array) and asserts handlers
+receive a string with no `Error in app_mention handler:` entry logged, plus verbatim pass-through
+of a well-formed text, preservation of an explicit empty string, a red control, and a scope check
+that the other fields are untouched. Reverting the one-line guard turns six of the ten red, so the
+suite is a real instrument. Found by the GH-169 malformed-event corpus, which had to exclude these
+two shapes as out-of-contract; with this guard they become production-reachable and can return to
+that corpus. They are now back in it: `tests/property-fuzz.test.js` carries `text undefined` and
+`text null` as `app_mention` rows again. Returning them needed a second change — `MockSlackApp`
+was applying production's `files` normalization but not this new `text` coercion, so the two rows
+would have failed on the mock's divergence from the real dispatcher rather than on anything real.
+`SimulateAppMentionAsync` now mirrors the coercion, with the same citation the `files` line
+already carries. That is not circular: the guard itself is proven against the real Bolt-registered
+callback in `tests/slack-app-app-mention-text-guard.test.js`, and the corpus rows cover what the
+handler chain downstream of it does with an empty command.
+
+## 1.4.326 - 2026-09-07
+
+Nothing changes in what I do in Slack. What changes is how I get tested: every run now throws a
+few hundred seeded, deliberately nasty strings at my Markdown renderer and my model-name
+resolver, and feeds a corpus of partial or malformed Slack events through the real handlers, so a
+regex that starts to hang or a handler that starts to crash on odd input shows up in `npm test`
+before it shows up in a channel.
+
+**Technical:** GH-169. New `tests/property-fuzz.test.js`, no new dependency: a ten-line
+`mulberry32` seeded from `PROPERTY_SEED` (else the clock), with the seed printed in every describe
+name so any failure replays with `PROPERTY_SEED=<n> npx jest tests/property-fuzz.test.js`. The
+generator draws from weighted families — printable ASCII, Markdown metacharacters, whitespace
+runs, zero-width characters, bidi overrides, lone surrogates and ZWJ emoji, unbalanced delimiters
+(the high-yield vectors from the XYZ-forge GH-299 soak). Block 1 runs `MarkdownToMrkdwn` over 200
+draws at 4k and 5 at 40k with a per-draw wall-clock bound (`50ms` / `5000ms`) and a fenced
+sentinel that must survive untouched, plus four fixed inputs of at most 40k that hit the quadratic
+link regex at `src/markdown-to-mrkdwn.js:41` on every run so the bound is a lasting ReDoS tripwire;
+the 40k bound is 5000ms rather than the issue's suggested 1000ms because the bracket case measured
+1638ms under the full parallel suite (593ms isolated), and every long test carries an explicit jest
+budget so a slow draw fails naming its seed. Block 2 warms `LoadCommandIntentAssetsAsync` then
+checks `NormalizeDirectCommandTextAsync` (shape, `Notes` always empty since GH-168) and
+`ResolveModelAliasAsync` on the same draws (shape, `<100ms`), then letter-free junk (refused, and
+`ModelId` equals the sanitized input by a test-local restatement of the sanitizer) and every
+`ModelAliases` row (resolves to its pin in four spellings, refuses with junk appended, every pin is
+a fixed point). Block 3 drives a malformed-event corpus through all four `MockSlackApp` hooks with
+`ChatModule` and `RemindersModule` registered and `WorkspaceAI` mocked: the dispatch resolves, no
+`Error in <event> handler:` entry is logged, and a `setImmediate` drain keeps any fire-and-forget
+rejection inside the test so jest attributes it — a `process.on('unhandledRejection')` listener
+registered inside a jest test was measured never to fire (jest-circus owns that event), so none is
+installed. Shapes are labelled by production reachability per `src/slack-app.js`. To deliver `''`,
+`null` and `undefined` the way a partial payload does, `tests/mocks/mock-slack-app.js` gains
+`FieldOrDefault`, which defaults `channel`/`text`/`ts`/`user` only when the key is absent (`||`
+and `??` both swallowed the explicit values), and the simulators now deliver absent
+`thread_ts`/`files` exactly as production does, pinned by a fidelity test; the rest of the suite
+is unchanged by it. The corpus caught one out-of-contract shape on its first run — `app_mention`
+with non-string `text` throws at `src/chat-command-router.js:111` because the dispatcher passes
+`ArgEvent.text` raw where the `message` path guards — filed as GH-172 and excluded with the reason
+in the test. The XYZ-forge ATE / fuzz-loop tooling was assessed for this and declined
+(CLI-shaped, destructive per-variation repo reset, tests the harness not the bot). Plan reviewed
+by Codex via the relay harness over three rounds; every finding folded in except the R7 wording,
+escalated to the issue owner.
+
+## 1.4.325 - 2026-09-07
+
+Nothing you can see from Slack changed here — this one is for the people maintaining me. Two
+branches that both touched my release ledger could not be merged at all, and now they can.
+
+**Technical:** GH-183. `INSERT_RE` in `utils/py/releases_app.py` compiled without `re.DOTALL`, so a
+`roadmap_items` row whose `raw_text` carries an embedded newline — dumped as a multi-line statement
+— could never match. `parse_dump` then never cleared its buffer, swallowed every following
+statement, and died at EOF with `refused: rule=dump-parse: unparseable trailing statement`. That
+took out `check --rebuild`, which is the *only* documented resolution for a divergent-dump git merge
+(the `merge-rebuild` receipt it appends is the one legal fork point in the receipt-chain rule). The
+failure reproduced on pristine `development` at `cca1b90`, not just on merged branches, and plain
+`check` exits 0 throughout — so nothing surfaced it. Fix is `re.S` on the compile.
+
+Also adds `tests/ledger-dump-rebuild.test.js`, the first automated coverage for `releases_app.py` at
+all: the committed `releases.sql` parses, a synthetic embedded-newline row parses without swallowing
+the statement after it, a genuinely truncated statement is still refused (so the fix cannot be
+satisfied by deleting the refusal), and `check --rebuild` against a throwaway copy of the real
+ledger bumps the generation, appends exactly one `merge-rebuild` receipt, and leaves a `.bak`. The
+suite skips rather than fails where `python3` is absent. Verified red before green: 3 of the 4 fail
+with the fix reverted.
+
 ## 1.4.324 - 2026-09-05
 
 The model nicknames I understand ("ChatGPT", "Sonnet", "Gemini Pro" …) now come from one shared,
@@ -101,7 +215,10 @@ holding a bot token can no longer slip past it. The Slack client is injected, an
 `tests/slack-harness-drive.test.js` (22 cases) covers every safety claim — dry-run never posting,
 ambiguity refusing across page boundaries, only the addressed bot counting as the reply, token
 rejection from both sources without echoing a token, `--expect` failing with exit 4, timeout with
-exit 3. `scripts/smoke-dev-gh168.sh` asserts the four GH-168 surfaces on dev in every router mode;
+exit 3. A command can answer in several messages (`rmm ifl` posts "On it — running …" before the
+command's own reply), so with `--expect` the harness keeps reading until a reply matches or the
+window closes, rather than judging the first one. `scripts/smoke-dev-gh168.sh` asserts the four
+GH-168 surfaces on dev in every router mode;
 a test pins that its cross-vendor refusal case stays ungated, since gating it would hide exactly the
 precedence regression GH-174 fixes. `models` keeps a short curated list of common exact model IDs
 alongside the alias table, so an unaliased ID like `o1` stays discoverable.

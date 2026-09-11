@@ -163,9 +163,30 @@ describe('slack-harness-drive — posting and reply matching', () => {
     expect(Client.conversations.replies.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  test('--expect failure exits 4, not 0', async () => {
+  test('keeps reading past a preamble to find --expect — a command can answer in several messages', async () => {
+    // `rmm ifl` posts "On it — running …" first and the real answer second; matching only the
+    // first reply reported a working command as a failure (dev, 2026-09-05).
+    const Client = MakeClient({ Replies: [
+      [{ ts: '2', user: BOT, text: 'On it — running `switch-models:\'Open AI\'`' }],
+      [{ ts: '2', user: BOT, text: 'On it — running `switch-models:\'Open AI\'`' },
+        { ts: '3', user: BOT, text: "Default model switched to 'gpt-5.6-terra' (resolved from 'Open AI')" }],
+    ] });
+    await expect(RunAsync(MakeOptions({ Expect: "resolved from 'Open AI'" }), Client)).resolves.toBe(0);
+  });
+
+  test('without --expect the FIRST reply is the answer (no waiting for more)', async () => {
+    const Client = MakeClient({ Replies: [[{ ts: '2', user: BOT, text: 'first' }]] });
+    await expect(RunAsync(MakeOptions(), Client)).resolves.toBe(0);
+    expect(Client.conversations.replies).toHaveBeenCalledTimes(1);
+  });
+
+  test('--expect failure exits 4 after the deadline, not 0 — it waits for a later reply first', async () => {
     const Client = MakeClient({ Replies: [[{ ts: '2', user: BOT, text: 'Default still using x' }]] });
-    await expect(RunAsync(MakeOptions({ Expect: '*Aliases*' }), Client)).resolves.toBe(4);
+    // Deadline shorter than one poll interval: exactly one poll happens, the reply is seen and
+    // rejected, and the window closes — so 4 is the verdict only after the wait, never on the
+    // first non-matching reply.
+    await expect(RunAsync(MakeOptions({ Expect: '*Aliases*', TimeoutMs: 50 }), Client)).resolves.toBe(4);
+    expect(Client.conversations.replies).toHaveBeenCalledTimes(1);
   });
 
   test('--expect match exits 0', async () => {
@@ -175,7 +196,7 @@ describe('slack-harness-drive — posting and reply matching', () => {
 
   test('no reply before the deadline exits 3', async () => {
     const Client = MakeClient({ Replies: [[]] });
-    await expect(RunAsync(MakeOptions({ TimeoutMs: POLL_INTERVAL_MS + 500 }), Client)).resolves.toBe(3);
+    await expect(RunAsync(MakeOptions({ TimeoutMs: 50 }), Client)).resolves.toBe(3);
     expect(Client.chat.postMessage).toHaveBeenCalledTimes(1);
   });
 });

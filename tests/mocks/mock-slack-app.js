@@ -3,6 +3,30 @@
 /**
  * Lightweight logger for test harness use.
  */
+/**
+ * GH-169: default a simulated event field only when the caller did not supply the key at all, so a
+ * malformed-payload corpus can deliver an explicit `''`, `null`, or `undefined` the way a partial
+ * Slack payload does. `||` swallowed all three; `??` still swallows `null` and `undefined`.
+ * @param {object} ArgInfo Partial event info from the caller.
+ * @param {string} ArgKey Field name.
+ * @param {any} ArgDefault Value used only when the key is absent.
+ * @returns {any}
+ */
+function FieldOrDefault(ArgInfo, ArgKey, ArgDefault) {
+  return Object.hasOwn(ArgInfo, ArgKey) ? ArgInfo[ArgKey] : ArgDefault;
+}
+
+/**
+ * GH-172: the app_mention `text` coercion production applies before dispatch
+ * (src/slack-app.js #OnAppMentionAsync). Kept as a named sibling of FieldOrDefault so the
+ * divergence that made this necessary stays visible: every registered handler assumes a string.
+ * @param {any} ArgText Raw text from the simulated payload.
+ * @returns {string}
+ */
+function CoerceMentionText(ArgText) {
+  return typeof ArgText === 'string' ? ArgText : '';
+}
+
 class MockLogger {
   constructor() {
     this.DebugMessages = [];
@@ -599,12 +623,18 @@ class MockSlackApp {
    */
   async SimulateAppMentionAsync(ArgEventInfo) {
     const AppMentionEvent = {
-      channel: ArgEventInfo.channel || 'C_TEST',
-      text: ArgEventInfo.text || `${this.AppMentionString} ping`,
-      ts: ArgEventInfo.ts || this.#MakeMessageTS(),
+      channel: FieldOrDefault(ArgEventInfo, 'channel', 'C_TEST'),
+      // GH-172: production coerces a non-string `text` to '' before any handler sees it
+      // (src/slack-app.js #OnAppMentionAsync). Mirror that, or this mock hands the chain a shape
+      // the real dispatcher can no longer produce and a corpus row fails on the mock's own gap.
+      // The coercion itself is tested against the real Bolt callback in
+      // tests/slack-app-app-mention-text-guard.test.js, so mirroring it here is not circular.
+      text: CoerceMentionText(FieldOrDefault(ArgEventInfo, 'text', `${this.AppMentionString} ping`)),
+      ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
       thread_ts: ArgEventInfo.thread_ts,
-      user: ArgEventInfo.user || 'U_TEST',
-      files: ArgEventInfo.files,
+      user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
+      // production normalizes absent files to [] (src/slack-app.js #OnAppMentionAsync).
+      files: ArgEventInfo.files ?? [],
     };
     return await this.#DispatchHandlersAsync(this.#AppMentionHandlers, AppMentionEvent, 'app_mention');
   }
@@ -616,13 +646,15 @@ class MockSlackApp {
    */
   async SimulateMessageAsync(ArgEventInfo) {
     const MessageEvent = {
-      channel: ArgEventInfo.channel || 'C_TEST',
-      text: ArgEventInfo.text || 'test message',
-      ts: ArgEventInfo.ts || this.#MakeMessageTS(),
-      thread_ts: ArgEventInfo.thread_ts,
-      user: ArgEventInfo.user || 'U_TEST',
+      channel: FieldOrDefault(ArgEventInfo, 'channel', 'C_TEST'),
+      text: FieldOrDefault(ArgEventInfo, 'text', 'test message'),
+      ts: Object.hasOwn(ArgEventInfo, 'ts') ? ArgEventInfo.ts : this.#MakeMessageTS(),
+      // production delivers thread_ts as null when absent and files as an array always
+      // (src/slack-app.js #OnMessageAsync); mirror both so a corpus sees what handlers see.
+      thread_ts: 'thread_ts' in ArgEventInfo ? ArgEventInfo.thread_ts : null,
+      user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
       subtype: ArgEventInfo.subtype,
-      files: ArgEventInfo.files,
+      files: Array.isArray(ArgEventInfo.files) ? ArgEventInfo.files : [],
       channel_type: ArgEventInfo.channel_type,
     };
     return await this.#DispatchHandlersAsync(this.#MessageHandlers, MessageEvent, 'message');
@@ -657,7 +689,7 @@ class MockSlackApp {
    */
   async SimulateReactionAddedAsync(ArgEventInfo) {
     const ReactionEvent = {
-      user: ArgEventInfo.user || 'U_TEST',
+      user: FieldOrDefault(ArgEventInfo, 'user', 'U_TEST'),
       reaction: ArgEventInfo.reaction || 'white_check_mark',
       item: {
         channel: ArgEventInfo.item?.channel || 'C_TEST',
