@@ -133,6 +133,33 @@ describe('RemindersModule DND Integration', () => {
       await Reminders.StopAsync();
       await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
     });
+
+    test('posts DND status notice on main channel on a snooze day even with no IgnoreSnooze reminders', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('digest_snooze');
+      WorkspaceInfo.SNOOZE_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      SlackApp.GetChannelIdAsync = jest.fn().mockResolvedValue('C_MAIN_REMINDERS');
+
+      const Reminders = new RemindersModule(SlackApp, WorkspaceAIInstance);
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+
+      // Turn on workspace DND
+      await Reminders.GetDndSettings().SetWorkspaceDndAsync(true);
+
+      // Force run daily digest
+      await Reminders.RunDailyDigestNowAsync();
+
+      // DND notice should still be posted to C_MAIN_REMINDERS even though today is a snooze day
+      const PostedMessages = SlackApp.SentMessages;
+      const DndNotice = PostedMessages.find(m => m.text && m.text.includes('AEGIS Sleuth Reminders are DND'));
+      expect(DndNotice).toBeDefined();
+      expect(DndNotice.channel).toBe('C_MAIN_REMINDERS');
+
+      await Reminders.StopAsync();
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+    });
   });
 
   describe('Due Reminder Post DND Suppression', () => {
@@ -250,6 +277,105 @@ describe('RemindersModule DND Integration', () => {
       // Now it delivers
       const DeliveryAfter = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Channel DND task'));
       expect(DeliveryAfter.length).toBe(1);
+
+      await Reminders.StopAsync();
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+    });
+
+    test('process reminders now (force mode) does NOT bypass workspace or channel DND', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('force_dnd');
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+
+      const Paths = GetRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const PastDate = new Date(Date.now() - 3600 * 1000);
+      const SeededReminders = [
+        {
+          ReminderID: 'rem-force',
+          TargetChannelID: 'C_CH1',
+          OriginalChannelID: 'C_CH1',
+          TargetUserID: 'U123',
+          AssigneeID: 'U123',
+          ReminderMessageText: 'Task under force DND',
+          ShouldPostOn: PastDate.toISOString(),
+          CreatedOn: new Date().toISOString(),
+          State: 'scheduled',
+          IgnoreSnooze: false,
+        }
+      ];
+      await fs.writeFile(Paths.reminders, JSON.stringify(SeededReminders), 'utf8');
+      await fs.writeFile(Paths.dnd, JSON.stringify({ workspace: true, channels: [] }), 'utf8');
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      SlackApp.GetChannelIdAsync = jest.fn().mockResolvedValue('C_CH1');
+      SlackApp.GetChannelNameAsync = jest.fn().mockResolvedValue('channel1');
+      SlackApp.IsChannelMemberAsync = jest.fn().mockResolvedValue(true);
+
+      const Reminders = new RemindersModule(SlackApp, WorkspaceAIInstance);
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+
+      // Simulate process reminders now / force mode
+      await Reminders.CheckRemindersNowAsync(true);
+
+      // Reminder must remain suppressed!
+      const DeliveryMessages = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Task under force DND'));
+      expect(DeliveryMessages.length).toBe(0);
+
+      const PendingReminders = Reminders.GetPendingReminders();
+      expect(PendingReminders[0].State).toBe('overdue');
+
+      await Reminders.StopAsync();
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+    });
+
+    test('holds reminder when target channel is in DND even if origin channel is not in DND', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('split_dest_target_dnd');
+      await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);
+
+      const Paths = GetRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const PastDate = new Date(Date.now() - 3600 * 1000);
+      const SeededReminders = [
+        {
+          ReminderID: 'rem-split',
+          TargetChannelID: 'C_TARGET_DND',
+          OriginalChannelID: 'C_ORIGIN_OPEN',
+          TargetUserID: 'U123',
+          AssigneeID: 'U123',
+          ReminderMessageText: 'Split destination task',
+          ShouldPostOn: PastDate.toISOString(),
+          CreatedOn: new Date().toISOString(),
+          State: 'scheduled',
+          IgnoreSnooze: false,
+        }
+      ];
+      await fs.writeFile(Paths.reminders, JSON.stringify(SeededReminders), 'utf8');
+      // Target channel is in DND, origin channel is NOT
+      await fs.writeFile(Paths.dnd, JSON.stringify({ workspace: false, channels: ['C_TARGET_DND'] }), 'utf8');
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      SlackApp.GetChannelIdAsync = jest.fn().mockImplementation(async name => `C_${name}`);
+      SlackApp.GetChannelNameAsync = jest.fn().mockImplementation(async id => id.toLowerCase());
+      SlackApp.IsChannelMemberAsync = jest.fn().mockResolvedValue(true);
+
+      const Reminders = new RemindersModule(SlackApp, WorkspaceAIInstance);
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+
+      await Reminders.CheckRemindersNowAsync();
+
+      // Neither target nor origin should receive a post while target is in DND (whole reminder held)
+      const DeliveryMessages = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Split destination task'));
+      expect(DeliveryMessages.length).toBe(0);
+
+      const PendingReminders = Reminders.GetPendingReminders();
+      expect(PendingReminders[0].State).toBe('overdue');
+
+      // Now turn off target DND
+      await Reminders.GetDndSettings().SetChannelDndAsync('C_TARGET_DND', false);
+      await Reminders.CheckRemindersNowAsync();
+
+      // Both target and origin receive their posts now
+      const DeliveryAfter = SlackApp.SentMessages.filter(m => m.text && m.text.includes('Split destination task'));
+      expect(DeliveryAfter.length).toBe(2);
+      expect(DeliveryAfter.map(m => m.channel).sort()).toEqual(['C_ORIGIN_OPEN', 'C_TARGET_DND']);
 
       await Reminders.StopAsync();
       await CleanupPathsAsync(WorkspaceInfo.WORKSPACE_NAME);

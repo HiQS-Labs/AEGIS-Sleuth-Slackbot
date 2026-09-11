@@ -3419,22 +3419,6 @@ class RemindersModule {
       this.#SlackApp.Logger.info(`daily digest force-run requested, bypassing duplicate-send guard`);
 
 
-    const CurrentDayName = this.#GetCurrentDayName();
-    const SnoozedToday = this.#IsSnoozedToday();
-
-    // fast path: if today is snoozed and no reminder opts out, skip early without building user map.
-    if(SnoozedToday) {
-      const HasIgnoreSnoozeReminder = this.#PendingRemindersQueue.some(ArgReminder => ArgReminder.IgnoreSnooze === true);
-      if(!HasIgnoreSnoozeReminder) {
-        this.#SlackApp.Logger.info(
-          `[snooze-guard] daily digest suppressed on ${CurrentDayName}; no IgnoreSnooze reminders available`
-        );
-        this.#LastDailyDigestDate = TodayDateString;
-        await this.#SaveReminderCounterAsync();
-        return;
-      }
-    }
-
     const ReminderChannelID = await this.#GetReminderChannelIdAsync('');
     if(!ReminderChannelID) {
       this.#SlackApp.Logger.error('could not determine reminder channel for daily digest');
@@ -3443,6 +3427,7 @@ class RemindersModule {
 
     // DND GUARD: If DND is enabled on workspace or any channels, post a status notice on the main
     // defined reminder channel in lieu of the morning reminders and suppress all digest threads.
+    // Checked before snooze-guard so DND notices post even on snooze days.
     if(this.#DndSettings && this.#DndSettings.HasAnyDndActive()) {
       const IsWorkspaceDnd = this.#DndSettings.IsWorkspaceDnd();
       const DndChannelIDs = this.#DndSettings.GetDndChannelIds();
@@ -3481,6 +3466,22 @@ class RemindersModule {
       this.#LastDailyDigestDate = TodayDateString;
       await this.#SaveReminderCounterAsync();
       return;
+    }
+
+    const CurrentDayName = this.#GetCurrentDayName();
+    const SnoozedToday = this.#IsSnoozedToday();
+
+    // fast path: if today is snoozed and no reminder opts out, skip early without building user map.
+    if(SnoozedToday) {
+      const HasIgnoreSnoozeReminder = this.#PendingRemindersQueue.some(ArgReminder => ArgReminder.IgnoreSnooze === true);
+      if(!HasIgnoreSnoozeReminder) {
+        this.#SlackApp.Logger.info(
+          `[snooze-guard] daily digest suppressed on ${CurrentDayName}; no IgnoreSnooze reminders available`
+        );
+        this.#LastDailyDigestDate = TodayDateString;
+        await this.#SaveReminderCounterAsync();
+        return;
+      }
     }
 
     let RemindersByUser = this.#BuildReminderMapByUser();
@@ -3883,22 +3884,23 @@ class RemindersModule {
   }
 
   /**
-   * Determine whether all destinations for an overdue reminder are suppressed by DND.
+   * Determine whether any destination for an overdue reminder is suppressed by DND.
+   * If any required destination is in DND, the entire reminder is held so it is not
+   * partially delivered and rescheduled before all destinations can receive it.
+   * DND suppression is unconditional — it cannot be bypassed by force mode.
    * @param {ReminderInfo} ArgReminder Reminder being evaluated.
-   * @param {boolean} [ArgForceOverride] Ignore DND rules when true.
    * @returns {boolean}
    */
-  #ShouldSuppressReminderForDnd(ArgReminder, ArgForceOverride = false) {
-    if(ArgForceOverride || !this.#DndSettings) return false;
+  #ShouldSuppressReminderForDnd(ArgReminder) {
+    if(!this.#DndSettings) return false;
     if(this.#DndSettings.IsWorkspaceDnd()) return true;
 
-    const TargetSuppressed = this.#DndSettings.IsChannelDnd(ArgReminder.TargetChannelID);
-    const HasSeparateOrigin = ArgReminder.OriginalChannelID && ArgReminder.OriginalChannelID !== ArgReminder.TargetChannelID;
-    const OriginSuppressed = HasSeparateOrigin
-      ? this.#DndSettings.IsChannelDnd(ArgReminder.OriginalChannelID)
-      : true;
+    if(this.#DndSettings.IsChannelDnd(ArgReminder.TargetChannelID)) return true;
 
-    return TargetSuppressed && OriginSuppressed;
+    const HasSeparateOrigin = ArgReminder.OriginalChannelID && ArgReminder.OriginalChannelID !== ArgReminder.TargetChannelID;
+    if(HasSeparateOrigin && this.#DndSettings.IsChannelDnd(ArgReminder.OriginalChannelID)) return true;
+
+    return false;
   }
 
   /**
@@ -3972,7 +3974,7 @@ class RemindersModule {
 
     const RemindersToPost = this.#PendingRemindersQueue.filter(ArgReminder => {
       if(ArgReminder.State !== RemindersModule.ReminderState.Overdue) return false;
-      if(this.#ShouldSuppressReminderForDnd(ArgReminder, ArgForceProcessAll)) return false;
+      if(this.#ShouldSuppressReminderForDnd(ArgReminder)) return false;
       if(RetryEligibleIDs.has(ArgReminder.ReminderID)) return true; // retry-eligible: always post.
       if(ArgForceProcessAll) return true;                            // force mode: bypass age threshold.
       const OverdueByMs = CurrentDateTime.getTime() - ArgReminder.ShouldPostOn.getTime();
@@ -4080,7 +4082,7 @@ class RemindersModule {
 
       // if the original channel is not a test channel (or does not exist, which may be the case for very old reminders
       // where the original channel was not stored) and not in DND, post the reminder in the target channel as usual.
-      const TargetChannelIsDnd = !ArgForceProcessAll && Boolean(this.#DndSettings?.IsDndActiveForChannel(TargetChannelID));
+      const TargetChannelIsDnd = Boolean(this.#DndSettings?.IsDndActiveForChannel(TargetChannelID));
       if(!OriginalChannelIsTest && !TargetChannelIsDnd) {
         try {
           // post the compact reminder message to the target channel.
@@ -4110,7 +4112,7 @@ class RemindersModule {
       }
 
       // post the reminder message to the original channel if different from the target channel and not in DND.
-      const OriginalChannelIsDnd = !ArgForceProcessAll && Boolean(this.#DndSettings?.IsDndActiveForChannel(OriginalChannelID));
+      const OriginalChannelIsDnd = Boolean(this.#DndSettings?.IsDndActiveForChannel(OriginalChannelID));
       if(OriginalChannelID !== TargetChannelID && !OriginalChannelIsDnd) {
         try {
           // post the compact reminder message to the original channel.

@@ -129,4 +129,29 @@ describe('HandleDndCommandAsync', () => {
     await HandleDndCommandAsync(Env.SlackApp, Env.EventInfo, Env.RemindersModule, 'channel on');
     expect(Env.DndSettings.SetChannelDndAsync).toHaveBeenCalledWith('C_CHANNEL', true);
   });
+
+  test('rejects unrecognized subcommands or arguments with usage instructions', async () => {
+    const Env = MakeEnv({ IsAdmin: true, IsCreator: true });
+
+    await HandleDndCommandAsync(Env.SlackApp, Env.EventInfo, Env.RemindersModule, 'foobar');
+    expect(Env.DndSettings.SetChannelDndAsync).not.toHaveBeenCalled();
+    expect(Env.DndSettings.SetWorkspaceDndAsync).not.toHaveBeenCalled();
+    expect(Env.SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      'C_CHANNEL',
+      '1700000000.000001',
+      expect.stringContaining('Unrecognized or conflicting DND command: `foobar`.')
+    );
+  });
+
+  test('rejects conflicting on and off tokens with usage instructions', async () => {
+    const Env = MakeEnv({ IsAdmin: true, IsCreator: true });
+
+    await HandleDndCommandAsync(Env.SlackApp, Env.EventInfo, Env.RemindersModule, 'on off');
+    expect(Env.DndSettings.SetChannelDndAsync).not.toHaveBeenCalled();
+    expect(Env.SlackApp.PostMessageTextAsync).toHaveBeenCalledWith(
+      'C_CHANNEL',
+      '1700000000.000001',
+      expect.stringContaining('Unrecognized or conflicting DND command: `on off`.')
+    );
+  });
 });

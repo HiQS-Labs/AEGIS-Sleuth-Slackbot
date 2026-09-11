@@ -33,22 +33,38 @@ async function HandleDndCommandAsync(
   }
 
   const Tokens = (ArgArgString || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
-  let Scope = 'channel';
-  let Action = null;
 
-  for(const Token of Tokens) {
-    if(Token === 'workspace' || Token === 'group' || Token === 'global') {
-      Scope = 'workspace';
-    } else if(Token === 'channel' || Token === 'here' || Token === 'this') {
-      Scope = 'channel';
-    } else if(Token === 'on' || Token === 'enable' || Token === 'start' || Token === 'mute') {
-      Action = 'on';
-    } else if(Token === 'off' || Token === 'disable' || Token === 'stop' || Token === 'unmute') {
-      Action = 'off';
-    } else if(Token === 'status' || Token === 'check') {
-      Action = 'status';
-    }
+  const KnownScopeTokens = new Set(['workspace', 'group', 'global', 'channel', 'here', 'this']);
+  const KnownOnTokens = new Set(['on', 'enable', 'start', 'mute']);
+  const KnownOffTokens = new Set(['off', 'disable', 'stop', 'unmute']);
+  const KnownStatusTokens = new Set(['status', 'check']);
+
+  const UnrecognizedTokens = Tokens.filter(
+    Token => !KnownScopeTokens.has(Token) && !KnownOnTokens.has(Token) && !KnownOffTokens.has(Token) && !KnownStatusTokens.has(Token)
+  );
+
+  const HasOn = Tokens.some(Token => KnownOnTokens.has(Token));
+  const HasOff = Tokens.some(Token => KnownOffTokens.has(Token));
+  const HasStatus = Tokens.some(Token => KnownStatusTokens.has(Token));
+  const ActionKinds = [HasOn, HasOff, HasStatus].filter(Boolean).length;
+
+  if(UnrecognizedTokens.length > 0 || ActionKinds > 1) {
+    await ArgSlackApp.PostMessageTextAsync(
+      ArgEventInfo.channel,
+      ArgEventInfo.ts,
+      `Unrecognized or conflicting DND command: \`${ArgArgString}\`.\nUsage:\n• \`@Sleuth AI dnd [on|off]\` (current channel)\n• \`@Sleuth AI dnd workspace [on|off]\` (entire workspace)\n• \`@Sleuth AI dnd status\``
+    );
+    return;
   }
+
+  const Scope = Tokens.some(Token => Token === 'workspace' || Token === 'group' || Token === 'global')
+    ? 'workspace'
+    : 'channel';
+
+  let Action = null;
+  if(HasOn) Action = 'on';
+  else if(HasOff) Action = 'off';
+  else if(HasStatus) Action = 'status';
 
   // If no action or status requested, report current DND status.
   if(!Action || Action === 'status') {
