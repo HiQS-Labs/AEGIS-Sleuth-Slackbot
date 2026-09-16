@@ -228,6 +228,39 @@ Operator SSH credentials on this machine live in bare `KEY=value` env files unde
 | Development (`203.0.113.12`) | `~/secrets/sleuth/vultr-sleuth-development.env` | `SLEUTH_DEV_HOST`, `SLEUTH_DEV_USER`, `SLEUTH_DEV_PASS` |
 | Production (`203.0.113.13`) | `~/secrets/sleuth/vultr-sleuth-production.env` | `SLEUTH_PROD_HOST`, `SLEUTH_PROD_USER`, `SLEUTH_PROD_PASS` |
 
+### Oracle Cloud Dev Server (incoming — replaces Vultr development)
+
+The **development** server is moving off Vultr onto an Oracle Cloud (OCI) ARM64 box. That machine
+uses key-based auth, not `sshpass`, and its credentials do **not** live in `~/secrets/sleuth/`.
+They live in their own portable bundle on the operator machine:
+
+```
+~/secrets/oracle/
+```
+
+Set up access on any machine with one command:
+
+```bash
+~/secrets/oracle/restore.sh
+```
+
+That installs the private key, pins the host key, appends the `sleuth-oracle-dev` alias to
+`~/.ssh/config`, then verifies the connection. It is idempotent and exits non-zero if SSH fails.
+After it passes:
+
+```bash
+ssh sleuth-oracle-dev
+```
+
+The bundle's own `README.md` carries the host details, the OCI CLI re-auth steps, the billing
+caveat, and the access-recovery history. The host, its IP, the key path and the tenancy are
+deliberately **not** recorded in this repo — it is public. (The login user, `ubuntu`, is the stock
+Ubuntu cloud-image default and is named in `docs/SSH.md`; on its own it identifies nothing.)
+
+**Status:** reachable and verified from the operator machine, but the box is still stock Ubuntu —
+no AEGIS/Sleuth service, no app, no database. Until it is provisioned, `sleuth-development`
+remains the live dev server and the deploy steps above still apply.
+
 ### Password Metacharacter Gotcha
 
 Do **not** `source` these Vultr env files directly if the password may contain shell metacharacters
