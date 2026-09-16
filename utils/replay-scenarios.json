@@ -135,5 +135,18 @@
     "expect": {
       "expectNone": true
     }
+  },
+  {
+    "name": "GH-197: willingness is still a reminder",
+    "kind": "message",
+    "event": {
+      "user": "U_SENDER",
+      "text": "I'm happy to deploy tomorrow"
+    },
+    "expect": {
+      "taskContains": [
+        "deploy"
+      ]
+    }
   }
 ]

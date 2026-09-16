@@ -135,7 +135,7 @@ describe('RemindersAIPipeline', () => {
 
       expect(Instructions).toContain("I'm so excited to show the site probably by end of day tomorrow");
       expect(Instructions).toContain("I'll show the site by end of day tomorrow");
-      expect(Instructions).toContain('`excited`, `happy`, `glad`, `looking forward`, `can\'t wait`');
+      expect(Instructions).toContain("I'm happy to deploy tomorrow");
       expect(Instructions).toContain("don't need to set a reminder");
       expect(Instructions).toContain('I hope to complete my analysis by 4 PM');
     });
