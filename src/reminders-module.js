@@ -4070,11 +4070,18 @@ class RemindersModule {
       const TargetChannelID = ReminderToPost.TargetChannelID;
       const OriginalChannelID = ReminderToPost.OriginalChannelID;
 
-      // Build the compact text using the shared helper function
+      // Build the compact text using the shared helper function.
+      // IncludeAllKeyTasks: a trigger group is ONE record that can hold N tasks (see the "Key task(s):"
+      // reduce above), and the schedule-time confirmation promises all N. Delivery used to render only
+      // the first bullet, so tasks 2..N were confirmed and then never fired — the user's only signal
+      // that work was queued disagreed with the work that arrived. Delivery is the one surface that
+      // must be complete; the list surfaces stay one-line-per-reminder.
       const CompactText = await BuildCompactTextForReminder(
         this.#SlackApp,
         ReminderToPost,
-        GetAlphabeticalLabel(this.#ReminderCounter)
+        GetAlphabeticalLabel(this.#ReminderCounter),
+        undefined,
+        { IncludeAllKeyTasks: true }
       );
 
       // Create metadata for the reminder message. NOTE: we use an array of reminder IDs even though we are only posting

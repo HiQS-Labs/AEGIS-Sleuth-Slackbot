@@ -157,9 +157,39 @@ const REMINDER_DUE_SECTIONS = [
 ];
 
 /**
+ * Extract EVERY "Key task(s):" bullet from a reminder's message text, in stored order.
+ *
+ * One trigger group becomes ONE reminder record, and `#ComposeReminderMessageAsync` +
+ * the "Key task(s):" reduce in reminders-module.js append one `• …` line per analyzer
+ * candidate in that group. So a record legitimately carries N distinct tasks, and the
+ * schedule-time confirmation card renders all N. Only the *delivered* line was built from
+ * `lines.find('•')` — the first bullet — which silently dropped tasks 2..N at fire time
+ * (prod: a 07:31 PT reminder confirmed "Review LTVera 485" + "Review LTVera 483" and
+ * delivered only 485). This is the read side of that: the single place that knows a record
+ * can hold more than one task.
+ *
+ * A quoted original line always starts with ">", so a bare "•" line is only ever an appended
+ * Key task, never quote content.
+ * @param {string} ArgReminderMessageText Full reminder message text.
+ * @returns {string[]} Truncated task summaries in stored order; empty when the record has no bullets.
+ */
+function ExtractKeyTaskSummaries(ArgReminderMessageText) {
+  return String(ArgReminderMessageText ?? '')
+    .split('\n')
+    .map((/** @type {string} */ ArgLine) => ArgLine.trim())
+    .filter((/** @type {string} */ ArgLine) => ArgLine.startsWith('•'))
+    .map((/** @type {string} */ ArgLine) => TruncateCompactSummary(ArgLine.replace(/^•\s*/, '')))
+    .filter(Boolean);
+}
+
+/**
  * Extract the compact one-line summary from a reminder's message text. Phase-3 reminders prefer
  * a trimmed excerpt from the quoted original message (first three sentences with a minimum useful
  * length); legacy reminders with no quote block fall back to the old bullet / first-line rule.
+ *
+ * Deliberately still ONE line: this is the canonical single-line summary every list surface
+ * (digests, buckets, rebalance export) is pinned to. Callers that must show a record's full task
+ * set — the delivery path — use {@link ExtractKeyTaskSummaries} instead of widening this.
  * @param {string} ArgReminderMessageText Full reminder message text.
  * @returns {string}
  */
@@ -173,11 +203,10 @@ function ExtractCompactSummary(ArgReminderMessageText) {
   // (GH-337) and must win over the raw quoted-original excerpt — otherwise a long message that has BOTH
   // a quote block AND a synthesized task shows the quote lead in the digest while the confirmation
   // showed the clean task (prod: "Get the Woocommerce plugins done" rendered as "com. I'll follow the
-  // same method…"). A quoted line always starts with ">", so a bare "•" line is only ever the appended
-  // Key task, never quote content.
-  const BulletLine = lines.find((/** @type {string} */ ArgLine) => ArgLine.startsWith('•'));
-  if(BulletLine)
-    return TruncateCompactSummary(BulletLine.replace(/^•\s*/, ''));
+  // same method…").
+  const [FirstKeyTask] = ExtractKeyTaskSummaries(ArgReminderMessageText);
+  if(FirstKeyTask)
+    return FirstKeyTask;
 
   // Otherwise fall back to a trimmed excerpt of the quoted original (GH-337 Phase 3)...
   const QuotedExcerpt = ExtractQuotedOriginalExcerpt(ArgReminderMessageText);
@@ -245,9 +274,14 @@ function ToWebSafeSummary(ArgSummary, ArgUserNamesById = {}) {
  * @param {any} ArgReminder Reminder to format.
  * @param {string} ArgLabel Alphabetical label.
  * @param {Record<string, string>} [ArgAnnotationsByReminderId] Optional per-reminder rationale lines.
+ * @param {{ IncludeAllKeyTasks?: boolean }} [ArgOptions] `IncludeAllKeyTasks` appends an indented
+ * bullet for each of the record's remaining Key tasks. OFF by default so every list surface keeps
+ * its pinned one-line-per-reminder shape; ON at the delivery site, where dropping tasks 2..N means
+ * work the user was told to expect never arrives. Safe because the delivered message's metadata
+ * already carries the whole record's `ReminderIDs`, so one ✅ completes every task shown.
  * @returns {Promise<string>}
  */
-async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, ArgAnnotationsByReminderId) {
+async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, ArgAnnotationsByReminderId, ArgOptions) {
   // Prefix the display-only summary with the reminder's inferred client name (GH-395). This is a
   // non-destructive render-time decoration on top of the GH-391 per-reminder poster, so every list
   // surface (ask-reminders, buckets, digests) gets it consistently. No confident match → no prefix.
@@ -290,10 +324,22 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
     ShouldPostOnMs: ArgReminder.ShouldPostOn.getTime(),
   });
 
-  const Annotation = ArgAnnotationsByReminderId?.[ArgReminder.ReminderID];
-  if(!Annotation) return CompactLine;
+  // tasks 2..N of this record. `summary` above already rendered task 1 (with the client prefix), so
+  // these are the ones the old `find('•')` read dropped on the floor. Same ApplyClientPrefix
+  // treatment, so a two-task reminder does not label one bullet and leave the other bare.
+  let ExtraTaskLines = '';
+  if(ArgOptions?.IncludeAllKeyTasks) {
+    const ClientName = ResolveClientNameForReminder(ArgReminder, ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME);
+    ExtraTaskLines = ExtractKeyTaskSummaries(ArgReminder.ReminderMessageText)
+      .slice(1)
+      .map(ArgTask => `\n   • ${ApplyClientPrefix(ArgTask, ClientName)}`)
+      .join('');
+  }
 
-  return `${CompactLine}\n   ↳ ${Annotation}`;
+  const Annotation = ArgAnnotationsByReminderId?.[ArgReminder.ReminderID];
+  if(!Annotation) return `${CompactLine}${ExtraTaskLines}`;
+
+  return `${CompactLine}${ExtraTaskLines}\n   ↳ ${Annotation}`;
 }
 
 /**
@@ -470,6 +516,7 @@ module.exports = {
   MAX_COMPACT_SUMMARY_LENGTH,
   REMINDER_DUE_SECTIONS,
   ExtractCompactSummary,
+  ExtractKeyTaskSummaries,
   BuildCompactReminderLine,
   ToWebSafeSummary,
   BuildCompactTextForReminder,
