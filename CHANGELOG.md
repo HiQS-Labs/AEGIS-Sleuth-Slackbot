@@ -33,6 +33,17 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.330 - 2026-09-16
+
+I used to treat "I'm so excited to show the site probably by end of day tomorrow" as a task and set a reminder for it. That's just someone looking forward to something, not a commitment — I now leave those alone. If you ping me to say you don't need a reminder, I also no longer reply as if you had asked me to create one.
+
+**Technical:** GH-197. Two existing paths, no new modules or write paths.
+
+- **Scheduler false positive.** The weekly false-positive report flagged first-person excitement as a task because [`data/static/ai/reminders-instructions.md`](data/static/ai/reminders-instructions.md) had no emotion exclusion. Added a pay-attention contrast (`I will do X by [time]` / `I'll show the site by end of day tomorrow` still schedule; `I'm excited/happy to do X by [time]` is ignore — emotion verbs `excited`/`happy`/`glad`/`looking forward`/`can't wait` before the action are the exclude signal) and two exclusion bullets (first-person feeling/anticipation with the production example, plus explicit opt-out `don't set a reminder` / `don't need to set a reminder`). Hedge words (`probably`/`maybe`/`I think`) are supporting context on emotion, not a standalone ignore — `I'll probably deploy the hotfix tomorrow` stays schedulable. `I hope to complete my analysis by 4 PM` is unchanged as a schedule example. Did not touch `SCHEDULING_TRIGGER_PATTERN`, `#ShouldSuppressWeakEnrichedReply`, or force-schedule / `:alarm_clock:`.
+- **Mention-path UX.** [`ChatModule.IsReminderActionIntent`](src/chat-module.js) was `HasReminderNoun && HasCreationVerb` with no negation check, so `@Sleuth don't need to set a reminder` posted the canned "I didn't create a reminder. Supported creation paths are…" guidance. Opt-outs matching `don't`/`do not` (optional `need to`) then a creation verb (`make|create|set|add|schedule`) within 40 chars of `reminder` now return false. `don't forget to set a reminder` still matches because `don't` is followed by `forget`, not a creation verb.
+
+Tests: instruction-content assertion in [tests/reminders-ai-pipeline.test.js](tests/reminders-ai-pipeline.test.js); `IsReminderActionIntent` opt-out / don't-forget cases in [tests/chat-module.test.js](tests/chat-module.test.js); live reminder-replay scenario in [utils/replay-scenarios.json](utils/replay-scenarios.json) with `expectNone: true` for the production sentence (the harness treats empty output as a vacuous pass unless that flag is set).
+
 ## 2026-09-16
 
 We're moving the dev server off Vultr onto an Oracle Cloud ARM box. Its credentials now live in one portable folder on the operator machine, restored anywhere with a single command — and the deployment docs now point at it. Nothing about the box itself is written down in this public repo.
