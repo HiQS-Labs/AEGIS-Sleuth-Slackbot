@@ -372,7 +372,8 @@ operator machine at `~/secrets/oracle/`, restored on any machine with `~/secrets
 (installs the key, pins the host key, adds the alias, then verifies the connection).
 
 - Operator setup and status: `docs/SSH.md` -> "Oracle Cloud Dev Server"
-- Deployment context: `docs/server-installation-guide.md` -> "Oracle Cloud Dev Server (incoming)"
+- Deployment context: `docs/server-installation-guide.md` -> "Oracle Cloud Dev Server (incoming —
+  replaces Vultr development)"
 - Host details, OCI CLI re-auth, billing caveat, recovery history: `~/secrets/oracle/README.md`
 
 **Current status:** SSH verified working from the operator machine, but the box is stock Ubuntu —

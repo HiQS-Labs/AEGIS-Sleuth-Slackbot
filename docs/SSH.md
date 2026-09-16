@@ -47,8 +47,10 @@ history of how access was recovered after the original key was lost.
 ### Status — not yet the dev server
 
 The box is reachable and verified, but it is still stock Ubuntu: no AEGIS/Sleuth service, no app,
-no database. The deploy, log, and restart commands above do **not** work against it yet.
-`sleuth-development` remains the live development server until the migration lands.
+no database. The deploy, log, and restart commands in "Common Operations" below do **not** work
+against it yet. `sleuth-development` remains the live development server until the migration
+lands.
+
 ## How to SSH
 
 **ALWAYS use the alias, not the IP address:**

@@ -253,8 +253,9 @@ ssh sleuth-oracle-dev
 ```
 
 The bundle's own `README.md` carries the host details, the OCI CLI re-auth steps, the billing
-caveat, and the access-recovery history. Host, IP, user, key path and tenancy are deliberately
-**not** recorded in this repo — it is public.
+caveat, and the access-recovery history. The host, its IP, the key path and the tenancy are
+deliberately **not** recorded in this repo — it is public. (The login user, `ubuntu`, is the stock
+Ubuntu cloud-image default and is named in `docs/SSH.md`; on its own it identifies nothing.)
 
 **Status:** reachable and verified from the operator machine, but the box is still stock Ubuntu —
 no AEGIS/Sleuth service, no app, no database. Until it is provisioned, `sleuth-development`
