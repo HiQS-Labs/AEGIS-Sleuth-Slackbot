@@ -57,6 +57,7 @@ You must pay attention to the following issues when associating `actionable lang
   - Examples to `ignore`: `I'll keep that in mind`, `when I get to that`, `I'm assuming the goal is...`, `the goal is to be able to...`, `sounds good`, `I understand`.
   - Contrast: `I'll handle it tomorrow morning`, `I'll do it by 4 PM`, and `Can you review it by EOD?` are actionable because they contain a real commitment or direct ask tied to a schedule.
 - Subordinate or hypothetical wording like `when I get to that`, `if I get to that`, or `the goal is to be able to` is not a firm scheduling commitment by itself. Do not convert it into one just because earlier thread context contains concrete tasks.
+- Distinguish a first-person **self-commitment** from first-person **feeling or anticipation**. `I will do X by [time]` and `I'll show the site by end of day tomorrow` are commitments and should be scheduled. Anticipation of an event is not: `I'm so excited to show the site probably by end of day tomorrow`, `I can't wait to...`, and `I'm looking forward to...` should be ignored. Do not treat willingness as anticipation: `I'm happy to deploy tomorrow` and `I'm glad to review it by EOD` are acceptances of work and should be scheduled. A hedge (`probably`, `maybe`, `I think`) on a feeling/anticipation strengthens `ignore`; it does not by itself exclude a firm commitment such as `I'll probably deploy the hotfix tomorrow`.
 
 Below are examples of `exclusion language` which should result in recommending the `ignore` procedure:
 - Work summaries for the day/week containing phrases like `ending my day`, `ending the day`, `weekly summary`, `summary for`, etc.
@@ -65,6 +66,10 @@ Below are examples of `exclusion language` which should result in recommending t
 - Past-tense reports of completed or failed actions where temporal language describes what already happened: `I ran out of time today`, `I got it done this morning`, `I already reviewed it today`, `I couldn't finish it tonight`, etc. The time word here is descriptive, not a future deadline.
 - Informal delegation or handoff messages with no firm commitment: `I wanted to make sure you had this`, `so you can work on it if you have time`, `passing this along for when you get a chance`, etc.
 - Weak acknowledgment / hypothetical thread replies that refer to an earlier task but do not themselves make a firm commitment: `I'll keep that in mind`, `when I get to that`, `I'm assuming the goal is to be able to reactivate that plugin asap`, `sounds good`, `I understand`, etc.
+- First-person statements expressing personal feelings or anticipation about an event rather than a commitment or ask: `I'm excited to...`, `I can't wait to...`, `I'm looking forward to...`. These are emotional commentary, not task requests, even if they mention a future time.
+  - Example, given "I'm so excited to show the site probably by end of day tomorrow": recommend `ignore`.
+  - Contrast: `I'm happy to deploy tomorrow` is willingness to do the work, not anticipation of an event. Recommend `schedule`.
+- Explicit opt-out of reminder creation in the same message: `don't set a reminder`, `don't need to set a reminder`, `no reminder needed`. Recommend `ignore` even if the rest of the message has a time word.
 
 The overall flow of your tasks when given a message is:
 1. Identify `actionable language` with associated `scheduling triggers`.

@@ -70,6 +70,21 @@ describe('ChatModule.IsReminderActionIntent', () => {
     expect(ChatModule.IsReminderActionIntent('what reminders do I have')).toBe(false);
     expect(ChatModule.IsReminderActionIntent('tell me about reminders')).toBe(false);
   });
+
+  test('does not match opt-out of reminder creation', () => {
+    expect(ChatModule.IsReminderActionIntent("don't set a reminder")).toBe(false);
+    expect(ChatModule.IsReminderActionIntent("don't need to set a reminder")).toBe(false);
+    expect(ChatModule.IsReminderActionIntent("don't want to set a reminder")).toBe(false);
+    expect(ChatModule.IsReminderActionIntent('do not create a reminder')).toBe(false);
+  });
+
+  test('still matches a creation request that happens to contain don\'t forget', () => {
+    expect(ChatModule.IsReminderActionIntent("don't forget to set a reminder")).toBe(true);
+  });
+
+  test('still matches a later affirmative reminder request after an unrelated negation', () => {
+    expect(ChatModule.IsReminderActionIntent("don't set a calendar event; set a reminder")).toBe(true);
+  });
 });
 
 describe('ChatModule.FilterLiveModelCatalogForChat', () => {

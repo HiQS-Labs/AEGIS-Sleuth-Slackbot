@@ -1536,7 +1536,12 @@ class ChatModule {
 
     const HasReminderNoun = /\breminder(?:s)?\b/.test(NormalizedText);
     const HasCreationVerb = /\b(?:make|create|set|add|schedule)\b/.test(NormalizedText);
-    return HasReminderNoun && HasCreationVerb;
+    if(!HasReminderNoun || !HasCreationVerb) return false;
+
+    // opt-out of creation is not a creation request ("don't set a reminder", "don't need to set a reminder", "don't want to set a reminder").
+    // `don't forget to set a reminder` still matches because `don't` is followed by `forget`, not a creation verb.
+    const IsCreationOptOut = /\b(?:don'?t|do not)(?:\s+(?:need|want)\s+to)?\s+(?:make|create|set|add|schedule)\s+(?:a\s+)?reminder(?:s)?\b/.test(NormalizedText);
+    return !IsCreationOptOut;
   }
 
   // GH-62: #IsImageListCreationRequest moved to context-file-classifier.HasListCreationIntent so

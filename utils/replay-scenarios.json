@@ -124,5 +124,29 @@
       ],
       "note": "Codex round 3: 'both' carries no pronoun, so it took the depth-1 lookback and lost the release notes."
     }
+  },
+  {
+    "name": "GH-197: first-person excitement is not a reminder",
+    "kind": "message",
+    "event": {
+      "user": "U_ELAN",
+      "text": "I'm so excited to show the site probably by end of day tomorrow"
+    },
+    "expect": {
+      "expectNone": true
+    }
+  },
+  {
+    "name": "GH-197: willingness is still a reminder",
+    "kind": "message",
+    "event": {
+      "user": "U_SENDER",
+      "text": "I'm happy to deploy tomorrow"
+    },
+    "expect": {
+      "taskContains": [
+        "deploy"
+      ]
+    }
   }
 ]

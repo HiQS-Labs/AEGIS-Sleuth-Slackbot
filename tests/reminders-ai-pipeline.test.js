@@ -129,6 +129,17 @@ describe('RemindersAIPipeline', () => {
       expect(Instructions).toContain('Subordinate or hypothetical wording like `when I get to that`');
     });
 
+    it('should instruct the model to ignore first-person emotion and explicit reminder opt-out', () => {
+      const InstructionsPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'reminders-instructions.md');
+      const Instructions = fs.readFileSync(InstructionsPath, 'utf8');
+
+      expect(Instructions).toContain("I'm so excited to show the site probably by end of day tomorrow");
+      expect(Instructions).toContain("I'll show the site by end of day tomorrow");
+      expect(Instructions).toContain("I'm happy to deploy tomorrow");
+      expect(Instructions).toContain("don't need to set a reminder");
+      expect(Instructions).toContain('I hope to complete my analysis by 4 PM');
+    });
+
     it('should include manual force-schedule normalization guidance for question-style requests', () => {
       const InstructionsPath = path.join(
         __dirname, '..', 'data', 'static', 'ai', 'manual-reminder-task-instructions.md'
