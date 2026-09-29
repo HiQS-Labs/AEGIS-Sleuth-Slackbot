@@ -33,6 +33,22 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.331 - 2026-09-29
+
+You can now close a reminder by just telling me. Reply in the reminder's thread with "@Sleuth I did this", "@Sleuth done", or simply "done" / "all done ✅", and I'll mark it complete, add a ✅ to your reply, and confirm in the thread — the same as reacting with ✅. I only do this when you clearly say it's finished: "not done yet", "will do it tomorrow", "almost done", or a question like "is this done?" leave the reminder open. If several people have reminders in one thread, your reply only closes yours.
+
+**Technical:** Previously the ✅ reaction (`reminders-reaction-handler.js`) was the only completion path. A threaded reply such as `@Sleuth AI v2 I did this` matched no reminder route in `RemindersAppMentionHandler.OnAppMentionAsync`, fell through to `ChatModule`, and got a generic "Thanks for the update!" plus a "Search the web for: I did this" button while the reminder stayed open.
+
+- New `src/reminder-text-completion.js` (deterministic, no LLM call): `DetectCompletionReply(text, mode)` and `ResolveThreadReminderIDsAsync(slackApp, event, pending)`.
+  - `mention` mode (bot @-mentioned): a completion phrase anywhere in a reply of ≤25 words.
+  - `strict` mode (plain thread reply): the whole reply must be a short (≤8 words) completion phrase, since people also chat in reminder threads.
+  - Both refuse negated/partial ("not done", "almost done"), future/conditional ("will do", "done by Friday", "when done"), question ("…?", "did you finish"), and command-lead ("show done tasks", "what's done") forms.
+  - Reminder resolution: `sleuth-ai-reminder-ids` metadata on the thread root (delivered reminder), falling back to pending reminders whose `OriginalThreadTs ?? OriginalMessageID` is the thread (scheduling-confirmation thread). With several candidates, narrows to reminders assigned to the replier.
+- `RemindersModule#TryCompleteRemindersFromReplyAsync` performs the same terminal `completed` transition (reason `terminal: text_completion (<mode>)`) and `#DeleteRemindersAsync(ids, 'completed')` as the ✅ reaction, so Slack Lists, CompletionStore and the event ledger see an ordinary completion. Acknowledges with a ✅ reaction on the reply and a one-line thread message; ack failures are non-fatal. A mention-mode completion on an already-closed reminder replies "already closed" instead of reaching chat.
+- Wiring: injected into `RemindersAppMentionHandler` as `TryCompleteRemindersFromReplyAsync` and checked first in `OnAppMentionAsync` (thread replies only); called in `RemindersModule#OnMessageAsync` for thread replies before the channel-enabled gate (the ✅ reaction is not gated on it either). Handler registration order is unchanged; non-completion replies route exactly as before.
+- FSM doc comment updated: `scheduled|overdue → completed` now also lists the text completion reply. `validate:fsm` passes.
+- Tests: `tests/reminder-text-completion.test.js` (77 cases — detector matrix for both modes, resolver shapes, and end-to-end through `RemindersModule` + `MockSlackApp`, including the reported "@Sleuth I did this" case, chatter that must not complete, per-assignee narrowing, and the already-closed reply).
+
 ## 1.4.330 - 2026-09-16
 
 I used to treat "I'm so excited to show the site probably by end of day tomorrow" as a task and set a reminder for it. That's just someone looking forward to something, not a commitment — I now leave those alone. If you ping me to say you don't need a reminder, I also no longer reply as if you had asked me to create one.

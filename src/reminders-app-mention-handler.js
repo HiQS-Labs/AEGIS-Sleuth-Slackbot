@@ -199,6 +199,10 @@ class RemindersAppMentionHandler {
   #TryScheduleRemindersAsync;
   /** @type {any} */
   #CheckRemindersAsync;
+  // Text completion gateway injected by RemindersModule ("@Sleuth I did this" in a reminder
+  // thread). Owned by the module so the terminal FSM transition lives next to the ✅ reaction's.
+  /** @type {((ArgSlackApp: any, ArgEventInfo: any, ArgMode: 'mention'|'strict') => Promise<boolean>)|null} */
+  #TryCompleteRemindersFromReplyAsync;
   /** @type {any} */
   #GetClientMappings;
   /** @type {CommandRouter} */
@@ -231,6 +235,7 @@ class RemindersAppMentionHandler {
     this.#GetChannelSettings = ArgDependencies.GetChannelSettings;
     this.#TryScheduleRemindersAsync = ArgDependencies.TryScheduleRemindersAsync;
     this.#CheckRemindersAsync = ArgDependencies.CheckRemindersAsync;
+    this.#TryCompleteRemindersFromReplyAsync = ArgDependencies.TryCompleteRemindersFromReplyAsync || null;
     this.#GetClientMappings = ArgDependencies.GetClientMappings || (() => LoadClientMappingsSync());
     this.#AIPipeline = ArgDependencies.AIPipeline || null;
     this.#GetAIPipeline = ArgDependencies.GetAIPipeline || null;
@@ -685,6 +690,16 @@ class RemindersAppMentionHandler {
    * @returns {Promise<boolean>}
    */
   async OnAppMentionAsync(ArgSlackApp, ArgEventInfo) {
+    // Text completion — "@Sleuth I did this" / "@Sleuth done" as a reply in a reminder thread
+    // completes the reminder, the same as a :white_check_mark: reaction. Checked first: before this
+    // existed such a reply matched no reminder route, fell through to the chat assistant, got
+    // "Thanks for the update!" plus a web-search button, and the reminder stayed open. Inert outside
+    // a thread and for anything that is not a completion phrase (questions, "not done", "will do it
+    // tomorrow", "show done tasks"), so every other mention routes exactly as before.
+    if(this.#TryCompleteRemindersFromReplyAsync && ArgEventInfo.thread_ts && ArgEventInfo.thread_ts !== ArgEventInfo.ts) {
+      if(await this.#TryCompleteRemindersFromReplyAsync(ArgSlackApp, ArgEventInfo, 'mention')) return true;
+    }
+
     // Multi-task extraction path — checked BEFORE the CommandRouter so that "list tasks",
     // "show tasks", "get tasks", etc. are not intercepted by the show-reminders route.
     // Only active when AIPipeline is injected (directly or via lazy getter).
