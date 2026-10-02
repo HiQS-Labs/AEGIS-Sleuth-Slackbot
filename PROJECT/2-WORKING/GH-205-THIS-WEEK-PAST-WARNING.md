@@ -17,7 +17,7 @@ related: "GH-87 / GH-94 (same past-handler; jitter + same-day intent), 1.4.150 (
 
 | What was just completed | What's next |
 |---|---|
-| Steps 1-4 implemented: prompt rule + scoped 8 AM defaults, `IsPeriodOnlyTrigger` backstop, tests, CHANGELOG. Focused suite 65/65; red control verified (reverting the fix fails exactly the GH-205 test); `validate:ai` OK; build OK. Matcher also accepts bare `end of week` (Codex r2 note). | Full `npm test` gate once, final Codex QA, PR |
+| Implemented and verified at `7fcebc7`: full `npm test` rc=0 (jest 2437 passed / 4 skipped, node:test 116/116); red control verified; final Codex QA Approved (attested `7fcebc7`). PR opened against `development`. | Merge; deploy; then confirm a prod `date extraction rationale:` line for a `this week` trigger cites the new rule, and close GH-205 |
 
 ## Observed (prod, 2026-09-30 11:00 PDT)
 
@@ -86,9 +86,9 @@ said *"The requested time was in the past"*. Nobody had requested a time.
 - [x] Mixed triggers (clock / date / time-of-day + "this week") past → warning still fires (red controls).
 - [x] Existing past `yesterday` / `afternoon` → still `wasAdjustedForward === true` (unedited tests pass).
 - [x] The prompt states the Mon–Thu / Fri–Sun `this week` policy and the period-only 8 AM scope (content assertion).
-- [ ] The `:alarm_clock:` suppression test (`tests/reminders-integration.test.js` ≈L690) still passes.
+- [x] The `:alarm_clock:` suppression test (`tests/reminders-integration.test.js` ≈L690) still passes.
 - [x] `npm run validate:ai` prints `OK:` for `date-extraction-instructions.md`; `npm run build` passes.
-- [ ] Full `npm test` green on the final commit.
+- [x] Full `npm test` green on the final commit.
 - [ ] After deploy: a prod `date extraction rationale:` line for a `this week` trigger cites the new rule.
 
 ## Non-goals
