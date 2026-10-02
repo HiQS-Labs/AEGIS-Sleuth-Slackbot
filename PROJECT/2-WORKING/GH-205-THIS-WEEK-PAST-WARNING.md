@@ -91,6 +91,15 @@ said *"The requested time was in the past"*. Nobody had requested a time.
 - [x] Full `npm test` green on the final commit.
 - [ ] After deploy: a prod `date extraction rationale:` line for a `this week` trigger cites the new rule.
 
+## PR review fixes (2026-10-02, PR #207)
+
+- CodeRabbit + Codex (gpt-6-astra, low): a period-only anchor more than 24 h old stayed past after
+  one roll, fired immediately, and the suppressed flag hid it. Fix: for period-only triggers, roll a
+  day at a time until not past. Test: days-old anchor lands in the future (red control: removing the
+  loop fails exactly that test).
+- Astra note: a trailing `.`/`!` (`this week.`) missed the matcher; now accepted. Other phrasings
+  (`sometime during this week`) stay out by design.
+
 ## Non-goals
 
 - Changing whether the analyzer treats `this week` as a trigger (`reminders-instructions.md:48` already

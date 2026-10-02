@@ -745,7 +745,7 @@ class RemindersAIPipeline {
    * @returns {boolean}
    */
   static IsPeriodOnlyTrigger(ArgSchedulingTrigger) {
-    return /^\s*(?:(?:by|for|during|sometime|before|until)\s+)?(?:(?:the\s+)?end\s+of\s+(?:(?:this|the)\s+)?|(?:this|the)\s+)(?:week|month|sprint|quarter)(?:['’]s)?\s*$|^\s*(?:by\s+)?eo[wm]\s*$/i
+    return /^\s*(?:(?:by|for|during|sometime|before|until)\s+)?(?:(?:the\s+)?end\s+of\s+(?:(?:this|the)\s+)?|(?:this|the)\s+)(?:week|month|sprint|quarter)(?:['’]s)?[.!]?\s*$|^\s*(?:by\s+)?eo[wm][.!]?\s*$/i
       .test(ArgSchedulingTrigger || '');
   }
 
@@ -948,7 +948,12 @@ class RemindersAIPipeline {
       // This handles cases like "12 noon today" posted at 2 PM - it will be scheduled for 12 noon tomorrow.
         ExtractedDate.setUTCDate(ExtractedDate.getUTCDate() + 1);
         // a bare period ("this week") named no time, so there is no "requested time" to call past (GH-205).
-        wasAdjustedForward = !RemindersAIPipeline.IsPeriodOnlyTrigger(ArgSchedulingTrigger);
+        // Its anchor can be days old (e.g. that Monday's 8 AM), so keep rolling until it is not past;
+        // otherwise it would fire immediately with the warning suppressed.
+        const IsPeriodOnly = RemindersAIPipeline.IsPeriodOnlyTrigger(ArgSchedulingTrigger);
+        while(IsPeriodOnly && ExtractedDate.getTime() < CurrentUtcDate.getTime())
+          ExtractedDate.setUTCDate(ExtractedDate.getUTCDate() + 1);
+        wasAdjustedForward = !IsPeriodOnly;
         this.#SlackApp.Logger.info(`date was in the past (${ArgSchedulingTrigger}), pushing forward to tomorrow: ${ExtractedDate.toUTCString()}`);
       }
     }

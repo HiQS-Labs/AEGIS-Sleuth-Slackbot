@@ -612,9 +612,9 @@ describe('RemindersAIPipeline', () => {
       // answers in workspace-local components, so build the anchor in local time: 20 h ago is past in
       // every timezone, and its +24 h roll-forward lands 4 h ahead.
       const PastAnchorAgeMs = 20 * 60 * 60 * 1000;
-      const MockPastAnchor = () => {
+      const MockPastAnchor = (ArgAgeMs = PastAnchorAgeMs) => {
         const MainTzOffset = DateUtils.GetTimeZoneOffsetInMinutes(SlackApp.WorkspaceInfo.MAIN_TIMEZONE);
-        const LocalPast = new Date(Date.now() - PastAnchorAgeMs + (MainTzOffset * 60 * 1000));
+        const LocalPast = new Date(Date.now() - ArgAgeMs + (MainTzOffset * 60 * 1000));
         MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue({
           year: LocalPast.getUTCFullYear(),
           month: LocalPast.getUTCMonth() + 1,
@@ -636,6 +636,16 @@ describe('RemindersAIPipeline', () => {
         expect(Result.wasAdjustedForward).toBe(false);
       });
 
+      it('keeps rolling a days-old "This week" anchor until it is no longer past', async () => {
+        // e.g. the model anchors "this week" to that Monday's 8 AM, read on Thursday: one +24 h roll
+        // would still be past, fire immediately, and the suppressed flag would hide it.
+        MockPastAnchor(3 * 24 * 60 * 60 * 1000 + (60 * 60 * 1000));
+        const Result = await Pipeline.ExtractDateWithGptAsync('This week');
+
+        expect(Result.date.getTime()).toBeGreaterThan(Date.now());
+        expect(Result.wasAdjustedForward).toBe(false);
+      });
+
       it.each([
         ['this week at 9 AM'],
         ['this week on 1 Oct 2026'],
@@ -649,7 +659,7 @@ describe('RemindersAIPipeline', () => {
       });
 
       it('matches only a whole bare-period phrase', () => {
-        for(const Trigger of ['This week', 'by end of week', 'end of the week', 'sometime this week', 'EOW', 'by EOM', 'this sprint', 'This week’s'])
+        for(const Trigger of ['This week', 'by end of week', 'end of the week', 'sometime this week', 'EOW', 'by EOM', 'this sprint', 'This week’s', 'this week.', 'EOW!'])
           expect(RemindersAIPipeline.IsPeriodOnlyTrigger(Trigger)).toBe(true);
         for(const Trigger of ['this week at 9 AM', 'this week on 1 Oct 2026', 'this week in the afternoon', 'next week', 'Friday this week', 'this weekend', 'afternoon', ''])
           expect(RemindersAIPipeline.IsPeriodOnlyTrigger(Trigger)).toBe(false);
