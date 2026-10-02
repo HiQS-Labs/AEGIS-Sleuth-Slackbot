@@ -2,13 +2,22 @@
 gh_issue: 205
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/205
 title: "\"This week\" with no clock time schedules tomorrow 8 AM and falsely warns \"the requested time was in the past\""
-status: Proposed (1-INBOX — not yet active)
+status: In progress (2-WORKING)
 created: 2026-10-02
+updated: 2026-10-02
+owner: noelsaw
+goal: "A period-only trigger (\"this week\") never produces the false \"requested time was in the past\" warning, and resolves to a sensible future time"
 doc_type: bugfix
 related: "GH-87 / GH-94 (same past-handler; jitter + same-day intent), 1.4.150 (:alarm_clock: synthetic-fallback warning suppression)"
 ---
 
 # GH-205 — A period phrase is not a requested time
+
+## Status
+
+| What was just completed | What's next |
+|---|---|
+| Plan QA: Codex relay approved round 2 (attested at `40116d8`); promoted to 2-WORKING | Implement plan steps 1-4, run focused tests, then the full gate and final Codex QA |
 
 ## Observed (prod, 2026-09-30 11:00 PDT)
 

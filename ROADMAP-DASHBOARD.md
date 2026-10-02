@@ -33,7 +33,7 @@ Summary: 24 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-173 · Consume Model-catalog v1 (Phase 2): sync ModelAliases from the shared catalog + provenance-aware diagnostics | — | [GH-173-MODEL-CATALOG-SYNC.md](PROJECT/1-INBOX/GH-173-MODEL-CATALOG-SYNC.md) · [#173](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/173) |
 | GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
-| GH-205 · "This week" with no clock time schedules tomorrow 8 AM and falsely warns "the requested time was in the past" | — | [GH-205-THIS-WEEK-PAST-WARNING.md](PROJECT/1-INBOX/GH-205-THIS-WEEK-PAST-WARNING.md) · [#205](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/205) |
+| GH-205 · "This week" with no clock time schedules tomorrow 8 AM and falsely warns "the requested time was in the past" | — | [GH-205-THIS-WEEK-PAST-WARNING.md](PROJECT/2-WORKING/GH-205-THIS-WEEK-PAST-WARNING.md) · [#205](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/205) |
 
 ## Queue
 
