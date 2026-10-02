@@ -124,3 +124,19 @@ after 8 AM and is visible to everyone in the thread. Appeal 50 (neutral, no oper
 given). Effort 75: one prompt rule, one small helper, one condition, and tests in an existing suite. Recurrence: in the last 14 days (2026-09-18 → 10-02) this is the only issue in this class (#205);
 none in the prior 14 days. The same past-handler produced GH-87 / GH-94 in August. The trend is
 unknown beyond that, since false warnings are rarely reported.
+
+## Lessons Learned (For Future Agents)
+
+- **A mocked "past" anchor must be past in workspace-local time.** The model answers in local
+  components and `ExtractDateWithGptAsync` subtracts the BASE OFFSET, so "now − 3 h" written as UTC
+  components became a *future* anchor under UTC-7. The first bare-period test passed without ever
+  entering the past branch. Only the red controls exposed it. Build the anchor in local time and assert
+  something that is only true if the branch ran (here, the result is more than 3 h ahead).
+- **Run a red control for every new assertion.** Reverting the one-line fix and seeing exactly the
+  intended test fail is what proved both the original test and the later roll-forward test were real.
+- **A warning flag and a schedule are separate concerns.** Suppressing `wasAdjustedForward` for bare
+  periods also hid a second problem: an anchor days old stayed past after one 24 h roll and fired
+  immediately (CodeRabbit + Codex on PR #207). When you silence a signal, check what it was masking.
+- **The issue's proposed rule was too broad.** "Warn only on an explicit clock time or date" would
+  have flipped GH-94's pinned `afternoon` behavior. Read the pinned tests before adopting an issue's
+  proposed fix.
