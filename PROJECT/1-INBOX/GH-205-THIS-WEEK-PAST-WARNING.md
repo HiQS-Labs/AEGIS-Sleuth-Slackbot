@@ -38,28 +38,35 @@ said *"The requested time was in the past"*. Nobody had requested a time.
 
 ## Plan
 
-1. **Prompt fix, at the source.** In `date-extraction-instructions.md`, next to `next week`:
-   - `this week`, `end of (the) week`, `EOW`, `by end of week`: if the BASE DATE is Monday–Thursday,
-     use **8 AM on the next day**; if it is Friday, Saturday, or Sunday, use **3 hours after the BASE
-     DATE** (same as `today`).
-   - Add a sentence to the line 26 default: the 8 AM default applies only when the phrase names a
-     specific date; never resolve a phrase to the BASE DATE's own 8 AM when that is earlier than
-     the BASE DATE.
-2. **Deterministic backstop in `ExtractDateWithGptAsync`.** Extract the inline `HasExplicitClockTime`
-   into a static helper `RemindersAIPipeline.HasExplicitClockTime(trigger)`, and use it in
-   `ApplyPresentationJitter` as before (pure move, no behavior change). Add
-   `IsPeriodOnlyTrigger(trigger)`, true when the trigger names `week|month|sprint|quarter|eow|eom` and
-   has **no** explicit clock time and **no** day word (`today|tonight|tomorrow|yesterday|` weekday
-   names). For a past period-only anchor, keep the existing +24 h roll-forward but leave
-   `wasAdjustedForward = false`: the user never named the time that turned out to be past. This
-   covers model variance and other period phrases without touching time-of-day or date triggers.
+1. **Prompt fix, at the source** (`date-extraction-instructions.md`).
+   - Next to `next week`: `this week`, `end of (the) week`, `EOW`, `by end of week`: if the BASE DATE
+     is Monday–Thursday, use **8 AM on the next day**; if it is Friday, Saturday or Sunday, use
+     **3 hours after the BASE DATE** (the same as `today`). The week is ending, so "this week" means
+     later today, not next Monday. This rule applies only when the phrase names no day or time;
+     mixed phrases (`this week on Thursday`, `this week at 3 PM`) keep the existing
+     component-composition rules.
+   - Scope the two 8 AM defaults (line 26 and the fallback at line 96): a **period-only phrase with
+     no supplied date or time** (`this sprint`, `this month`) must not take the BASE DATE's own
+     8 AM when that is already past. Explicit past dates/times are still returned as-is (line 98).
+2. **Deterministic backstop in `ExtractDateWithGptAsync`.** Add one static helper,
+   `RemindersAIPipeline.IsPeriodOnlyTrigger(trigger)`, a **whole-phrase** match: optional
+   `by|for|during|sometime|before|until`, optional `(the) end of`, then `this|the` +
+   `week|month|sprint|quarter` (optional `'s`), or `(by) EOW|EOM`, and nothing else. A whole-phrase
+   match excludes any trigger that also names a date, a weekday, a clock time or a time-of-day word,
+   so `HasExplicitClockTime` is not needed and stays where it is. For a past period-only anchor, keep
+   the existing +24 h roll-forward but leave `wasAdjustedForward = false`, because the user never
+   named the time that turned out to be past. Probe (2026-10-02, `node -e`): matches `This week`,
+   `by end of the week`, `sometime this week`, `EOW`, `by EOM`, `this sprint`, `This week’s`. Does
+   not match `this week on 1 Oct 2026`, `this week in the afternoon`, `this week at 9 AM`, `next
+   week`, `Friday this week`, `this weekend`.
 3. **Tests (extend the existing suite; no new files).** In `tests/reminders-ai-pipeline.test.js`
    → `ExtractDateWithGptAsync`:
    - past anchor + `This week` → rolled to the next day, `wasAdjustedForward === false`;
-   - **red control:** past anchor + `this week at 9 AM` → `wasAdjustedForward === true` (an explicit
-     clock time still warns);
-   - instruction-content assertion that the date-extraction prompt carries the `this week` rule
-     and the 8 AM guard (GH-197 precedent).
+   - **red controls**, each with a stubbed past anchor that must stay `wasAdjustedForward === true`:
+     `this week at 9 AM` (clock), `this week on 1 Oct 2026` (date), `this week in the afternoon`
+     (time-of-day);
+   - instruction-content assertion that the prompt carries the `this week` rule, including both the
+     Mon–Thu and Fri–Sun branches and the period-only scope of the 8 AM default.
    - The existing `yesterday` / `afternoon` / `this morning` / `tonight` assertions stay unedited.
      They pin the behavior that must not change.
 4. `CHANGELOG.md` entry (no `package.json` bump; the version lags the changelog until release).
@@ -67,11 +74,13 @@ said *"The requested time was in the past"*. Nobody had requested a time.
 ## Acceptance
 
 - [ ] `This week` resolving to a past anchor → scheduled the next day, **no** past-time warning (test).
-- [ ] `this week at 9 AM` past → warning still fires (red control, test).
+- [ ] Mixed triggers (clock / date / time-of-day + "this week") past → warning still fires (red controls).
 - [ ] Existing past `yesterday` / `afternoon` → still `wasAdjustedForward === true` (unedited tests pass).
+- [ ] The prompt states the Mon–Thu / Fri–Sun `this week` policy and the period-only 8 AM scope (content assertion).
 - [ ] The `:alarm_clock:` suppression test (`tests/reminders-integration.test.js` ≈L690) still passes.
-- [ ] `npm run validate:ai` prints `OK:` for `date-extraction-instructions.md`.
+- [ ] `npm run validate:ai` prints `OK:` for `date-extraction-instructions.md`; `npm run build` passes.
 - [ ] Full `npm test` green on the final commit.
+- [ ] After deploy: a prod `date extraction rationale:` line for a `this week` trigger cites the new rule.
 
 ## Non-goals
 
@@ -94,7 +103,6 @@ said *"The requested time was in the past"*. Nobody had requested a time.
 `rated 40/30/50/75`. Severity 30: a user-facing false claim plus a reminder at an arbitrary next-morning
 time; no data loss, and the reminder still fires. Priority 40: it recurs for every period phrase sent
 after 8 AM and is visible to everyone in the thread. Appeal 50 (neutral, no operator preference
-given). Effort 75: one prompt rule, one helper extraction, one condition, and tests in an existing
-suite. Recurrence: in the last 14 days (2026-09-18 → 10-02) this is the only issue in this class (#205);
+given). Effort 75: one prompt rule, one small helper, one condition, and tests in an existing suite. Recurrence: in the last 14 days (2026-09-18 → 10-02) this is the only issue in this class (#205);
 none in the prior 14 days. The same past-handler produced GH-87 / GH-94 in August. The trend is
 unknown beyond that, since false warnings are rarely reported.
