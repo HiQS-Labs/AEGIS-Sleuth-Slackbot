@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 2026-10-02
+
+Agents can now read a Slack thread from its link, instead of working from a screenshot. Paste the permalink and the agent sees the whole conversation, including messages above and below the part that was cropped.
+
+**Technical:** Tooling only, no runtime change, so no version bump. New [`skills/read-slack/`](skills/read-slack/SKILL.md): `read-slack.sh` parses the permalink locally, then pipes a read-only Node script to the server over SSH. That script reads the live process's `SLEUTH_DATA_DIR`, takes the workspace's `LIVE_TOKEN` from `workspaces/<name>_workspace.json`, and calls Slack from the server, so the bot token never leaves the host. Only `conversations.replies` and `users.info` are allowed; it posts nothing and writes nothing. Hosts, secrets-file paths, and workspace names are passed in by the operator (`--host`, `--env-file`, `--workspace`) and never committed. `--sudo` covers a non-root login. Pointers added to `AGENTS.md` (Viewing Logs) and `ROUTER.md` (debugging table).
+
 ## 1.4.330 - 2026-09-16
 
 I used to treat "I'm so excited to show the site probably by end of day tomorrow" as a task and set a reminder for it. That's just someone looking forward to something, not a commitment — I now leave those alone. If you ping me to say you don't need a reminder, I also no longer reply as if you had asked me to create one.
