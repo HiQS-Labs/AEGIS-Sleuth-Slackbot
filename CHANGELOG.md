@@ -33,6 +33,17 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.331 - 2026-10-02
+
+When someone wrote "this week's checkpoints are…" I used to set the reminder for the next morning and add *"The requested time was in the past"*, even though nobody had asked for a time. "This week" now means tomorrow morning if it's Monday to Thursday, or a few hours from now if the week is already ending. And I only say a requested time was in the past when you actually gave one.
+
+**Technical:** GH-205. There were two separate causes, both now fixed.
+
+- **Prompt.** [`data/static/ai/date-extraction-instructions.md`](data/static/ai/date-extraction-instructions.md) had no `this week` rule, so the model applied the explicit-date 8 AM default to the BASE DATE itself. On prod, a message sent at 11:00 got 08:00 that morning. Added a `this week` / `end of week` / `EOW` rule (Mon–Thu: 8 AM the next day; Fri–Sun: BASE DATE + 3 h, matching `today`). Both 8 AM defaults now exclude a period-only phrase whose BASE-DATE 8 AM has already passed. Mixed phrases (`this week at 3 PM`) keep the existing composition rules, and explicit past times are still returned as-is.
+- **Warning.** `ExtractDateWithGptAsync` still rolls a past anchor forward 24 h. It now leaves `wasAdjustedForward` false when the whole trigger is a bare period (`RemindersAIPipeline.IsPeriodOnlyTrigger`, a whole-phrase match), because there was no requested time to call past. A bare period's anchor can be days old (for example, that Monday's 8 AM), so it keeps rolling forward a day at a time until it is no longer past. Without that, it would fire immediately with the warning hidden. A trailing `.` or `!` on the trigger still counts as a bare period. Triggers that name a clock time, a date or a time of day keep the warning, and the `yesterday` / `afternoon` behavior pinned by GH-94 is unchanged.
+
+Tests: [tests/reminders-ai-pipeline.test.js](tests/reminders-ai-pipeline.test.js). A past `This week` anchor rolls forward unflagged, and this test fails if the fix is reverted. Mixed `this week at 9 AM` / `on 1 Oct 2026` / `in the afternoon` still flag (red controls). A days-old `This week` anchor lands in the future, and this test fails if the roll-forward loop is removed. The whole-phrase matcher is covered both ways, and the prompt policy text is asserted.
+
 ## 2026-10-02
 
 Agents can now read a Slack thread from its link, instead of working from a screenshot. Paste the permalink and the agent sees the whole conversation, including messages above and below the part that was cropped.
