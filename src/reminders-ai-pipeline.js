@@ -737,6 +737,19 @@ class RemindersAIPipeline {
   }
 
   /**
+   * True when the whole trigger is a bare period ("this week", "by end of the week", "EOW", "this sprint")
+   * with no day, date, or time of its own. The user never named a time, so if the model's anchor for it
+   * lands in the past, saying "the requested time was in the past" would be false (GH-205). Whole-phrase
+   * on purpose: "this week at 9 AM" or "this week on 1 Oct" did name a time and must keep the warning.
+   * @param {string} ArgSchedulingTrigger Trigger phrase.
+   * @returns {boolean}
+   */
+  static IsPeriodOnlyTrigger(ArgSchedulingTrigger) {
+    return /^\s*(?:(?:by|for|during|sometime|before|until)\s+)?(?:(?:the\s+)?end\s+of\s+(?:(?:this|the)\s+)?|(?:this|the)\s+)(?:week|month|sprint|quarter)(?:['’]s)?\s*$|^\s*(?:by\s+)?eo[wm]\s*$/i
+      .test(ArgSchedulingTrigger || '');
+  }
+
+  /**
    * Apply presentation jitter (±45 min) to fuzzy time-of-day anchors without explicit clock times.
    * INVARIANT: Jitter is a presentation device and must NEVER change the calendar day relative to
    * the un-jittered anchor, and must never push a future anchor into the past.
@@ -934,7 +947,8 @@ class RemindersAIPipeline {
       // push it forward by 24 hours to schedule for tomorrow at the same time.
       // This handles cases like "12 noon today" posted at 2 PM - it will be scheduled for 12 noon tomorrow.
         ExtractedDate.setUTCDate(ExtractedDate.getUTCDate() + 1);
-        wasAdjustedForward = true;
+        // a bare period ("this week") named no time, so there is no "requested time" to call past (GH-205).
+        wasAdjustedForward = !RemindersAIPipeline.IsPeriodOnlyTrigger(ArgSchedulingTrigger);
         this.#SlackApp.Logger.info(`date was in the past (${ArgSchedulingTrigger}), pushing forward to tomorrow: ${ExtractedDate.toUTCString()}`);
       }
     }

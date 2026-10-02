@@ -607,6 +607,66 @@ describe('RemindersAIPipeline', () => {
       expect(Result.wasAdjustedForward).toBe(false);
     });
 
+    describe('period-only triggers are not a requested time (GH-205)', () => {
+      // the prod case: "This week" at 11:00 resolved to that morning's 8 AM, already past. The model
+      // answers in workspace-local components, so build the anchor in local time: 20 h ago is past in
+      // every timezone, and its +24 h roll-forward lands 4 h ahead.
+      const PastAnchorAgeMs = 20 * 60 * 60 * 1000;
+      const MockPastAnchor = () => {
+        const MainTzOffset = DateUtils.GetTimeZoneOffsetInMinutes(SlackApp.WorkspaceInfo.MAIN_TIMEZONE);
+        const LocalPast = new Date(Date.now() - PastAnchorAgeMs + (MainTzOffset * 60 * 1000));
+        MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue({
+          year: LocalPast.getUTCFullYear(),
+          month: LocalPast.getUTCMonth() + 1,
+          day: LocalPast.getUTCDate(),
+          hour: LocalPast.getUTCHours(),
+          minute: LocalPast.getUTCMinutes(),
+          second: 0,
+          rationale: 'past anchor'
+        });
+      };
+
+      it('rolls a past "This week" anchor forward without flagging it as a past requested time', async () => {
+        MockPastAnchor();
+        const Result = await Pipeline.ExtractDateWithGptAsync('This week');
+
+        expect(Result.success).toBe(true);
+        // proves the past branch ran: the anchor was 20 h ago, and only the +24 h roll puts it ahead.
+        expect(Result.date.getTime()).toBeGreaterThan(Date.now() + (3 * 60 * 60 * 1000));
+        expect(Result.wasAdjustedForward).toBe(false);
+      });
+
+      it.each([
+        ['this week at 9 AM'],
+        ['this week on 1 Oct 2026'],
+        ['this week in the afternoon'],
+      ])('still flags a past "%s", which names a time or date', async (ArgTrigger) => {
+        MockPastAnchor();
+        const Result = await Pipeline.ExtractDateWithGptAsync(ArgTrigger);
+
+        expect(Result.success).toBe(true);
+        expect(Result.wasAdjustedForward).toBe(true);
+      });
+
+      it('matches only a whole bare-period phrase', () => {
+        for(const Trigger of ['This week', 'by end of week', 'end of the week', 'sometime this week', 'EOW', 'by EOM', 'this sprint', 'This week’s'])
+          expect(RemindersAIPipeline.IsPeriodOnlyTrigger(Trigger)).toBe(true);
+        for(const Trigger of ['this week at 9 AM', 'this week on 1 Oct 2026', 'this week in the afternoon', 'next week', 'Friday this week', 'this weekend', 'afternoon', ''])
+          expect(RemindersAIPipeline.IsPeriodOnlyTrigger(Trigger)).toBe(false);
+      });
+
+      it('gives the date extractor a "this week" rule and scopes the 8 AM default away from bare periods', () => {
+        const InstructionsPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'date-extraction-instructions.md');
+        const Instructions = fs.readFileSync(InstructionsPath, 'utf8');
+
+        expect(Instructions).toContain('Treat `this week`, `end of week`, `end of this week`, `by end of the week` and `EOW`');
+        expect(Instructions).toContain('If the `BASE DATE` is a `Monday`, `Tuesday`, `Wednesday` or `Thursday`, use `8 AM` on the next day');
+        expect(Instructions).toContain('If the `BASE DATE` is a `Friday`, `Saturday` or `Sunday`, use `3 hours` after the `BASE DATE`');
+        expect(Instructions).toContain("must never take the `BASE DATE`'s own `8 AM` when that is already earlier than the `BASE DATE`");
+        expect(Instructions).toContain("must not resolve to the `BASE DATE`'s own `8 AM` when that is already past");
+      });
+    });
+
     it('should apply jitter for calendar-digit triggers but not explicit clock times', async () => {
       // Math.random() = 0 → jitter offset = floor(0 * 91) - 45 = -45 min, deterministic.
       jest.spyOn(Math, 'random').mockReturnValue(0);
