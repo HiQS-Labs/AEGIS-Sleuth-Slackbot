@@ -1711,7 +1711,10 @@ class RemindersModule {
     const TriggerMatch = this.#AppMentionHandler.GetSchedulingTriggerMatch(TriggerSourceText) || 'none';
 
     // analyze the message for reminders.
-    let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(ArgMessageText);
+    // quoted text is ignored, except for force-schedule (:alarm_clock:), which is explicit intent.
+    let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(
+      ArgMessageText, { KeepQuotedText: Boolean(ArgForceSchedule) }
+    );
     ArgSlackApp.Logger.info(`reminder analysis result:`, AnalysisResult.recommendation);
 
     let UsedSyntheticForceSchedule = false;

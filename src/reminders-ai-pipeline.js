@@ -6,6 +6,7 @@ const DateUtils = require('./date-utils');
 const { DecideAsync } = require('./ai-decision');
 const DecisionExplain = require('./decision-explain');
 const ReminderOwnership = require('./reminder-ownership');
+const { IgnoreQuotedText } = require('./quoted-text');
 
 // deduplication decision spec. Prompt assets and validation live with the shared decision helper;
 // only the payload shaping below is dedup-specific.
@@ -357,9 +358,21 @@ class RemindersAIPipeline {
   /**
    * Analyze a message for reminders using the OpenAI API.
    * @param {string} ArgMessageText Message text to analyze.
+   * @param {{KeepQuotedText?: boolean}} [ArgOptions] KeepQuotedText: don't strip quoted spans (force-schedule).
    * @returns {Promise<GptReminderResponse>}
    */
-  async AnalyzeMessageForRemindersAsync(ArgMessageText) {
+  async AnalyzeMessageForRemindersAsync(ArgMessageText, ArgOptions = {}) {
+    // quoted text is not analyzed, except for an explicit force-schedule (KeepQuotedText).
+    if(!ArgOptions.KeepQuotedText) {
+      const OwnWords = IgnoreQuotedText(ArgMessageText);
+      if(OwnWords !== ArgMessageText) {
+        // nothing but a quote: no reminder, no model call.
+        if(!OwnWords.trim())
+          return /** @type {GptReminderResponse} */ ({ recommendation: 'ignore', rationale: 'Message is only quoted text.', reminders: [] });
+        ArgMessageText = OwnWords;
+      }
+    }
+
     // GH-44 Phase 3: routed through the shared decision chokepoint. Prompt assets, the model call,
     // and the three structural checks (now ValidateReminderAnalysis) all live behind DecideAsync, so
     // this path gets corpus capture for free while its errors stay byte-identical. No fallback is
@@ -717,7 +730,7 @@ class RemindersAIPipeline {
    * @returns {{ trigger: string, actionableLanguage: string }|null}
    */
   static DetectDirectAskWithTimeTrigger(ArgMessageText) {
-    const MessageText = (ArgMessageText || '').trim();
+    const MessageText = IgnoreQuotedText(ArgMessageText || '').trim();
     if(!MessageText) return null;
 
     const HasDirectAsk = /\b(can you|could you|please|pls|kindly)\b/i.test(MessageText);

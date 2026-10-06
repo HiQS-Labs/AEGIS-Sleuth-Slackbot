@@ -33,6 +33,19 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.332 - 2026-10-06
+
+I now ignore anything inside quotation marks when deciding whether something is a task. If you paste a quote for someone to check, the time and sentences inside it no longer end up in a reminder. A message that is only a quote won't create one at all. The :alarm_clock: reaction still uses the whole message.
+
+**Technical:** Requested by Noel.
+
+- New `src/quoted-text.js` strips balanced straight, curly and guillemet double-quoted spans. Apostrophes, inch marks and unbalanced quotes are left alone.
+- Applied in `#GetSchedulingTriggerMatch` (the shared scheduling gate), `AnalyzeMessageForRemindersAsync` (so scheduling and the `:wrench:` triage see the same text) and `DetectDirectAskWithTimeTrigger`. A quote-only message returns `ignore` without a model call.
+- Force-schedule (`:alarm_clock:`) passes `KeepQuotedText: true` and is unchanged. The reminder blockquote still shows the original message.
+- Kill switch: `REMINDER_IGNORE_QUOTED_TEXT=off`. Documented in `AGENTS.md` section 12.
+- Tradeoff: a quoted task such as `remind @bob to "update the deck" tomorrow` now loses the quoted part. Slack blockquotes and code spans are not covered.
+- Tests: `tests/quoted-text-reminders.test.js`.
+
 ## 1.4.331 - 2026-10-02
 
 When someone wrote "this week's checkpoints are…" I used to set the reminder for the next morning and add *"The requested time was in the past"*, even though nobody had asked for a time. "This week" now means tomorrow morning if it's Monday to Thursday, or a few hours from now if the week is already ending. And I only say a requested time was in the past when you actually gave one.
