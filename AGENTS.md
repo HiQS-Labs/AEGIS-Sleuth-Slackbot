@@ -314,6 +314,8 @@ concurrent PRs from ever colliding on it.
 
   Disarming loses context, never the reminder: the message still schedules, unenriched.
 
+- `REMINDER_IGNORE_QUOTED_TEXT` — text inside double quotation marks is ignored when detecting reminders. Default **on**; set to `off` to restore the old behavior. The `:alarm_clock:` reaction always keeps the whole message. See `src/quoted-text.js`.
+
 ## 13) Key Features
 
 ### Reminder System
