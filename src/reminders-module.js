@@ -1615,22 +1615,35 @@ class RemindersModule {
     const Detection = ReminderTextCompletion.DetectCompletionReply(ArgEventInfo.text || '', ArgMode);
     if(!Detection.IsCompletion) return false;
 
-    const { ReminderIDs, Source } = await ReminderTextCompletion.ResolveThreadReminderIDsAsync(
-      ArgSlackApp, ArgEventInfo, this.#PendingRemindersQueue
+    // Owner = an assignee (GetAssigneeIDs, which falls back to the sender for unassigned reminders)
+    // or the person who asked for the reminder.
+    const IsOwner = (/** @type {any} */ ArgReminder, /** @type {string} */ ArgUserID) =>
+      RemindersModule.IsAssignedTo(ArgReminder, ArgUserID, ArgSlackApp.BotUserID) ||
+      ArgReminder.OriginalSenderID === ArgUserID;
+    const { ReminderIDs, Source, NotOwnedCount } = await ReminderTextCompletion.ResolveThreadReminderIDsAsync(
+      ArgSlackApp, ArgEventInfo, this.#PendingRemindersQueue, IsOwner
     );
 
     if(ReminderIDs.length === 0) {
-      // A completion reply on a reminder message whose reminders are already gone (✅'d earlier, or
-      // completed by GitHub sync). With a mention, answer honestly instead of letting the chat
-      // assistant reply "Thanks for the update!" to a no-op; without one, stay silent.
-      if(ArgMode === 'mention' && Source === 'reminder_message') {
-        await ArgSlackApp.PostMessageTextAsync(
-          ArgEventInfo.channel, ArgEventInfo.thread_ts,
-          ':white_check_mark: That reminder is already closed — nothing left to complete here.'
-        );
-        return true;
+      // Silent without a mention: a plain "done" is not addressed to us. With a mention, answer
+      // honestly instead of letting the chat assistant reply "Thanks for the update!" to a no-op —
+      // either the reminders here belong to someone else, or (on a reminder message) they are
+      // already gone (✅'d earlier, or completed by GitHub sync).
+      if(ArgMode !== 'mention') return false;
+      /** @type {string|null} */
+      let Reply = null;
+      if(NotOwnedCount > 0)
+        Reply = ':information_source: That reminder isn\'t assigned to you, so I left it open. ' +
+          'Its assignee can reply "done", or anyone can react with :white_check_mark: to close it.';
+      else if(Source === 'reminder_message')
+        Reply = ':white_check_mark: That reminder is already closed — nothing left to complete here.';
+      if(!Reply) return false;
+      try {
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts, Reply);
+      } catch(error) {
+        ArgSlackApp.Logger.warn('text completion: failed to post no-op reply (non-fatal):', error);
       }
-      return false;
+      return true;
     }
 
     ArgSlackApp.Logger.info(

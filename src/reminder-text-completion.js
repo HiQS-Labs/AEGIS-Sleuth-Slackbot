@@ -78,6 +78,14 @@ const FUTURE_OR_CONDITIONAL_PATTERN =
 const QUESTION_LEAD_PATTERN =
   /^(?:is|are|was|were|do|does|have\s+you|has|can|could|should|would|did\s+(?:you|he|she|they|we|anyone|someone|somebody)|what|what's|whats|which|who|how|why|where|show|list|summari[sz]e|search|find|look\s+up|google|explain|help|tell|remind|ai)\b/i;
 
+// A request anywhere in the reply. "@Sleuth merged, now create a reminder to deploy it Monday" or
+// "@Sleuth give me my tasks sorted by priority" carries a done-word but asks for something else;
+// treating it as a completion would close the reminder AND drop the request. Refuse, so the reply
+// routes on to scheduling / the command router unchanged. Not "please": "please mark it done" is
+// a completion.
+const REQUEST_PATTERN =
+  /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you)\b/i;
+
 /**
  * Normalise reply text for detection: drop Slack user/channel mentions, links, and emoji
  * shortcodes (keeping the ✅ signal), strip punctuation, collapse whitespace.
@@ -118,6 +126,7 @@ function DetectCompletionReply(ArgText, ArgMode = 'strict') {
     : { IsCompletion: false, Reason: 'empty' };
 
   if(QUESTION_LEAD_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'question' };
+  if(REQUEST_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'contains_request' };
   if(NEGATION_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'negated_or_partial' };
   if(FUTURE_OR_CONDITIONAL_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'future_or_conditional' };
 
@@ -145,22 +154,23 @@ function DetectCompletionReply(ArgText, ArgMode = 'strict') {
  *     reply there has `thread_ts` = the original message. Those reminders are found by their
  *     stored thread key (`OriginalThreadTs ?? OriginalMessageID`) — no extra Slack call needed.
  *
- * When the thread holds several reminders and the replying user is an assignee of some of them,
- * only those are returned — "I did this" from one assignee must not close a teammate's task.
- * Otherwise every pending reminder in the thread is returned, matching what a ✅ on the same
- * message would complete.
+ * Only reminders the replier owns (ArgIsOwner: an assignee, or the person who asked for it) are
+ * returned — typing "done" is far easier to do by accident than a ✅ reaction, and the original
+ * conversation thread is usually a busy work thread, so "fixed" from a teammate must never close
+ * someone else's reminder. NotOwnedCount reports the pending reminders skipped for that reason.
  *
  * @param {{ GetMessageMetadataAsync: (ArgChannelID: string, ArgTs: string) => Promise<any> }} ArgSlackApp
  * @param {{ channel: string, thread_ts?: string|null, user?: string }} ArgEventInfo Reply event.
  * @param {Array<any>} ArgPendingReminders Current pending reminders queue.
- * @returns {Promise<{ ReminderIDs: string[], Source: 'reminder_message'|'original_thread'|'none' }>}
+ * @param {(ArgReminder: any, ArgUserID: string) => boolean} ArgIsOwner Whether the user owns the reminder.
+ * @returns {Promise<{ ReminderIDs: string[], Source: 'reminder_message'|'original_thread'|'none', NotOwnedCount: number }>}
  *   Source is 'reminder_message' whenever the thread root IS a reminder message, even if none of
  *   its reminders are still pending (already completed) — callers use that to say so instead of
  *   handing the reply to the chat assistant.
  */
-async function ResolveThreadReminderIDsAsync(ArgSlackApp, ArgEventInfo, ArgPendingReminders) {
+async function ResolveThreadReminderIDsAsync(ArgSlackApp, ArgEventInfo, ArgPendingReminders, ArgIsOwner) {
   const ThreadTs = ArgEventInfo.thread_ts;
-  if(!ThreadTs) return { ReminderIDs: [], Source: 'none' };
+  if(!ThreadTs) return { ReminderIDs: [], Source: 'none', NotOwnedCount: 0 };
 
   const Pending = Array.isArray(ArgPendingReminders) ? ArgPendingReminders : [];
   const PendingByID = new Map(Pending.map(ArgReminder => [ArgReminder.ReminderID, ArgReminder]));
@@ -195,17 +205,14 @@ async function ResolveThreadReminderIDsAsync(ArgSlackApp, ArgEventInfo, ArgPendi
     }
   }
 
-  if(Candidates.length > 1 && ArgEventInfo.user) {
-    const Mine = Candidates.filter(ArgReminder => {
-      const Assignees = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
-        ? ArgReminder.AssigneeIDs
-        : (ArgReminder.AssigneeID ? [ArgReminder.AssigneeID] : []);
-      return Assignees.includes(ArgEventInfo.user);
-    });
-    if(Mine.length > 0) Candidates = Mine;
-  }
+  const UserID = ArgEventInfo.user;
+  const Mine = UserID ? Candidates.filter(ArgReminder => ArgIsOwner(ArgReminder, UserID)) : [];
 
-  return { ReminderIDs: Candidates.map(ArgReminder => ArgReminder.ReminderID), Source };
+  return {
+    ReminderIDs: Mine.map(ArgReminder => ArgReminder.ReminderID),
+    Source,
+    NotOwnedCount: Candidates.length - Mine.length,
+  };
 }
 
 module.exports = {

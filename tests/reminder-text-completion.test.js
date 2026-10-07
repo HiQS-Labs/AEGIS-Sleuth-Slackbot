@@ -58,6 +58,13 @@ describe('DetectCompletionReply', () => {
       [`${BOT} summarize what got completed this week`],
       [`${BOT} when done, ping me`],
       [`${BOT} can you look into this`],
+      // a done-word plus a request: the request must survive (PR #202 review)
+      [`${BOT} I sent the proposal, remind me to follow up with them Monday`],
+      [`${BOT} merged, now create a reminder to deploy it Monday`],
+      [`${BOT} give me my tasks sorted by priority`],
+      [`${BOT} please show done tasks`],
+      [`${BOT} reschedule to 3pm, the vendor closed early`],
+      [`${BOT} snooze this, the client closed for the day`],
       [`${BOT} thanks`],
       [`${BOT} ${'word '.repeat(30)}done`],          // too long to be a completion reply
     ])('does not complete: %s', (ArgText) => {
@@ -99,14 +106,17 @@ describe('ResolveThreadReminderIDsAsync', () => {
     event_payload: { ReminderIDs: JSON.stringify(ArgIDs) },
   });
   const SlackWith = (ArgMetadata) => ({ GetMessageMetadataAsync: jest.fn().mockResolvedValue(ArgMetadata) });
+  const IsOwner = (ArgReminder, ArgUserID) =>
+    (ArgReminder.AssigneeIDs || []).includes(ArgUserID) || ArgReminder.OriginalSenderID === ArgUserID;
 
   test('reads reminder IDs from the delivered reminder message the reply is threaded under', async () => {
     const Result = await ResolveThreadReminderIDsAsync(
       SlackWith(MetadataFor(['R1'])),
       { channel: 'C1', thread_ts: '100.1', user: 'U_A' },
-      [{ ReminderID: 'R1' }, { ReminderID: 'R2' }]
+      [{ ReminderID: 'R1', AssigneeIDs: ['U_A'] }, { ReminderID: 'R2', AssigneeIDs: ['U_A'] }],
+      IsOwner
     );
-    expect(Result).toEqual({ ReminderIDs: ['R1'], Source: 'reminder_message' });
+    expect(Result).toEqual({ ReminderIDs: ['R1'], Source: 'reminder_message', NotOwnedCount: 0 });
   });
 
   test('falls back to reminders scheduled from the original thread (confirmation lives there)', async () => {
@@ -114,12 +124,13 @@ describe('ResolveThreadReminderIDsAsync', () => {
       SlackWith(null),
       { channel: 'C1', thread_ts: '200.1', user: 'U_A' },
       [
-        { ReminderID: 'R1', OriginalChannelID: 'C1', OriginalMessageID: '200.1', OriginalThreadTs: null },
-        { ReminderID: 'R2', OriginalChannelID: 'C1', OriginalMessageID: '200.5', OriginalThreadTs: '200.1' },
-        { ReminderID: 'R3', OriginalChannelID: 'C2', OriginalMessageID: '200.1' },
-      ]
+        { ReminderID: 'R1', OriginalChannelID: 'C1', OriginalMessageID: '200.1', OriginalThreadTs: null, AssigneeIDs: ['U_A'] },
+        { ReminderID: 'R2', OriginalChannelID: 'C1', OriginalMessageID: '200.5', OriginalThreadTs: '200.1', OriginalSenderID: 'U_A' },
+        { ReminderID: 'R3', OriginalChannelID: 'C2', OriginalMessageID: '200.1', AssigneeIDs: ['U_A'] },
+      ],
+      IsOwner
     );
-    expect(Result).toEqual({ ReminderIDs: ['R1', 'R2'], Source: 'original_thread' });
+    expect(Result).toEqual({ ReminderIDs: ['R1', 'R2'], Source: 'original_thread', NotOwnedCount: 0 });
   });
 
   test("narrows to the replier's own reminders when the thread holds several", async () => {
@@ -129,27 +140,49 @@ describe('ResolveThreadReminderIDsAsync', () => {
       [
         { ReminderID: 'R1', AssigneeIDs: ['U_NOEL'] },
         { ReminderID: 'R2', AssigneeIDs: ['U_ELAN'] },
-      ]
+      ],
+      IsOwner
     );
     expect(Result.ReminderIDs).toEqual(['R2']);
+    expect(Result.NotOwnedCount).toBe(1);
+  });
+
+  test("returns nothing when the replier owns none of the thread's reminders, even a single one", async () => {
+    const Result = await ResolveThreadReminderIDsAsync(
+      SlackWith(MetadataFor(['R1'])),
+      { channel: 'C1', thread_ts: '100.1', user: 'U_CAROL' },
+      [{ ReminderID: 'R1', AssigneeIDs: ['U_BOB'], OriginalSenderID: 'U_NOEL' }],
+      IsOwner
+    );
+    expect(Result).toEqual({ ReminderIDs: [], Source: 'reminder_message', NotOwnedCount: 1 });
+  });
+
+  test('a plain reply in the original thread only counts from an assignee or the requester', async () => {
+    const Pending = [{ ReminderID: 'R1', OriginalChannelID: 'C1', OriginalMessageID: '200.1', AssigneeIDs: ['U_BOB'], OriginalSenderID: 'U_NOEL' }];
+    const Run = (ArgUser) => ResolveThreadReminderIDsAsync(SlackWith(null), { channel: 'C1', thread_ts: '200.1', user: ArgUser }, Pending, IsOwner);
+    expect((await Run('U_BOB')).ReminderIDs).toEqual(['R1']);
+    expect((await Run('U_NOEL')).ReminderIDs).toEqual(['R1']);
+    expect((await Run('U_CAROL')).ReminderIDs).toEqual([]);
   });
 
   test('reports a reminder thread whose reminders are already closed', async () => {
     const Result = await ResolveThreadReminderIDsAsync(
       SlackWith(MetadataFor(['R_GONE'])),
       { channel: 'C1', thread_ts: '100.1', user: 'U_A' },
-      []
+      [],
+      IsOwner
     );
-    expect(Result).toEqual({ ReminderIDs: [], Source: 'reminder_message' });
+    expect(Result).toEqual({ ReminderIDs: [], Source: 'reminder_message', NotOwnedCount: 0 });
   });
 
   test('ignores non-reminder threads', async () => {
     const Result = await ResolveThreadReminderIDsAsync(
       SlackWith({ event_type: 'something-else', event_payload: {} }),
       { channel: 'C1', thread_ts: '100.1', user: 'U_A' },
-      [{ ReminderID: 'R1', OriginalChannelID: 'C9', OriginalMessageID: '1.1' }]
+      [{ ReminderID: 'R1', OriginalChannelID: 'C9', OriginalMessageID: '1.1' }],
+      IsOwner
     );
-    expect(Result).toEqual({ ReminderIDs: [], Source: 'none' });
+    expect(Result).toEqual({ ReminderIDs: [], Source: 'none', NotOwnedCount: 0 });
   });
 });
 
@@ -296,6 +329,41 @@ describe('text completion end-to-end (RemindersModule + MockSlackApp)', () => {
       });
       const Persisted = JSON.parse(await fs.readFile(RemindersFilePath(WorkspaceInfo.WORKSPACE_NAME), 'utf8'));
       expect(Persisted.map(ArgR => ArgR.ReminderID)).toEqual(['r-noel']);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
+    }
+  });
+
+  test("a teammate's \"done\" leaves the reminder open and says why", async () => {
+    const { WorkspaceInfo, SlackApp, Reminders } = await StartAsync('notmine', [MakeReminder()]);
+    try {
+      const Mentioned = await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_REMINDERS', user: 'U_CAROL', thread_ts: ReminderMessageTS, text: `${SlackApp.AppMentionString} done`,
+      });
+      await SlackApp.SimulateMessageAsync({
+        channel: 'C_REMINDERS', user: 'U_CAROL', thread_ts: ReminderMessageTS, text: 'fixed',
+      });
+      expect(Mentioned).toBe(true);
+      expect(SlackApp.SentMessages.at(-1).text).toMatch(/isn't assigned to you/);
+      const Persisted = JSON.parse(await fs.readFile(RemindersFilePath(WorkspaceInfo.WORKSPACE_NAME), 'utf8'));
+      expect(Persisted.map(ArgR => ArgR.ReminderID)).toEqual(['r-1']);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
+    }
+  });
+
+  test('the "already closed" reply failing to post is not a handler failure', async () => {
+    const { WorkspaceInfo, SlackApp, Reminders } = await StartAsync('closedfail', [MakeReminder()]);
+    try {
+      await SlackApp.SimulateReactionAddedAsync({
+        user: 'U_ELAN', reaction: 'white_check_mark', item: { channel: 'C_REMINDERS', ts: ReminderMessageTS },
+      });
+      SlackApp.PostMessageTextAsync = jest.fn().mockRejectedValue(new Error('ratelimited'));
+      await expect(SlackApp.SimulateAppMentionAsync({
+        channel: 'C_REMINDERS', user: 'U_ELAN', thread_ts: ReminderMessageTS, text: `${SlackApp.AppMentionString} done`,
+      })).resolves.toBe(true);
     } finally {
       await Reminders.StopAsync();
       await CleanupAsync(WorkspaceInfo.WORKSPACE_NAME);
