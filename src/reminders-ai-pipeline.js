@@ -6,6 +6,7 @@ const DateUtils = require('./date-utils');
 const { DecideAsync } = require('./ai-decision');
 const DecisionExplain = require('./decision-explain');
 const ReminderOwnership = require('./reminder-ownership');
+const { IgnoreQuotedText } = require('./quoted-text');
 
 // deduplication decision spec. Prompt assets and validation live with the shared decision helper;
 // only the payload shaping below is dedup-specific.
@@ -357,9 +358,21 @@ class RemindersAIPipeline {
   /**
    * Analyze a message for reminders using the OpenAI API.
    * @param {string} ArgMessageText Message text to analyze.
+   * @param {{KeepQuotedText?: boolean}} [ArgOptions] KeepQuotedText: don't strip quoted spans (force-schedule).
    * @returns {Promise<GptReminderResponse>}
    */
-  async AnalyzeMessageForRemindersAsync(ArgMessageText) {
+  async AnalyzeMessageForRemindersAsync(ArgMessageText, ArgOptions = {}) {
+    // quoted text is not analyzed, except for an explicit force-schedule (KeepQuotedText).
+    if(!ArgOptions.KeepQuotedText) {
+      const OwnWords = IgnoreQuotedText(ArgMessageText);
+      if(OwnWords !== ArgMessageText) {
+        // nothing but a quote: no reminder, no model call.
+        if(!OwnWords.trim())
+          return /** @type {GptReminderResponse} */ ({ recommendation: 'ignore', rationale: 'Message is only quoted text.', reminders: [] });
+        ArgMessageText = OwnWords;
+      }
+    }
+
     // GH-44 Phase 3: routed through the shared decision chokepoint. Prompt assets, the model call,
     // and the three structural checks (now ValidateReminderAnalysis) all live behind DecideAsync, so
     // this path gets corpus capture for free while its errors stay byte-identical. No fallback is
@@ -717,7 +730,7 @@ class RemindersAIPipeline {
    * @returns {{ trigger: string, actionableLanguage: string }|null}
    */
   static DetectDirectAskWithTimeTrigger(ArgMessageText) {
-    const MessageText = (ArgMessageText || '').trim();
+    const MessageText = IgnoreQuotedText(ArgMessageText || '').trim();
     if(!MessageText) return null;
 
     const HasDirectAsk = /\b(can you|could you|please|pls|kindly)\b/i.test(MessageText);
@@ -734,6 +747,19 @@ class RemindersAIPipeline {
       trigger: TriggerMatch[1].toLowerCase(),
       actionableLanguage: MessageText.replace(/\?+$/, '').trim(),
     };
+  }
+
+  /**
+   * True when the whole trigger is a bare period ("this week", "by end of the week", "EOW", "this sprint")
+   * with no day, date, or time of its own. The user never named a time, so if the model's anchor for it
+   * lands in the past, saying "the requested time was in the past" would be false (GH-205). Whole-phrase
+   * on purpose: "this week at 9 AM" or "this week on 1 Oct" did name a time and must keep the warning.
+   * @param {string} ArgSchedulingTrigger Trigger phrase.
+   * @returns {boolean}
+   */
+  static IsPeriodOnlyTrigger(ArgSchedulingTrigger) {
+    return /^\s*(?:(?:by|for|during|sometime|before|until)\s+)?(?:(?:the\s+)?end\s+of\s+(?:(?:this|the)\s+)?|(?:this|the)\s+)(?:week|month|sprint|quarter)(?:['’]s)?[.!]?\s*$|^\s*(?:by\s+)?eo[wm][.!]?\s*$/i
+      .test(ArgSchedulingTrigger || '');
   }
 
   /**
@@ -934,7 +960,13 @@ class RemindersAIPipeline {
       // push it forward by 24 hours to schedule for tomorrow at the same time.
       // This handles cases like "12 noon today" posted at 2 PM - it will be scheduled for 12 noon tomorrow.
         ExtractedDate.setUTCDate(ExtractedDate.getUTCDate() + 1);
-        wasAdjustedForward = true;
+        // a bare period ("this week") named no time, so there is no "requested time" to call past (GH-205).
+        // Its anchor can be days old (e.g. that Monday's 8 AM), so keep rolling until it is not past;
+        // otherwise it would fire immediately with the warning suppressed.
+        const IsPeriodOnly = RemindersAIPipeline.IsPeriodOnlyTrigger(ArgSchedulingTrigger);
+        while(IsPeriodOnly && ExtractedDate.getTime() < CurrentUtcDate.getTime())
+          ExtractedDate.setUTCDate(ExtractedDate.getUTCDate() + 1);
+        wasAdjustedForward = !IsPeriodOnly;
         this.#SlackApp.Logger.info(`date was in the past (${ArgSchedulingTrigger}), pushing forward to tomorrow: ${ExtractedDate.toUTCString()}`);
       }
     }

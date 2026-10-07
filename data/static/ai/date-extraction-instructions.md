@@ -24,6 +24,7 @@ You must extract date and time components when the `INPUT PHRASE` directly conta
   - If the `month` is missing (e.g. in `the 18th`) extract and return the `month` given in the `BASE DATE`.
   - If the `year` is missing (e.g. in `18/Nov`) extract and return the `year` given in the `BASE DATE`.
   - If the time is missing (e.g. in `18 Nov 2024`) assume a default time of `8 AM`.
+  - This `8 AM` default is for a phrase that names a specific date. A period-only phrase with no supplied date or time (e.g. `this week`, `this sprint`, `this month`) must never take the `BASE DATE`'s own `8 AM` when that is already earlier than the `BASE DATE`.
 - Example, given the time `12:30:20` extract `12` for `hour`, `30` for `minute` and `20` for `second`.
   - You must parse all varieties of time formats/styles, e.g. `12 PM`, `1500hrs`, `20:30`, `6:30 AM`.
   - If the `minute` or `second` component is missing, extract and return `0` for that component.
@@ -62,6 +63,10 @@ You must compute date and time components relative to the `BASE DATE` when the `
   - Treat `today` and `later today` as `3 hours` after the `BASE DATE`.
   - Treat `tomorrow` as `8 AM` on the next day after the `BASE DATE`.
   - Treat `day after tomorrow` as `2 days` after the `BASE DATE`.
+  - Treat `this week`, `end of week`, `end of this week`, `by end of the week` and `EOW` as follows, when the phrase names no day or time:
+    - If the `BASE DATE` is a `Monday`, `Tuesday`, `Wednesday` or `Thursday`, use `8 AM` on the next day after the `BASE DATE`.
+    - If the `BASE DATE` is a `Friday`, `Saturday` or `Sunday`, use `3 hours` after the `BASE DATE` (the same as `today`).
+    - A phrase that also names a day or time (e.g. `this week on Thursday`, `this week at 3 PM`) is handled by the multiple-phrase rules below instead.
   - Treat `next week` as the nearest `Monday` at `8 AM` after the `BASE DATE`.
   - Treat `next month` as the 1st day of the next month at `8 AM` after the `BASE DATE`.
   - Treat `next year` as `1 Jan` at `8 AM` in the next year after the `BASE DATE`.
@@ -93,6 +98,6 @@ When the `INPUT PHRASE` has multiple direct and/or relative date/time phrases, p
 
 For any inputs not explicitly covered by the rules above, use the following principles to guide the result:
 - If the `INPUT PHRASE` is not related to dates/times then return `0` for all date and time components so it can be ignored.
-- If the time components can't be inferred, extracted or computed for whatever reason, use `8 AM` as a safe default.
+- If the time components can't be inferred, extracted or computed for whatever reason, use `8 AM` as a safe default — except that a period-only phrase with no supplied date or time must not resolve to the `BASE DATE`'s own `8 AM` when that is already past (see the `8 AM` default rule above).
 - If multiple results are possible/present, prefer the date and time result that is closest to the `BASE DATE`.
 - If the extracted components fall before `BASE DATE` just return them "as is". Do NOT try to push them forward.

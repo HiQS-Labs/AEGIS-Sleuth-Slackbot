@@ -65,7 +65,7 @@ Summary: 14 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 
 ## Completed
 
-Summary: 41 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 2 · 🔮 0 · 🔲 0
+Summary: 42 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 3 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -93,6 +93,7 @@ Summary: 41 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 2 · �
 | GH-169 · Seeded property test: MarkdownToMrkdwn + command normalizer, plus a malformed-Slack-event corpus through MockSlackApp | ✅ | [GH-169-PROPERTY-FUZZ-TEST.md](PROJECT/3-COMPLETED/GH-169-PROPERTY-FUZZ-TEST.md) · [#169](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/169) |
 | Sleuth hardening marathon (GH-383 + GH-387 + GH-388) | — | [GH-383](PROJECT/3-COMPLETED/GH-383-CHANNEL-PRIVACY-CACHE.md) · [GH-387](PROJECT/3-COMPLETED/GH-387-WORKSPACE-ISOLATION-GUARD.md) · [GH-388](PROJECT/3-COMPLETED/GH-388-NO-SILENT-FAILURES.md) |
 | Reminder task-text quality (GH-337) | — | [PROJECT/3-COMPLETED/GH-337-REMINDER-TASK-TEXT.md](PROJECT/3-COMPLETED/GH-337-REMINDER-TASK-TEXT.md) |
+| GH-205 · "This week" with no clock time schedules tomorrow 8 AM and falsely warns "the requested time was in the past" | ✅ | [GH-205-THIS-WEEK-PAST-WARNING.md](PROJECT/3-COMPLETED/GH-205-THIS-WEEK-PAST-WARNING.md) · [#205](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/205) |
 | Task bucketing (P2-TASK-BUCKETING) | — | [PROJECT/3-COMPLETED/P2-TASK-BUCKETING.md](PROJECT/3-COMPLETED/P2-TASK-BUCKETING.md) |
 | show-me reactable output (GH-338) | — | [PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md](PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md) |
 | Adopt Blend philosophy into GUIDING-PRINCIPLES.md (GH-348) | — | [PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md](PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md) |

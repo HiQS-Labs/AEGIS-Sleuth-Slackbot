@@ -1,5 +1,6 @@
 'use strict';
 const ContextResolution = require('./reminder-context-resolution');
+const { IgnoreQuotedText } = require('./quoted-text');
 
 const {
   BuildCompactTextForReminder,
@@ -778,7 +779,8 @@ class RemindersAppMentionHandler {
    * @returns {string|null}
    */
   #GetSchedulingTriggerMatch(ArgText) {
-    const Text = ArgText || '';
+    // words inside quotation marks don't count toward the scheduling gate.
+    const Text = IgnoreQuotedText(ArgText || '');
     const Match = Text.match(SCHEDULING_TRIGGER_PATTERN);
     if(Match) return Match[0];
     if(ASAP_TRIGGER_PATTERN.test(Text) && this.#HasStrongAsapIntentContext(Text))
