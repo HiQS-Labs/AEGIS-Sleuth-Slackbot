@@ -33,6 +33,17 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.334 - 2026-10-07
+
+Replying "done" to close a reminder is now more careful. A reply only closes reminders that are yours, meaning assigned to you or asked for by you, so a teammate's "fixed" in a busy thread no longer closes your reminder. If you mention me and it isn't yours, I'll say so and leave it open. And if your reply also asks for something, like "merged, now remind me to deploy it Monday", I handle the request instead of just closing the old reminder.
+
+**Technical:** Follow-ups to #202 from code review (GH-201).
+
+- `src/reminder-text-completion.js`: new `REQUEST_PATTERN` refuses a completion when the reply also asks for something anywhere in it (`remind`, `reminder`, `create`, `schedule`, `reschedule`, `snooze`, `cancel`, `delete`, `remove`, `give me`, `show`, `list`, `sort(ed) by`, `set up`, `can/could you`), reason `contains_request`. Previously "@Sleuth merged, now create a reminder to deploy it Monday" closed the old reminder and dropped the new one, and "@Sleuth give me my tasks sorted by priority" closed on "sorted".
+- `ResolveThreadReminderIDsAsync` now takes an ownership predicate and returns only reminders the replier owns, plus `NotOwnedCount`. The old narrowing ran only with 2+ reminders and only when the replier owned at least one, so anyone could close a single reminder, and a non-owner's reply closed all of them. The hand-rolled assignee check is gone.
+- `RemindersModule#TryCompleteRemindersFromReplyAsync` passes owner = `RemindersModule.IsAssignedTo` (which keeps the unassigned-falls-back-to-sender rule) or `OriginalSenderID`. A mention from a non-owner gets "That reminder isn't assigned to you, so I left it open"; a plain reply stays silent. The "already closed" post is now wrapped in try/catch like the other acknowledgements, so a Slack failure no longer surfaces as a handler error.
+- Tests: request-plus-done cases, single-reminder non-owner, original-thread requester/assignee/teammate, non-owner end-to-end, and a rejected "already closed" post.
+
 ## 1.4.333 - 2026-10-07
 
 You can now close a reminder by just telling me. Reply in the reminder's thread with "@Sleuth I did this", "@Sleuth done", or simply "done" / "all done ✅", and I'll mark it complete, add a ✅ to your reply, and confirm in the thread — the same as reacting with ✅. I only do this when you clearly say it's finished: "not done yet", "will do it tomorrow", "almost done", or a question like "is this done?" leave the reminder open. If several people have reminders in one thread, your reply only closes yours.
