@@ -488,14 +488,16 @@ class WorkspaceAI {
    * @param {string} ArgSystemInstructions System instructions to use when processing the message.
    * @param {ResponseSchema} ArgJsonSchemaObject JSON schema defining the expected structure of the response object.
    * @param {string} [ArgModelName] Model name to use; if not specified, the default model will be used.
+   * @param {{ signal?: AbortSignal, timeout?: number, maxRetries?: number }} [ArgRequestOptions] Optional request deadline.
    * @returns {Promise<object>}
    */
-  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName) {
+  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName, ArgRequestOptions = undefined) {
     const ModelName = ArgModelName || this.#DefaultModelName;
     const Provider = this.#GetProviderForModel(ModelName);
-    return Provider.ProcessMessageWithJsonResponseAsync(
-      ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ModelName
+    if(ArgRequestOptions) return Provider.ProcessMessageWithJsonResponseAsync(
+      ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ModelName, ArgRequestOptions
     );
+    return Provider.ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ModelName);
   }
 
   /**

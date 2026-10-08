@@ -555,3 +555,9 @@ Use the test layers in this order:
 4. `@Sleuth AI run-tests` or `npm run slack:harness:post -- ...` only when you need real-workspace confirmation
 
 That ordering keeps live-workspace checks narrow and intentional, while the repeatable logic coverage stays in Jest where it belongs.
+
+### Product Compass knowledge queries (GH-215)
+
+Opt-in `PRODUCT_COMPASS_CHANNELS` grants connect the existing ChatModule command/fallback and hands-free paths to `src/chat-commands/ask-compass-command.js` and `src/product-compass.js`. The concrete MCP client discovers the fixed PC endpoint, constrains product/release IDs to the mapped team's catalog, retrieves passages/briefs/arcs, and asks WorkspaceAI to reason with them using the existing channel model. It never calls PC's answer synthesizer. PC owns RAG; Sleuth adds no corpus or conversation persistence.
+
+Thread context and uploaded files use ChatModule's existing assembly and the exported `MaxContextBytes` (200 KiB) from `context-file-classifier.js`. Only mapped queries opt into complete bounded replies pagination. Model JSON calls accept optional deadline/cancellation options through DecideAsync → WorkspaceAI → provider; other calls preserve defaults. Tokens are per-request native credential reads, and workspace JSON stores only team/channel grants and credential names. Setup, bounds, revocation and live acceptance are in `docs/web-api.md` → Product Compass channel grants.

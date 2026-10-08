@@ -20,6 +20,7 @@ const { RegisterCatalogRegexAliases } = require('./catalog-regex-aliases');
 const { CommandCatalogPath } = require('./command-catalog');
 const { BuildErrorReportAsync } = require('./diagnostics-report');
 const {
+  MaxContextBytes,
   SelectContextMemoryFile,
   IsBinaryMediaFile,
   LooksLikeHtmlErrorPage,
@@ -56,6 +57,8 @@ try {
     console.warn('[chat-module] RAG overlay present but failed to load:', error && error.message);
   }
 }
+const Compass = require('./product-compass');
+const HandleAskCompassCommandAsync = require('./chat-commands/ask-compass-command');
 const HandleAskWooCommandAsync = require('./chat-commands/ask-woo-command');
 const HandleWebSearchProviderCommandAsync = require('./chat-commands/web-search-provider-command');
 const HandleHelpFeaturesCommandAsync = require('./chat-commands/help-features-command');
@@ -527,6 +530,13 @@ class ChatModule {
           RagChatIntegration.HandleAskSelfCommandAsync(this.#SlackApp, ArgEventInfo, ArgQuery.trim()),
       });
     }
+
+    Router.Register({
+      Pattern: /^ask-compass(?:\s+(.+))?$/is,
+      DescribePattern: /^ask-compass(?:\s|$)/i,
+      Route: 'ask-compass',
+      Handle: (ArgEventInfo, ArgQuery) => this.#RunCompassAsync(this.#SlackApp, ArgEventInfo, ArgQuery || ''),
+    });
 
     Router.Register({
       Pattern: /^ask-woo(?:\s+(.+))?$/is,
@@ -1259,6 +1269,11 @@ class ChatModule {
       if(await this.#TryHandleUnsupportedReminderActionAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
         return true;
 
+      if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) {
+        await this.#RunCompassAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText);
+        return true;
+      }
+
       // natural-language and freshness-driven auto-routes always target the OpenAI provider — that
       // is the documented product behavior, not a registry concern.
       const OpenAIWebSearchProvider = GetWebSearchProviderById('web-search');
@@ -1303,6 +1318,11 @@ class ChatModule {
       // forget; the .catch keeps a probe failure from ever affecting the chat fallthrough.
       this.#EmitNearMissProbeAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText)
         .catch((Error) => ArgSlackApp.Logger.warn(`near-miss probe failed: ${Error && Error.message ? Error.message : Error}`));
+    }
+
+    if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) {
+      await this.#RunCompassAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText);
+      return true;
     }
 
     // gather thread context. For a root message that just had a file loaded, use event.ts as the
@@ -2023,7 +2043,7 @@ class ChatModule {
     try {
       // check if we should respond to this message. This functionality allows the chat module to respond to messages
       // without having to explicitly mention the app, and addresses a common user request for a "hands-free" mode.
-      const { ShouldRespond } = await this.#ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo);
+      const { ShouldRespond, ThreadMessages } = await this.#ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo);
       if(!ShouldRespond) return false;
 
       // check for an uploaded text file (Markdown, snippet, log, CSV, code, etc.) and store it as
@@ -2055,6 +2075,11 @@ class ChatModule {
         await HandleShowChannelModelCommandAsync(
           ArgSlackApp, ArgEventInfo, (ArgChannelID) => this.#BuildChannelModelStatus(ArgChannelID)
         );
+        return true;
+      }
+
+      if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) {
+        await this.#RunCompassAsync(ArgSlackApp, ArgEventInfo, ArgEventInfo.text, ThreadMessages);
         return true;
       }
 
@@ -2668,7 +2693,7 @@ class ChatModule {
    * Check if the app should respond to a message based on thread context and reactions.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').MessageEventInfo} ArgEventInfo Message event information.
-   * @returns {Promise<{ ShouldRespond: boolean, IsStopping?: boolean }>}
+   * @returns {Promise<{ ShouldRespond: boolean, IsStopping?: boolean, ThreadMessages?: any[] }>}
    */
   async #ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo) {
     try {
@@ -2687,9 +2712,10 @@ class ChatModule {
       if(!ArgEventInfo.thread_ts) return { ShouldRespond: false };
 
       // get all messages in the thread.
-      const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(
-        ArgEventInfo.channel, ArgEventInfo.thread_ts
-      );
+      const ThreadMessages = (await ArgSlackApp.GetConversationMessagesAsync(
+        ArgEventInfo.channel, ArgEventInfo.thread_ts,
+        Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel) ? { MaxPages: 5, Latest: ArgEventInfo.ts } : undefined
+      )).filter(ArgMessage => !Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel) || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
 
       // check if the first message in thread has an app mention (hands-free mode).
       const FirstMessage = ThreadMessages[0];
@@ -2715,7 +2741,7 @@ class ChatModule {
       }
 
       // return the final auto-response state.
-      return { ShouldRespond: ShouldAutoRespond, IsStopping: false };
+      return { ShouldRespond: ShouldAutoRespond, IsStopping: false, ThreadMessages };
     } catch(error) {
       // log any errors that occur during message processing and return false to indicate that the event was not handled.
       ArgSlackApp.Logger.error("Error in ShouldRespondToMessageAsync:", error);
@@ -2893,7 +2919,7 @@ class ChatModule {
 
     const ContextFile = Selection.File;
 
-    const MaxFileSizeBytes = 200 * 1024;
+    const MaxFileSizeBytes = MaxContextBytes;
     if(ContextFile.size > MaxFileSizeBytes) {
       await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
@@ -2971,15 +2997,34 @@ class ChatModule {
   }
 
   /**
+   * @param {SlackApp} ArgSlackApp
+   * @param {any} ArgEventInfo
+   * @param {string} ArgQuestion
+   * @param {any[]} [ArgMessages]
+   */
+  async #RunCompassAsync(ArgSlackApp, ArgEventInfo, ArgQuestion, ArgMessages) {
+    await HandleAskCompassCommandAsync(ArgSlackApp, ArgEventInfo, ArgQuestion, this.#WorkspaceAI,
+      this.#ChannelModelSettings.GetModelForChannel(ArgEventInfo.channel), async () => {
+        const Root = ArgEventInfo.thread_ts || ArgEventInfo.ts;
+        const Messages = ArgMessages || (ArgEventInfo.thread_ts
+          ? await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, Root, { MaxPages: 5, Latest: ArgEventInfo.ts }) : []);
+        const Current = Messages.filter(ArgMessage => Number(ArgMessage.ts) < Number(ArgEventInfo.ts));
+        Current.push(ArgEventInfo);
+        return this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, Root, Current);
+      });
+  }
+
+  /**
    * Gather context from a Slack thread.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {string} ArgChannelID Channel ID where the thread is located.
    * @param {string} ArgThreadTS Timestamp of the parent message of the thread.
+   * @param {any[]} [ArgMessages] Already fetched complete thread.
    * @returns {Promise<string>}
    */
-  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS) {
+  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS, ArgMessages = undefined) {
     // get all the messages in the thread.
-    const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS);
+    const ThreadMessages = ArgMessages || await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS);
 
     // concatenate all the messages in the thread into a single message.
     const ThreadText = ThreadMessages.reduce((ArgAccumulatedText, ArgCurrentMessage) => {

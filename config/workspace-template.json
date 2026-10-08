@@ -19,11 +19,13 @@
   "GITHUB_ACTIONS_WORKFLOW": "ci.yml",
   "GITHUB_ACTIONS_BRANCH": "development",
   "GITHUB_SYNC_HEARTBEAT_ENABLED": "no",
+  "PRODUCT_COMPASS_CHANNELS": "{}",
   "WPDBTK_RAG_ENABLED": "no",
   "WPDBTK_RAG_BASE_URL": "https://rag.example.com",
   "WPDBTK_RAG_SERVICE_TOKEN": "rag_service_token_here",
   "WPDBTK_RAG_DEFAULT_SOURCE": "bq_client-a",
   "_comments": {
+    "PRODUCT_COMPASS_CHANNELS": "Optional JSON channel-to-team grants with CredentialName references only; see docs/web-api.md. Empty object disables integration.",
     "WORKSPACE_NAME": "Unique identifier for this workspace",
     "ADMIN_EMAIL": "Administrator email for this workspace",
     "LIVE_TOKEN": "Bot User OAuth Token from Slack app settings (xoxb-...)",

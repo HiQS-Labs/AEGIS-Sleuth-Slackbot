@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.335 - 2026-10-07
+
+I can answer Product Compass release questions in channels your administrator has mapped to a team. Everyone in the channel can contribute, and follow-up questions retain the thread and uploaded document context. Answers include source excerpts and state when evidence is incomplete.
+
+**Technical:** GH-215 adds an opt-in concrete MCP workflow using existing WorkspaceAI model selection, shared 200 KiB document/thread context and native credential references. Team/product/release guards, bounded tool calls and provider cancellation fail closed. No additional ingestion, summarizer, persistence, dependencies or CI jobs. Activation requires credential provisioning and live scoped-retrieval acceptance; mocked canaries are not deployment proof. Remove the mapping to disable future queries; prior Slack disclosures remain.
+
 ## 1.4.334 - 2026-10-07
 
 Replying "done" to close a reminder is now more careful. A reply only closes reminders that are yours, meaning assigned to you or asked for by you, so a teammate's "fixed" in a busy thread no longer closes your reminder. If you mention me and it isn't yours, I'll say so and leave it open. And if your reply also asks for something, like "merged, now remind me to deploy it Monday", I handle the request instead of just closing the old reminder.

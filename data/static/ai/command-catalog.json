@@ -2110,5 +2110,33 @@
     "IncludeInHelp": false,
     "IncludeInCommandsList": true,
     "CommandsListOrder": 104
+  },
+  {
+    "Id": "ask-compass",
+    "Permission": "public",
+    "Risk": "low",
+    "CanExecuteWithIfl": true,
+    "Description": "Ask about Product Compass releases in an administrator-mapped channel.",
+    "SyntaxExamples": [
+      "@Sleuth AI ask-compass compare releases 1.0 and 1.65"
+    ],
+    "Aliases": [
+      "ask-compass"
+    ],
+    "IntentPhrases": [
+      "query product compass"
+    ],
+    "ArgumentHints": [
+      "QuestionText"
+    ],
+    "DisambiguationNotes": [
+      "Only enabled in channels mapped to a Product Compass team; all channel members may ask."
+    ],
+    "RegisteredRoutes": [
+      "ask-compass"
+    ],
+    "IncludeInHelp": false,
+    "IncludeInCommandsList": true,
+    "CommandsListOrder": 103
   }
 ]
