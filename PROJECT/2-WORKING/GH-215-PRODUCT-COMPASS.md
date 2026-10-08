@@ -5,6 +5,7 @@ title: Product Compass knowledge facilitator
 status: In progress
 created: 2026-10-08
 updated: 2026-10-08
+pr: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/216
 owner: Codex
 doc_type: project
 goal: Cited Product Compass release answers and contextual follow-ups through Sleuth
@@ -21,7 +22,7 @@ phases: 2
 
 | What was just completed | What's next |
 |---|---|
-| Claude plan/code/final-delta PASS; Codex implementation; independent branch review; full qualifying tests passed | Open PR into development; verify hosted checks; retain clone for merge handoff |
+| Claude plan/code/final-delta PASS; Codex implementation; independent branch review; full qualifying tests passed | PR #216 open into development; hosted checks pending; awaiting merge and separate live activation |
 
 ## Table of contents
 
@@ -111,7 +112,7 @@ Smallest viable implementation: two concrete files (`src/product-compass.js` for
 
 - [x] Run focused canaries and existing affected thread/workspace/catalog tests during iteration; build and validate AI/catalog/help/isolation for final diff. Add behavior CHANGELOG entry without package version bump. Final existing qualifying tests once after final review, not on each doc edit. No reminder quality replay unless reminder paths/assets are changed.
 - [x] Final Claude relay QA with explicit no-overbuild envelope; three-round cap. Capture actual verdict, commands and limitations. Preserve reviewer/author separation.
-- [ ] Push branch and open PR into development; never merge/deploy in this task. Report upstream PC RAG/live auth as unverified until a real integration smoke is possible, do not label mocked tests live end-to-end proof.
+- [x] Push branch and open PR into development; never merge/deploy in this task. Report upstream PC RAG/live auth as unverified until a real integration smoke is possible, do not label mocked tests live end-to-end proof.
 
 ### Phase 2 QA
 
@@ -183,3 +184,7 @@ Live authentication, PC deployment/RLS/indexer state, native credential provisio
 Claude implementation review PASS, parent independent branch review and final edits complete, Claude final-delta review PASS. Detailed findings/dispositions and final verification are in PROJECT/4-MISC/GH-215-CLAUDE-CODE-QA.md. Full npm test passed at ea28c8f: 2,571 Jest tests and 116 Node tests (4 Jest tests/1 suite skipped). Build, AI assets, isolation/FSM/render, changelog tone and sanitize passed. Existing command-validator and PDDA findings remain disclosed; no new GH-215 finding.
 
 Clarification: incomplete hands-free history remains silent because unseen messages may contain a stop reaction. Explicit mentions receive the context refusal. The existing OpenAI one-shot temperature compatibility fallback keeps the same cancellation signal and outer deadline; no network retry loop added. PC source reviewed through aa7ac66; upstream issue 7 reports private trigger fixes but two indexing jobs still failed on Gemini quota. No live auth/indexing/Slack acceptance claimed.
+
+## PR handoff
+
+PR https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/216 targets development. Source work and local verification complete; hosted checks are pending at this checkpoint and their final result will be recorded on the PR. Not merged, released or deployed. Keep the task clone until origin landing is verified, then retire it through merge-cleanup. Live activation acceptance remains a separate prerequisite.

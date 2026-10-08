@@ -62,7 +62,7 @@ Summary: 15 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | Operator-managed Clients Slack List — wiring + backfill (GH-396) | — | [#416](https://github.com/NeochromeTeam/sleuth-app/pull/416) · [#396](https://github.com/NeochromeTeam/sleuth-app/issues/396) · [CHANGELOG.md](CHANGELOG.md) |
 | P2 snapshot→Slack relay | — | [PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md](PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md) |
 | "Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362) | — | [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md) |
-| GH-215 · Product Compass knowledge facilitator | — | [GH-215-PRODUCT-COMPASS.md](PROJECT/2-WORKING/GH-215-PRODUCT-COMPASS.md) · [#215](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/215) |
+| GH-215 · Product Compass knowledge facilitator | — | [GH-215-PRODUCT-COMPASS.md](PROJECT/2-WORKING/GH-215-PRODUCT-COMPASS.md) · [#215](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/215) · [PR #216](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/216) |
 
 ## Completed
 
