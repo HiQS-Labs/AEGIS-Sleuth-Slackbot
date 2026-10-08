@@ -1,6 +1,6 @@
 ---
 title: "GH-217: Remove redundant Compass evidence and thread reads"
-status: inbox
+status: working
 created: 2026-10-08
 updated: 2026-10-08
 owner: Codex
@@ -15,7 +15,7 @@ branch: fix/compass-context-cleanup
 
 | What was just completed | What's next |
 |---|---|
-| Source recon and issue intake | Plan review, focused implementation and PR |
+| Two fixes and focused/mutation checks pass | Final review, full gate and PR |
 
 ## Recon and scope
 
@@ -39,11 +39,11 @@ Behavior change: oversized automatic threads go quiet, including attachment/mode
 
 ## Ordered work and acceptance
 
-- [ ] Obtain independent plan approval before production edits (three rounds maximum).
-- [ ] Extend the existing first pipeline canary to assert raw passage retained once and Sources has no Passage, preserving rendered excerpt/citation. Observe failure with current duplicate property.
-- [ ] Replace the existing oversized-thread canary with real SlackApp paging through mocked conversations.replies: five pages plus an unread stop beyond cap, no automatic message, no MCP/model work, exactly five API reads. Explicit mention still refuses once after five reads. Observe failure against the old fallback.
-- [ ] Remove the unused Passage property; return false in the incomplete-context catch. Keep complete-history reuse and later-page stop checks green in the existing canary.
-- [ ] Run focused Compass tests and build; reintroduce each defect separately to verify its regression assertion fails. Restore fixed sources.
+- [x] Obtain independent plan approval before production edits (three rounds maximum).
+- [x] Extend the existing first pipeline canary to assert raw passage retained once and Sources has no Passage, preserving rendered excerpt/citation. Observe failure with current duplicate property.
+- [x] Replace the existing oversized-thread canary with real SlackApp paging through mocked conversations.replies: five pages plus an unread stop beyond cap, no automatic message, no MCP/model work, exactly five API reads. Explicit mention still refuses once after five reads. Observe failure against the old fallback.
+- [x] Remove the unused Passage property; return false in the incomplete-context catch. Keep complete-history reuse and later-page stop checks green in the existing canary.
+- [x] Run focused Compass tests and build; reintroduce each defect separately to verify its regression assertion fails. Restore fixed sources.
 - [ ] Update changelog and document the automatic-thread limit. Final independent review followed by one final full repo test gate, build and focused PDDA check. Push and open PR into development; verify hosted checks. Do not merge/deploy here.
 
 Test non-scope: no new suite files, synthetic runner, fuzzer, CI jobs, new live credentials, or unrelated reminder replay (reminder context is unchanged). Existing mock canary verifies plumbing/payload counts; it cannot certify actual model answer quality or live SaaS authorization.
@@ -54,4 +54,6 @@ Test non-scope: no new suite files, synthetic runner, fuzzer, CI jobs, new live 
 
 ## Verification and QA
 
-Pending. Retain clone until PR landing is verified; no deployment claim is part of this task.
+Plan QA: round 1 source PASS was rejected by the driver for rewriting its template; round 2 appended its findings correctly and received attested Approved (driver exit 0) on `6393fc8`. No substantive findings or scope additions. `docs/web-api.md:564` already specifies silent hands-free suppression for incomplete history; the fix restores that documented contract. Retain clone until PR landing is verified; no deployment claim is part of this task.
+
+Implementation evidence (2026-10-08 UTC): initial combined red run had exactly two failures (unexpected Sources.Passage and 11 vs five Slack calls); fixed focused suite passes all five cases. Reintroducing each original production file separately fails exactly its targeted test (four others excluded by the test-name filter). Sources were restored after each probe. `npm run build` passes. Test fixtures call the real SlackApp reader with mocked pages; this is not a live Slack cost measurement. Existing `docs/web-api.md:564` already describes the restored behavior, so no duplicate doc edit is needed. Logs retained locally under temp/gh217-*.log.

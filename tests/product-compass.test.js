@@ -71,6 +71,10 @@ describe('Product Compass pipeline canaries', () => {
     expect(mockAi.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toContain('Preserve accessibility');
     expect(mockAi.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toContain('what changed in release 1.65');
     expect(slack.GetConversationMessagesAsync).toHaveBeenCalledWith('C123', '1', { MaxPages: 5, Latest: '3' });
+    const evidence = JSON.parse(mockAi.ProcessMessageWithJsonResponseAsync.mock.calls[1][0]).Evidence[0];
+    expect(evidence.Result.passages).toEqual([passage]);
+    expect(evidence.Sources[0]).not.toHaveProperty('Passage');
+    expect(evidence.Sources[0]).toMatchObject({ Id: '1.1', Excerpt: passage.excerpt, Link: `https://pmf.neochro.me${passage.link}` });
     expect(slack.SentMessages.at(-1).text).toContain('New capability');
     expect(slack.SentMessages.at(-1).text).toContain('evidence is incomplete');
     mockAi.ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce(search).mockResolvedValueOnce(answer);
@@ -144,15 +148,36 @@ describe('Product Compass pipeline canaries', () => {
     expect((await RealSlack.GetConversationMessagesAsync('C123', '1', { MaxPages: 5, Latest: '3' })).map(ArgMessage => ArgMessage.ts)).toEqual(['1', '2', '3']);
   });
 
-  test('a mapped hands-free thread too long to load gets the "start a new thread" reply, not silence', async () => {
+  test('incomplete mapped hands-free history stops after five reads; explicit mentions still refuse', async () => {
     const slack = new MockSlackApp({ WorkspaceInfo: workspace });
+    const RealSlack = new (require('../src/slack-app'))(workspace, slack.Logger);
+    await RealSlack.ConnectOneShotAsync();
     new ChatModule(slack, {}, null, null, null);
-    slack.GetConversationMessagesAsync = jest.fn(async (ArgChannel, ArgTs, ArgOptions) => {
-      if(ArgOptions) throw Object.assign(new Error('too long'), { code: 'context-incomplete' });
-      return [{ ts: '1', text: '<@UBOT123> start', user: 'U1' }];
+    const root = { ts: '1', text: '<@UBOT123> start', user: 'U1' };
+    mockReplies.mockReset().mockImplementation(async ({ cursor }) => {
+      const page = Number(cursor || 0);
+      return { ok: true, messages: [root, { ts: String(page + 2), text: 'reply', user: 'U1',
+        ...(page === 5 ? { reactions: [{ name: 'octagonal_sign' }] } : {}) }],
+        response_metadata: { next_cursor: page < 5 ? String(page + 1) : '' } };
     });
+    slack.GetConversationMessagesAsync = jest.fn(RealSlack.GetConversationMessagesAsync.bind(RealSlack));
     await slack.SimulateMessageAsync({ channel: 'C123', thread_ts: '1', ts: '9', text: 'one more question', user: 'CONTRIBUTOR' });
-    expect(slack.SentMessages.at(-1).text).toContain('start a new thread');
+    expect(mockReplies).toHaveBeenCalledTimes(5);
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledTimes(1);
+    expect(slack.SentMessages).toHaveLength(0);
+    expect(mockClient.connect).not.toHaveBeenCalled();
+    expect(mockAi.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
+    expect(mockAi.ProcessMessageWithTextResponseAsync).not.toHaveBeenCalled();
+
+    mockReplies.mockClear();
+    slack.GetConversationMessagesAsync.mockClear();
+    await slack.SimulateAppMentionAsync({ channel: 'C123', thread_ts: '1', ts: '10', text: '<@UBOT123> one more question', user: 'CONTRIBUTOR' });
+    expect(mockReplies).toHaveBeenCalledTimes(5);
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledTimes(1);
+    expect(slack.SentMessages).toHaveLength(1);
+    expect(slack.SentMessages[0].text).toContain('start a new thread');
+    expect(mockClient.connect).not.toHaveBeenCalled();
+    expect(mockAi.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
   });
 });
 

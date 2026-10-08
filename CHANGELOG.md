@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.336 - 2026-10-08
+
+I use less space for Product Compass evidence. If a thread is too long for me to check whether automatic replies were stopped, I stay quiet; mention me directly for guidance on starting a new thread.
+
+**Technical:** GH-217 removes the unused duplicate passage from citation metadata and stops automatic Compass handling after the first incomplete bounded thread read. Complete thread context, citations and explicit-mention refusals retain their existing paths. The existing five-case Compass canary passes; reintroducing each defect separately fails its matching check (duplicate Passage or 11 reads instead of five). Build passes. No new suite, dependency, persistence or CI job. Codex plan review approved after its first record was rejected for rewriting the relay template; the append-only second round passed the driver. Final review and full qualifying test results are recorded in the GH-217 plan. #lessonslearned A partial thread cannot establish that automatic replies are still enabled when unread messages may contain a stop reaction.
+
 ## 1.4.335 - 2026-10-07
 
 I can answer Product Compass release questions in channels your administrator has mapped to a team. Everyone in the channel can contribute, and follow-up questions retain the thread and uploaded document context. Answers include source excerpts and state when evidence is incomplete.
