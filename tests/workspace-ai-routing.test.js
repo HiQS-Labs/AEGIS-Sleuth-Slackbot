@@ -361,5 +361,9 @@ test('bounded JSON calls forward deadline options through every provider', async
     expect(OpenCall.mock.calls[0][1]).toBe(Options);
     expect(AnthropicCall.mock.calls[0][1]).toBe(Options);
     expect(global.fetch.mock.calls[0][1].signal).toBe(Options.signal);
+    OpenCall.mockRejectedValueOnce({ param: 'temperature', code: 'unsupported_value' });
+    await Ai.ProcessMessageWithJsonResponseAsync('input', 'instructions', {}, 'unknown-model', Options);
+    expect(OpenCall.mock.calls.at(-1)[0].temperature).toBe(1);
+    expect(OpenCall.mock.calls.at(-1)[1]).toBe(Options);
   } finally { global.fetch = OriginalFetch; }
 });

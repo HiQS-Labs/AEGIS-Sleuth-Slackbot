@@ -301,8 +301,10 @@ class Workspaces {
         throw new Error(`${GitHubActionsFieldName} cannot be empty`);
     }
 
-    if(ArgTargetWorkspace.hasOwnProperty('PRODUCT_COMPASS_CHANNELS'))
-      require('./product-compass').ParseChannels(ArgTargetWorkspace.PRODUCT_COMPASS_CHANNELS);
+    if(ArgTargetWorkspace.hasOwnProperty('PRODUCT_COMPASS_CHANNELS')) {
+      try { require('./product-compass').ParseChannels(ArgTargetWorkspace.PRODUCT_COMPASS_CHANNELS); }
+      catch(error) { throw new Error('PRODUCT_COMPASS_CHANNELS must contain valid channel, team and credential references'); }
+    }
 
     // validate GITHUB_USER_MAP if provided.
     if(ArgTargetWorkspace.hasOwnProperty('GITHUB_USER_MAP')) {

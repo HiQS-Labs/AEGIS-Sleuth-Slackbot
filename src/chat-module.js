@@ -2712,10 +2712,11 @@ class ChatModule {
       if(!ArgEventInfo.thread_ts) return { ShouldRespond: false };
 
       // get all messages in the thread.
+      const IsCompassChannel = Boolean(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel));
       const ThreadMessages = (await ArgSlackApp.GetConversationMessagesAsync(
         ArgEventInfo.channel, ArgEventInfo.thread_ts,
-        Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel) ? { MaxPages: 5, Latest: ArgEventInfo.ts } : undefined
-      )).filter(ArgMessage => !Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel) || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
+        IsCompassChannel ? { MaxPages: 5, Latest: ArgEventInfo.ts } : undefined
+      )).filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
 
       // check if the first message in thread has an app mention (hands-free mode).
       const FirstMessage = ThreadMessages[0];

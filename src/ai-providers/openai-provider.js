@@ -133,11 +133,14 @@ class OpenAIProvider {
         ? await this.#OpenAI.chat.completions.create(/** @type {any} */ (RequestPayload), ArgRequestOptions)
         : await this.#OpenAI.chat.completions.create(/** @type {any} */ (RequestPayload));
     } catch(error) {
-      if(ArgRequestOptions || ModelConfig.temperature === 1 || !IsTemperatureUnsupportedError(error)) throw error;
-      CompletionResponse = await this.#OpenAI.chat.completions.create({
+      if(ArgRequestOptions?.signal?.aborted || ModelConfig.temperature === 1 || !IsTemperatureUnsupportedError(error)) throw error;
+      const RetryPayload = {
         .../** @type {any} */ (RequestPayload),
         temperature: 1,
-      });
+      };
+      CompletionResponse = ArgRequestOptions
+        ? await this.#OpenAI.chat.completions.create(RetryPayload, ArgRequestOptions)
+        : await this.#OpenAI.chat.completions.create(RetryPayload);
     }
 
     this.#WorkspaceStats.OutgoingGptMessageCount++;

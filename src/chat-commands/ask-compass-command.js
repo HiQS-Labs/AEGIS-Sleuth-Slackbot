@@ -16,7 +16,7 @@ async function HandleAskCompassCommandAsync(ArgSlackApp, ArgEventInfo, ArgQuery,
     const Code = error.code || 'context';
     ArgSlackApp.Logger.warn(`Product Compass workspace=${ArgSlackApp.WorkspaceInfo.WORKSPACE_NAME} channel=${ArgEventInfo.channel} failure=${Code}`);
     Reply = ['too-large', 'context-incomplete', 'context'].includes(Code)
-      ? 'I could not load the complete context within the limit. Please start a new thread or narrow the attached document.'
+      ? 'The thread, attachment or retrieved evidence exceeds the context limit. Please start a new thread or narrow your question or document.'
       : Code === 'question' ? 'Please ask a question of up to 4,000 characters.'
         : Code === 'timeout' ? 'Product Compass took too long. Please try again with a narrower question.'
           : 'I could not safely retrieve Product Compass evidence. Please ask your administrator to check the connection and team mapping.';
