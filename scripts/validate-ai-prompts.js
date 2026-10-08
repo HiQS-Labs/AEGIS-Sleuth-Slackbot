@@ -19,6 +19,7 @@ const AI_DIR = path.join(__dirname, '..', 'data', 'static', 'ai');
 
 // expected instruction + schema pairs (instruction file → schema file, null = no schema expected).
 const EXPECTED_PAIRS = {
+  'compass-instructions.md': 'compass-schema.json',
   'reminders-instructions.md': 'reminders-schema.json',
   'manual-reminder-task-instructions.md': 'manual-reminder-task-schema.json',
   'date-extraction-instructions.md': 'date-extraction-schema.json',

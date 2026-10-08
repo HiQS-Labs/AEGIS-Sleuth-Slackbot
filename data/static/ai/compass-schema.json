@@ -1,0 +1,45 @@
+{
+  "name": "compass",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "Action": {
+        "type": "string",
+        "enum": [
+          "answer",
+          "search_documents",
+          "get_release_brief",
+          "get_product_arc"
+        ]
+      },
+      "Query": {
+        "type": "string"
+      },
+      "ProductId": {
+        "type": "string"
+      },
+      "ReleaseId": {
+        "type": "string"
+      },
+      "Answer": {
+        "type": "string"
+      },
+      "Citations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "Action",
+      "Query",
+      "ProductId",
+      "ReleaseId",
+      "Answer",
+      "Citations"
+    ],
+    "additionalProperties": false
+  }
+}

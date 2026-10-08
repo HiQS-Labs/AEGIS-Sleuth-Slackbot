@@ -16,7 +16,7 @@ const GeminiProvider = require('./gemini-provider');
  * @typedef {Object} AIProvider
  * @property {string} Id Stable provider identifier (e.g. 'openai', 'anthropic').
  * @property {string} Label Human-readable provider label for diagnostics and messages.
- * @property {(ArgMessageText: string, ArgSystemInstructions: string, ArgJsonSchemaObject: object, ArgModelName: string) => Promise<object>} ProcessMessageWithJsonResponseAsync
+ * @property {(ArgMessageText: string, ArgSystemInstructions: string, ArgJsonSchemaObject: object, ArgModelName: string, ArgRequestOptions?: {signal?: AbortSignal, timeout?:number, maxRetries?:number}) => Promise<object>} ProcessMessageWithJsonResponseAsync
  *   Send a message to the model and return a structured JSON response matching the schema.
  * @property {(ArgMessageText: string, ArgSystemInstructions: string, ArgModelName: string) => Promise<string>} ProcessMessageWithTextResponseAsync
  *   Send a message to the model and return the response as text.

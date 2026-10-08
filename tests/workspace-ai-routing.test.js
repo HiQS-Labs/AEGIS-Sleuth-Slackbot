@@ -345,3 +345,25 @@ describe('WorkspaceAI provider routing', () => {
     expect(AnthropicMock).toHaveBeenCalled();
   });
 });
+
+test('bounded JSON calls forward deadline options through every provider', async () => {
+  const Options = { signal: new AbortController().signal, timeout: 45000, maxRetries: 0 };
+  const OpenCall = jest.fn().mockResolvedValue({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] });
+  const AnthropicCall = jest.fn().mockResolvedValue({ content: [{ type: 'text', text: '{}' }], stop_reason: 'end_turn' });
+  require('openai').OpenAI.mockImplementation(() => ({ chat: { completions: { create: OpenCall } } }));
+  require('@anthropic-ai/sdk').Anthropic.mockImplementation(() => ({ messages: { create: AnthropicCall } }));
+  const OriginalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{}' }] } }] }) });
+  try {
+    const Ai = new WorkspaceAI({ ...BaseWorkspaceInfo, GEMINI_API_KEY: 'test' }, { ...EmptyStats });
+    for(const Model of ['gpt-4o-mini', 'claude-sonnet-4-6', 'gemini-3.5-flash'])
+      await Ai.ProcessMessageWithJsonResponseAsync('input', 'instructions', { name: 'test', strict: true, schema: { type: 'object', properties: {}, required: [], additionalProperties: false } }, Model, Options);
+    expect(OpenCall.mock.calls[0][1]).toBe(Options);
+    expect(AnthropicCall.mock.calls[0][1]).toBe(Options);
+    expect(global.fetch.mock.calls[0][1].signal).toBe(Options.signal);
+    OpenCall.mockRejectedValueOnce({ param: 'temperature', code: 'unsupported_value' });
+    await Ai.ProcessMessageWithJsonResponseAsync('input', 'instructions', {}, 'unknown-model', Options);
+    expect(OpenCall.mock.calls.at(-1)[0].temperature).toBe(1);
+    expect(OpenCall.mock.calls.at(-1)[1]).toBe(Options);
+  } finally { global.fetch = OriginalFetch; }
+});

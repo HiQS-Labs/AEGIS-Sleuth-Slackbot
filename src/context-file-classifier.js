@@ -262,6 +262,7 @@ function SelectImageAttachment(ArgFiles) {
 }
 
 module.exports = {
+  MaxContextBytes: 200 * 1024,
   TEXT_FILE_EXTENSIONS,
   TEXT_FILETYPES,
   IMAGE_MIMETYPES,

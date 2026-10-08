@@ -15,6 +15,7 @@ const VALID_WORKSPACE_NAME_REGEX = /^[a-zA-Z0-9_\-]+$/;
 
 /**
  * @typedef {Object} WorkspaceInfo
+ * @property {string} [PRODUCT_COMPASS_CHANNELS] Channel team grants and credential references (JSON).
  * @property {string} WORKSPACE_NAME         Name of the Slack workspace.
  * @property {string} ADMIN_EMAIL            Contact details of the Slack workspace admin.
  * @property {string} LIVE_TOKEN             Token required to connect to the Slack app.
@@ -298,6 +299,11 @@ class Workspaces {
 
       if(GitHubActionsFieldValue.trim().length === 0)
         throw new Error(`${GitHubActionsFieldName} cannot be empty`);
+    }
+
+    if(ArgTargetWorkspace.hasOwnProperty('PRODUCT_COMPASS_CHANNELS')) {
+      try { require('./product-compass').ParseChannels(ArgTargetWorkspace.PRODUCT_COMPASS_CHANNELS); }
+      catch(error) { throw new Error('PRODUCT_COMPASS_CHANNELS must contain valid channel, team and credential references'); }
     }
 
     // validate GITHUB_USER_MAP if provided.
