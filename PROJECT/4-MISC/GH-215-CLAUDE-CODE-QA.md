@@ -72,3 +72,16 @@ At runtime commit ea28c8f, in a separate full clone with repository identity and
 ## Hosted Node 18 failure and correction
 
 First hosted run at bd8b7db failed: 13 suites/73 tests, same `pkce-challenge` dynamic-import error under Jest. Reproduced on Node 18.20.4 in the review clone with existing help-command suite (3 failures); Node 22 had passed. Trace: ChatModule → eager product-compass import → StreamableHTTP transport → auth → pkce-challenge import(node:crypto). Root cause: an opt-in integration eagerly loaded its SDK/auth dependency into all ordinary chat tests; fix site: move existing SDK requires inside AskAsync after mapping/input validation; no dependency patch, global crypto shim, Jest flags or skipped assertions. The identical help suite and Compass canaries then passed on Node 18 (6 tests). Native Node 18 constructed the real SDK client/transport without network calls, ruling out a production CommonJS loader incompatibility. Full Node 18 gate and targeted Claude review follow this correction.
+
+## Final Node 18 correction QA
+
+VERDICT: PASS. No concrete blocker in /tmp/gh215-ci-fix.patch.
+
+The moved requires sit after the same three guards (mapping, question, context size) and before the controller, timer, and client are created, so the mapped workflow runs unchanged at `src/product-compass.js:101`. The catch and finally boundaries are untouched; every Failure code still maps as before, and no timer or client exists yet if a require itself throws. Ordinary chat never reaches AskAsync because the command checks mapping first at `src/chat-commands/ask-compass-command.js:13`, and workspace validation only calls ParseChannels, so the SDK stays unloaded for both. Jest's hoisted mocks still intercept the lazy requires, so the existing test suite remains valid.
+
+One non-blocking note: a missing SDK module would now surface as code `context` in the command's reply rather than a startup crash; the dependency is declared in package.json, so this is not a shipping risk.
+
+1. Run the full Node 18 gate; do not push or open the PR until it passes.
+2. If the gate passes, append this round-3 verdict to PROJECT/4-MISC/GH-215-CLAUDE-CODE-QA.md, then push.
+
+Full qualifying rerun justified by the new hosted failure and runtime correction: at dc8e310, Node 18.20.4 npm test passed (139 Jest suites, 2,571 tests; 1 suite/4 tests skipped; 116 Node tests passed), and Node 18 build passed. Review clone remained clean with repository identity unchanged. No CI configuration or dependency changes. Hosted verification of the final pushed head remains authoritative.

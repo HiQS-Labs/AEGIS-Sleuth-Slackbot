@@ -188,3 +188,5 @@ Clarification: incomplete hands-free history remains silent because unseen messa
 ## PR handoff
 
 PR https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/216 targets development. Source work and local verification complete; hosted checks are pending at this checkpoint and their final result will be recorded on the PR. Not merged, released or deployed. Keep the task clone until origin landing is verified, then retire it through merge-cleanup. Live activation acceptance remains a separate prerequisite.
+
+Hosted CI initially exposed eager MCP/auth loading under Node 18 Jest. Corrected by loading the existing SDK only inside mapped AskAsync; no new dependency, test flag or crypto shim. Claude round-3 targeted review PASS. Full Node 18.20.4 npm test and build passed at dc8e310 (2,571 Jest + 116 Node tests; 4 tests/1 suite skipped). See code-QA record for red/green reproduction and root cause. PR remains open; final hosted checks pending.
