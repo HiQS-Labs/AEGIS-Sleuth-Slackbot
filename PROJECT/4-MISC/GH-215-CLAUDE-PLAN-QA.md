@@ -1,3 +1,4 @@
+
 # GH-215 Claude plan QA
 
 2026-10-07 PDT. Independent read-only Claude CLI review of plan at 476705e. Source checks only; no live endpoint validation. Producer dispositions are in the canonical task plan.
@@ -30,3 +31,4 @@ VERDICT: PASS. No blocking findings. Three Should items for the builder to fold 
 - Live activation checks (separately marked unverified until an admin maps a channel and provisions a credential): tools/list shows the `search_documents` schema, scoped search returns passages with IDs, a two-release comparison plus follow-up, token revoke yields denial. Absence of live credentials does not block the implementation.
 
 Dropped as out of scope: `#GetThreadDebugInfo` at `src/chat-module.js:1879` ignores octagonal_sign in its diagnostic summary, unrelated to this integration.
+

@@ -856,7 +856,7 @@ class SlackApp {
         channel: ArgChannelID, ts: ArgThreadTS,
         ...(ArgOptions ? { limit: 100, cursor: Cursor, latest: ArgOptions.Latest, inclusive: true } : {}),
       });
-      if(!Result.ok) throw new Error('Failed to get thread messages');
+      if(!Result.ok) throw new Error(`Failed to get thread messages: ${Result.error || 'unknown error'}`);
       Messages.push(...(Result.messages || []).map(this.#MapSlackMessageToMessageInfo));
       Cursor = Result.response_metadata?.next_cursor;
       if(!ArgOptions || (!Cursor && !Result.has_more)) return Messages;

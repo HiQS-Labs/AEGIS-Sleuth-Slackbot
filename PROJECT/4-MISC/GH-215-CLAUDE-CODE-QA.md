@@ -1,3 +1,4 @@
+
 # GH-215 Claude implementation QA
 
 Reviewed builder commit a2795c1. Read-only Claude CLI with Read/Grep/Glob; native runner adaptation as recorded in the plan. No live validation.
@@ -49,7 +50,7 @@ VERDICT: PASS. No blocking findings. Four Should items, all introduced by this b
 - Should 2 modified: posting on incomplete hands-free history could disregard an unseen stop reaction. Keep silence in that case; document the distinction and use an explicit mention for a visible refusal. Full pagination and later-page stop refusal remain covered.
 - Should 3 declined: checked-out PC search-documents/retrieve source supplies the exact relative path currently checked. Retain a narrow, fail-closed contract rather than broaden URL acceptance speculatively; live compatibility remains an activation gate.
 - Should 4 declined: removing the no-citations guard permits uncited evidence-based answers. Clarify before retrieval or cite the sources that introduced ambiguity; prompt clarified accordingly.
-- Nits: hoisted channel mapping out of per-message filter; clarified config validation and size-limit message; assigned unique command ordering. Keep Slack error message generic to avoid forwarding upstream error text.
+- Nits: hoisted channel mapping out of per-message filter; clarified config validation and size-limit message; assigned unique command ordering. Subsequent parent PR review accepted restoring the existing shared Slack error code diagnostic (Compass still reports only its stable category).
 
 ## Independent parent branch review
 
@@ -85,3 +86,4 @@ One non-blocking note: a missing SDK module would now surface as code `context` 
 2. If the gate passes, append this round-3 verdict to PROJECT/4-MISC/GH-215-CLAUDE-CODE-QA.md, then push.
 
 Full qualifying rerun justified by the new hosted failure and runtime correction: at dc8e310, Node 18.20.4 npm test passed (139 Jest suites, 2,571 tests; 1 suite/4 tests skipped; 116 Node tests passed), and Node 18 build passed. Review clone remained clean with repository identity unchanged. No CI configuration or dependency changes. Hosted verification of the final pushed head remains authoritative.
+

@@ -37,7 +37,7 @@
 
 I can answer Product Compass release questions in channels your administrator has mapped to a team. Everyone in the channel can contribute, and follow-up questions retain the thread and uploaded document context. Answers include source excerpts and state when evidence is incomplete.
 
-**Technical:** GH-215 adds an opt-in concrete MCP workflow using existing WorkspaceAI model selection, shared 200 KiB document/thread context and native credential references. Team/product/release guards, bounded tool calls and provider cancellation fail closed. No additional ingestion, summarizer, persistence, dependencies or CI jobs. Activation requires credential provisioning and live scoped-retrieval acceptance; mocked canaries are not deployment proof. Remove the mapping to disable future queries; prior Slack disclosures remain.
+**Technical:** GH-215 adds an opt-in concrete MCP workflow using existing WorkspaceAI model selection, shared 200 KiB document/thread context and native credential references. Team/product/release guards, bounded tool calls and provider cancellation fail closed. No additional ingestion, summarizer, persistence, dependencies or CI jobs. Activation requires credential provisioning and live scoped-retrieval acceptance; mocked canaries are not deployment proof. Remove the mapping and restart Sleuth to disable future queries; prior Slack disclosures remain.
 
 ## 1.4.334 - 2026-10-07
 

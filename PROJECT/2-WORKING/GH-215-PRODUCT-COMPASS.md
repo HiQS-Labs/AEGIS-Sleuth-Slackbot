@@ -123,7 +123,7 @@ Smallest viable implementation: two concrete files (`src/product-compass.js` for
 
 Sleuth's authorization is the workspace/channel grant plus PC's token-owner RLS. Because one PAT may reach several teams, server-side tool filters and Sleuth ID guards must constrain the mapped team. Search tool team_id behavior is an upstream PC contract and must be live-verified before activation. No automatic mapping or production secret enrollment in this PR.
 
-Blast radius: opt-in mapped channels, Slack replies helper's optional pagination, workspace validation and shared catalog registration. Existing unmapped paths unchanged. Disable by removing mapping; revoke credential to stop upstream access. Log only workspace/channel, step/tool name, duration and stable failure category, not raw upstream errors or evidence. Unauthorized disclosure is the tripwire to revoke immediately. Code rollback easy; an already published Slack answer cannot be undisclosed.
+Blast radius: opt-in mapped channels, Slack replies helper's optional pagination, workspace validation and shared catalog registration. Existing unmapped paths unchanged. Disable by removing the mapping and restarting Sleuth (existing workspace lifecycle); revoke the PAT in PC to stop upstream access. Log only workspace/channel, step/tool name, duration and stable failure category, not raw upstream errors or evidence. Unauthorized disclosure is the tripwire to revoke immediately. Code rollback easy; an already published Slack answer cannot be undisclosed.
 
 Unverified: PC live filtering/index status and deployed migration/job state, usable production credential-store provisioning, frontier model live quality. The implementation will negotiate only the narrow supported search shape and fail safely on incompatible schemas. A real smoke remains a deployment prerequisite, not a claim from mocked canaries.
 
@@ -190,3 +190,9 @@ Clarification: incomplete hands-free history remains silent because unseen messa
 PR https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/216 targets development. Source work and local verification complete; hosted checks are pending at this checkpoint and their final result will be recorded on the PR. Not merged, released or deployed. Keep the task clone until origin landing is verified, then retire it through merge-cleanup. Live activation acceptance remains a separate prerequisite.
 
 Hosted CI initially exposed eager MCP/auth loading under Node 18 Jest. Corrected by loading the existing SDK only inside mapped AskAsync; no new dependency, test flag or crypto shim. Claude round-3 targeted review PASS. Full Node 18.20.4 npm test and build passed at dc8e310 (2,571 Jest + 116 Node tests; 4 tests/1 suite skipped). See code-QA record for red/green reproduction and root cause. PR remains open; final hosted checks pending.
+
+## Hosted review dispositions
+
+The runtime retains workspace configuration from startup (app.js loads it once; web-api.js SaveWorkspaceInfoAsync writes disk only). Kept this existing lifecycle rather than adding a parallel hot-reload path. Setup and rollback now explicitly require save + restart for mapping changes; urgent revocation means stop service/revoke PAT in PC, and already retrieved/in-flight or posted data cannot be undisclosed. Prior shorthand saying removing a mapping alone disables access is superseded by this sequence.
+
+Parent final PR review also accepted filtering advertised model tools by discovered compatible schemas (existing canary asserts it), and restored the shared Slack error code diagnostic. These small parent edits follow Claude QA and are independently prompted by hosted review; no fourth Claude round, dependency or new CI mechanism.
