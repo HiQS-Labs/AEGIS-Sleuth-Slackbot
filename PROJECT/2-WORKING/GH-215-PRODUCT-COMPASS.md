@@ -21,7 +21,7 @@ phases: 2
 
 | What was just completed | What's next |
 |---|---|
-| Codex implementation and focused canaries complete | Claude implementation QA, independent branch review and final qualifying gate |
+| Claude plan/code/final-delta PASS; Codex implementation; independent branch review; full qualifying tests passed | Open PR into development; verify hosted checks; retain clone for merge handoff |
 
 ## Table of contents
 
@@ -109,8 +109,8 @@ Smallest viable implementation: two concrete files (`src/product-compass.js` for
 
 ## Phase 2: Verification and handoff
 
-- [ ] Run focused canaries and existing affected thread/workspace/catalog tests during iteration; build and validate AI/catalog/help/isolation for final diff. Add behavior CHANGELOG entry without package version bump. Final existing qualifying tests once after final review, not on each doc edit. No reminder quality replay unless reminder paths/assets are changed.
-- [ ] Final Claude relay QA with explicit no-overbuild envelope; three-round cap. Capture actual verdict, commands and limitations. Preserve reviewer/author separation.
+- [x] Run focused canaries and existing affected thread/workspace/catalog tests during iteration; build and validate AI/catalog/help/isolation for final diff. Add behavior CHANGELOG entry without package version bump. Final existing qualifying tests once after final review, not on each doc edit. No reminder quality replay unless reminder paths/assets are changed.
+- [x] Final Claude relay QA with explicit no-overbuild envelope; three-round cap. Capture actual verdict, commands and limitations. Preserve reviewer/author separation.
 - [ ] Push branch and open PR into development; never merge/deploy in this task. Report upstream PC RAG/live auth as unverified until a real integration smoke is possible, do not label mocked tests live end-to-end proof.
 
 ### Phase 2 QA
@@ -177,3 +177,9 @@ Implemented concrete Compass workflow and Slack handler; existing thread/upload 
 - Runner prerequisite clarification: target-root fixture passed 12/12 when rerun without a concurrent driver; Claude shim 37/37 and subscription checks passed. This does not claim all-project harness suites passed.
 
 Live authentication, PC deployment/RLS/indexer state, native credential provisioning, real frontier answer quality and real Slack posting remain unverified. No live token, deploy, push or PR by builder. Claude implementation QA, primary-agent independent review and final full gate are still required.
+
+## Final review and verification
+
+Claude implementation review PASS, parent independent branch review and final edits complete, Claude final-delta review PASS. Detailed findings/dispositions and final verification are in PROJECT/4-MISC/GH-215-CLAUDE-CODE-QA.md. Full npm test passed at ea28c8f: 2,571 Jest tests and 116 Node tests (4 Jest tests/1 suite skipped). Build, AI assets, isolation/FSM/render, changelog tone and sanitize passed. Existing command-validator and PDDA findings remain disclosed; no new GH-215 finding.
+
+Clarification: incomplete hands-free history remains silent because unseen messages may contain a stop reaction. Explicit mentions receive the context refusal. The existing OpenAI one-shot temperature compatibility fallback keeps the same cancellation signal and outer deadline; no network retry loop added. PC source reviewed through aa7ac66; upstream issue 7 reports private trigger fixes but two indexing jobs still failed on Gemini quota. No live auth/indexing/Slack acceptance claimed.
