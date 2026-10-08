@@ -87,3 +87,9 @@ One non-blocking note: a missing SDK module would now surface as code `context` 
 
 Full qualifying rerun justified by the new hosted failure and runtime correction: at dc8e310, Node 18.20.4 npm test passed (139 Jest suites, 2,571 tests; 1 suite/4 tests skipped; 116 Node tests passed), and Node 18 build passed. Review clone remained clean with repository identity unchanged. No CI configuration or dependency changes. Hosted verification of the final pushed head remains authoritative.
 
+## Parent final PR edits and handoff
+
+Hosted review at aa66c6d prompted final edits in 37c4874: advertise only discovered compatible tools (asserted in existing ingress canary); restore the shared Slack diagnostic; align new code/test naming and file boundaries with coding conventions. JSON property names and SDK interface names are preserved. Mapping activation/revocation documentation now explicitly follows the existing save-and-restart workspace lifecycle, with emergency service stop/PAT revocation; no parallel hot-reload system. This supersedes earlier shorthand promising mapping removal alone is immediate.
+
+Parent reviewed these deltas and reran the full Node 18.20.4 gate at 37c4874: npm test and build passed (2,571 Jest tests + 116 Node tests, 4 tests/1 suite skipped). AI assets, workspace isolation and changelog tone passed; commit sanitize scan passed. The earlier hosted run at aa66c6d was green; final pushed-head hosted run follows. Runtime source is complete; no further review-driven scope expansion planned.
+
