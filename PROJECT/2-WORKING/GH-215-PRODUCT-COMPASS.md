@@ -21,7 +21,7 @@ phases: 2
 
 | What was just completed | What's next |
 |---|---|
-| Recon and operator access/scope decisions recorded | Codex plan QA round 2; refreshed PC contract |
+| Recon and operator access/scope decisions recorded | Blocked before implementation: review-harness preflight failures; PC review complete |
 
 ## Table of contents
 
@@ -140,3 +140,10 @@ Upstream findings for Lovable, not changes in this Sleuth PR:
 Validation: bun test test/small/rag-chunk.test.ts: 3 pass, 0 fail. These tests do not cover the truncation fixture above.
 
 Plan QA round 1: FAIL with three Should findings (complete hands-free gating, executable budgets, delivery touchpoints). All incorporated above; round 2 pending. Central harness broad validation has unrelated failures; targeted codex-turn shim is 43/43 passing, and round 1 driver completed with a real review. No claim that the harness full suite passed.
+
+
+## Resume checkpoint
+
+PC refresh/review complete at 3bd1a96; chunk tests re-run (3 passed) and silent-truncation repro re-run with identical result. No PC files modified. Sleuth production code remains unchanged.
+
+Implementation is blocked at the start-task/relay prerequisite, not at Product Compass contract discovery. The required central harness validation reported failures in gh371-interrupt-snapshot.sh, gh372-escalation-log-tail.sh, gh115-round-cap.sh, gh448-driver-lock-resolver.sh, marathon-drive.sh, gh648-l4-285-revalidate.sh, gh358-wave-reconcile-vendored-paths.sh and gh429-wave-reconcile-vendored-observe.sh. The broad run was stopped after these failures; it is NOT a passing gate. Root causes have not been established, so do not assert these are harmless or caused by this integration. Log: /tmp/compass-relay-harness-check.log (local only). Targeted codex-turn test passed 43 checks, but is not a substitute for the required prerequisite. Round 1 produced FAIL with R1–R3; revised plan addresses them, round 2 has not run. Resume by diagnosing the harness in a disposable full clone, obtaining qualifying prerequisite evidence, then running round 2 on committed plan 6895965 (or its successor). Do not bypass plan approval or broaden this task into harness repairs without recon.
