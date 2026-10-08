@@ -15,7 +15,7 @@ branch: fix/compass-context-cleanup
 
 | What was just completed | What's next |
 |---|---|
-| Two fixes and focused/mutation checks pass | Final review, full gate and PR |
+| Implementation, plan/final reviews and full gate verified | PR handoff and merge; see linked GH-217 |
 
 ## Recon and scope
 
@@ -44,7 +44,7 @@ Behavior change: oversized automatic threads go quiet, including attachment/mode
 - [x] Replace the existing oversized-thread canary with real SlackApp paging through mocked conversations.replies: five pages plus an unread stop beyond cap, no automatic message, no MCP/model work, exactly five API reads. Explicit mention still refuses once after five reads. Observe failure against the old fallback.
 - [x] Remove the unused Passage property; return false in the incomplete-context catch. Keep complete-history reuse and later-page stop checks green in the existing canary.
 - [x] Run focused Compass tests and build; reintroduce each defect separately to verify its regression assertion fails. Restore fixed sources.
-- [ ] Update changelog and document the automatic-thread limit. Final independent review followed by one final full repo test gate, build and focused PDDA check. Push and open PR into development; verify hosted checks. Do not merge/deploy here.
+- [x] Update changelog and document the automatic-thread limit. Final independent review followed by one final full repo test gate, build and focused PDDA check. Push and open PR into development; verify hosted checks. Do not merge/deploy here.
 
 Test non-scope: no new suite files, synthetic runner, fuzzer, CI jobs, new live credentials, or unrelated reminder replay (reminder context is unchanged). Existing mock canary verifies plumbing/payload counts; it cannot certify actual model answer quality or live SaaS authorization.
 
@@ -59,3 +59,7 @@ Plan QA: round 1 source PASS was rejected by the driver for rewriting its templa
 Implementation evidence (2026-10-08 UTC): initial combined red run had exactly two failures (unexpected Sources.Passage and 11 vs five Slack calls); fixed focused suite passes all five cases. Reintroducing each original production file separately fails exactly its targeted test (four others excluded by the test-name filter). Sources were restored after each probe. `npm run build` passes. Test fixtures call the real SlackApp reader with mocked pages; this is not a live Slack cost measurement. Existing `docs/web-api.md:564` already describes the restored behavior, so no duplicate doc edit is needed. Logs retained locally under temp/gh217-*.log.
 
 Final QA round 1: production changes and canaries accepted; Changes Requested for stale ledger doc_path after plan promotion. Implemented with the existing roadmap repoint verb (raw_text update alone does not change doc_path). Corrected premature changelog wording. Optional pre-existing wrench-triage omission of octagonal_sign is deferred outside GH-217: no runtime repro, and not needed for either fix. PDDA frontmatter reports 12 existing findings in unrelated unchanged files, none in this plan. Final full gate remains pending.
+
+Final verification: Codex final round 2 attested Approved on `fc3e1dd762ce48f7bf3eeb79ec615fae961fde3b` (driver exit 0). Parent checked its cited source paths and reviewed the final diff; no new production issues. One full qualifying run on that approved commit under Node 22.22.3 passed: 139 Jest suites, 2,573 tests, four existing tests/one suite skipped; all 116 Node tests pass. Build and FSM validator pass. Git HEAD and clean tracked tree were unchanged after the gate. Ledger consistency passes with six existing stale-migration warnings. Changelog tone passed; PDDA findings remain the unrelated baseline described above. Hosted Node18 checks will be linked by the PR; a configured workflow is not a completed run.
+
+Only this verification record and the changelog review disposition change after final code approval; production and tests remain byte-identical to the reviewed and fully tested commit. Documentation-only follow-up receives diff/tone checks, not a redundant full suite. Task remains working until merge; do not close GH-217 or tear down its clone before the landing and local-work checks.
