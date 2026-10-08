@@ -128,5 +128,31 @@ describe('Product Compass pipeline canaries', () => {
     expect(mockAi.ProcessMessageWithJsonResponseAsync.mock.calls[0][4].signal.aborted).toBe(true);
     expect(mockClient.close).toHaveBeenCalled();
   });
+
+  test('review fixes: release numbers, clarifying answers, model query errors, repeated thread root', async () => {
+    mockAi.ProcessMessageWithJsonResponseAsync.mockReset().mockResolvedValueOnce(search).mockResolvedValueOnce({ ...answer, Answer: 'Release [1.65] adds it [1.1]' });
+    await expect(compass.AskAsync(workspace, 'C123', 'question', '', mockAi)).resolves.toContain('New capability');
+    mockAi.ProcessMessageWithJsonResponseAsync.mockReset().mockResolvedValueOnce(search).mockResolvedValueOnce({ ...answer, Answer: 'Which product do you mean?', Citations: [] });
+    await expect(compass.AskAsync(workspace, 'C123', 'question', '', mockAi)).resolves.toContain('Which product do you mean?');
+    mockAi.ProcessMessageWithJsonResponseAsync.mockReset().mockResolvedValueOnce({ ...search, Query: 'x' });
+    await expect(compass.AskAsync(workspace, 'C123', 'question', '', mockAi)).rejects.toMatchObject({ code: 'response' });
+
+    const RealSlack = new (require('../src/slack-app'))(workspace, new MockSlackApp({ WorkspaceInfo: workspace }).Logger);
+    await RealSlack.ConnectOneShotAsync();
+    mockReplies.mockReset().mockResolvedValueOnce({ ok: true, messages: [{ ts: '1', text: 'root' }, { ts: '2', text: 'a' }], response_metadata: { next_cursor: 'p2' } })
+      .mockResolvedValueOnce({ ok: true, messages: [{ ts: '1', text: 'root' }, { ts: '3', text: 'b' }], response_metadata: {} });
+    expect((await RealSlack.GetConversationMessagesAsync('C123', '1', { MaxPages: 5, Latest: '3' })).map(ArgMessage => ArgMessage.ts)).toEqual(['1', '2', '3']);
+  });
+
+  test('a mapped hands-free thread too long to load gets the "start a new thread" reply, not silence', async () => {
+    const slack = new MockSlackApp({ WorkspaceInfo: workspace });
+    new ChatModule(slack, {}, null, null, null);
+    slack.GetConversationMessagesAsync = jest.fn(async (ArgChannel, ArgTs, ArgOptions) => {
+      if(ArgOptions) throw Object.assign(new Error('too long'), { code: 'context-incomplete' });
+      return [{ ts: '1', text: '<@UBOT123> start', user: 'U1' }];
+    });
+    await slack.SimulateMessageAsync({ channel: 'C123', thread_ts: '1', ts: '9', text: 'one more question', user: 'CONTRIBUTOR' });
+    expect(slack.SentMessages.at(-1).text).toContain('start a new thread');
+  });
 });
 

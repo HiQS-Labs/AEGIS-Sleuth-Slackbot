@@ -179,8 +179,14 @@ async function AskAsync(ArgWorkspace, ArgChannel, ArgQuestion, ArgContext, ArgAI
           if(!source) throw failure('citations');
           return source;
         });
-        if([...decision.Answer.matchAll(/\[([0-9]+(?:\.[0-9]+)?)\]/g)].some(ArgMatch => !decision.Citations.includes(ArgMatch[1]))) throw failure('citations');
-        if(evidence.length && sources.length && !selected.length) throw failure('citations');
+        // an inline [n.n] that names a retrieved source is rendered even if Citations omitted it; any
+        // other bracketed number is prose (e.g. "release [1.65]"), not a citation to reject.
+        for(const [, Id] of decision.Answer.matchAll(/\[([0-9]+\.[0-9]+)\]/g)) {
+          const source = sources.find(ArgSource => ArgSource.Id === Id);
+          if(source) selected.push(source);
+        }
+        // no uncited-answer check: when retrieved passages miss the question, the instructions tell
+        // the model to ask a clarifying question, which legitimately cites nothing.
         // model text cannot introduce URLs or Slack mentions; links come only from checked evidence.
         const safe = (/** @type {string} */ ArgText) => ArgText.replace(/https?:\/\/\S+/gi, '[link omitted]').replace(/[<>&]/g, ArgChar => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ArgChar]));
         return safe(decision.Answer) + (selected.length ? '\n\nSources:\n' + [...new Set(selected)].map(ArgSource => `[${ArgSource.Id}] ${safe(ArgSource.Title)}${ArgSource.Link ? ` <${ArgSource.Link}|open>` : ''}\n> ${safe(ArgSource.Excerpt)}`).join('\n') : '\n\n_No retrieved source evidence; please clarify the product or release._')
@@ -192,7 +198,7 @@ async function AskAsync(ArgWorkspace, ArgChannel, ArgQuestion, ArgContext, ArgAI
       if((ProductId && !products.has(ProductId)) || (ReleaseId && !releases.has(ReleaseId)) || (ProductId && ReleaseId && releases.get(ReleaseId) !== ProductId)) throw failure('scope');
       /** @type {any} */ let args;
       if(decision.Action === 'search_documents' && search) {
-        if(typeof decision.Query !== 'string' || decision.Query.length < 2 || decision.Query.length > 1000) throw failure('question');
+        if(typeof decision.Query !== 'string' || decision.Query.length < 2 || decision.Query.length > 1000) throw failure('response'); // the model's query, not the user's question
         args = { team_id: mapping.TeamId, query: decision.Query, limit: 12, ...(ProductId ? { product_id: ProductId } : {}), ...(ReleaseId ? { release_id: ReleaseId } : {}) };
       } else if(decision.Action === 'get_release_brief' && ReleaseId && compatible(tools.get(decision.Action), ['release_id'])) args = { release_id: ReleaseId };
       else if(decision.Action === 'get_product_arc' && ProductId && compatible(tools.get(decision.Action), ['product_id'])) args = { product_id: ProductId };

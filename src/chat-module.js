@@ -2713,10 +2713,20 @@ class ChatModule {
 
       // get all messages in the thread.
       const IsCompassChannel = Boolean(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel));
-      const ThreadMessages = (await ArgSlackApp.GetConversationMessagesAsync(
-        ArgEventInfo.channel, ArgEventInfo.thread_ts,
-        IsCompassChannel ? { MaxPages: 5, Latest: ArgEventInfo.ts } : undefined
-      )).filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
+      /** @type {any[]} */ let ThreadMessages;
+      /** @type {any[]|undefined} */ let CompleteThread;
+      try {
+        ThreadMessages = (await ArgSlackApp.GetConversationMessagesAsync(
+          ArgEventInfo.channel, ArgEventInfo.thread_ts,
+          IsCompassChannel ? { MaxPages: 5, Latest: ArgEventInfo.ts } : undefined
+        )).filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
+        CompleteThread = ThreadMessages;
+      } catch(error) {
+        // a Compass thread too long to load completely: decide hands-free state from the first page,
+        // and hand no thread on so the Compass handler refetches and posts its "start a new thread" reply.
+        if(!IsCompassChannel || error?.code !== 'context-incomplete') throw error;
+        ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
+      }
 
       // check if the first message in thread has an app mention (hands-free mode).
       const FirstMessage = ThreadMessages[0];
@@ -2742,7 +2752,7 @@ class ChatModule {
       }
 
       // return the final auto-response state.
-      return { ShouldRespond: ShouldAutoRespond, IsStopping: false, ThreadMessages };
+      return { ShouldRespond: ShouldAutoRespond, IsStopping: false, ThreadMessages: CompleteThread };
     } catch(error) {
       // log any errors that occur during message processing and return false to indicate that the event was not handled.
       ArgSlackApp.Logger.error("Error in ShouldRespondToMessageAsync:", error);
