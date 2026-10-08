@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 24 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 23 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -33,7 +33,6 @@ Summary: 24 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-173 · Consume Model-catalog v1 (Phase 2): sync ModelAliases from the shared catalog + provenance-aware diagnostics | — | [GH-173-MODEL-CATALOG-SYNC.md](PROJECT/1-INBOX/GH-173-MODEL-CATALOG-SYNC.md) · [#173](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/173) |
 | GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
-| GH-215 · Product Compass knowledge facilitator | — | [GH-215-PRODUCT-COMPASS.md](PROJECT/1-INBOX/GH-215-PRODUCT-COMPASS.md) · [#215](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/215) |
 
 ## Queue
 
@@ -45,7 +44,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 14 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 15 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -63,6 +62,7 @@ Summary: 14 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | Operator-managed Clients Slack List — wiring + backfill (GH-396) | — | [#416](https://github.com/NeochromeTeam/sleuth-app/pull/416) · [#396](https://github.com/NeochromeTeam/sleuth-app/issues/396) · [CHANGELOG.md](CHANGELOG.md) |
 | P2 snapshot→Slack relay | — | [PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md](PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md) |
 | "Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362) | — | [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md) |
+| GH-215 · Product Compass knowledge facilitator | — | [GH-215-PRODUCT-COMPASS.md](PROJECT/2-WORKING/GH-215-PRODUCT-COMPASS.md) · [#215](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/215) |
 
 ## Completed
 
