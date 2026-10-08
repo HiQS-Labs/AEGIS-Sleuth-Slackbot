@@ -2,8 +2,6 @@ const fs = require('fs').promises;
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const { DecideAsync } = require('./ai-decision');
 const { MaxContextBytes } = require('./context-file-classifier');
 const Endpoint = 'https://pmf.neochro.me/mcp/token';
@@ -99,6 +97,9 @@ async function AskAsync(ArgWorkspace, ArgChannel, ArgQuestion, ArgContext, ArgAI
   if(!Mapping) throw Failure('not-mapped');
   if(!ArgQuestion.trim() || ArgQuestion.length > 4000) throw Failure('question');
   CheckSize(ArgContext, MaxContextBytes);
+  // load the optional MCP runtime only for mapped queries, not workspace validation or ordinary chat.
+  const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const Controller = new AbortController();
   const WorkflowTimer = setTimeout(() => Controller.abort(), 120000);
   const ClientValue = new Client({ name: 'sleuth-product-compass', version: '1.0.0' });
