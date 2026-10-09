@@ -1,0 +1,10 @@
+{
+  "exportFormatVersion": 2,
+  "containerVersion": {
+    "container": { "name": "Example Site", "publicId": "GTM-EXAMPLE" },
+    "tag": [
+      { "name": "GA4 Config", "type": "gaawc", "parameter": [{ "key": "measurementId", "value": "G-EXAMPLE1" }] },
+      { "name": "Ads Conversion", "type": "awct", "parameter": [{ "key": "conversionId", "value": "AW-0000000" }] }
+    ]
+  }
+}

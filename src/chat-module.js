@@ -21,6 +21,7 @@ const { CommandCatalogPath } = require('./command-catalog');
 const { BuildErrorReportAsync } = require('./diagnostics-report');
 const {
   MaxContextBytes,
+  IsTextLikeContextFile,
   SelectContextMemoryFile,
   IsBinaryMediaFile,
   LooksLikeHtmlErrorPage,
@@ -2834,8 +2835,19 @@ class ChatModule {
   async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation, ArgAllowCommandFallthrough = false) {
     const Intent = ResolveAttachmentIntent(ArgEventInfo.files, ArgText);
 
-    if(Intent.Kind === 'none')
-      return { Handled: false, TextFileWasStored: false };
+    if(Intent.Kind === 'none') {
+      // GH-219: GH-62 only looked at files on the current event. A file uploaded earlier in the thread
+      // (e.g. a JSON export) is never seen when someone @mentions the bot in a later reply.
+      const EarlierFiles = await this.#FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo);
+      if(EarlierFiles.length === 0)
+        return { Handled: false, TextFileWasStored: false };
+      const EarlierResult = await this.#TryStoreThreadMemoryFileAsync(
+        ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation, EarlierFiles
+      );
+      return EarlierResult.FileWasStored
+        ? { Handled: false, TextFileWasStored: true }
+        : { Handled: true, TextFileWasStored: false };
+    }
 
     // Both image arms hand the resolved file straight through — re-selecting here could pick a
     // different attachment than the one this dispatch decision was made on.
@@ -2889,6 +2901,29 @@ class ChatModule {
   }
 
   /**
+   * Text-like files from earlier messages in the event's thread, newest first. Empty when the
+   * event is not in a thread, the thread already has context memory, or the lookup fails.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @returns {Promise<import('./slack-app').SlackFileInfo[]>}
+   */
+  async #FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo) {
+    if(!ArgEventInfo.thread_ts) return [];
+    if(this.#ThreadContextMemory.has(`${ArgEventInfo.channel}:${ArgEventInfo.thread_ts}`)) return [];
+    try {
+      const Messages = await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
+      return Messages
+        .filter((ArgMessage) => ArgMessage.ts !== ArgEventInfo.ts)
+        .reverse()
+        .flatMap((ArgMessage) => ArgMessage.files ?? [])
+        .filter((ArgFile) => IsTextLikeContextFile(ArgFile));
+    } catch(error) {
+      ArgSlackApp.Logger.warn(`thread file look-back failed: ${error && error.message ? error.message : error}`);
+      return [];
+    }
+  }
+
+  /**
    * Detect an uploaded MD file in the event, download it, and store as thread context memory.
    * Only processes when the event is in a thread (thread_ts is set). Replaces any prior memory
    * for the same thread. Posts a confirmation reply on success, or an error reply on oversized files.
@@ -2897,15 +2932,17 @@ class ChatModule {
    * @param {boolean} [ArgSuppressConfirmation] When true, skip the "I've loaded…" confirmation post.
    *   Pass true when question text is present alongside the upload so the confirmation does not
    *   contaminate the same-turn thread context that the AI will read immediately afterwards.
+   * @param {import('./slack-app').SlackFileInfo[]} [ArgFiles] Files to pick from. Defaults to the event's own files; the
+   *   thread look-back passes files found on earlier messages.
    * @returns {Promise<{ FoundContextFile: boolean, FileWasStored: boolean }>}
    *   `FoundContextFile` is true whenever an attachment was recognized as something to act on
    *   (a text file, an oversized/failed text file, or an unsupported binary) so the caller stops
    *   instead of falling through to an ungrounded AI answer.
    */
-  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false) {
+  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false, ArgFiles = ArgEventInfo.files) {
     // accept any text-readable attachment (Markdown, plain text, code, logs, CSV/JSON/YAML, SQL,
     // and Slack code snippets) — not just `.md`. See src/context-file-classifier.js for the rules.
-    const Selection = SelectContextMemoryFile(ArgEventInfo.files);
+    const Selection = SelectContextMemoryFile(ArgFiles);
     if(Selection.Kind === 'no-files')
       return { FoundContextFile: false, FileWasStored: false };
 
