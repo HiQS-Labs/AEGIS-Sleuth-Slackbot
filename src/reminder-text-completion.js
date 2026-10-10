@@ -113,9 +113,13 @@ function NormalizeReplyText(ArgText) {
  * Decide whether a thread reply says the reminder's work is done.
  * @param {string} ArgText Raw reply text (may include the bot mention).
  * @param {'mention'|'strict'} [ArgMode] Detection mode — see the module header.
+ * @param {{RequestGuard?: (ArgNormalizedText: string) => boolean}} [ArgOptions] RequestGuard: true when
+ *   the normalized reply also asks for something; checked after the question forms and before the
+ *   negation / future checks. Owned by reminder-judgement.js (GH-149).
  * @returns {{ IsCompletion: boolean, Reason: string }}
  */
-function DetectCompletionReply(ArgText, ArgMode = 'strict') {
+function DetectCompletionReply(ArgText, ArgMode = 'strict', ArgOptions = {}) {
+  const RequestGuard = ArgOptions.RequestGuard || ((/** @type {string} */ ArgValue) => REQUEST_PATTERN.test(ArgValue));
   const { Text, HasCheckmark, HasQuestionMark } = NormalizeReplyText(ArgText);
 
   if(HasQuestionMark) return { IsCompletion: false, Reason: 'question' };
@@ -126,7 +130,7 @@ function DetectCompletionReply(ArgText, ArgMode = 'strict') {
     : { IsCompletion: false, Reason: 'empty' };
 
   if(QUESTION_LEAD_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'question' };
-  if(REQUEST_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'contains_request' };
+  if(RequestGuard(Text)) return { IsCompletion: false, Reason: 'contains_request' };
   if(NEGATION_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'negated_or_partial' };
   if(FUTURE_OR_CONDITIONAL_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'future_or_conditional' };
 
