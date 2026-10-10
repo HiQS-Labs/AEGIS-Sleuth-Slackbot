@@ -109,7 +109,7 @@ fallback is :1823-1860; the per-group fallback (3c267cd) is :1996-2010.
 ### One false positive traced end to end (#211, quoted text, pre-cf9fe6d)
 
 Slack `message` event `He said "deploy tomorrow"` in an enabled channel → `#OnMessageAsync`
-(reminders-module :1587) strict completion: not a completion phrase → channel enabled → text present →
+(reminders-module :1539) strict completion: not a completion phrase → channel enabled → text present →
 not a thread, so no shorthand/enrichment → :1579 `HasSchedulingTrigger` matches `tomorrow` →
 `#TryScheduleRemindersAsync` :1815 → pipeline `AnalyzeMessageForRemindersAsync` → model returns
 `schedule` with trigger `tomorrow` → `ExtractDateWithGptAsync` → reminder created and the
@@ -120,7 +120,7 @@ confirmation posted in-thread. cf9fe6d stopped it by stripping the quote at two 
 
 `tests/reminders-ai-pipeline.test.js` (period-only :610-666, fallback, jitter),
 `tests/reminders-module.test.js`, `tests/reminders-app-mention-handler.test.js`,
-`tests/reminder-text-completion.test.js` (request rows :61-66), `tests/quoted-text-reminders.test.js`
+`tests/reminder-text-completion.test.js` (request rows :62-67), `tests/quoted-text-reminders.test.js`
 (`KeepQuotedText` :111-113, `DetectDirectAskWithTimeTrigger` :127-128),
 `tests/reminders-fsm-invariants.test.js`, `tests/reminders-integration.test.js`,
 `tests/chat-module.test.js` (`IsReminderActionIntent` :60-87). The LLM is stubbed at the
@@ -204,19 +204,26 @@ non-opt-out rows, the negated direct ask, and the force-mode quoted case.
 (`JudgeReminderTextAsync`) with `WorkspaceAI.ProcessMessageWithJsonResponseAsync` stubbed per row from
 `Model`. A row's expectation changing fails the test by construction.
 
-Guard (in `tests/reminders-fsm-invariants.test.js`, existing suite; plan-QA F1 narrowed the claim):
+Guard (in `tests/reminders-fsm-invariants.test.js`, existing suite; plan-QA F1 / F1-R2 — the guard
+is bound to each exclusion's DEFINITION, not to its reason token):
 
-- every `EXCLUSIONS` entry has at least one corpus row whose `Expect.Reason` is that entry's
-  `Reason` AND whose `Text` the entry's own `Test` matches (a real positive example, not just a token);
-- every `REASONS` token has at least one corpus row, and every corpus reason is a known token;
-- the judgement source iterates `EXCLUSIONS` (asserted by requiring that `REASONS` is derived from the
-  table plus the fixed post-model tokens, so a reason the table does not know cannot be emitted).
+- `EXCLUSIONS` entries are `{ Id, Reason, Modes, Pattern }` where `Id` is unique (asserted) and
+  `Pattern` is the `RegExp` the entry tests with (`Test` is derived from it, so there is one
+  definition per entry);
+- the corpus file carries `Definitions: { [Id]: Pattern.source }`. The invariant asserts, for every
+  entry: the corpus `Definitions[Id]` exists and equals the live `Pattern.source`; and at least one
+  corpus row has `Expect.Exclusion === Id` and a `Text` that `Pattern` matches (a real positive
+  example). The reverse holds too: every `Definitions` key is a live entry;
+- every `REASONS` token has at least one corpus row, and every corpus reason is a known token
+  (`REASONS` is the table's reasons plus the fixed post-model tokens).
 
-What this does guard: a new deterministic exclusion (a new table entry) without a row. What it
-cannot guard, stated honestly: widening an existing entry's regex, or a prompt-only exclusion (the
-model is stubbed, so prompt semantics are outside the corpus boundary — the prompt's examples remain
-its own regression surface). Negative control for the acceptance list: add a table entry with no row
-→ the invariant fails without touching the corpus.
+So: widening an entry's regex changes `Pattern.source` → the recorded definition no longer matches →
+the invariant fails until the corpus is edited (and the review of that corpus edit sees whether a row
+came with it). A second entry reusing a reason needs its own `Id`, its own definition and its own
+matching row. A new entry without a row fails. Prompt-only exclusions are explicitly outside this
+guard: the model is stubbed, so prompt semantics are not something the corpus test can verify — the
+prompt's examples remain its own regression surface (stated scope boundary of the Guard task, not an
+exemption from it). Negative controls C1-C3 are in the acceptance list.
 
 ### Call-site rewiring (one site per commit)
 
@@ -284,7 +291,11 @@ one JSON file, one test file, no framework, no enterprise fail-safes.
 - [ ] Corpus test green with every row; red control A (flip one row's expected verdict) fails.
 - [ ] Red control B (F2): perturb `reminders-ai-pipeline.js` so a period-only trigger sets
       `wasAdjustedForward`; the #205 corpus row fails.
-- [ ] Red control C (F1): add an `EXCLUSIONS` entry with no corpus row; the FSM invariant fails.
+- [ ] Red control C1 (F1): add an `EXCLUSIONS` entry with no corpus row; the FSM invariant fails.
+- [ ] Red control C2 (F1-R2): widen the `opt_out` pattern with an extra alternative, corpus
+      untouched; the FSM invariant fails (definition mismatch).
+- [ ] Red control C3 (F1-R2): add a second entry with reason `opt_out` and a new `Id`, corpus
+      untouched; the FSM invariant fails (no definition / no row for the new `Id`).
 - [ ] Every existing reminders suite green; full `npm test` green on the final commit.
 - [ ] Single-home grep over `src/` for the six patterns above: one defining file each.
 - [ ] FSM invariant: every `EXCLUSIONS` entry and every `REASONS` token has a matching corpus row.
@@ -324,3 +335,11 @@ findings plus path corrections. Adjudication:
 | 7 "nothing is lost"; module count | Accepted | Corrected above. |
 
 Nothing was rejected; no finding asked for machinery beyond the envelope.
+
+Round 2 (codex): VERDICT FAIL, one `[Should]` (F1-R2) plus two stale references.
+
+| Finding | Decision | Change |
+|---|---|---|
+| F1-R2 guard not bound to definitions; same-reason entry and regex widening slip through | Accepted | Entries carry a unique `Id` and one `Pattern`; the corpus records `Definitions[Id] = Pattern.source` and the invariant requires equality plus a matching positive row per `Id`; red controls C2/C3 added. Prompt-only exclusions stated as the guard's boundary, not an exemption. |
+| Stale refs plan :112 (:1587 → :1539) and :123 (:61-66 → :62-67) | Accepted | Fixed. |
+| Single-home grep must count definitions, not textual mentions; `Now` must be pinned in the date rows | Accepted | Already the stated scope; the corpus test pins `Now` with a fixed clock. |

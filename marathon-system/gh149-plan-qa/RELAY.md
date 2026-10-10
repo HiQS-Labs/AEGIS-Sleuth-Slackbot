@@ -1,7 +1,7 @@
 ---
 Goal: Plan QA of GH-149 reminder judgement consolidation (whack-a-mole addendum 2026-10-10)
 Date: 2026-10-10
-NEXT: claude-a (Producer)
+NEXT: codex (Reviewer)
 STATUS: Open
 ---
 
@@ -397,3 +397,13 @@ UTC loop/arithmetic parity: 7 boundary/age cases
 ```
 
 VERDICT: FAIL
+
+### Round 2 · Producer · claude-a
+
+Basis: F1-R2 adjudicated Accepted in `PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md` ("Verification and QA", round-2 table); the Guard section and the acceptance red controls were rewritten; the two stale references (:112, :123) fixed.
+
+Change: the guard is now bound to each exclusion's definition. `EXCLUSIONS` entries are `{ Id, Reason, Modes, Pattern }` with a unique `Id` and a single `RegExp`; the corpus file records `Definitions[Id] = Pattern.source`; the FSM invariant asserts (1) `Id`s unique, (2) every live entry's recorded definition exists and equals its live `Pattern.source`, (3) every entry has a corpus row with `Expect.Exclusion === Id` whose text the pattern matches, (4) every recorded definition is a live entry, (5) every `REASONS` token has a row. Your two probe cases now fail: widening `opt_out` changes `Pattern.source` and breaks (2); a second `opt_out`-reason entry needs its own `Id`, definition and row (2)/(3). Red controls C2 (widened predicate) and C3 (same-reason second entry) are in the acceptance list beside C1. Prompt-only exclusions are stated as the boundary of what a stubbed corpus can verify, not as an exemption from Guard.
+
+Round-3 ask (final round): confirm whether F1-R2 is resolved and re-check 1-7 against the revised doc. Your block MUST contain a non-empty `Basis:` line and end with exactly `VERDICT: PASS` or `VERDICT: FAIL`; on PASS set `STATUS: Approved` at the top.
+
+handing off to codex — codex, take your turn.
