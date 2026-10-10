@@ -117,6 +117,27 @@ describe('earlier thread file look-back', () => {
     expect(SlackApp.GetFileContentAsync).not.toHaveBeenCalledWith(JsonFile.url_private_download);
   });
 
+  test('an oversized earlier file is skipped quietly and never blocks the mention', async () => {
+    const Big = { ...JsonFile, name: 'huge.json', size: 10 * 1024 * 1024 };
+    const { SlackApp } = Setup([{ user: 'U1', text: 'export', ts: '100.1', files: [Big] }]);
+
+    await Mention(SlackApp, { text: 'what is in the thread?' });
+
+    expect(SlackApp.GetFileContentAsync).not.toHaveBeenCalled();
+    expect(SlackApp.SentMessages.map((M) => M.text).join('\n')).not.toContain('too large');
+  });
+
+  test('an earlier file that fails to download posts no rejection and does not block the mention', async () => {
+    const { SlackApp } = Setup([{ user: 'U1', text: 'export', ts: '100.1', files: [JsonFile] }]);
+    SlackApp.GetFileContentAsync.mockRejectedValue(new Error('403'));
+    const Ai = require('../src/workspace-ai').mock.results.at(-1).value;
+
+    await Mention(SlackApp, { text: 'what is in the thread?' });
+
+    expect(SlackApp.SentMessages.map((M) => M.text).join('\n')).not.toContain("couldn't download");
+    expect(Ai.ProcessMessageWithTextResponseAsync).toHaveBeenCalled();
+  });
+
   test('a failed thread lookup falls back to normal handling', async () => {
     const { SlackApp } = Setup([]);
     SlackApp.GetConversationMessagesAsync = jest.fn().mockRejectedValue(new Error('ratelimited'));

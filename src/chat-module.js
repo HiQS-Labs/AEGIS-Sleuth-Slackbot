@@ -2058,7 +2058,9 @@ class ChatModule {
         ArgSlackApp,
         ArgEventInfo,
         ArgEventInfo.text,
-        HasQuestionText
+        HasQuestionText,
+        false,
+        ThreadMessages // GH-219: reuse the thread already read above instead of a second fetch.
       );
       if(AttachmentResult.Handled) return true;
       const FileWasLoaded = AttachmentResult.TextFileWasStored;
@@ -2827,25 +2829,27 @@ class ChatModule {
    *   the caller can route it (GH-91). Only the app_mention path sets this, because it is the only
    *   caller that reaches `#CommandRouter.RouteAsync`; the message path would fall through to an AI
    *   answer instead, which is not what "route the command" means.
+   * @param {any[]} [ArgThreadMessages] Thread already fetched by the caller (hands-free path); lets the
+   *   GH-219 look-back reuse it instead of issuing a second Slack read.
    * @returns {Promise<{ Handled: boolean, TextFileWasStored: boolean }>}
    *   `Handled` means the event is fully dealt with and the caller must stop. `TextFileWasStored`
    *   means a text file became thread context memory and the caller may continue to an AI answer.
    */
-  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation, ArgAllowCommandFallthrough = false) {
+  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation, ArgAllowCommandFallthrough = false, ArgThreadMessages = undefined) {
     const Intent = ResolveAttachmentIntent(ArgEventInfo.files, ArgText);
 
     if(Intent.Kind === 'none') {
       // GH-219: GH-62 only looked at files on the current event. A file uploaded earlier in the thread
       // (e.g. a JSON export) is never seen when someone @mentions the bot in a later reply.
-      const EarlierFiles = await this.#FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo);
+      const EarlierFiles = await this.#FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo, ArgThreadMessages);
       if(EarlierFiles.length === 0)
         return { Handled: false, TextFileWasStored: false };
+      // an earlier file the user did not re-attach must never block this message: if it cannot be
+      // stored (download failed, HTML error page), log quietly and let normal handling answer.
       const EarlierResult = await this.#TryStoreThreadMemoryFileAsync(
-        ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation, EarlierFiles
+        ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation, EarlierFiles, true
       );
-      return EarlierResult.FileWasStored
-        ? { Handled: false, TextFileWasStored: true }
-        : { Handled: true, TextFileWasStored: false };
+      return { Handled: false, TextFileWasStored: EarlierResult.FileWasStored };
     }
 
     // Both image arms hand the resolved file straight through — re-selecting here could pick a
@@ -2904,18 +2908,23 @@ class ChatModule {
    * event is not in a thread, the thread already has context memory, or the lookup fails.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @param {any[]} [ArgThreadMessages] Thread already fetched by the caller; when given, no Slack read is made.
    * @returns {Promise<import('./slack-app').SlackFileInfo[]>}
    */
-  async #FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo) {
+  async #FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo, ArgThreadMessages = undefined) {
     if(!ArgEventInfo.thread_ts) return [];
     if(this.#ThreadContextMemory.has(`${ArgEventInfo.channel}:${ArgEventInfo.thread_ts}`)) return [];
+    // GH-217 caps Compass threads at one bounded read per event and Compass carries its own document
+    // context, so the look-back never issues an extra read there — it only reuses what was fetched.
+    if(!ArgThreadMessages && Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) return [];
     try {
-      const Messages = await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
+      const Messages = ArgThreadMessages
+        || await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
       return Messages
         .filter((ArgMessage) => ArgMessage.ts !== ArgEventInfo.ts)
         .reverse()
         .flatMap((ArgMessage) => ArgMessage.files ?? [])
-        .filter((ArgFile) => IsTextLikeContextFile(ArgFile));
+        .filter((ArgFile) => IsTextLikeContextFile(ArgFile) && !(ArgFile.size > MaxContextBytes));
     } catch(error) {
       ArgSlackApp.Logger.warn(`thread file look-back failed: ${error && error.message ? error.message : error}`);
       return [];
@@ -2933,12 +2942,14 @@ class ChatModule {
    *   contaminate the same-turn thread context that the AI will read immediately afterwards.
    * @param {import('./slack-app').SlackFileInfo[]} [ArgFiles] Files to pick from. Defaults to the event's own files; the
    *   thread look-back passes files found on earlier messages.
+   * @param {boolean} [ArgQuiet] When true (thread look-back), rejection posts for an unreadable file are
+   *   replaced by a log line so a stale earlier upload never spams or blocks the thread.
    * @returns {Promise<{ FoundContextFile: boolean, FileWasStored: boolean }>}
    *   `FoundContextFile` is true whenever an attachment was recognized as something to act on
    *   (a text file, an oversized/failed text file, or an unsupported binary) so the caller stops
    *   instead of falling through to an ungrounded AI answer.
    */
-  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false, ArgFiles = ArgEventInfo.files) {
+  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false, ArgFiles = ArgEventInfo.files, ArgQuiet = false) {
     // accept any text-readable attachment (Markdown, plain text, code, logs, CSV/JSON/YAML, SQL,
     // and Slack code snippets) — not just `.md`. See src/context-file-classifier.js for the rules.
     const Selection = SelectContextMemoryFile(ArgFiles);
@@ -2956,7 +2967,7 @@ class ChatModule {
       ArgSlackApp.Logger.info(
         `[TryStoreThreadMemoryFile] ignoring ${Descriptor} attachment '${UnsupportedFile.name}' (mimetype: ${UnsupportedFile.mimetype || 'unknown'})`
       );
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         `I can only read text-based files as context — Markdown, plain text, code, logs, CSV/JSON/YAML, SQL, and Slack code snippets. *${UnsupportedFile.name}* isn't a text file I can analyze.`
@@ -2968,7 +2979,7 @@ class ChatModule {
 
     const MaxFileSizeBytes = MaxContextBytes;
     if(ContextFile.size > MaxFileSizeBytes) {
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         `The file *${ContextFile.name}* is too large to use as context memory (max 200 KB). Please upload a smaller file.`
@@ -2986,7 +2997,7 @@ class ChatModule {
       Content = await ArgSlackApp.GetFileContentAsync(DownloadURL);
     } catch(error) {
       ArgSlackApp.Logger.error(`failed to download context memory file '${ContextFile.name}':`, error);
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         await BuildErrorReportAsync(
@@ -3000,7 +3011,7 @@ class ChatModule {
 
     if(LooksLikeHtmlErrorPage(Content)) {
       ArgSlackApp.Logger.error(`context memory file '${ContextFile.name}' returned HTML — likely unauthenticated redirect`);
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         `I couldn't read *${ContextFile.name}* — Slack returned a page instead of the file content. Please try uploading it again.`
