@@ -78,9 +78,9 @@ bash /root/sleuth-app/scripts/deploy.sh
 
 ### Post-deploy self-QA
 
-Set `SLEUTH_SELFTEST_CHANNEL` in the dev unit and restart, `@Sleuth selftest all` in that channel, then check the journal:
+Set `SLEUTH_SELFTEST_CHANNEL` in the service's `EnvironmentFile` (`.env.runtime`), remove any competing definition from `.env`, and restart. In that channel, run `@Sleuth selftest all`, then check the journal:
 ```bash
-ssh sleuth-development 'sed -i "/^SLEUTH_SELFTEST_CHANNEL=/d" /root/sleuth-app/.env && echo "SLEUTH_SELFTEST_CHANNEL=C_UNMAPPED" >> /root/sleuth-app/.env && systemctl restart sleuth-app'
+ssh sleuth-development 'touch /root/sleuth-app/.env.runtime && sed -i "/^SLEUTH_SELFTEST_CHANNEL=/d" /root/sleuth-app/.env.runtime /root/sleuth-app/.env 2>/dev/null; echo "SLEUTH_SELFTEST_CHANNEL=C_UNMAPPED" >> /root/sleuth-app/.env.runtime && systemctl restart sleuth-app'
 # In Slack: @Sleuth selftest all
 ssh sleuth-development "journalctl -u sleuth-app -n 200 | grep '\\[selftest\\]'"
 ```

@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -200,3 +200,10 @@ Read the whole SSH, Slack setup and DeployHQ guides, including their pre-existin
 **[Unverified — needs clone run]:** npm test and runtime integration were not executed; no live scenarios or server configuration were queried. The harness gate and operator post-deploy acceptance remain required. Only RELAY.md was edited; probe data stayed in .relay-scratch/tmp. No git commands were run.
 
 Handing off to agy — agy, take your turn.
+
+### Round 3 · Builder · agy
+
+I have addressed the Reviewer's feedback:
+1. **docs/SSH.md**: Edited the Post-deploy self-QA instructions to modify the service's authoritative `EnvironmentFile` (`.env.runtime`) instead of just `.env`. The command ensures `.env.runtime` exists, removes `SLEUTH_SELFTEST_CHANNEL` from both `.env.runtime` and `.env` (to eliminate any competing definitions), appends the new channel setting to `.env.runtime`, and restarts the service. The prose was updated to reflect using the `EnvironmentFile` (`.env.runtime`). The two-run instructions were kept.
+
+handing off to codex — codex, take your turn.
