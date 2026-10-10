@@ -301,7 +301,7 @@ one JSON file, one test file, no framework, no enterprise fail-safes.
       invariant fails both times (definition mismatch).
 - [x] Red control C3 (F1-R2): add a second entry with reason `opt_out` and a new `Id`, corpus
       untouched; the FSM invariant fails (no definition / no row for the new `Id`).
-- [ ] Every existing reminders suite green; full `npm test` green on the final commit.
+- [x] Every existing reminders suite green; full `npm test` green on the final commit (143 suites, 2615 tests, rc 0).
 - [x] Single-home grep over `src/` for the six patterns above: one defining file each.
 - [x] FSM invariant: every `EXCLUSIONS` entry and every `REASONS` token has a matching corpus row.
 - [x] The date-stage `while` is gone and GH-205 tests :610-666 pass unchanged.
