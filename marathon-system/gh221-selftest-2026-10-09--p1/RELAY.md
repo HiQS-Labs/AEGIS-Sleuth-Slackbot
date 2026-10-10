@@ -379,3 +379,11 @@ console.log(JSON.stringify({mode,observed,posts,grepSelftest:logs.flatMap(x=>x.s
 ```
 
 Relay closed, no further turn needed.
+
+### Attestation · relay-drive — 2026-10-10T04:37:02Z
+task: MARATHON-P1-TURN
+reviewer: codex
+status: Approved
+reviewed-head: 00ccb84b497658171bd9527b4d786ec73e211c28
+added-range: 36007+7114
+added-sha256: 352354f8367682cd35b0913e388f5ae2d2d5572d470d8547bbc3b050402be96c
