@@ -78,13 +78,8 @@ const FUTURE_OR_CONDITIONAL_PATTERN =
 const QUESTION_LEAD_PATTERN =
   /^(?:is|are|was|were|do|does|have\s+you|has|can|could|should|would|did\s+(?:you|he|she|they|we|anyone|someone|somebody)|what|what's|whats|which|who|how|why|where|show|list|summari[sz]e|search|find|look\s+up|google|explain|help|tell|remind|ai)\b/i;
 
-// A request anywhere in the reply. "@Sleuth merged, now create a reminder to deploy it Monday" or
-// "@Sleuth give me my tasks sorted by priority" carries a done-word but asks for something else;
-// treating it as a completion would close the reminder AND drop the request. Refuse, so the reply
-// routes on to scheduling / the command router unchanged. Not "please": "please mark it done" is
-// a completion.
-const REQUEST_PATTERN =
-  /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you)\b/i;
+// A request anywhere in the reply ("merged, now create a reminder to deploy it Monday") is checked
+// by the RequestGuard that reminder-judgement.js injects (GH-149); that module owns the pattern.
 
 /**
  * Normalise reply text for detection: drop Slack user/channel mentions, links, and emoji
@@ -113,9 +108,13 @@ function NormalizeReplyText(ArgText) {
  * Decide whether a thread reply says the reminder's work is done.
  * @param {string} ArgText Raw reply text (may include the bot mention).
  * @param {'mention'|'strict'} [ArgMode] Detection mode — see the module header.
+ * @param {{RequestGuard?: (ArgNormalizedText: string) => boolean}} [ArgOptions] RequestGuard: true when
+ *   the normalized reply also asks for something; checked after the question forms and before the
+ *   negation / future checks. Owned by reminder-judgement.js (GH-149).
  * @returns {{ IsCompletion: boolean, Reason: string }}
  */
-function DetectCompletionReply(ArgText, ArgMode = 'strict') {
+function DetectCompletionReply(ArgText, ArgMode = 'strict', ArgOptions = {}) {
+  const RequestGuard = ArgOptions.RequestGuard || (() => false);
   const { Text, HasCheckmark, HasQuestionMark } = NormalizeReplyText(ArgText);
 
   if(HasQuestionMark) return { IsCompletion: false, Reason: 'question' };
@@ -126,7 +125,7 @@ function DetectCompletionReply(ArgText, ArgMode = 'strict') {
     : { IsCompletion: false, Reason: 'empty' };
 
   if(QUESTION_LEAD_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'question' };
-  if(REQUEST_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'contains_request' };
+  if(RequestGuard(Text)) return { IsCompletion: false, Reason: 'contains_request' };
   if(NEGATION_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'negated_or_partial' };
   if(FUTURE_OR_CONDITIONAL_PATTERN.test(Text)) return { IsCompletion: false, Reason: 'future_or_conditional' };
 

@@ -1,0 +1,154 @@
+{
+  "_about": "GH-149 seeded corpus for src/reminder-judgement.js. Every row runs through JudgeReminderTextAsync with the model stubbed to `Model` (null = the model must not be called). Every EXCLUSIONS entry needs its definition under `Definitions` (Pattern.toString()) and at least one row naming it in Expect.Exclusion; tests/reminders-fsm-invariants.test.js enforces both. Add a row for every new false-positive class.",
+  "Definitions": {
+    "quoted_only": "/^\\s*$/",
+    "opt_out": "/\\b(?:don'?t|do not)(?:\\s+(?:need|want)\\s+to)?\\s+(?:make|create|set|add|schedule)\\s+(?:a\\s+)?reminder(?:s)?\\b/"
+  },
+  "Rows": [
+    {
+      "Id": "gh197-first-person-excitement",
+      "Issue": 197,
+      "Mode": "auto",
+      "Text": "I'm so excited to show the site probably by end of day tomorrow",
+      "Model": { "recommendation": "ignore", "rationale": "anticipation, not a commitment", "reminders": [] },
+      "Expect": { "Verdict": "ignore", "Reason": "model_ignore", "ModelCalled": true }
+    },
+    {
+      "Id": "gh205-this-week-no-past-warning",
+      "Issue": 205,
+      "Mode": "auto",
+      "Text": "This week's checkpoints: finalize the onboarding doc and send it to the client",
+      "Model": { "recommendation": "schedule", "rationale": "commitment for this week", "reminders": [ { "actionable_language": "finalize the onboarding doc and send it to the client", "scheduling_trigger": "This week", "reminder_message": "Finalize the onboarding doc and send it to the client" } ] },
+      "Expect": { "Verdict": "schedule", "Reason": "model_schedule", "ModelCalled": true, "PeriodOnly": [true] },
+      "Date": { "AnchorAgeHours": 73, "WasAdjustedForward": false }
+    },
+    {
+      "Id": "gh211-quoted-commitment-is-not-own-words",
+      "Issue": 211,
+      "Mode": "auto",
+      "Text": "He said \"deploy tomorrow\"",
+      "Model": { "recommendation": "ignore", "rationale": "no commitment in the sender's own words", "reminders": [] },
+      "Expect": { "Verdict": "ignore", "Reason": "model_ignore", "ModelCalled": true, "OwnWords": "He said" }
+    },
+    {
+      "Id": "gh211-only-a-quote",
+      "Issue": 211,
+      "Mode": "auto",
+      "Text": "\"I will ship it tomorrow at 9\"",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "quoted_only", "Exclusion": "quoted_only", "ModelCalled": false }
+    },
+    {
+      "Id": "gh211-force-keeps-quotes",
+      "Issue": 211,
+      "Mode": "force",
+      "Text": "go \"to the races\" tomorrow",
+      "Model": { "recommendation": "schedule", "rationale": "explicit force", "reminders": [ { "actionable_language": "go to the races", "scheduling_trigger": "tomorrow", "reminder_message": "Go to the races" } ] },
+      "Expect": { "Verdict": "schedule", "Reason": "model_schedule", "ModelCalled": true, "OwnWords": "go \"to the races\" tomorrow", "PeriodOnly": [false] }
+    },
+    {
+      "Id": "gh201-request-create-reminder",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> merged, now create a reminder to deploy it Monday",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh201-request-remind-me",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> I sent the proposal, remind me to follow up with them Monday",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh201-request-give-me",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> give me my tasks sorted by priority",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion" }
+    },
+    {
+      "Id": "gh201-request-show-done",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> please show done tasks",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh201-request-reschedule",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> reschedule to 3pm, the vendor closed early",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh201-request-snooze",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> snooze this, the client closed for the day",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh201-request-precedes-future",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> done, remind me tomorrow",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh201-plain-done-completes",
+      "Issue": 201,
+      "Mode": "strict",
+      "Text": "done",
+      "Model": null,
+      "Expect": { "Verdict": "complete", "Reason": "completion", "Detail": "strict_phrase" }
+    },
+    {
+      "Id": "gh201-quoted-negation-is-not-completion",
+      "Issue": 201,
+      "Mode": "mention",
+      "Text": "<@UBOT> done \"not done\"",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "negated_or_partial" }
+    },
+    {
+      "Id": "gh197-opt-out-skips-model",
+      "Issue": 197,
+      "Mode": "auto",
+      "Text": "Don’t set a reminder, I'll deploy it tomorrow",
+      "Model": { "recommendation": "schedule", "rationale": "would schedule if asked", "reminders": [ { "actionable_language": "deploy it tomorrow", "scheduling_trigger": "tomorrow", "reminder_message": "Deploy it" } ] },
+      "Expect": { "Verdict": "ignore", "Reason": "opt_out", "Exclusion": "opt_out", "ModelCalled": false }
+    },
+    {
+      "Id": "gh197-dont-forget-is-not-opt-out",
+      "Issue": 197,
+      "Mode": "auto",
+      "Text": "don't forget to set a reminder to deploy tomorrow",
+      "Model": { "recommendation": "schedule", "rationale": "commitment", "reminders": [ { "actionable_language": "deploy tomorrow", "scheduling_trigger": "tomorrow", "reminder_message": "Deploy" } ] },
+      "Expect": { "Verdict": "schedule", "Reason": "model_schedule", "ModelCalled": true, "PeriodOnly": [false] }
+    },
+    {
+      "Id": "direct-ask-fallback",
+      "Issue": 149,
+      "Mode": "auto",
+      "Text": "can you review the PR tomorrow",
+      "Model": { "recommendation": "ignore", "rationale": "model missed it", "reminders": [] },
+      "Expect": { "Verdict": "schedule", "Reason": "direct_ask_fallback", "ModelCalled": true, "PeriodOnly": [false] }
+    },
+    {
+      "Id": "direct-ask-negated-stays-ignored",
+      "Issue": 149,
+      "Mode": "auto",
+      "Text": "please don't deploy today",
+      "Model": { "recommendation": "ignore", "rationale": "negated", "reminders": [] },
+      "Expect": { "Verdict": "ignore", "Reason": "model_ignore", "ModelCalled": true }
+    }
+  ]
+}

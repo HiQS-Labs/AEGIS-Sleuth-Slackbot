@@ -17,6 +17,7 @@ const ContextResolution = require('./reminder-context-resolution');
 const TaskGrounding = require('./task-grounding');
 const ReminderDisplaySelection = require('./reminder-display-selection');
 const ReminderTextCompletion = require('./reminder-text-completion');
+const ReminderJudgement = require('./reminder-judgement');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -1612,8 +1613,9 @@ class RemindersModule {
     if(!ArgEventInfo.thread_ts || ArgEventInfo.thread_ts === ArgEventInfo.ts) return false;
     if(!ArgEventInfo.user || ArgEventInfo.user === ArgSlackApp.BotUserID) return false;
 
-    const Detection = ReminderTextCompletion.DetectCompletionReply(ArgEventInfo.text || '', ArgMode);
-    if(!Detection.IsCompletion) return false;
+    const Judgement = await ReminderJudgement.JudgeReminderTextAsync(ArgEventInfo.text || '', { Mode: ArgMode });
+    if(Judgement.Verdict !== 'complete') return false;
+    const Detection = /** @type {{IsCompletion: boolean, Reason: string}} */ (Judgement.Completion);
 
     // Owner = an assignee (GetAssigneeIDs, which falls back to the sender for unassigned reminders)
     // or the person who asked for the reminder.
@@ -1693,7 +1695,7 @@ class RemindersModule {
     if(ArgEventInfo.thread_ts && ArgEventInfo.thread_ts !== ArgEventInfo.ts) return;
 
     // run the cheap heuristic; skip if it does not match.
-    if(!RemindersAIPipeline.DetectDirectAskWithTimeTrigger(ArgEventInfo.text)) return;
+    if(!ReminderJudgement.DetectDirectAskWithTimeTrigger(ArgEventInfo.text)) return;
 
     // add the :mag: reaction; AddReactionAsync swallows errors internally and returns false on failure.
     const Added = await ArgSlackApp.AddReactionAsync(ArgEventInfo.channel, ArgEventInfo.ts, 'mag');
@@ -1814,7 +1816,7 @@ class RemindersModule {
     // analyze the message for reminders.
     // quoted text is ignored, except for force-schedule (:alarm_clock:), which is explicit intent.
     let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(
-      ArgMessageText, { KeepQuotedText: Boolean(ArgForceSchedule) }
+      ArgMessageText, { Mode: ArgForceSchedule ? 'force' : 'auto' }
     );
     ArgSlackApp.Logger.info(`reminder analysis result:`, AnalysisResult.recommendation);
 
@@ -1847,7 +1849,7 @@ class RemindersModule {
         rationale: 'Simulated reminder for "tomorrow morning" since no scheduling triggers were found.',
         reminders: [{
           actionable_language: ArgMessageText, // treat entire message as actionable when force-scheduling.
-          scheduling_trigger: 'tomorrow morning',
+          scheduling_trigger: ReminderJudgement.FORCE_FALLBACK_TRIGGER,
           reminder_message: ForceScheduledReminderMessage,
         }]
       };
@@ -2004,7 +2006,7 @@ class RemindersModule {
       let UsedFallbackTriggerForGroup = false;
       if(ArgForceSchedule && (!ExtractionResult.success || !ExtractionResult.date)) {
         UsedFallbackTriggerForGroup = true;
-        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync('tomorrow morning');
+        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync(ReminderJudgement.FORCE_FALLBACK_TRIGGER);
       }
 
       // skip this trigger if no date was extracted.

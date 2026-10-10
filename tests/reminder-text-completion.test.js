@@ -58,13 +58,8 @@ describe('DetectCompletionReply', () => {
       [`${BOT} summarize what got completed this week`],
       [`${BOT} when done, ping me`],
       [`${BOT} can you look into this`],
-      // a done-word plus a request: the request must survive (PR #202 review)
-      [`${BOT} I sent the proposal, remind me to follow up with them Monday`],
-      [`${BOT} merged, now create a reminder to deploy it Monday`],
-      [`${BOT} give me my tasks sorted by priority`],
-      [`${BOT} please show done tasks`],
-      [`${BOT} reschedule to 3pm, the vendor closed early`],
-      [`${BOT} snooze this, the client closed for the day`],
+      // a done-word plus a request (PR #202 review): those rows live in
+      // data/static/ai/reminder-judgement-corpus.json, which owns the request guard (GH-149).
       [`${BOT} thanks`],
       [`${BOT} ${'word '.repeat(30)}done`],          // too long to be a completion reply
     ])('does not complete: %s', (ArgText) => {

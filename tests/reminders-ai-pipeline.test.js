@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
+const ReminderJudgement = require('../src/reminder-judgement');
 const DateUtils = require('../src/date-utils');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
 
@@ -660,9 +661,9 @@ describe('RemindersAIPipeline', () => {
 
       it('matches only a whole bare-period phrase', () => {
         for(const Trigger of ['This week', 'by end of week', 'end of the week', 'sometime this week', 'EOW', 'by EOM', 'this sprint', 'This week’s', 'this week.', 'EOW!'])
-          expect(RemindersAIPipeline.IsPeriodOnlyTrigger(Trigger)).toBe(true);
+          expect(ReminderJudgement.IsPeriodOnlyTrigger(Trigger)).toBe(true);
         for(const Trigger of ['this week at 9 AM', 'this week on 1 Oct 2026', 'this week in the afternoon', 'next week', 'Friday this week', 'this weekend', 'afternoon', ''])
-          expect(RemindersAIPipeline.IsPeriodOnlyTrigger(Trigger)).toBe(false);
+          expect(ReminderJudgement.IsPeriodOnlyTrigger(Trigger)).toBe(false);
       });
 
       it('gives the date extractor a "this week" rule and scopes the 8 AM default away from bare periods', () => {

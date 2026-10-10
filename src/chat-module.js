@@ -7,6 +7,7 @@ const SlackApp = require('./slack-app');
 const WorkspaceAI = require('./workspace-ai');
 const Workspaces = require('./workspaces');
 const ChannelModelSettings = require('./channel-model-settings');
+const ReminderJudgement = require('./reminder-judgement');
 const SlackFormatUtils = require('./slack-format-utils');
 const { ResolveMentionsForExternalDisplayAsync } = require('./slack-message-pipeline');
 const {
@@ -1560,10 +1561,9 @@ class ChatModule {
     const HasCreationVerb = /\b(?:make|create|set|add|schedule)\b/.test(NormalizedText);
     if(!HasReminderNoun || !HasCreationVerb) return false;
 
-    // opt-out of creation is not a creation request ("don't set a reminder", "don't need to set a reminder", "don't want to set a reminder").
-    // `don't forget to set a reminder` still matches because `don't` is followed by `forget`, not a creation verb.
-    const IsCreationOptOut = /\b(?:don'?t|do not)(?:\s+(?:need|want)\s+to)?\s+(?:make|create|set|add|schedule)\s+(?:a\s+)?reminder(?:s)?\b/.test(NormalizedText);
-    return !IsCreationOptOut;
+    // opt-out of creation is not a creation request ("don't set a reminder"); the pattern is owned by
+    // reminder-judgement.js (GH-149), which also applies it before the reminder model.
+    return !ReminderJudgement.IsCreationOptOut(NormalizedText);
   }
 
   // GH-62: #IsImageListCreationRequest moved to context-file-classifier.HasListCreationIntent so
