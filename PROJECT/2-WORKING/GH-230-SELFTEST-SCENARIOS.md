@@ -31,7 +31,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Plan Codex-approved (round 2, reviewed-head 49b813e); implementation committed d4a8ffa; build and full test green. Final Codex QA pending. (Earlier note: plan QA round 1: FAIL (R1 T4 marker question and per-mention bounds, R2 add `npm run build`, nit red-control wording, nit stale docs count) all accepted and folded in; round 2 approved.) | Final Codex QA, then push, PR into development, live run on dev after merge. | Codex plan QA, then build the three scenario edits. |
+| Plan Codex-approved (round 2, reviewed-head 49b813e); implementation committed d4a8ffa; build and full test green; final Codex QA round 1 raised two documentation fixes, folded in. | Final Codex QA round 2, then push, PR into development; live dev run and #222 update after merge. |
 
 ## Observed state (recon, 2026-10-10, base 6696312)
 
@@ -72,11 +72,11 @@ Rated 35/15/50/75 (priority/severity/appeal/effort-cheapness). Severity low: a t
 
 ## Acceptance
 
-- [ ] `lookback-reuse`, `lookback-later-upload` and the `lookback-skip-bad` zero-download assertion exist, each scenario file at most 40 lines, loader-contract test green.
-- [ ] `tests/selftest.test.js` and the full `npm test` pass.
+- [x] `lookback-reuse`, `lookback-later-upload` and the `lookback-skip-bad` zero-download assertion exist, each scenario file at most 40 lines, loader-contract test green.
+- [x] `tests/selftest.test.js` and the full `npm test` pass.
 - [ ] Live on dev after deploy: `@Sleuth-dev selftest all` reports the new scenarios (pass, or skipped in a Compass-mapped channel) and the journal shows `exit_code=0`.
 - [ ] #222 comment updated mapping T4, T5 and T6 to their scenarios.
-- [ ] CHANGELOG entry in the usual two-paragraph format.
+- [x] CHANGELOG entry in the usual two-paragraph format.
 
 ## Swarm Preflight Contract
 
@@ -118,4 +118,6 @@ Rated 35/15/50/75 (priority/severity/appeal/effort-cheapness). Severity low: a t
 - 2026-10-10: implemented at d4a8ffa. Gates on that commit, un-sandboxed, once each: `npm run build` exit 0; `npm test` exit 0 (Jest: 142 suites passed, 1 skipped; 2612 tests passed, 4 skipped; Node tests: 116 pass, 0 fail); `node scripts/validate-changelog-tone.js` exit 0; HEAD and branch unchanged after the run, tree clean. Note: `npx jest selftest` matches every suite in this clone because the clone path contains "selftest"; the gate list above is therefore the full suite.
 - Acceptance map: (1) three scenario edits exist, each file at most 40 lines (25, 32, 23), loader contract green; (2) `tests/selftest.test.js` and `npm test` pass; (3) live dev run: pending, post-merge; (4) #222 comment update: pending, post-merge; (5) CHANGELOG 1.4.341 entry, tone guard clean.
 - Limits stated honestly: the new scenario assertions run only live; no negative control was executed. T4 is a post-hydration control, not the delayed-event race.
+- 2026-10-10: diff file-set check (`git diff --stat 6696312..HEAD` at d4a8ffa plus plan commits): CHANGELOG.md, docs/SSH.md, the three scenario files, tests/selftest.test.js, this plan, and the ledger writes (`releases.db`, `releases.sql`, `RELEASES-PREVIEW.html`). No change to `src/selftest/runner.js`, `src/selftest/selftest-module.js`, `src/app.js`, `src/chat-module.js` or `package.json`.
+- 2026-10-10: final Codex QA round 1 FAIL (R1 Should: changelog tense overstated live proof; R2 Nit: status table cells and acceptance checkboxes). Both accepted and fixed; the changelog now says live behavior must be proved post-merge and no negative control was executed.
 
