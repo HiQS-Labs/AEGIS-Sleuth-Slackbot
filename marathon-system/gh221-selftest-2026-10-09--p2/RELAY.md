@@ -1,6 +1,6 @@
 # Marathon Phase p2
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -124,3 +124,69 @@ Created the five scenarios under `src/selftest/scenarios/` as requested:
 
 All four `lookback-*` scenarios skip if the channel is Compass-mapped using `GetMapping(Context.SlackApp.WorkspaceInfo, Context.Channel)`. The `compass-budget.js` scenario skips if it is NOT Compass-mapped.
 Added the loader test checking file shapes, names, and length (<= 40 lines) to `tests/selftest.test.js`, as well as a test that executes all five against the `MockSlackApp` verifying the report contains the `compass-budget` ⏭ skip entry. Validated with `npx jest tests/selftest.test.js`.
+
+
+### Round 1 · Reviewer · codex
+
+swept file: yes
+
+**Verdict:** Changes requested
+
+Read all five scenario files and the entire `tests/selftest.test.js`, plus the parent plan and p1 runner context. The pre-existing test sections yielded no additional defect beyond the findings below. All five files meet the 40-line limit and implement the mapping split, but the build fails and several assertions accept the very behavior they should reject.
+
+Evidence scope: task-directed Verify review using exact on-disk source. MCP `list_projects` was fully paginated (82 projects); neither this worktree nor the GH-221 clone has a matching indexed project, so no current generation/coverage is available for these paths. Used direct source fallback rather than an unrelated graph. No git, test suite, executable fixture, or validation script was run. Jest/full harness/live outcomes are **[Unverified — needs clone run]**.
+
+1. **[Blocker] New scenarios fail the required checkJs build.**
+   Observed input: all five `Run(Context)` declarations have no parameter annotation; the reply/call callback parameters are also implicit any. `tsconfig.json` includes `src/**/*.js` with `checkJs` and `noImplicitAny`.
+   Affected scope: all five new scenario files, with 14 TS7006 diagnostics.
+   Probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node node_modules/typescript/bin/tsc --noEmit --incremental false > "$TMPDIR/p2-tsc.log" 2>&1`.
+   Exit status: **2**. Decisive output: `compass-budget.js(6,13): error TS7006: Parameter 'Context' implicitly has an 'any' type`; the same error occurs at `lookback-{bare,basic,command,skip-bad}.js(8,13)`, and nine reply/call/line callbacks. The complete compiler output consists of these 14 new-file errors.
+   Request: annotate the context and callback types while retaining the size contract; do not disable the repository's checkJs/noImplicitAny gate.
+   Falsifier: that exact non-emitting compiler command exits 0 with no scenario diagnostics.
+
+2. **[Blocker] Look-back assertions do not establish post-mention answers or absence of an extra AI answer.**
+   Observed input: `lookback-skip-bad.js:18` accepts `[{ts:'2',user:'UBOT123',text:'what is the marker?'}]` with no answer at all. The runner posts that baseline as the real bot, while only the simulated event uses `U_SLEUTH_SELFTEST` (`runner.js` Mention implementation). `lookback-bare.js:18` accepts a confirmation followed by `Hello, how can I help?`, because the extra answer need not contain the canary. All four scenarios discard the timestamp returned by Mention and examine the entire thread, contrary to parent Design 4.
+   Affected scope: the four lookback scenarios; especially `lookback-skip-bad.js:14-18`, `lookback-bare.js:14-18`, and `lookback-basic.js:14-18`.
+   Probe command: `node "$TMPDIR/p2-predicates.cjs"` (exact source-slice probe below), exit **0**. Decisive output: `skip-bad with ONLY bot baseline, no answer: ALL ASSERTIONS PASS` and `bare with confirmation PLUS unwanted AI answer: ALL ASSERTIONS PASS`.
+   Additional probe: evaluating basic lines 16-18 with `token='canary-only-in-file'`, `replies=[{ts:'1',text:token}]`, `DownloadCount=1`, and a later Mention baseline ts `2` prints `basic with canary ONLY before Mention baseline ts=2: ALL ASSERTIONS PASS` (node stdin source-slice probe, exit **0**).
+   Request: retain Mention's baseline ts and assert only on later bot replies. For bare require the sole response to be the load confirmation; for skip-bad require a non-empty normal answer after that baseline, rather than comparing its user against the simulated user's id. Keep the canary out of the question and comment.
+   Falsifier: those invalid histories fail their scenario assertions, while a later valid answer and a sole later load confirmation respectively pass.
+
+3. **[Blocker] Compass accepts extra reads and an empty citation block.**
+   Observed input: `compass-budget.js:12` filters away unbounded reads. `calls=[{}, {MaxPages:5}]` is two in-scope reads, but counts as one. `replies=[{text:'Sorry, unavailable.\nSources:'}]` has neither a successful answer nor any citation/excerpt, but lines 17 and 23 accept it.
+   Affected scope: `compass-budget.js:8-23`; parent Design 6 requires exactly one in-scope read and non-empty successful cited evidence.
+   Probe command: `node "$TMPDIR/p2-predicates.cjs"`, exit **0**. Decisive output: `compass with TWO reads and EMPTY citations: ALL ASSERTIONS PASS`.
+   Request: count every in-scope call around Mention before checking the sole call's bounded options; require a post-baseline answer with a non-empty source/citation block. Check duplicated excerpts across the rendered answer and citations, not only equality among lines beginning `> ` (that misses an excerpt repeated elsewhere in the answer). Use the runner's existing counters/context.
+   Falsifier: two reads (one unbounded), an empty Sources block, and an excerpt duplicated outside the quote block each fail; one bounded read with a successful sourced answer passes.
+
+4. **[Should] Command scenario never proves hydration occurred.**
+   Observed input: `lookback-command.js:16-17` accepts `replies=[{text:'*Channel Model* Verified answer'}]` when there were zero downloads/no hydration. The file is uploaded but the assertions only check command text and absence of a canary in chat; bypassing look-back entirely still passes.
+   Affected scope: `lookback-command.js:13-17`, whose brief promises a command *after hydration*.
+   Probe command: `node "$TMPDIR/p2-predicates.cjs"`, exit **0**. Decisive output: `command without hydration or download: ALL ASSERTIONS PASS`.
+   Request: also require the fixture URL to have been downloaded exactly once during the command mention, and apply the post-baseline reply filtering from finding 2.
+   Falsifier: no hydration/download fails even with the correct model-status reply; one hydration plus the deterministic reply passes.
+
+Reproducible source-slice probe (saved only under `$TMPDIR/p2-predicates.cjs`; it evaluates the existing assertion expressions, never executes Run, uploads, Slack calls, or fixtures):
+
+```js
+const fs = require('fs'), vm = require('vm');
+function probe(name, file, start, end, vars) {
+  const failures = [];
+  const Context = { Expect: (ok, message) => { if (!ok) failures.push(message); } };
+  const code = fs.readFileSync(file, 'utf8').split('\n').slice(start - 1, end).join('\n');
+  vm.runInNewContext(code, { ...vars, Context });
+  console.log(name + ': ' + (failures.length ? JSON.stringify(failures) : 'ALL ASSERTIONS PASS'));
+}
+probe('skip-bad with ONLY bot baseline, no answer', 'src/selftest/scenarios/lookback-skip-bad.js', 16, 18,
+  { replies: [{ts:'2',user:'UBOT123',text:'what is the marker?'}] });
+probe('bare with confirmation PLUS unwanted AI answer', 'src/selftest/scenarios/lookback-bare.js', 16, 18,
+  { token:'canary-only-in-file', replies:[{text:"I've loaded test.json"},{text:'Hello, how can I help?'}] });
+probe('compass with TWO reads and EMPTY citations', 'src/selftest/scenarios/compass-budget.js', 12, 24,
+  { calls:[{}, {MaxPages:5}], replies:[{text:'Sorry, unavailable.\nSources:'}] });
+probe('command without hydration or download', 'src/selftest/scenarios/lookback-command.js', 16, 17,
+  { token:'canary-only-in-file', replies:[{text:'*Channel Model* Verified answer'}] });  [Unverified — no citation]
+```
+
+The mock report test's allowance for mock scenario failures is consistent with the brief's report-shape check; it is not evidence of live scenario correctness. Required clone gates remain for the harness. Keep all fixes within the p2 artifact lane; no runner edits are requested.
+
+Handing off to agy — agy, take your turn.
