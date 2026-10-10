@@ -85,16 +85,22 @@ Slack `message` event meets them:
    `ExtractDateWithGptAsync`; sets `wasAdjustedForward` which `reminders-module.js:2024,2194,2493`
    turn into the "requested time was in the past" warning.
 
-Completion judgement sits beside these: `src/reminders-module.js:1539` (`OnAppMentionAsync`,
-mention mode) and :1579 — re-verified at :1587-1589 (`#OnMessageAsync`, strict mode, before the
-channel-enabled gate) both call `#TryCompleteRemindersFromReplyAsync` (:1611), which calls
-`ReminderTextCompletion.DetectCompletionReply` (:1620) and `ResolveThreadReminderIDsAsync` with the
-`IsOwner` closure (:1625-1630). `REQUEST_PATTERN` is `src/reminder-text-completion.js:86-87`, applied
-at :129 between the question and negation checks.
+Completion judgement sits beside these (corrected after plan-QA round 1): the **strict**-mode gate is
+`src/reminders-module.js:1539` inside `#OnMessageAsync` (:1522), before the channel-enabled gate; the
+**mention**-mode gate is `src/reminders-app-mention-handler.js:700-702` (`OnAppMentionAsync`), wired
+through the dependency at `reminders-module.js:449-450`. :1587-1589 is the scheduling call, not a
+completion gate. Both gates call `#TryCompleteRemindersFromReplyAsync` (:1611), which calls
+`ReminderTextCompletion.DetectCompletionReply` at :1615 on the RAW reply text and
+`ResolveThreadReminderIDsAsync` with the `IsOwner` closure at :1620-1625. A positive verdict
+transitions and deletes the reminder (:1654-1659), so a false completion loses work. `REQUEST_PATTERN`
+is `src/reminder-text-completion.js:86-87`, applied at :129 after the question checks and before the
+negation / future checks; the six #201 rows that pin it are `tests/reminder-text-completion.test.js:62-67`.
 
 `src/chat-module.js:1547-1566` `IsReminderActionIntent` decides whether an app mention with
-"reminder" + a creation verb is routed to the reminders module instead of chat; the `IsCreationOptOut`
-regex at :1564 is the d07d643 patch. Called at :2153.
+"reminder" + a creation verb gets the "creation is not supported here" explanation posted by its
+caller at :2152-2158 (it is a chat-side intent check, not a scheduling pre-filter); the
+`IsCreationOptOut` regex at :1564 is the d07d643 patch and runs on text already lower-cased with
+curly quotes/apostrophes normalized (:1550-1555).
 
 Force-schedule (`:alarm_clock:`) path: `src/reminders-module.js:1815-1818` passes
 `{ KeepQuotedText: Boolean(ArgForceSchedule) }`; the whole-message synthetic "tomorrow morning"
@@ -117,8 +123,10 @@ confirmation posted in-thread. cf9fe6d stopped it by stripping the quote at two 
 `tests/reminder-text-completion.test.js` (request rows :61-66), `tests/quoted-text-reminders.test.js`
 (`KeepQuotedText` :111-113, `DetectDirectAskWithTimeTrigger` :127-128),
 `tests/reminders-fsm-invariants.test.js`, `tests/reminders-integration.test.js`,
-`tests/chat-module.test.js` (`IsReminderActionIntent` :60-87). LLM is stubbed everywhere via
-`jest.mock('../src/workspace-ai')` + `tests/mocks/mock-workspace-ai.js`.
+`tests/chat-module.test.js` (`IsReminderActionIntent` :60-87). The LLM is stubbed at the
+`WorkspaceAI.ProcessMessageWithJsonResponseAsync` boundary: most suites via
+`jest.mock('../src/workspace-ai')` + `tests/mocks/mock-workspace-ai.js`, `quoted-text-reminders.test.js:95-97`
+with an inline stub object. The corpus test uses the same boundary.
 
 ## Plan
 
@@ -133,80 +141,119 @@ completion of one". Exports:
   call, same `DetectCompletionReply` modes as today). Returns
   `{ Verdict: 'schedule'|'ignore'|'complete', Reasons: string[], OwnWords: string, Triggers:
   {Phrase, PeriodOnly}[], Analysis: GptReminderResponse|null, Completion: {IsCompletion,
-  Reason}|null, FallbackTrigger: string|null }`. `Analysis` is the model-shaped result the scheduling
-  stage already consumes, so `#TryScheduleRemindersAsync` keeps reading `recommendation`/`reminders`.
-- Sync helpers for the three callers that need one judgement before the full one runs:
-  `OwnWords(text)` (quote-strip honoring the kill switch), `IsCreationOptOut(normalizedText)`,
-  `IsPeriodOnlyTrigger(trigger)`, `DetectDirectAskWithTimeTrigger(text)`, `HasRequestLanguage(text)`,
-  `REASONS` (the frozen list of reason tokens the module can emit), `FORCE_FALLBACK_TRIGGER`.
+  Reason}|null }`. Contract (plan-QA round 1): in the scheduling modes `Analysis` is ALWAYS a valid
+  model-shaped `GptReminderResponse` — an early exit returns the same ignore-shaped object the
+  pipeline returns today at :370-371 — so `#TryScheduleRemindersAsync` keeps dereferencing
+  `.recommendation`/`.reminders` unchanged; in the completion modes `Analysis` is `null` and
+  `Completion` is set.
+- `EXCLUSIONS`: a frozen, ordered table `[{ Reason, Modes, Test(text) }]` of the deterministic
+  pre-model exclusions. `JudgeReminderTextAsync` iterates this table (it is the implementation, not a
+  mirror of it), so an exclusion that is not in the table cannot run. Seeded with `quoted_only`
+  (`auto`) and `opt_out` (`auto`).
+- Sync helpers for the callers that need one judgement before the full one runs: `OwnWords(text)`
+  (quote-strip honoring the kill switch), `IsCreationOptOut(text)` (applies chat-module's lower-case /
+  curly-quote / apostrophe normalization itself, so chat and the pipeline agree),
+  `IsPeriodOnlyTrigger(trigger)`, `DetectDirectAskWithTimeTrigger(text)` (keeps its own quote-strip,
+  unchanged helper behavior), `HasRequestLanguage(text)`, `REASONS` (frozen list of every reason
+  token the module can emit), `FORCE_FALLBACK_TRIGGER = 'tomorrow morning'` (the one home of
+  3c267cd's literal; the result does not carry it — one consumed contract, the exported constant).
 
-Gate order inside `JudgeReminderTextAsync` (the implicit method-body order today, made explicit):
+Gate order inside `JudgeReminderTextAsync`:
 
-1. quote-strip → `OwnWords` (skipped in `force`, which is the `KeepQuotedText` case). Empty own words
-   → `ignore` / `quoted_only`, no model call.
-2. opt-out → `ignore` / `opt_out` in `auto` (regex moved from chat-module; the prompt already says
-   ignore for this phrasing, so this is the deterministic version of a rule the model is already
-   given). Skipped in `force`: the human asserted it is a task.
-3. completion modes only: `DetectCompletionReply(ownWords, Mode)`; a positive hit is then checked
-   against `HasRequestLanguage` (the `REQUEST_PATTERN` moved here) and downgraded to `ignore` /
-   `contains_request`. Return `complete` / `completion:<reason>` or `ignore` / `not_completion:<reason>`.
-   Running the request guard after `DetectCompletionReply` keeps every other reason token exactly
-   as today.
-4. scheduling modes: `DecideAsync(WorkspaceAI, DecisionSpec, ownWords, {Capture, Logger})` —
-   unchanged spec, prompt and validator.
-5. model `ignore` → direct-ask fallback (`DetectDirectAskWithTimeTrigger`, with its negation regex)
-   → `schedule` / `direct_ask_fallback`, else `ignore` / `model_ignore`.
-6. `Triggers` = each candidate's `scheduling_trigger` classified by `IsPeriodOnlyTrigger`;
-   `FallbackTrigger = 'tomorrow morning'` in `force` mode (3c267cd's per-group fallback literal now
-   comes from the judgement result).
+1. completion modes (`mention`/`strict`) take the RAW reply text, exactly as today — no quote-strip,
+   no opt-out (plan-QA F3: quote-stripping a completion reply would flip `done "not done"` and
+   `"done"`; that is a behavior change nobody asked for). `DetectCompletionReply(text, Mode,
+   { RequestGuard: HasRequestLanguage })`: the detector accepts an injected request guard and applies
+   it at the same position as today (after the question checks, before negation/future), so every
+   reason token is byte-identical, including `contains_request` for `done, remind me tomorrow` and
+   for `snooze this` in strict mode. The regex itself lives only in `reminder-judgement.js`. Return
+   `complete` / `completion:<reason>` or `ignore` / `not_completion:<reason>`.
+2. scheduling modes, `auto` only: `EXCLUSIONS` in order — `quoted_only` (own words empty → the
+   today's ignore-shaped result, no model call) and `opt_out` (`ignore`, no model call). **Stated
+   exception to equivalence:** today `auto` calls the model first and relies on the prompt's :72
+   bullet for opt-out; after this change an explicit opt-out never reaches the model, so the model
+   call/capture count for that phrasing drops from one to zero and a model `schedule` can no longer
+   win. The corpus pins it with a would-schedule stub and `ModelCalled: false`. `force` skips both
+   (the `KeepQuotedText` test at `quoted-text-reminders.test.js:111-113`; the human asserted it is a
+   task).
+3. scheduling modes: `DecideAsync(WorkspaceAI, DecisionSpec, ownWords, {Capture, Logger})` on own
+   words (`auto`) or the whole message (`force`) — unchanged spec, prompt and validator.
+4. model `ignore` → direct-ask fallback (`DetectDirectAskWithTimeTrigger`, which keeps its own
+   quote-strip and negation regex in both modes, exactly as the helper behaves today at :733) →
+   `schedule` / `direct_ask_fallback`, else `ignore` / `model_ignore`.
+5. `Triggers` = each candidate's `scheduling_trigger` classified by `IsPeriodOnlyTrigger`.
 
 ### Corpus: `data/static/ai/reminder-judgement-corpus.json`
 
-Rows `{ Id, Issue, Text, Mode, Model, Expect }` where `Model` is what the stubbed analyzer returns
-(`null` = the model must not be called) and `Expect` holds `Verdict`, `Reason` (one token that must be
-present), optional `ModelCalled`, `PeriodOnly` (per trigger), `OwnWords`. Seeded with the four
-shipped cases plus the rows the sweep retires from unit tests: the five #201 request rows from
-`reminder-text-completion.test.js:61-66`, the opt-out and `don't forget` rows, the negated direct ask,
-and the force-mode quoted case.
+Rows `{ Id, Issue, Text, Mode, Model, Expect, Date? }` where `Model` is what the stubbed analyzer
+returns (`null` = the model must not be called) and `Expect` holds `Verdict`, `Reason` (one token
+that must be present), optional `ModelCalled`, `PeriodOnly` (per trigger), `OwnWords`. The optional
+`Date` block (plan-QA F2) is `{ Anchor: <ISO, in the past relative to Now>, Now: <ISO>,
+WasAdjustedForward: bool }`: for such rows the corpus test also runs the real
+`ExtractDateWithGptAsync` on the row's first trigger with the date extractor stubbed to `Anchor`, and
+asserts `wasAdjustedForward` and that the result is not in the past — so the #205 row reproduces
+"schedule with no past-time warning" end to end, and perturbing `reminders-ai-pipeline.js:969` fails
+it. Date extraction itself stays outside the judgement owner.
+
+Seeded with the four shipped cases plus the rows the sweep retires from unit tests: the six #201
+request rows from `reminder-text-completion.test.js:62-67` (each in the mode that pins it), the
+opt-out rows (would-schedule stub, `ModelCalled: false`) and the `don't forget` / `calendar event`
+non-opt-out rows, the negated direct ask, and the force-mode quoted case.
 
 `tests/reminder-judgement-corpus.test.js`: `test.each` over the rows, one entry point
 (`JudgeReminderTextAsync`) with `WorkspaceAI.ProcessMessageWithJsonResponseAsync` stubbed per row from
 `Model`. A row's expectation changing fails the test by construction.
 
-Guard (in `tests/reminders-fsm-invariants.test.js`, existing suite): every token in
-`ReminderJudgement.REASONS` appears in at least one corpus row's `Expect.Reason`, and every corpus
-reason is a known token. Adding an exclusion without a row fails the invariant.
+Guard (in `tests/reminders-fsm-invariants.test.js`, existing suite; plan-QA F1 narrowed the claim):
+
+- every `EXCLUSIONS` entry has at least one corpus row whose `Expect.Reason` is that entry's
+  `Reason` AND whose `Text` the entry's own `Test` matches (a real positive example, not just a token);
+- every `REASONS` token has at least one corpus row, and every corpus reason is a known token;
+- the judgement source iterates `EXCLUSIONS` (asserted by requiring that `REASONS` is derived from the
+  table plus the fixed post-model tokens, so a reason the table does not know cannot be emitted).
+
+What this does guard: a new deterministic exclusion (a new table entry) without a row. What it
+cannot guard, stated honestly: widening an existing entry's regex, or a prompt-only exclusion (the
+model is stubbed, so prompt semantics are outside the corpus boundary — the prompt's examples remain
+its own regression surface). Negative control for the acceptance list: add a table entry with no row
+→ the invariant fails without touching the corpus.
 
 ### Call-site rewiring (one site per commit)
 
 | Site | Change |
 |---|---|
 | `src/reminders-ai-pipeline.js:364-399` | `AnalyzeMessageForRemindersAsync(text, { Mode })` becomes a thin call to `JudgeReminderTextAsync` passing `this.#WorkspaceAI`, `ReminderAnalysisDecisionSpec`, capture and logger; returns `Judgement.Analysis`. `KeepQuotedText` option removed. `#BuildDeterministicFallbackReminder`, `DetectDirectAskWithTimeTrigger`, `IsPeriodOnlyTrigger` deleted from the pipeline. |
-| `src/reminders-ai-pipeline.js:966` | `ReminderJudgement.IsPeriodOnlyTrigger(trigger)`. |
-| `src/reminders-module.js:1620` | `#TryCompleteRemindersFromReplyAsync` asks `JudgeReminderTextAsync(text, { Mode })` and proceeds only on `Verdict === 'complete'`; log line keeps `reason=`. Gates at :1539 / :1587 keep their position. |
+| `src/reminders-ai-pipeline.js:962-969` | `ReminderJudgement.IsPeriodOnlyTrigger(trigger)`; the `while` loop is replaced by one arithmetic step: after the existing +1 UTC day, if period-only and still past, add `Math.ceil((Now - Extracted) / 86400000)` further UTC days (plan-QA F4; same result as the loop, UTC has no DST). Observable results and `wasAdjustedForward` unchanged; GH-205 tests :610-666 kept as the oracle. |
+| `src/reminders-module.js:1615` | `#TryCompleteRemindersFromReplyAsync` asks `JudgeReminderTextAsync(text, { Mode })` and proceeds only on `Verdict === 'complete'`; log line keeps `reason=` from `Completion.Reason`. The gates at :1539 (strict) and handler :700-702 (mention) keep their position. `reminders-module` no longer imports `DetectCompletionReply` (it keeps `ResolveThreadReminderIDsAsync`). |
 | `src/reminders-module.js:1696` | discovery hint → `ReminderJudgement.DetectDirectAskWithTimeTrigger`. |
 | `src/reminders-module.js:1815-1818` | `{ Mode: ArgForceSchedule ? 'force' : 'auto' }`. |
-| `src/reminders-module.js:1850, 2007` | the `'tomorrow morning'` literal comes from `ReminderJudgement.FORCE_FALLBACK_TRIGGER`. |
+| `src/reminders-module.js:1850, 2007` | the `'tomorrow morning'` literal comes from `ReminderJudgement.FORCE_FALLBACK_TRIGGER`; the per-group retry at :2005-2007 itself stays. |
 | `src/reminders-app-mention-handler.js:783` | `ReminderJudgement.OwnWords(text)` instead of a direct `IgnoreQuotedText` import. `SCHEDULING_TRIGGER_PATTERN` and the gate itself stay in the handler (many consumers; moving it is a rewrite). |
-| `src/chat-module.js:1564` | `ReminderJudgement.IsCreationOptOut(NormalizedText)`. |
-| `src/reminder-text-completion.js:86-87,129` | `REQUEST_PATTERN` and its check removed; `DetectCompletionReply` otherwise byte-identical. |
+| `src/chat-module.js:1564` | `ReminderJudgement.IsCreationOptOut(NormalizedText)` (idempotent on already-normalized text). |
+| `src/reminder-text-completion.js:86-87,129` | `REQUEST_PATTERN` removed; `DetectCompletionReply(text, mode, { RequestGuard })` applies the injected guard at the same position (:129). No other line of the detector changes. |
 
 Tests re-pointed, not loosened: `reminders-ai-pipeline.test.js:662-665` →
 `ReminderJudgement.IsPeriodOnlyTrigger`; `quoted-text-reminders.test.js:111-113` → `{ Mode: 'force' }`
-and :127-128 → `ReminderJudgement.DetectDirectAskWithTimeTrigger`; the five request rows at
-`reminder-text-completion.test.js:61-66` move to the corpus (they are the #201 class).
+and :127-128 → `ReminderJudgement.DetectDirectAskWithTimeTrigger`; all six request rows at
+`reminder-text-completion.test.js:62-67` move to the corpus (they are the #201 class and the detector
+no longer carries the guard on its own). Five existing source files change plus the new owner.
 
 ### Sweep result (each former regex has exactly one home)
 
 - `IsCreationOptOut` regex: chat-module → reminder-judgement.
-- `IsPeriodOnlyTrigger` regex: pipeline → reminder-judgement. The roll-forward loop at the date
-  stage stays: it is date extraction (a stated non-goal) and GH-205 tests pin it; it now consumes the
-  judgement classifier instead of a pipeline-local regex.
-- `IgnoreQuotedText`: three call sites → one (`reminder-judgement` is the only importer of
-  `quoted-text`); `KeepQuotedText` option → `Mode: 'force'`.
-- `REQUEST_PATTERN`: reminder-text-completion → reminder-judgement.
+- `IsPeriodOnlyTrigger` regex: pipeline → reminder-judgement. The `while` loop at the date stage is
+  retired for an arithmetic step with identical results (F4); the date stage consumes the judgement
+  classifier instead of a pipeline-local regex.
+- `IgnoreQuotedText`: three production call sites → one (`reminder-judgement` is the only `src`
+  importer of `quoted-text`; the span regexes stay in `quoted-text.js`, their home); `KeepQuotedText`
+  option → `Mode: 'force'`.
+- `REQUEST_PATTERN`: reminder-text-completion → reminder-judgement (injected into the detector).
 - Direct-ask + negation regex: pipeline → reminder-judgement.
-- 3c267cd per-group fallback: kept; the literal is owned by the judgement result.
+- 3c267cd per-group fallback: kept at :2005-2007; its literal is the exported constant.
+
+Single-home grep (acceptance): scope `src/`, exact patterns — `IsCreationOptOut`,
+`IsPeriodOnlyTrigger`, `REQUEST_PATTERN|HasRequestLanguage`, `DetectDirectAskWithTimeTrigger`,
+`require('./quoted-text')`, `'tomorrow morning'` — each defined in exactly one `src` file.
 
 ### Non-goals
 
@@ -220,8 +267,10 @@ reaction-lookback tasks, no changes to thread-read code (#225 owns it), no new e
 - Outcome: every future false-positive class gets one corpus row and one code site, not a fifth regex.
 - Smallest bet: consolidation + corpus. Not a rewrite of trigger detection or the prompt.
 - Rejected alternative: another pre-filter in front of the model — that is the defect.
-- Rollback: revert the rewiring commits; the module, corpus and test are additive and inert when
-  nothing calls them. Undo class easy, no migration, no state.
+- Rollback: revert ALL the branch's rewiring commits (each includes its deletions and its test
+  re-points), which restores the deleted code; the module, corpus and corpus test can then be kept
+  or reverted independently (the FSM invariant imports the module, so "inert" means no production
+  caller, not no importer). Undo class easy, no migration, no state.
 - Blast radius: every reminder scheduling and text-completion path. Covered by the eight suites above
   plus the corpus; behavior is intended byte-identical for every pinned case.
 
@@ -232,10 +281,14 @@ one JSON file, one test file, no framework, no enterprise fail-safes.
 
 ## Acceptance
 
-- [ ] Corpus test green with every row; a red control (flip one row's expected verdict) fails.
+- [ ] Corpus test green with every row; red control A (flip one row's expected verdict) fails.
+- [ ] Red control B (F2): perturb `reminders-ai-pipeline.js` so a period-only trigger sets
+      `wasAdjustedForward`; the #205 corpus row fails.
+- [ ] Red control C (F1): add an `EXCLUSIONS` entry with no corpus row; the FSM invariant fails.
 - [ ] Every existing reminders suite green; full `npm test` green on the final commit.
-- [ ] `git grep` shows each swept regex has exactly one home (`src/reminder-judgement.js`).
-- [ ] FSM invariant: every `REASONS` token has a corpus row.
+- [ ] Single-home grep over `src/` for the six patterns above: one defining file each.
+- [ ] FSM invariant: every `EXCLUSIONS` entry and every `REASONS` token has a matching corpus row.
+- [ ] The date-stage `while` is gone and GH-205 tests :610-666 pass unchanged.
 - [ ] CHANGELOG entry in the two-paragraph format; `node scripts/validate-changelog-tone.js` exits 0.
 - [ ] `utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt` clean before every push.
 
@@ -246,10 +299,28 @@ override; row `rmi-01M4J8VBD1FK26YPZSFBFNT9GJ`, read back from the ledger. Recur
 evidence: six member issues (#197 #201 #205 #211 #114 #149) and two repeat fixes on
 `src/reminders-ai-pipeline.js` and `src/reminders-module.js` inside 14 days (commits 6e90bd8,
 cf9fe6d, ebbcd47, 6584d6f), each symptom fix costing a cycle and not holding (churn score 19, radar
-run 20261010T060531Z). Severity 65: false positives post reminders nobody asked for, but nothing is
-lost. Cheapness 35: four modules plus tests are touched, with the behavior pinned by eight existing
-suites. PDDA triage risk 3 (Costly), effort 4, complexity 4 — not express-eligible.
+run 20261010T060531Z). Severity 65: scheduling false positives post reminders nobody asked for; a
+completion false positive is worse — it transitions and deletes a reminder (`reminders-module.js:1654-1659`)
+— which is why the completion gate is moved byte-identically. Cheapness 35: five existing source
+files plus tests are touched, with the behavior pinned by eight existing suites. PDDA triage risk 3
+(Costly), effort 4, complexity 4 — not express-eligible.
 
 ## Verification and QA
 
-Plan QA: pending (`marathon-system/gh149-plan-qa/RELAY.md`).
+Plan QA (`marathon-system/gh149-plan-qa/RELAY.md`), round 1 (codex): VERDICT FAIL, four `[Should]`
+findings plus path corrections. Adjudication:
+
+| Finding | Decision | Change |
+|---|---|---|
+| Path corrections (1539 is strict/`#OnMessageAsync`; mention gate is handler :700-702; detection :1615; `IsReminderActionIntent` posts an explanation, not routing; six request rows :62-67; inline stub at quoted-text :95-97) | Accepted | Recon rewritten. |
+| F1 token coverage is not exclusion coverage | Accepted, with the claim narrowed | `EXCLUSIONS` table is the implementation; invariant requires a matching positive row per entry; prompt-only and regex-widening are stated as outside the guard; red control C added. |
+| F2 corpus cannot reproduce #205's warning | Accepted | `Date` block on the row; corpus test runs the real date stage with a stubbed past anchor; red control B added. |
+| Contract: early exits must return ignore-shaped `Analysis`; fallback literal has two contracts | Accepted | `Analysis` always model-shaped in scheduling modes, `null` in completion modes; the literal is the exported constant only. |
+| F3 completion rewiring not behavior-preserving (quote-strip, guard precedence, sixth row) | Accepted | Completion modes use raw text; guard injected into `DetectCompletionReply` at its current position; all six rows migrate. |
+| 4(a) auto-mode opt-out is new behavior | Accepted | Stated as the one exception to equivalence; pinned by a would-schedule stub with `ModelCalled: false`; chat normalization reused. |
+| 4(c) force and the direct-ask helper's quote-strip | Accepted | Helper keeps its own quote-strip in both modes; stated. |
+| 5 rollback wording; grep scope | Accepted | Rollback = revert all rewiring commits; grep scoped to `src/` with named patterns. |
+| F4 keep the `while` loop | Accepted | Arithmetic roll-forward with identical results; GH-205 tests are the oracle. |
+| 7 "nothing is lost"; module count | Accepted | Corrected above. |
+
+Nothing was rejected; no finding asked for machinery beyond the envelope.

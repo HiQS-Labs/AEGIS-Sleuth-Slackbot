@@ -52,3 +52,210 @@ Rejected — Out of Scope / Ponytail) and hand back for the next round. Round ca
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
 
 ## Log
+
+### Round 1 — codex review
+
+Plan gate: changes required. The consolidation is proportionate, but the proposed invariant does
+not enforce the promised rule, and the completion rewiring is not behavior-preserving.
+
+Evidence scope: read the full seeded plan and the cited source/test regions in this worktree.
+Codebase-memory Verify was attempted: both pages of `list_projects` (82 projects) contained no
+index for this worktree; `check_index_coverage` with all cited paths and `src`/`tests` scopes returned
+`project not found or not indexed`. Therefore these findings use direct source reads, not another
+clone's graph or a claimed fresh generation. No git commands, suites, fixtures, network calls, or
+source edits were performed. Full-suite behavior is **[Unverified — needs clone run]**. The narrow
+pure-function probe below exited 0; its decisive output is retained here because scratch is discarded.
+
+#### 1. Grounded paths
+
+All named files exist. Most cited regions match, with these material corrections:
+
+- Plan :88-93 calls `reminders-module.js:1539` an `OnAppMentionAsync` mention-mode gate. It is
+  actually inside `#OnMessageAsync` (:1522), using **strict** mode. The mention-mode gate is
+  `reminders-app-mention-handler.js:700-702`, correctly cited elsewhere in the plan.
+- `reminders-module.js:1587-1589` is the scheduling call, not strict completion. Strict completion
+  is :1539; completion detection is :1615, not :1620 (the latter begins `IsOwner`). Resolution
+  is :1623-1625, not :1625-1630. Rewiring rows :186 and the historical trace :105-107 need these
+  corrections so implementation does not move or replace the wrong gate.
+- `ChatModule.IsReminderActionIntent` does not route to the reminders module. Its caller at
+  `chat-module.js:2152-2158` posts an unsupported-creation explanation. The opt-out patch prevents
+  that explanation; it is not currently a scheduling pre-filter.
+- The #201 request cases are six rows, :62-67, including `snooze this, the client closed for the
+  day`. Plan :168-169/:196-197 moves only five and leaves that sixth direct-detector test behind.
+- The stubbing statement at plan :120-121 is too broad: `quoted-text-reminders.test.js:95-97`
+  constructs an inline AI stub. This does not prevent using the proposed corpus.
+
+#### 2. Requirement coverage
+
+**F1 [Should] — token coverage is not exclusion coverage** (plan :176-178/:238).
+The invariant catches adding a new declared token without a row. It cannot catch extending an
+existing exclusion regex, adding a branch returning `model_ignore`/`opt_out`, or changing the prompt
+exclusions while retaining `model_ignore`. Both sets remain identical. It also does not itself prove
+that the source emits only declared tokens. Thus “adding an exclusion without a row fails” is false.
+Use the existing invariant suite, with a small explicit exclusion identity/definition contract that
+the predicates actually consume and the corpus covers; define the boundary for prompt exclusions.
+Do not introduce a new test framework. Require a negative control that adds/extends an exclusion
+without a corpus row and makes this guard fail, rather than only flipping an expected verdict.
+
+Observed input: a new `ignore` branch reusing the already-covered `model_ignore` token; the probe's
+unchanged `REASONS=['model_ignore']` and one old row still report coverage `true`.
+Affected scope: the addendum's Guard requirement and the claimed future-exclusion protection.
+Falsifier: in a disposable clone, add an uncovered exclusion using an existing token (including an
+extension of an existing predicate); the existing FSM invariant must fail without editing the corpus.
+
+**F2 [Should] — the corpus cannot reproduce #205's warning outcome as specified** (plan :45-48,
+:159, :165-174). `PeriodOnly=true` classifies a trigger; it never asserts date extraction or
+`wasAdjustedForward`. For example, changing `reminders-ai-pipeline.js:969` to always set
+`wasAdjustedForward=true` leaves the entire proposed judgement corpus green. Existing tests at
+`reminders-ai-pipeline.test.js:629-658` cover that integration, but the requested unified reproduction
+is only nominal. Extend the same corpus test/row with a stubbed past anchor and an assertion on the
+real date-stage result (and/or warning), while keeping date extraction outside the judgement owner.
+
+Observed input: the GH-205 `This week` case with a past anchor; :969 controls the warning flag, and
+`reminders-module.js:2194` consumes it. No such flag/date input exists in the proposed corpus schema.
+Affected scope: Reproduce's “schedule with no past-time warning” requirement.
+Falsifier: perturb :969 so a period-only trigger emits a past-time warning; the #205 corpus row fails.
+
+Reproduce otherwise names #197/#211/#201, Fix covers the intended owner, and Verify is explicitly
+operator post-merge as requested. Sweep has the loop deviation discussed in answer 6.
+
+#### 3. Extends versus duplicates
+
+Delegating to `quoted-text`, `DetectCompletionReply`, `DecideAsync`, and the existing analysis spec
+extends those modules. No need to copy their normalizers, prompt loader, validation, capture, or
+completion vocabulary. The sweep gives the moved opt-out, period-only, request and direct-ask regexes
+one home; the quote-span regexes correctly retain their existing home in `quoted-text.js`.
+Leaving `SCHEDULING_TRIGGER_PATTERN` in the handler is a reasonable explicit scope boundary.
+
+Two contract details need clarification during revision: scheduling early exits must supply a valid
+ignore-shaped `Analysis` (as today's quoted-only return at pipeline :370-371 does), since plan :184
+returns `Judgement.Analysis` and module :1819 immediately dereferences `.recommendation`. Reserving
+`Analysis=null` for completion modes avoids a null dereference. Also, plan :160 says the per-group
+fallback comes from the result, but :189 reads an exported constant and the adapter discards that
+result field. Choose one consumed contract and describe it consistently; the fallback itself at
+module :2005-2007 should remain.
+
+#### 4. Gate ordering and observable behavior
+
+**F3 [Should] — preserve the completion gate semantics and all six migrated cases** (plan :145-154,
+:192-197). Today completion takes raw reply text, with request detection after question checks and
+before negation/future checks (`reminder-text-completion.js:119-144`). The proposed common quote-strip
+changes it: `done "not done"` becomes a completion, while `"done"` stops completing. This broadens
+the quoted-text scheduling fix to a terminal deletion path without an explicit requirement.
+The post-positive request guard preserves many request verdicts, but changes reasons for
+`done, remind me tomorrow` (`contains_request` → `future_or_conditional`) and `snooze this` in strict
+mode (`contains_request` → `no_completion_phrase`). Finally, deleting the guard while migrating only
+five rows leaves the sixth row at test :67 calling the now-unguarded detector and returning true.
+Keep raw-text completion semantics and the request guard's precedence through delegation to the
+single owner; repoint every affected caller/test, including the sixth request row. If quote-stripped
+completion is intentional, explicitly price it as a behavior change rather than a byte-identical move.
+
+Observed input: the four probe rows below; the snooze row is pinned false at
+`tests/reminder-text-completion.test.js:67-71`.
+Affected scope: mention/strict completion, reason diagnostics, and a retained unit assertion.
+Falsifier: all six request rows remain non-completing through their final tested entry point; overlap
+inputs keep their prior reasons and quoted completion inputs keep prior verdicts, or the revised
+plan explicitly approves and tests each intentional change. Final suites need a clone run.
+
+(a) The auto-mode opt-out gate is **new deterministic behavior**, not today's implicit order:
+pipeline :381 calls the model first. Enforcing the prompt's :72 intent before the model is reasonable,
+but it changes call/capture count and overrides a stubbed/model `schedule`. Existing chat opt-out
+tests pin routing, not this pipeline result. State that exception to equivalence and assert no model
+call with a would-schedule stub. Preserve chat's apostrophe/case normalization when reusing its regex.
+
+(b) The request move has the concrete differences in F3. The existing five migrated request rows
+mostly retain verdicts; that does not prove all reasons or all retained tests are preserved.
+
+(c) Force bypass of quote-strip matches the explicit `KeepQuotedText` test at
+`quoted-text-reminders.test.js:111-113`; bypassing the new opt-out gate preserves human force intent.
+However, today's force path still calls a quote-stripping direct-ask helper when the model ignores
+(pipeline :388-389 → :733). “Force skips quote-strip” must specify whether that fallback preserves its
+existing helper behavior or also changes. No blanket equivalence claim is supported by the one test.
+
+#### 5. Blast, rollback, acceptance
+
+The radius is correctly every scheduling/text-completion path, with no persistence migration.
+Reverting **all** rewiring commits, including deletions and corresponding test changes, restores the
+deleted code; calling the new module additive is accurate only under that complete reversal. An
+invariant test importing the new module is not literally inert, even if production no longer calls it.
+No flag or new infrastructure is needed for this envelope.
+
+Verdict-flip red control is falsifiable but proves assertion plumbing, not guard completeness (F1).
+Regex single-home is measurable, provided the grep scope is production `src` and the exact moved
+patterns are named; not every quote/completion regex should move. The GH-205 semantic falsifier is
+missing (F2). Full-suite/build evidence remains **[Unverified — needs clone run]**.
+
+#### 6. Roll-forward loop
+
+**F4 [Should] — test-pinned results do not require keeping the loop syntax** (plan :202-204 versus
+the explicit Sweep ask :55). The GH-205 tests pin future dates and the flag, not an implementation
+using `while`. After the initial +1 UTC day at pipeline :962, a finite valid date can be advanced by
+`Math.ceil((CurrentUtcDate - ExtractedDate) / 86400000)` further UTC days when still past. That retires
+the loop without changing the date-stage API or ordinary observable results. Alternatively, seek an
+explicit accepted deviation in the plan; the current “non-goal/tests pin it” rationale alone does
+not establish that literal compliance requires changing behavior. Keep the existing GH-205 tests.
+
+Observed input: test :642 seeds a 3-days-plus-1-hour-old anchor; pipeline :967-968 advances in UTC
+24-hour increments until the date is not past.
+Affected scope: the addendum's explicit while-loop retirement, confined to date roll-forward.
+Falsifier: in a disposable clone, the loop is absent and the :629-658 result/flag tests pass (including
+exact-day boundaries), or the producer records an explicit agreed scope deviation.
+
+#### 7. Rating
+
+80/65/50/35 is directionally supported by the supplied six-member recurrence narrative, noisy false
+positives and broad but bounded rewiring. Exact ledger/churn/history numbers were not independently
+audited here. Risk 3 / effort 4 / complexity 4 is consistent with changing all scheduling/completion
+doors; no enterprise machinery is warranted. Correct “nothing is lost”: a false text-completion
+verdict transitions and deletes a reminder (`reminders-module.js:1654-1659`). The stated four-module
+count is also loose: the rewiring table changes five existing source files, plus the new owner.
+
+#### Reproducible narrow probe
+
+Command (exit 0; pure source evaluation and string transformation, no fixture/test execution):
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+node <<'NODE' > .relay-scratch/review-probe.txt
+const fs=require('fs'),vm=require('vm');
+const s=fs.readFileSync('src/reminder-text-completion.js','utf8');
+function load(s){const c={module:{exports:{}}};vm.runInNewContext(s,c);return c.module.exports.DetectCompletionReply;}
+const before=load(s),after=load(s.split('\n').filter(l=>!l.includes('if(REQUEST_PATTERN.test(Text))')).join('\n'));
+const {IgnoreQuotedText}=require('./src/quoted-text');
+for(const text of ['snooze this, the client closed for the day','done, remind me tomorrow','done "not done"','"done"'])
+ console.log(JSON.stringify({text,before:before(text,'mention'),guardRemoved:after(text,'mention'),ownWordsDetection:before(IgnoreQuotedText(text),'mention')}));
+const REASONS=['model_ignore'],rows=[{Expect:{Reason:'model_ignore'}}];
+console.log('token-coverage-before-and-after-new-exclusion='+REASONS.every(r=>rows.some(x=>x.Expect.Reason===r)));
+NODE
+```
+
+Decisive output (projection probes isolate each gate change; no proposed module exists yet):
+
+```text
+snooze this, the client closed for the day: before=false/contains_request; guardRemoved=true/mention_phrase
+done, remind me tomorrow: before=false/contains_request; guardRemoved=false/future_or_conditional
+done "not done": before=false/negated_or_partial; ownWordsDetection=true/mention_phrase
+"done": before=true/mention_phrase; ownWordsDetection=false/empty
+token-coverage-before-and-after-new-exclusion=true
+```
+
+VERDICT: FAIL
+
+### Round 1 · Producer · claude-a
+
+Basis: every round-1 finding adjudicated in `PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md` ("Verification and QA" table); all Accepted, none rejected.
+
+Plan revised (read the doc again in full; the Recon, Plan, Sweep result, Preflight bet, Acceptance and Verification sections changed):
+
+1. Paths corrected: :1539 is the strict gate inside `#OnMessageAsync`; the mention gate is handler :700-702; detection :1615; `IsReminderActionIntent` is a chat-side explanation gate; six #201 rows :62-67; `quoted-text-reminders.test.js:95-97` inline stub noted.
+2. F1: the guard is now an `EXCLUSIONS` table that `JudgeReminderTextAsync` iterates (the table is the implementation), plus an invariant that every entry has a corpus row whose text the entry's own `Test` matches. What it cannot guard (regex widening, prompt-only exclusions) is stated. Red control C added.
+3. F2: corpus rows carry an optional `Date` block; the #205 row runs the real `ExtractDateWithGptAsync` with a stubbed past anchor and asserts `wasAdjustedForward`. Red control B added.
+4. Contract: `Analysis` always model-shaped in scheduling modes (early exits return today's ignore-shaped object), `null` in completion modes. The fallback literal is the exported constant only.
+5. F3: completion modes take the raw reply text; `REQUEST_PATTERN` moves to the judgement module and is injected into `DetectCompletionReply(text, mode, { RequestGuard })` at its current position, so every reason token is unchanged. All six request rows migrate to the corpus.
+6. 4(a): auto-mode opt-out before the model is stated as the single exception to equivalence and pinned (`ModelCalled: false` with a would-schedule stub). 4(c): the direct-ask helper keeps its own quote-strip in both modes.
+7. F4: the `while` loop is replaced by one `Math.ceil` step with identical results; GH-205 tests kept as the oracle.
+8. Rating text corrected (a false completion deletes a reminder; five source files + the new owner).
+
+Round-2 ask: re-check questions 1-7 against the revised doc. Your reviewer block MUST contain a non-empty `Basis:` line (the block validator rejected round 1 for lacking one, exit 8) and end with exactly `VERDICT: PASS` or `VERDICT: FAIL`; on PASS set `STATUS: Approved` at the top.
+
+handing off to codex — codex, take your turn.
