@@ -1,6 +1,6 @@
 -- releases-app canonical dump (GH-32 grammar: GID-keyed rows, natural keys elsewhere,
 -- no integer PKs/FKs as values; rebuild renumbers deterministically)
--- generation: 53
+-- generation: 54
 -- table: schema_migrations
 INSERT INTO schema_migrations(version, applied_at) VALUES('1', '2026-08-25T01:07:47Z');
 INSERT INTO schema_migrations(version, applied_at) VALUES('2', '2026-08-25T01:07:47Z');
@@ -11,7 +11,7 @@ INSERT INTO schema_migrations(version, applied_at) VALUES('6', '2026-09-09T21:31
 INSERT INTO schema_migrations(version, applied_at) VALUES('7', '2026-09-09T21:31:03Z');
 -- table: settings
 INSERT INTO settings(key, value, updated_at) VALUES('enforcement', 'lenient', '2026-09-09T21:31:03Z');
-INSERT INTO settings(key, value, updated_at) VALUES('generation', '53', '2026-10-10T03:04:26Z');
+INSERT INTO settings(key, value, updated_at) VALUES('generation', '54', '2026-10-10T03:23:25Z');
 INSERT INTO settings(key, value, updated_at) VALUES('repo_slug', 'aegis-sleuth-slack-bot', '2026-09-09T21:31:03Z');
 INSERT INTO settings(key, value, updated_at) VALUES('unshipped_version_tokens', 'TBD', '2026-09-09T21:31:03Z');
 -- table: repos
@@ -30,6 +30,9 @@ INSERT INTO issue_refs(global_id, url, temp_id, created_at, updated_at) VALUES('
 INSERT INTO issue_refs(global_id, url, temp_id, created_at, updated_at) VALUES('ref-01M14D9SQ22W3VET3FS6VZXVVK', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/143', NULL, '2026-08-28T14:45:07Z', '2026-08-28T14:45:07Z');
 INSERT INTO issue_refs(global_id, url, temp_id, created_at, updated_at) VALUES('ref-01M14DA42W6WFC7KGFXGJ2CYRJ', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149', NULL, '2026-08-28T14:45:18Z', '2026-08-28T14:45:18Z');
 INSERT INTO issue_refs(global_id, url, temp_id, created_at, updated_at) VALUES('ref-01M15KK6PCNKG6S3XWG2CK7TE0', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/152', NULL, '2026-08-29T01:54:21Z', '2026-08-29T01:54:21Z');
+INSERT INTO issue_refs(global_id, url, temp_id, created_at, updated_at) VALUES('ref-01M4HXCF080WBJQXY4Y14BSVPV', 'https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/221', NULL, '2026-10-10T03:23:25Z', '2026-10-10T03:23:25Z');
+-- table: marathons
+INSERT INTO marathons(global_id, repo_gid, tracking_ref_gid, status, created_at, updated_at) VALUES('mar-01M4HXCF02AW3XMR85TGR52C9D', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', 'ref-01M4HXCF080WBJQXY4Y14BSVPV', 'planned', '2026-10-10T03:23:25Z', '2026-10-10T03:23:25Z');
 -- table: releases
 INSERT INTO releases(global_id, repo_gid, version, codename, status, target_date, shipped_date, description, exit_criterion, tracking_ref_gid, marathon_gid, gh_release_url, milestone, front_door_reviewed, shakedown_reviewed, license_file, baseline_count, baseline_at, baseline_source, updated_at) VALUES('rel-01M0V7FVJ2JRKQABYXPP3VEYB8', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '"Confluence"', 'draft', NULL, NULL, 'Deliberately short — see #80 and #79. This file''s own history is the reason: the', NULL, 'ref-01M0V7FVJ3EATMPR5G3Q7H3M3C', NULL, 'https://github.com/HiQS-Suite/AEGIS-Sleuth-Slackbot/issues/80', 'One extraction path. Delete intent-selector grammars; keep verifiers.', 'No', 'No', 'No', NULL, NULL, NULL, '2026-09-09T21:31:03Z');
 INSERT INTO releases(global_id, repo_gid, version, codename, status, target_date, shipped_date, description, exit_criterion, tracking_ref_gid, marathon_gid, gh_release_url, milestone, front_door_reviewed, shakedown_reviewed, license_file, baseline_count, baseline_at, baseline_source, updated_at) VALUES('rel-01M0V7FVJ3JJBA7BKJ1B0X4XV2', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '"Silverlining"', 'shipped', NULL, '2026-07-27', 'First public open source license', NULL, 'ref-01M0V7FVJ3YZP4NBH9Y4K6A1VR', NULL, NULL, NULL, 'No', NULL, 'No', NULL, NULL, NULL, '2026-09-17T22:48:58Z');
@@ -675,3 +678,4 @@ INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_bef
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-add', 'rmi-01M4HVYWTW927JJT6HGNTQVA14', '2026-10-10T02:58:31Z', 'a5d041c960ad41eb880ba9a0c7728836', 'default', '46252b04aa9ca1256857e9bf61c1d7f960a7f4de1edeccb8c26b03ba3bf69969', 'c9e2a55268e9c3323e6d100ed895dbee4d4484e4c57738ab1cda530d77dad27c');
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-repoint', 'rmi-01M4HVYWTW927JJT6HGNTQVA14', '2026-10-10T03:04:26Z', '872f304cf92940269916f1db10517afe', 'default', 'c9e2a55268e9c3323e6d100ed895dbee4d4484e4c57738ab1cda530d77dad27c', 'ecfa85e6ed2c4f019735891de9b98fa308a086cbb37b8a222d842c124022d550');
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-rate', 'rmi-01M4HVYWTW927JJT6HGNTQVA14', '2026-10-10T03:04:26Z', '60be64f7d6e14e3f917f95b65818294e', 'default', 'ecfa85e6ed2c4f019735891de9b98fa308a086cbb37b8a222d842c124022d550', '23ff7fb0d0d14201227394780be77d82fcec6fbf3e3b9dfd3f04878e8e61c41a');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('marathon-add', 'mar-01M4HXCF02AW3XMR85TGR52C9D', '2026-10-10T03:23:25Z', 'd7704a54d55346e184bf94a79520274d', 'default', '23ff7fb0d0d14201227394780be77d82fcec6fbf3e3b9dfd3f04878e8e61c41a', '421cfb14ec9f285bca9c0a21f80bdc4cdb3c7b2337e16175bf2ec89cbddaf618');
