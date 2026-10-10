@@ -265,3 +265,11 @@ manifest file scopes=files:read,files:write
 **[Unverified — needs clone run]:** npm test and runtime integration remain for the harness's disposable clone gate. Live self-QA remains operator post-deploy acceptance. No test suites, executable fixtures, git commands, or server actions were run. Only RELAY.md was edited; probe files stayed under .relay-scratch/tmp.
 
 relay closed, no further turn needed.
+
+### Attestation · relay-drive — 2026-10-10T05:11:12Z
+task: MARATHON-P3-TURN
+reviewer: codex
+status: Approved
+reviewed-head: b3022f0f3c7f35c62bd0d97d5d977bafbd6edd8b
+added-range: 19225+4747
+added-sha256: 824d6671ceee97a5d893d3021bc54cfe317bdb0dfda01bdaac5eff24008b6eea
