@@ -1,0 +1,51 @@
+# MARATHON.yaml — GH-221 dev-only `@Sleuth selftest` self-QA mode.
+#
+# Tracking issue: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/221 (single-member arc;
+# the issue is its own umbrella). Plan doc: PROJECT/2-WORKING/GH-221-SELFTEST-MODE.md (Codex plan QA
+# Approved round 3, reviewed-head 43ff69c; thread in the gitignored relay-system/2026-10-09/).
+# Clone: ~/marathon-clones/marathon-gh-221-selftest-mode (full clone, branch marathon/gh-221-selftest-mode).
+#
+# Fire with (only after the operator confirms this exact plan and order):
+#   <harness>/relay-automation/marathon.sh \
+#     --plan PROJECT/2-WORKING/GH-221-SELFTEST-MARATHON/MARATHON.yaml \
+#     --builder agy \
+#     --pre-advance-cmd "npm test"
+#
+# Builder agy, reviewer codex on every phase; builder and reviewer must differ. Both are
+# subscription-billed turn-takers. `npm test` is the repo gate (jest then node:test).
+#
+# SEQUENCING: strictly one phase at a time in plan order. depends_on records real write-set overlap:
+#   p1  src/selftest/selftest-module.js, src/selftest/runner.js, tests/selftest.test.js,
+#       src/app.js, src/chat-module.js
+#   p2  src/selftest/scenarios/*.js (5 new files), tests/selftest.test.js   <- overlaps p1
+#   p3  docs/SSH.md, docs/slack-app-setup.md, docs/deployhq.md, CHANGELOG.md
+# Hot files: src/app.js and src/chat-module.js are touched by p1 only; no other marathon is in flight.
+# Live dev verification of the five scenarios is a post-merge operator step, not a marathon gate.
+
+name: gh221-selftest-2026-10-09
+phases:
+  - id: p1
+    name: "GH-221 P1 — SelftestModule guard, runner, ChatModule.ClearThreadMemoryAsync, app wiring"
+    reviewer: codex
+    brief: PROJECT/2-WORKING/GH-221-SELFTEST-MARATHON/briefs/p1-guard-runner-wiring.md
+    artifact: src/selftest/selftest-module.js,src/selftest/runner.js,tests/selftest.test.js,src/app.js,src/chat-module.js
+    turn_timeout_s: 1800
+    max_review_rounds: 3
+
+  - id: p2
+    name: "GH-221 P2 — the five scenario files plus the loader contract test"
+    reviewer: codex
+    brief: PROJECT/2-WORKING/GH-221-SELFTEST-MARATHON/briefs/p2-scenarios.md
+    artifact: src/selftest/scenarios/lookback-basic.js,src/selftest/scenarios/lookback-command.js,src/selftest/scenarios/lookback-bare.js,src/selftest/scenarios/lookback-skip-bad.js,src/selftest/scenarios/compass-budget.js,tests/selftest.test.js
+    turn_timeout_s: 1800
+    depends_on: p1
+    max_review_rounds: 3
+
+  - id: p3
+    name: "GH-221 P3 — SSH.md entry, Slack scopes, deployhq line, CHANGELOG"
+    reviewer: codex
+    brief: PROJECT/2-WORKING/GH-221-SELFTEST-MARATHON/briefs/p3-docs-changelog.md
+    artifact: docs/SSH.md,docs/slack-app-setup.md,docs/deployhq.md,CHANGELOG.md
+    turn_timeout_s: 900
+    depends_on: p2
+    max_review_rounds: 2
