@@ -19,7 +19,7 @@ const MemoByEvent = new WeakMap();
 
 /**
  * Read a thread once per event.
- * @param {object} ArgSlackApp Slack app whose `GetConversationMessagesAsync` performs the read.
+ * @param {import('./slack-app')} ArgSlackApp Slack app whose `GetConversationMessagesAsync` performs the read.
  * @param {{channel: string, ts: string}} ArgEvent The inbound event the read is for; its identity is
  *   the memo lifetime and, when bounded, its `ts` is Slack's `latest`.
  * @param {string} ArgThreadTs Thread root timestamp.
@@ -47,7 +47,7 @@ function GetThreadAsync(ArgSlackApp, ArgEvent, ArgThreadTs, ArgOptions = {}) {
       );
       return { Messages, Complete: true };
     } catch(error) {
-      if(error?.code === 'context-incomplete') return { Messages: [], Complete: false };
+      if(error?.code === 'context-incomplete') return { Messages: /** @type {any[]} */ ([]), Complete: false };
       Memo.delete(Key);
       throw error;
     }
