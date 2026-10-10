@@ -1,5 +1,5 @@
 # Marathon Phase p2
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=7 -->
@@ -271,4 +271,69 @@ Handing off to agy — agy, take your turn.
 Fixed the blockers identified in Round 2:
 - **Compass missing answer/citation:** Updated `compass-budget.js` to split the text on `Sources:`. Asserts that the first part (answer body) is non-empty, and the second part (Sources block) contains at least one non-empty excerpt starting with `> `. Excerpt duplication checking still spans the entire output.
 - **Command scenario extra AI chat:** Updated `lookback-command.js` to strictly expect exactly one response after the baseline. The exact message is then asserted to be the model-status reply. Retained the check for exactly one download.
-Both files verified via isolated evaluation of assertion logic.
+Both files verified via isolated evaluation of assertion logic.  [Unverified — no citation]
+
+
+### Round 3 · Reviewer · codex
+
+swept file: yes
+
+**Verdict:** Approved
+
+Read all five scenario files and the entire tests/selftest.test.js, including its pre-existing module guards and runner cases. No additional pre-existing defect was found in the swept test file. Read the parent plan and runner contract, and checked the Compass source renderer and deterministic channel-model reply. The mapping split, baseline filtering, canary isolation, download checks, report-shape test and loader contract remain intact. All five scenarios satisfy the 40-line limit (37, 23, 23, 25, 22 split lines respectively for compass, bare, basic, command and skip-bad).
+
+Round 2 findings are resolved:
+- Compass requires a non-empty answer before Sources and a non-empty excerpt inside Sources; the two previously accepted invalid messages now fail. Whole-output excerpt duplication and exactly-one bounded read assertions still reject their negative controls.
+- Command requires exactly one post-baseline response, checks the deterministic heading and verification marker, and retains exactly one fixture download. A status reply plus unrelated chat now fails.
+
+Evidence scope: task-directed Verify using exact on-disk source. MCP list_projects returned all 82 projects with has_more=false; neither this checkout nor the env-pinned GH-221 clone is indexed. No applicable graph generation or coverage record exists; direct source fallback was used. No git, test suite, executable fixture, validation script, scenario Run or Slack call was executed.
+
+Non-mutating compiler probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node node_modules/typescript/bin/tsc --noEmit --incremental false > "$TMPDIR/p2-round3-tsc.log" 2>&1`. Exit **0**, empty diagnostic output.
+
+Assertion-only probe: `node "$TMPDIR/p2-round3-predicates.cjs"`, exit **0**. This reads source slices and evaluates only predicates in an isolated VM; it never invokes Run, uploads or handlers. Decisive output:
+
+```text
+compass NO answer body: REJECTED: has answer body
+compass EMPTY Sources with quote in answer: REJECTED: non-empty citation block inside Sources
+compass valid sourced answer: PASS
+compass duplicated excerpt: REJECTED: no excerpt twice
+compass extra unbounded read: REJECTED: exactly one in-scope reply read
+compass no post-baseline answer: REJECTED: successful cited answer
+command valid single status: PASS
+command status PLUS unwanted chat: REJECTED: exactly one reply
+```
+
+Reproducible probe source (saved only in scratch):
+
+```js
+const fs = require('fs'), vm = require('vm');
+function probe(label, file, start, end, vars) {
+ const code = fs.readFileSync(file,'utf8').split('\n').slice(start-1,end).join('\n');
+ try {
+  vm.runInNewContext(code,{...vars, Context:{
+   Expect(ok,msg){if(!ok)throw Error(msg);},
+   Fixture:{DownloadCount:()=>1}
+  }});
+  console.log(label+': PASS');
+ } catch(error){console.log(label+': REJECTED: '+error.message);}
+}
+const compass='src/selftest/scenarios/compass-budget.js';
+const vals=text=>({calls:[{MaxPages:5}],baseTs:'2',replies:[{ts:'3',text}]});
+const good='Release adds widgets [1.1].\n\nSources:\n[1.1] release <https://example.test|open>\n> Canary excerpt';
+probe('compass NO answer body',compass,13,34,vals('\n\nSources:\n[1.1] release <https://example.test|open>\n> Canary excerpt'));
+probe('compass EMPTY Sources with quote in answer',compass,13,34,vals('Sorry, unavailable.\n> unrelated quote\nSources:'));
+probe('compass valid sourced answer',compass,13,34,vals(good));
+probe('compass duplicated excerpt',compass,13,34,vals('Canary excerpt [1.1].\n\nSources:\n[1.1] release\n> Canary excerpt'));
+probe('compass extra unbounded read',compass,13,34,{...vals(good),calls:[{}, {MaxPages:5}]});
+probe('compass no post-baseline answer',compass,13,34,{...vals(good),replies:[{ts:'2',text:good}]});
+const cmdvars={baseTs:'2',token:'canary-only-in-file',replies:[{ts:'3',text:'*Channel Model*\nVerified answer'}]};
+probe('command valid single status', 'src/selftest/scenarios/lookback-command.js',17,22,cmdvars);
+probe('command status PLUS unwanted chat','src/selftest/scenarios/lookback-command.js',17,22,{...cmdvars,replies:[...cmdvars.replies,{ts:'4',text:'Hello, how can I help?'}]});
+for(const file of fs.readdirSync('src/selftest/scenarios').filter(f=>f.endsWith('.js')))
+ console.log(file+': '+fs.readFileSync('src/selftest/scenarios/'+file,'utf8').split('\n').length+' lines');
+
+```
+
+Jest, full npm test and harness gates remain **[Unverified — needs clone run]**; approval does not claim those passed. Live outcomes remain unverified and require the planned unmapped and mapped dev-channel runs after deployment.
+
+Relay closed, no further turn needed.
