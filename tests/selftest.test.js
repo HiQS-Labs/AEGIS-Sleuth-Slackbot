@@ -153,3 +153,57 @@ describe('Runner', () => {
     expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('Report delivery failed: report post failed'));
   });
 });
+
+describe('Scenarios loader', () => {
+  test('all scenarios match contract and run in mock context', async () => {
+    const fs = require('fs').promises;
+    const path = require('path');
+    const scenariosDir = path.join(__dirname, '../src/selftest/scenarios');
+    const files = (await fs.readdir(scenariosDir)).filter(f => f.endsWith('.js'));
+    const names = new Set();
+    
+    for (const file of files) {
+      const content = await fs.readFile(path.join(scenariosDir, file), 'utf8');
+      const lines = content.split('\n');
+      expect(lines.length).toBeLessThanOrEqual(40);
+      
+      const scenario = require(`../src/selftest/scenarios/${file}`);
+      expect(scenario.Name).toBeDefined();
+      expect(typeof scenario.Run).toBe('function');
+      
+      expect(names.has(scenario.Name)).toBe(false);
+      names.add(scenario.Name);
+    }
+  });
+
+  test('runs all five against MockSlackApp', async () => {
+    const { MockSlackApp } = require('./mocks/mock-slack-app');
+    const Runner = require('../src/selftest/runner');
+    const slackApp = new MockSlackApp();
+    slackApp.UploadFileAsync = jest.fn();
+    slackApp.GetPermaLinkAsync = jest.fn().mockResolvedValue('https://mock.slack.test');
+    
+    // We only want the 5 real scenarios, we must spy readdir so we don't pick up pass.js/fail.js from mocks?
+    // Wait, the previous describes mocked them using jest.mock. 
+    // We can just spy fs.readdir to only return the 5 real ones.
+    const fs = require('fs').promises;
+    jest.spyOn(fs, 'readdir').mockResolvedValue([
+      'lookback-basic.js',
+      'lookback-command.js',
+      'lookback-bare.js',
+      'lookback-skip-bad.js',
+      'compass-budget.js'
+    ]);
+
+    await Runner.RunScenariosAsync(slackApp, 'C_QA', null, 'all', 'T_123');
+
+    const report = slackApp.SentMessages[slackApp.SentMessages.length - 1];
+    expect(report.text).toContain('compass-budget — channel is not Compass-mapped');
+    expect(report.text).toContain('⏭ compass-budget');
+    // For the others, they might fail in mock context because GetRepliesAsync returns [] or they crash,
+    // The requirement: "gets a five-line report with compass-budget ⏭ (unmapped mock)"
+    // The report will have a total line, and 5 scenario lines.
+    const reportLines = report.text.split('\n');
+    expect(reportLines.length).toBe(6); // 5 scenarios + 1 summary line
+  });
+});

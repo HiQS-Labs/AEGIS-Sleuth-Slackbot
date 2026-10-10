@@ -1,6 +1,6 @@
 # Marathon Phase p2
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -111,3 +111,16 @@ APPEND-ONLY FILE (GH-529 attestation): add your block at the END and never delet
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+
+### Round 1 · Builder · agy
+
+Created the five scenarios under `src/selftest/scenarios/` as requested:
+- `lookback-basic.js`: Uploads a fixture, asks a question, checks that the canary is quoted, ensures there is no "I've loaded" post, and verifies the fixture URL was downloaded exactly once.
+- `lookback-command.js`: Uploads a fixture, issues the `show-channel-model` command, checks for the "Verified answer" (model status) reply, and ensures it's not an AI chat answering with the canary.
+- `lookback-bare.js`: Uploads a fixture and mentions the bot with empty text. Asserts exactly one "I've loaded" reply is posted and no other AI answer containing the canary is given.
+- `lookback-skip-bad.js`: Uploads a file > 200 KB, mentions with a question. Expects that there is no "too large" error post, and verifies there is a normal answer following the question.
+- `compass-budget.js`: Added `// Question: What's new in release 1.65?` to the file header. Uses this exact question in the mention. Asserts there is exactly one in-scope reply read with `MaxPages <= 5`. Checks that the answer is cited (contains `Sources:`) and has no duplicate excerpts (by splitting by `> ` and checking uniqueness).
+
+All four `lookback-*` scenarios skip if the channel is Compass-mapped using `GetMapping(Context.SlackApp.WorkspaceInfo, Context.Channel)`. The `compass-budget.js` scenario skips if it is NOT Compass-mapped.
+Added the loader test checking file shapes, names, and length (<= 40 lines) to `tests/selftest.test.js`, as well as a test that executes all five against the `MockSlackApp` verifying the report contains the `compass-budget` ⏭ skip entry. Validated with `npx jest tests/selftest.test.js`.
