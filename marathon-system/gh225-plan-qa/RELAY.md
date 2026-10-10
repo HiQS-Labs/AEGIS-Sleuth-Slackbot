@@ -371,3 +371,11 @@ under .relay-scratch. Implementation and runtime proof remain the next phase.
 
 Basis: Direct seeded-source review confirms the revised scope, event-local sharing and falsifiable red control resolve F1-F3 while preserving the existing Compass completeness guard.
 VERDICT: PASS
+
+### Attestation · relay-drive — 2026-10-10T06:27:55Z
+task: RELAY-gh225-plan-qa
+reviewer: codex
+status: Approved
+reviewed-head: 6ae8d0f08589e7a34589cd7d9ddf3f6108e50c7f
+added-range: 18564+7553
+added-sha256: cc6c6a9a1c6bc6dd493d1854f1e50acc822c7474eaf481020c48498ad0b395ce
