@@ -176,22 +176,22 @@ describe('Scenarios loader', () => {
     }
   });
 
-  test('runs all five against MockSlackApp', async () => {
+  test('runs every scenario against MockSlackApp', async () => {
     const { MockSlackApp } = require('./mocks/mock-slack-app');
     const Runner = require('../src/selftest/runner');
     const slackApp = new MockSlackApp();
     slackApp.UploadFileAsync = jest.fn();
     slackApp.GetPermaLinkAsync = jest.fn().mockResolvedValue('https://mock.slack.test');
     
-    // We only want the 5 real scenarios, we must spy readdir so we don't pick up pass.js/fail.js from mocks?
-    // Wait, the previous describes mocked them using jest.mock. 
-    // We can just spy fs.readdir to only return the 5 real ones.
+    // The earlier describes mock pass.js/fail.js via jest.mock, so spy readdir to return only the real scenarios.
     const fs = require('fs').promises;
     jest.spyOn(fs, 'readdir').mockResolvedValue([
       'lookback-basic.js',
       'lookback-command.js',
       'lookback-bare.js',
       'lookback-skip-bad.js',
+      'lookback-reuse.js',
+      'lookback-later-upload.js',
       'compass-budget.js'
     ]);
 
@@ -200,10 +200,9 @@ describe('Scenarios loader', () => {
     const report = slackApp.SentMessages[slackApp.SentMessages.length - 1];
     expect(report.text).toContain('compass-budget — channel is not Compass-mapped');
     expect(report.text).toContain('⏭ compass-budget');
-    // For the others, they might fail in mock context because GetRepliesAsync returns [] or they crash,
-    // The requirement: "gets a five-line report with compass-budget ⏭ (unmapped mock)"
-    // The report will have a total line, and 5 scenario lines.
+    // The upload-first scenarios end as caught failures here (UploadFileAsync is a bare jest.fn), so only the line
+    // count and the compass skip are asserted: one line per scenario plus the summary line.
     const reportLines = report.text.split('\n');
-    expect(reportLines.length).toBe(6); // 5 scenarios + 1 summary line
+    expect(reportLines.length).toBe(8); // 7 scenarios + 1 summary line
   });
 });

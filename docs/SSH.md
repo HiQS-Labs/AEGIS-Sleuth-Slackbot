@@ -84,7 +84,7 @@ ssh sleuth-development 'touch /root/sleuth-app/.env.runtime && sed -i "/^SLEUTH_
 # In Slack: @Sleuth selftest all
 ssh sleuth-development "journalctl -u sleuth-app -n 200 | grep '\\[selftest\\]'"
 ```
-Note: The Compass scenario needs a Compass-mapped channel and the four look-back scenarios an unmapped one, so full coverage is two runs. Replace `C_UNMAPPED` with a real channel ID, run the test, then repeat the command with a Compass-mapped channel ID (e.g., `C_COMPASS`).
+Note: The Compass scenario needs a Compass-mapped channel and the look-back scenarios an unmapped one, so full coverage is two runs. Replace `C_UNMAPPED` with a real channel ID, run the test, then repeat the command with a Compass-mapped channel ID (e.g., `C_COMPASS`).
 
 ### Emergency manual deploy (fallback only)
 
