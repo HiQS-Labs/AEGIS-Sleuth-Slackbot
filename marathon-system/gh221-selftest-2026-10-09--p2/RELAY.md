@@ -337,3 +337,11 @@ for(const file of fs.readdirSync('src/selftest/scenarios').filter(f=>f.endsWith(
 Jest, full npm test and harness gates remain **[Unverified — needs clone run]**; approval does not claim those passed. Live outcomes remain unverified and require the planned unmapped and mapped dev-channel runs after deployment.
 
 Relay closed, no further turn needed.
+
+### Attestation · relay-drive — 2026-10-10T04:54:15Z
+task: MARATHON-P2-TURN
+reviewer: codex
+status: Approved
+reviewed-head: 434e897d83c1c9d56ce21f5cb6b70936be76a1f3
+added-range: 27613+4698
+added-sha256: a9a3aba80b40c7cdbd6f2ce8042ae68e17342b2d3152e3828fdaee480eb18878
