@@ -22,7 +22,7 @@ goal: "Reminder intent judgement has one code owner and one seeded corpus, so th
 
 | What was just completed | What's next |
 |---|---|
-| Intake, rating, recon and plan written on base `aca655df` | Codex plan QA relay (`marathon-system/gh149-plan-qa/RELAY.md`), then implementation |
+| Plan QA relay ran 3/3 rounds (all findings accepted; final residual is a `toString()` comparison) | Operator decision: accept the adjudicated plan or authorize round 4; then `--accepted-start` and implementation |
 
 Scope: the "Additional remediation tasks" in the 2026-10-10 whack-a-mole addendum on #149 only. The
 umbrella's original replay-nondeterminism, echo-threshold and reaction-lookback items are NOT in scope
@@ -146,10 +146,11 @@ completion of one". Exports:
   pipeline returns today at :370-371 — so `#TryScheduleRemindersAsync` keeps dereferencing
   `.recommendation`/`.reminders` unchanged; in the completion modes `Analysis` is `null` and
   `Completion` is set.
-- `EXCLUSIONS`: a frozen, ordered table `[{ Reason, Modes, Test(text) }]` of the deterministic
-  pre-model exclusions. `JudgeReminderTextAsync` iterates this table (it is the implementation, not a
-  mirror of it), so an exclusion that is not in the table cannot run. Seeded with `quoted_only`
-  (`auto`) and `opt_out` (`auto`).
+- `EXCLUSIONS`: a frozen, ordered table `[{ Id, Reason, Modes, Pattern }]` of the deterministic
+  pre-model exclusions (`Id` unique; `Pattern` the one `RegExp` the entry tests with; see Guard).
+  `JudgeReminderTextAsync` iterates this table (it is the implementation, not a mirror of it), so an
+  exclusion that is not in the table cannot run. Seeded with `quoted_only` (`auto`) and `opt_out`
+  (`auto`). Corpus rows name the deciding entry in `Expect.Exclusion`.
 - Sync helpers for the callers that need one judgement before the full one runs: `OwnWords(text)`
   (quote-strip honoring the kill switch), `IsCreationOptOut(text)` (applies chat-module's lower-case /
   curly-quote / apostrophe normalization itself, so chat and the pipeline agree),
@@ -210,8 +211,10 @@ is bound to each exclusion's DEFINITION, not to its reason token):
 - `EXCLUSIONS` entries are `{ Id, Reason, Modes, Pattern }` where `Id` is unique (asserted) and
   `Pattern` is the `RegExp` the entry tests with (`Test` is derived from it, so there is one
   definition per entry);
-- the corpus file carries `Definitions: { [Id]: Pattern.source }`. The invariant asserts, for every
-  entry: the corpus `Definitions[Id]` exists and equals the live `Pattern.source`; and at least one
+- the corpus file carries `Definitions: { [Id]: Pattern.toString() }` (source AND flags — plan-QA
+  F1-R3: `.source` drops flags, so a flag-only widening such as adding `m` would slip). The invariant
+  asserts, for every entry: the corpus `Definitions[Id]` exists and equals the live
+  `Pattern.toString()`; and at least one
   corpus row has `Expect.Exclusion === Id` and a `Text` that `Pattern` matches (a real positive
   example). The reverse holds too: every `Definitions` key is a live entry;
 - every `REASONS` token has at least one corpus row, and every corpus reason is a known token
@@ -292,8 +295,9 @@ one JSON file, one test file, no framework, no enterprise fail-safes.
 - [ ] Red control B (F2): perturb `reminders-ai-pipeline.js` so a period-only trigger sets
       `wasAdjustedForward`; the #205 corpus row fails.
 - [ ] Red control C1 (F1): add an `EXCLUSIONS` entry with no corpus row; the FSM invariant fails.
-- [ ] Red control C2 (F1-R2): widen the `opt_out` pattern with an extra alternative, corpus
-      untouched; the FSM invariant fails (definition mismatch).
+- [ ] Red control C2 (F1-R2/F1-R3): widen the `opt_out` pattern with an extra alternative, and
+      separately add only a flag (`m`) to the `quoted_only` pattern, corpus untouched; the FSM
+      invariant fails both times (definition mismatch).
 - [ ] Red control C3 (F1-R2): add a second entry with reason `opt_out` and a new `Id`, corpus
       untouched; the FSM invariant fails (no definition / no row for the new `Id`).
 - [ ] Every existing reminders suite green; full `npm test` green on the final commit.
@@ -343,3 +347,15 @@ Round 2 (codex): VERDICT FAIL, one `[Should]` (F1-R2) plus two stale references.
 | F1-R2 guard not bound to definitions; same-reason entry and regex widening slip through | Accepted | Entries carry a unique `Id` and one `Pattern`; the corpus records `Definitions[Id] = Pattern.source` and the invariant requires equality plus a matching positive row per `Id`; red controls C2/C3 added. Prompt-only exclusions stated as the guard's boundary, not an exemption. |
 | Stale refs plan :112 (:1587 → :1539) and :123 (:61-66 → :62-67) | Accepted | Fixed. |
 | Single-home grep must count definitions, not textual mentions; `Now` must be pinned in the date rows | Accepted | Already the stated scope; the corpus test pins `Now` with a fixed clock. |
+
+Round 3 (codex, final round of the authorized cap): VERDICT FAIL on one residual `[Should]`.
+
+| Finding | Decision | Change |
+|---|---|---|
+| F1-R3 `Pattern.source` drops flags, so a flag-only widening slips the guard | Accepted | Definitions record and compare `Pattern.toString()`; red control C2 extended with the flag-only case. |
+| Doc shape: export bullet still showed the old entry shape; `Expect.Exclusion` not listed in the row overview | Accepted | Fixed. |
+
+Outcome: the plan did not reach `STATUS: Approved` inside the 3-round cap (rounds 1-3 all FAIL, with
+every finding accepted and the last one a two-token change). Per the operator rule (cap reached →
+ask, do not start round 4) implementation was NOT started: no `--accepted-start`, no source changes.
+Operator decision needed: accept the adjudicated plan as reviewed, or authorize one more round.
