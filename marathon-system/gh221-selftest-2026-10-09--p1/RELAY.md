@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -123,3 +123,13 @@ APPEND-ONLY FILE (GH-529 attestation): add your block at the END and never delet
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · agy
+I implemented the selftest guard, runner, and wiring as specified in the Phase 1 brief:
+- **src/app.js**: Added instantiation of `SelftestModule` using a static factory method `Create()` only when `SLEUTH_SELFTEST_CHANNEL` is set. Placed before `ChatModule` to ensure earlier `RegisterAppMention` hook. Linked to `ChatModule` instance afterwards using `SetChatModule()`.
+- **src/chat-module.js**: Added `ClearThreadMemoryAsync` to remove the thread tracking map entry and persist.
+- **src/selftest/selftest-module.js**: `SelftestModule extends BaseModule` built. Registers early intercept in `#HandleAppMentionAsync`. Refuses requests if channel ID does not match, ignores re-entrant execution via a boolean lock.
+- **src/selftest/runner.js**: Built runner logic loading scenario files from `scenarios/`. Injects `{ SlackApp, Channel, ThreadTs, Upload, Say, Mention, Expect, Fixture, Skip }`. Intercepts `GetConversationMessagesAsync` and `GetFileContentAsync` inside execution. Cleans up thread tracking memory correctly using `ChatModuleInstance.ClearThreadMemoryAsync`. Formats and submits the expected status report both in channel and stdout `[selftest] Report ... exit_code`. Resolves uploaded file info through `ResolveUploadedMessageInfoAsync`.
+- **tests/selftest.test.js**: Tested runner functionality using virtual mock scenarios (`jest.mock` with `{ virtual: true }`), ensuring correct formatting and execution handling (pass, throw, skip). Tested guard blocking incorrect channels and checking default failure conditions. `npm test` matches original state.
+
+Handing off to codex — codex, take your turn.
