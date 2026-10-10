@@ -1,7 +1,7 @@
 ---
 Goal: Plan QA of GH-149 reminder judgement consolidation (whack-a-mole addendum 2026-10-10)
 Date: 2026-10-10
-NEXT: codex (Reviewer)
+NEXT: claude-a (Producer)
 STATUS: Open
 ---
 
@@ -407,3 +407,133 @@ Change: the guard is now bound to each exclusion's definition. `EXCLUSIONS` entr
 Round-3 ask (final round): confirm whether F1-R2 is resolved and re-check 1-7 against the revised doc. Your block MUST contain a non-empty `Basis:` line and end with exactly `VERDICT: PASS` or `VERDICT: FAIL`; on PASS set `STATUS: Approved` at the top.
 
 handing off to codex — codex, take your turn.
+
+
+### Round 3 — codex review
+
+Basis: read the revised GH-149 plan in full, its round-2 adjudication, the relay questions, and the
+cited source/test regions in this worktree. Applied the SWE planning rubric within the stated
+single-process/operator envelope. Codebase-memory Verify attempted: `list_projects(limit=100)`
+returned all 82 projects, none matching this worktree; `check_index_coverage` for the cited source
+and test paths with `src`/`tests` scopes returned `project not found or not indexed`. Source reads
+supply the evidence; no fresh graph generation is claimed. No git commands, suites, executable
+fixtures, source edits or artifact edits were run. Implementation/build/suite evidence remains
+**[Unverified — needs clone run]**.
+
+Plan gate: F1-R2's two specific probes are resolved. One small definition-binding gap remains in
+that same Guard requirement; answers 3-7 remain satisfactory at plan level.
+
+#### 1. Grounded paths
+
+The cited regions exist and substantiate the material recon and rewiring claims. The corrected
+strict gate (:1539), mention gate (handler :700-702), completion detector (:1615), scheduling call
+(:1587-1589), six request rows (test :62-67), inline quoted-text stub (:95-97), chat explanation
+caller (:2153), and date-stage flag (:969) agree with source. No additional incorrect material
+file:line citation was found in the bounded cited regions. No historical commit/ledger audit is
+claimed.
+
+Two document-shape notes: the export bullet at plan :149 still describes the old `{Reason, Modes,
+Test}` entry shape, while :210-216 specifies the revised `{Id, Reason, Modes, Pattern}` contract;
+use the latter as authoritative. The corpus expectation overview at :188-190 should also list
+`Exclusion`, which the guard at :215 consumes. These are clarification notes, not extra machinery.
+
+#### 2. Requirement coverage and F1-R2
+
+Unique IDs, exact source equality, per-ID positive rows and reverse definition coverage now reject
+both round-2 cases: an extra regex alternative and a new same-reason entry. The narrow model of the
+specified guard returned `false` for each, while returning `true` for its unchanged baseline.
+Reproduce includes the #205 date result, Fix defines the shared owner, Sweep retires the loop and
+old homes, and Verify remains explicitly operator post-merge.
+
+**F1-R3 [Should] — `Pattern.source` does not bind the complete regex definition**
+(`PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md:210-221`). JavaScript excludes flags from
+`.source`. A `quoted_only` implementation using `/^\s*$/` matches only blank own words; changing it
+to `/^\s*$/m` also matches an interior blank line in a real multiline commitment. The ID, reason,
+source string and old positive corpus row remain unchanged, so all five specified invariant checks
+still pass. This is another exclusion widening without any corpus edit, not a prompt-only limitation.
+
+Cheapest correction: record/compare `Pattern.toString()` (or both `source` and `flags`) instead of
+`source` alone, and add this flag-only widening to red control C2 in the existing invariant suite.
+No new suite, framework, flag or operational mechanism is needed. This closes the demonstrated gap;
+it does not claim to prove arbitrary future code or prompt semantics.
+
+Observed input: own words `I'll deploy\n\ntomorrow`, with the existing blank positive example for
+`quoted_only`; change only the pattern flag from none to `m`.
+Affected scope: future deterministic exclusion coverage; the widened blank-text exclusion suppresses
+a genuine multiline commitment while the definition/row invariant stays green.
+Falsifier: in a disposable clone, that flag-only change fails the invariant with the original corpus,
+while the unchanged definition passes. Full invariant execution is **[Unverified — needs clone run]**.
+
+#### 3. Extends versus duplicates
+
+The owner delegates quote removal to `quoted-text`, normalization/completion vocabulary to
+`DetectCompletionReply`, and model execution/capture/validation to the existing `DecideAsync` spec.
+The request guard is injected at its current detector position. Moving the named regex definitions
+and the fallback literal gives them one production home; leaving the scheduling trigger gate and
+per-group extraction retry with their current callers is proportionate. The exported fallback
+constant and always-model-shaped scheduling `Analysis` are consistent consumed contracts.
+
+#### 4. Ordering and pinned behavior
+
+(a) Deterministic auto opt-out is explicitly priced as a change, with a would-schedule stub and
+`ModelCalled:false`; chat normalization is retained. (b) Completion takes raw text and injects the
+request guard at detector :129, preserving quoted-input verdicts and request-before-negation/future
+reason precedence. All six request rows migrate. (c) Force sends full input to the analyzer and
+bypasses pre-model exclusions, while direct-ask fallback retains its own existing quote removal.
+No additional pinned verdict/reason change was identified from the cited cases. Actual parity is
+**[Unverified — needs clone run]**.
+
+#### 5. Blast, rollback and proof
+
+The rollback accounts for all rewiring deletions and test changes; retaining the additive module
+requires retaining its dependent corpus/invariant files consistently. The five-source-file radius,
+terminal completion deletion risk, and absence of persistence migration are accurately stated.
+Red controls A/B/C1-C3 and defining-file grep are falsifiable, but C2 needs the flag case above to
+cover this remaining definition gap. This is a plan gate, not an implementation approval.
+
+#### 6. Roll-forward loop
+
+The arithmetic replacement honors literal retirement while preserving the +1 UTC day, further
+whole-day advancement and `wasAdjustedForward = !IsPeriodOnly` behavior. The existing GH-205 tests
+remain the oracle; round-2's seven-case UTC arithmetic probe supports the formula. Exact-boundary
+and final integration execution still require a disposable clone. No scope deviation is needed.
+
+#### 7. Rating
+
+80/65/50/35 and PDDA risk 3 / effort 4 / complexity 4 remain proportionate to the supplied recurrence
+narrative and scheduling/completion radius. The completion deletion risk is acknowledged. Exact churn,
+ledger and history figures were not independently audited; this review does not re-score them.
+
+#### Narrow probe evidence
+
+Command (exit **0**, pure predicate demonstration; output under `.relay-scratch/round3-probe.txt`;
+no proposed owner exists yet):
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE' > .relay-scratch/round3-probe.txt
+const rows=[{Text:'',Expect:{Reason:'quoted_only',Exclusion:'quoted_only'}}];
+const original={Id:'quoted_only',Reason:'quoted_only',Modes:['auto'],Pattern:/^\s*$/};
+const definitions={quoted_only:original.Pattern.source};
+const reasons=['quoted_only'];
+function guard(entries){return new Set(entries.map(e=>e.Id)).size===entries.length && entries.every(e=>definitions[e.Id]===e.Pattern.source && rows.some(r=>r.Expect.Exclusion===e.Id&&e.Pattern.test(r.Text))) && Object.keys(definitions).every(id=>entries.some(e=>e.Id===id)) && reasons.every(reason=>rows.some(r=>r.Expect.Reason===reason)) && rows.every(r=>reasons.includes(r.Expect.Reason));}
+const widened={...original,Pattern:/^\s*$/m};
+const input="I'll deploy\n\ntomorrow";
+console.log(JSON.stringify({originalGuard:guard([original]),flagsWidenedGuard:guard([widened]),sourceEqual:original.Pattern.source===widened.Pattern.source,originalFlags:original.Pattern.flags,widenedFlags:widened.Pattern.flags,input,originalExcluded:original.Pattern.test(input),flagsWidenedExcluded:widened.Pattern.test(input),corpusRows:rows.length}));
+const optRows=[{Text:"don't set a reminder",Expect:{Reason:'opt_out',Exclusion:'opt_out'}}];
+const base={Id:'opt_out',Reason:'opt_out',Pattern:/don't set a reminder/};
+const optDefinitions={opt_out:base.Pattern.source};
+const optGuard=entries=>new Set(entries.map(e=>e.Id)).size===entries.length&&entries.every(e=>optDefinitions[e.Id]===e.Pattern.source&&optRows.some(r=>r.Expect.Exclusion===e.Id&&e.Pattern.test(r.Text)));
+console.log(JSON.stringify({round2BeforeGuard:optGuard([base]),round2WidenedSourceGuard:optGuard([{...base,Pattern:/don't set a reminder|skip deployment/}]),round2AddedSameReasonGuard:optGuard([base,{...base,Id:'opt_out_2'}])}));
+NODE
+```
+
+Decisive output:
+
+```text
+{"originalGuard":true,"flagsWidenedGuard":true,"sourceEqual":true,"originalFlags":"","widenedFlags":"m","input":"I'll deploy\n\ntomorrow","originalExcluded":false,"flagsWidenedExcluded":true,"corpusRows":1}
+{"round2BeforeGuard":true,"round2WidenedSourceGuard":false,"round2AddedSameReasonGuard":false}
+```
+
+VERDICT: FAIL
