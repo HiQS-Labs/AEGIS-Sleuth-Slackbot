@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -230,3 +230,81 @@ I addressed all the requested changes from Round 1:
 4. **Keep runner failures inside reportable boundary**: Wrapped `fs.readdir`, cleanup, and final report posting in try-catches with proper failures appended to `[selftest]` and `exit_code=1`. Added Jest coverage to test these exact failure paths (load error, post error, cleanup error).
 
 Handing off to codex — codex, take your turn.
+
+
+### Round 2 · Reviewer · codex
+
+swept file: yes
+
+**Verdict:** Changes requested
+
+Reviewed the parent plan in full, the latest builder response, and all five complete artifact files (563-line app, 3,549-line chat, 89-line module, 234-line runner, 155-line tests). Evidence tier: Verify through local-source fallback; no graph tools are exposed in this session, so no graph project/generation/coverage claim is made. No git, suites, executable fixtures, validators, source edits or app boot were run. Only this relay is changed; probe output stays under `.relay-scratch/tmp`. Applied review-code within the user's stricter relay scope; no GitHub posting or autonomous artifact repair is authorized here.
+
+**[Pass]** The non-emitting checkJs compiler now passes. Command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; mkdir -p "$TMPDIR"; ./node_modules/.bin/tsc --noEmit --pretty false > "$TMPDIR/r2-tsc.log" 2>&1`; exit **0**, no diagnostics. The dynamic harness import leaves that prohibited-to-edit script untouched. Thread propagation, per-scenario permalinks, array-shaped observation replies, recorded read options, restoration of both shadows and cleanup rejection conversion also passed narrow probes. The root remains unmentioned and the report targets `90.0`.
+
+1. **[Should] Scope download counts to the uploaded fixture URLs, not all Slack downloads.** Design 6 explicitly says “downloads: the fixture's URL.” `runner.js:92-96` still increments for any string containing `slack.com`; the Round 2 domain change does not isolate other threads' traffic.
+   - Observed input: upload returns `https://files.slack.com/files-pri/FIXTURE/file.txt`; probe downloads that URL once and then `https://files.slack.com/files-pri/UNRELATED/file.txt` once.
+   - Affected scope: look-back/skip-bad assertions while any unrelated channel on the same SlackApp downloads a Slack file.
+   - Falsifier: `Fixture.DownloadCount()` is **1** for that input, and **2** if the fixture URL is downloaded twice. Record URLs from Upload (including the private/download alternatives needed by production) and compare exactly; no shared Slack wrapper change is needed.
+   - Probe P4 exit **0**: `"downloads":2,"reads":1,"options":[{"MaxPages":5,"Latest":"3.0"}],"replies":[{"ts":"4.0","text":"answer"}]`. Out-of-thread reads correctly do not count; unrelated Slack downloads still do. Add a targeted regression assertion.
+
+2. **[Should] Make the documented journal grep retain the report and exit status.** `runner.js:27,42,229` still puts only `[selftest] Report:` on the prefixed line; all evidence and `exit_code` follow on unprefixed lines. This is the same unresolved Round 1 finding, not a new requirement.
+   - Observed input: successful `observe` scenario, cleanup rejection and `readdir` EACCES. Split the logged string into journal lines and filter for `[selftest]`, as Design 7's `journalctl ... | grep '\[selftest\]'` does.
+   - Affected scope: every documented post-deploy receipt, including failures.
+   - Falsifier: the retained lines include scenario evidence/summary and a prefixed `exit_code=0|1`. Prefix each report line or emit an equivalent single-line receipt; assert the line-filtered output, rather than searching the whole multiline argument.
+   - Probe P4 exit **0**, decisive output for success, cleanup failure and load failure alike: `"grepSelftest":["[selftest] Report:"]`. The load-error probe also has `"posts":[]`; make setup/load failure visible in the initiating report thread when posting is possible, not only in the log.
+
+3. **[Should] Finish the runner failure boundary and avoid a success receipt for report delivery failure.** `runner.js:51` still awaits the unknown-name reply outside a catch; `runner.js:218-229` computes exit status before report posting and logs success even when posting fails. `tests/selftest.test.js:152` explicitly blesses that success receipt.
+   - Observed input: target `absent` with available scenario `observe` and `PostMessageTextAsync` rejecting `Error('report post failed')`; separately a passing scenario whose final report post rejects the same error.
+   - Affected scope: typo/unknown-name requests and Slack report outages; first leaks rejection with no receipt, second reports `exit_code=0` despite an infrastructure failure.
+   - Falsifier: both resolve without rejection and produce a prefixed failure receipt containing the posting error and `exit_code=1`; successful delivery retains `exit_code=0`. Update the post-error test and cover the unknown-name rejection.
+   - Probe P4 exit **0**: unknown-name control `"logs":[],"errors":[],"rejected":"report post failed"`; final-report control `"errors":[["selftest runner failed to post report:","report post failed"]],"rejected":null` but logged `exit_code=0`. Cleanup rejection is fixed: it resolves, restores methods and reports `❌ observe — Cleanup failed: cleanup rejected`, with `exit_code=1`.
+
+4. **[Should — pre-existing, whole-file sweep] Stop every owned snapshot relay at shutdown.** `app.js:376,412` pushes TWO instances per workspace into `SnapshotRelayModules`, but `app.js:515` stops only `SnapshotRelayModules[n]` in a loop bounded by `SlackApps.length`. This defect exists in the surrounding app code; it is in scope under the embedded whole-file review rule. No additional verified pre-existing chat defect was found. The documented legacy bearer-token fallback remains a separately acknowledged compatibility risk.
+   - Observed input: two loaded workspaces, each constructing a regular snapshot relay and a HiQS digest relay.
+   - Affected scope: SIGINT/SIGTERM shutdown and cleanup of relay timers; the second workspace's two relays are never stopped. With one workspace, its digest relay is missed.
+   - Falsifier: every pushed relay instance receives StopAsync once, independently of the number of workspaces; preserve existing best-effort shutdown behavior. A separate loop over the flat owned array is sufficient.
+   - Source-index query exit **0**: `push=[376,412], stop=515`; array `[snapshotA,digestA,snapshotB,digestB]` and workspace indices `[0,1]` yield shutdown targets `[snapshotA,digestA]`, leaving `[snapshotB,digestB]` unstopped. This is measured indexing evidence, not a claim about a running deployment.
+
+**[Nit]** `Fixture.GetRepliesAsync` already calls the original method directly, so the `_isSelftestAssertion` option at `runner.js:157` is unnecessary. It also changes real Slack pagination semantics: `slack-app.js:861-873` treats any options object as bounded-complete mode, but this object supplies neither MaxPages nor Latest. Probe P4's page with `has_more:true,next_cursor:'next'` therefore converts an observation read into `❌ observe — Thread exceeds complete context limit`. Prefer omitting the unused marker on the direct original call, or supplying deliberate valid pagination bounds if complete assertion reads are wanted.
+
+**[Unverified — needs clone run]** Targeted Jest/look-back, full npm test, mutation checks, command-validator before/after equivalence, and actual harness import side effects remain for the disposable-clone gate. Builder's build claim is independently confirmed by the non-emitting compiler; its other claimed coverage is source-inspected, not executed here.  [Unverified — no citation]
+
+#### P4 reproducible narrow probe
+
+Command: export the pinned scratch env, then run the following Node stdin script redirected to `"$TMPDIR/r2-probe.log"`. Exit **0**. It evaluates the seeded runner in memory with explicit boundary substitutes, and extracts only the actual Slack pagination method with its two private dependencies replaced. It boots no app and executes no scenario fixture file.
+
+```js
+const fs=require('fs'),vm=require('vm'),path=require('path');
+const source=fs.readFileSync('src/selftest/runner.js','utf8');
+async function probe(mode) {
+ let observed,posts=[],logs=[],errors=[],rejected=null;
+ const scenario={Name:'observe',Run:async c=>{
+   if(mode==='observe'){
+     await c.Upload('/scratch/fixture.txt','fixture','fixture.txt');
+     await c.SlackApp.GetFileContentAsync('https://files.slack.com/files-pri/FIXTURE/file.txt');
+     await c.SlackApp.GetFileContentAsync('https://files.slack.com/files-pri/UNRELATED/file.txt');
+     observed={downloads:c.Fixture.DownloadCount()};
+   }
+ }};
+ const box={module:{exports:{}},__dirname:path.resolve('src/selftest'),require:n=>
+ n==='fs'?{promises:{readdir:async()=>['observe.js']}}:n==='path'?path:
+ n.includes('slack-harness-file-upload')?{ResolveUploadedMessageInfoAsync:async()=>({MessageTS:'2.0',ThreadTS:'1.0'})}:scenario};
+ vm.runInNewContext(source,box);
+ const app={PostMessageTextAsync:async(c,t,text)=>{posts.push({thread:t,text});
+ if(mode==='unknown-post-error'||(mode==='post-error'&&posts.length===2))throw Error('report post failed');return '1.0';},
+ UploadFileAsync:async()=>({File:{url_private_download:'https://files.slack.com/files-pri/FIXTURE/file.txt'}}),
+ GetConversationMessagesAsync:async()=>[],GetFileContentAsync:async()=> 'file',
+ GetPermaLinkAsync:async()=> 'https://mock/thread',
+ Logger:{info:t=>logs.push(t),error:(...a)=>errors.push(a)}};
+ try{await box.module.exports.RunScenariosAsync(app,'C_QA',null,mode==='unknown-post-error'?'absent':'all','90.0');}
+ catch(e){rejected=e.message;}
+ console.log(JSON.stringify({mode,observed,posts,logs,
+ grepSelftest:logs.flatMap(x=>x.split('\n').filter(l=>l.includes('[selftest]'))),errors,rejected}));
+}
+(async()=>{for(const m of ['observe','post-error','unknown-post-error'])await probe(m);})();
+```
+
+P4's broader controls additionally exercised cleanup rejection, EACCES loading, real array-shaped replies/read options, method restoration and real bounded-pagination behavior; decisive outputs are quoted above. Those controls are not a live Slack verification.
+
+Handing off to agy — agy, take your turn.
