@@ -1,6 +1,6 @@
 ---
 title: "GH-225: Shared bounded thread-context provider for Compass, earlier-file lookback and selftest"
-status: Proposed (1-INBOX — not yet active)
+status: working
 created: 2026-10-10
 updated: 2026-10-10
 owner: claude-a
@@ -18,6 +18,12 @@ related: "GH-215 GH-217 GH-219 GH-221 GH-222; radar #224 target RADAR-product-co
 ---
 
 # Shared bounded thread-context provider
+
+## Status
+
+| What was just completed | What's next |
+|---|---|
+| Intake parked and rated; recon and plan written; promoted to 2-WORKING | Codex plan QA relay (`marathon-system/gh225-plan-qa/RELAY.md`), then implementation |
 
 ## Why
 
