@@ -57,6 +57,7 @@ describe('Runner', () => {
   beforeEach(() => {
     slackApp = new MockSlackApp();
     slackApp.UploadFileAsync = jest.fn();
+    slackApp.GetPermaLinkAsync = jest.fn().mockResolvedValue('https://mock.slack.test');
   });
 
   afterEach(() => {
@@ -66,10 +67,11 @@ describe('Runner', () => {
   test('unknown scenario replies with list', async () => {
     jest.spyOn(fs, 'readdir').mockResolvedValue(['pass.js']);
     
-    await Runner.RunScenariosAsync(slackApp, 'C_QA', null, 'nonexistent');
+    await Runner.RunScenariosAsync(slackApp, 'C_QA', null, 'nonexistent', 'T_123');
     
     expect(slackApp.SentMessages).toContainEqual(expect.objectContaining({
-      text: 'unknown scenario. available: pass'
+      text: 'unknown scenario. available: pass',
+      threadTs: 'T_123'
     }));
   });
 
@@ -77,18 +79,19 @@ describe('Runner', () => {
     jest.spyOn(fs, 'readdir').mockResolvedValue(['pass.js', 'fail.js', 'skip.js', 'throw.js']);
     
     const mockChatModule = { ClearThreadMemoryAsync: jest.fn() };
-    await Runner.RunScenariosAsync(slackApp, 'C_QA', mockChatModule, 'all');
+    await Runner.RunScenariosAsync(slackApp, 'C_QA', mockChatModule, 'all', 'T_123');
 
     // Root messages for each scenario
     const roots = slackApp.SentMessages.filter(m => m.text.startsWith('selftest: running scenario'));
     expect(roots.length).toBe(4);
 
-    // Final report
+    // Final report is threaded
     const report = slackApp.SentMessages[slackApp.SentMessages.length - 1];
-    expect(report.text).toContain('✅ pass — Passed');
-    expect(report.text).toContain('❌ fail — Assertion failed: failed assertion (https://mock.slack.test');
-    expect(report.text).toContain('⏭ skip — not applicable');
-    expect(report.text).toContain('❌ throw — unexpected crash (https://mock.slack.test');
+    expect(report.threadTs).toBe('T_123');
+    expect(report.text).toContain('✅ pass — Passed (<https://mock.slack.test|root>)');
+    expect(report.text).toContain('❌ fail — Assertion failed: failed assertion (<https://mock.slack.test|root>)');
+    expect(report.text).toContain('⏭ skip — not applicable (<https://mock.slack.test|root>)');
+    expect(report.text).toContain('❌ throw — unexpected crash (<https://mock.slack.test|root>)');
     expect(report.text).toContain('*Total: 4, ✅ 1, ❌ 2, ⏭ 1*');
 
     // Cleanup was called for all
@@ -105,5 +108,48 @@ describe('Runner', () => {
     const report = slackApp.SentMessages[slackApp.SentMessages.length - 1];
     expect(report.text).toContain('❌ throw — unexpected crash');
     expect(mockChatModule.ClearThreadMemoryAsync).toHaveBeenCalledTimes(1);
+  });
+
+  test('runner catches readdir error and logs exit_code=1', async () => {
+    const error = new Error('permission denied');
+    error.code = 'EACCES';
+    jest.spyOn(fs, 'readdir').mockRejectedValue(error);
+    const infoSpy = jest.spyOn(slackApp.Logger, 'info');
+
+    await Runner.RunScenariosAsync(slackApp, 'C_QA', null, 'all');
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('exit_code=1'));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to read scenarios: permission denied'));
+  });
+
+  test('runner continues if cleanup throws, failing the scenario', async () => {
+    jest.spyOn(fs, 'readdir').mockResolvedValue(['pass.js']);
+    const mockChatModule = { ClearThreadMemoryAsync: jest.fn().mockRejectedValue(new Error('cleanup failure')) };
+
+    await Runner.RunScenariosAsync(slackApp, 'C_QA', mockChatModule, 'all', 'T_123');
+
+    const report = slackApp.SentMessages[slackApp.SentMessages.length - 1];
+    expect(report.text).toContain('❌ pass — Cleanup failed: cleanup failure');
+    expect(report.text).toContain('Total: 1, ✅ 0, ❌ 1, ⏭ 0');
+  });
+
+  test('runner catches report post failure but still logs receipt', async () => {
+    jest.spyOn(fs, 'readdir').mockResolvedValue(['pass.js']);
+    const mockChatModule = { ClearThreadMemoryAsync: jest.fn() };
+
+    // Make the final report post fail, but scenario post pass
+    let postCount = 0;
+    slackApp.PostMessageTextAsync = jest.fn().mockImplementation(async () => {
+      if (++postCount === 2) throw new Error('report post failed');
+      return '100.0';
+    });
+
+    const infoSpy = jest.spyOn(slackApp.Logger, 'info');
+    const errorSpy = jest.spyOn(slackApp.Logger, 'error');
+
+    await Runner.RunScenariosAsync(slackApp, 'C_QA', mockChatModule, 'all');
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('selftest runner failed to post report:'), 'report post failed');
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('exit_code=0'));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('✅ pass — Passed'));
   });
 });
