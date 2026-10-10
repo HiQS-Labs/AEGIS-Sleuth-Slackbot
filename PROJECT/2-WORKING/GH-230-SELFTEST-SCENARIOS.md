@@ -31,7 +31,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Issue filed, clone provisioned off origin/development 6696312, captured, rated 35/15/50/75, recon done. Codex plan QA round 1: FAIL (R1 T4 marker question and per-mention bounds, R2 add `npm run build`, nit red-control wording, nit stale docs count) all accepted and folded in; round 2 pending. | Codex plan QA, then build the three scenario edits. |
+| Plan Codex-approved (round 2, reviewed-head 49b813e); implementation committed d4a8ffa; build and full test green. Final Codex QA pending. (Earlier note: plan QA round 1: FAIL (R1 T4 marker question and per-mention bounds, R2 add `npm run build`, nit red-control wording, nit stale docs count) all accepted and folded in; round 2 approved.) | Final Codex QA, then push, PR into development, live run on dev after merge. | Codex plan QA, then build the three scenario edits. |
 
 ## Observed state (recon, 2026-10-10, base 6696312)
 
@@ -64,7 +64,7 @@ goal: >
 
 ## Blast radius and rollback
 
-Three files under `src/selftest/scenarios/`, one test file, one changelog entry. Armed only on a server that sets `SLEUTH_SELFTEST_CHANNEL`; production behavior unchanged. Rollback: revert the commit; no migration.
+Three files under `src/selftest/scenarios/`, one test file, one docs line (`docs/SSH.md`), one changelog entry. Armed only on a server that sets `SLEUTH_SELFTEST_CHANNEL`; production behavior unchanged. Rollback: revert the commit; no migration.
 
 ## Task rating (2026-10-10)
 
@@ -114,3 +114,8 @@ Rated 35/15/50/75 (priority/severity/appeal/effort-cheapness). Severity low: a t
 
 ## Progress log
 - 2026-10-10: issue #230 filed from the #222 live-run gaps; fresh clone off origin/development 6696312; captured, rated and promoted; plan drafted. Codex plan QA round 1 (FAIL: 2 Should, 1 Nit) accepted and folded in; round 2 pending.
+- 2026-10-10: Codex plan QA round 1 FAIL (R1, R2 Should; 2 Nits) folded in; round 2 PASS, Approved, attested reviewed-head 49b813ea76c3b9fc9344dccea456bb8fdec98017.
+- 2026-10-10: implemented at d4a8ffa. Gates on that commit, un-sandboxed, once each: `npm run build` exit 0; `npm test` exit 0 (Jest: 142 suites passed, 1 skipped; 2612 tests passed, 4 skipped; Node tests: 116 pass, 0 fail); `node scripts/validate-changelog-tone.js` exit 0; HEAD and branch unchanged after the run, tree clean. Note: `npx jest selftest` matches every suite in this clone because the clone path contains "selftest"; the gate list above is therefore the full suite.
+- Acceptance map: (1) three scenario edits exist, each file at most 40 lines (25, 32, 23), loader contract green; (2) `tests/selftest.test.js` and `npm test` pass; (3) live dev run: pending, post-merge; (4) #222 comment update: pending, post-merge; (5) CHANGELOG 1.4.341 entry, tone guard clean.
+- Limits stated honestly: the new scenario assertions run only live; no negative control was executed. T4 is a post-hydration control, not the delayed-event race.
+
