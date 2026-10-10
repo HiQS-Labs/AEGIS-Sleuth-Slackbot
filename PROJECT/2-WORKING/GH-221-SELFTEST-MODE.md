@@ -2,7 +2,7 @@
 title: "GH-221: Dev-server-only self-QA mode (@Sleuth selftest)"
 status: Marathon-ready (2-WORKING)
 created: 2026-10-10
-updated: 2026-10-09
+updated: 2026-10-10
 owner: noel
 branch: marathon/gh-221-selftest-mode
 doc_type: project
@@ -54,12 +54,23 @@ Every thread-handling feature (GH-62, GH-217, GH-219) ends with a human uploadin
 
 ## Design (smallest thing that satisfies the issue)
 
-1. **Guard in `app.js`:** construct `SelftestModule` only when `process.env.SLEUTH_SELFTEST_CHANNEL` is non-empty (before the ChatModule constructor so its handler registers first); `SetChatModule(ChatModuleInstance)` after Chat is built. Unset → no module, no handler, `grep selftest` of registered routes is empty. Wrong channel → one reply "selftest is dev-only" and `return true`.
-2. **Handler** matches `^selftest\s+(\S+)` after stripping the bot mention; anything else returns `false`. One run at a time (re-entrancy flag); a nested `selftest` is ignored.
-3. **Runner** (`src/selftest/runner.js`, pure and unit-testable): loads every `*.js` in `src/selftest/scenarios/` (so adding a scenario touches only that folder), runs sequentially in a fresh thread rooted by a bot post in the QA channel, never throws out (a scenario error is a ❌), and formats the report. Scenario context: `{ SlackApp, Channel, ThreadTs, Upload, Say, Mention, Expect, Fixture, Skip }`. `Mention` dispatches `SimulateAppMentionAsync` with `user: 'U_SLEUTH_SELFTEST'`, `thread_ts`, the real file objects read back from the thread. `Expect` reads the thread back via `GetConversationMessagesAsync`.
-4. **Report:** final thread post with one line per scenario `✅/❌/⏭ name — evidence` plus a summary; failures include the assertion and permalink. The same text is logged at info with an `[selftest]` prefix so `journalctl -u sleuth-app | grep '\[selftest\]'` shows it.
-5. **Cleanup:** `finally` per run calls `ChatModule.ClearThreadMemoryAsync(channel, threadTs)` (new public method: delete key, save) and restores any shadowed SlackApp method.
-6. **Scenarios** (each its own file, ≤ 40 lines): `lookback-basic`, `lookback-command`, `lookback-bare`, `lookback-skip-bad`, `compass-budget`. "Grounded in file" is asserted by a unique canary token inside the fixture that the model must quote. `compass-budget` skips unless `Compass.GetMapping(WorkspaceInfo, channel)` exists; it measures `GetConversationMessagesAsync` **invocations** around the Mention (snapshot-before/after, excluding the runner's own read-back) and requires ≤ 1 — GH-217's contract is one bounded read of ≤ 5 pages, so ≤ 1 invocation implies ≤ 5 `conversations.replies` calls. Duplicate-passage check: the answer's citation block contains no passage text twice.
+Revised after Codex plan QA round 1 (R1-R5, see Progress log).
+
+1. **Guard in `app.js`:** `SelftestModule extends BaseModule` (AGENTS.md §0.1.2). Construct it only when `process.env.SLEUTH_SELFTEST_CHANNEL` is non-empty, before the ChatModule constructor so its `RegisterAppMention` handler runs first; `SetChatModule(ChatModuleInstance)` after Chat is built and before `SlackApp` starts. Unset → no module, no handler. Wrong channel → one reply "selftest is dev-only", `return true` (log-and-consume if that post throws, so a failed refusal never falls through to Chat). The handler returns `true` for every `selftest ...` mention, including a re-entrant one it ignores.
+2. **Handler** matches `^selftest\s+(\S+)` after stripping the bot mention; anything else returns `false`. One run at a time (boolean flag).
+3. **Runner** (`src/selftest/runner.js`, unit-testable): loads every `*.js` in `src/selftest/scenarios/` (adding a scenario touches only that folder) and runs them sequentially. **Each scenario gets its own fresh root message in the QA channel** (linked from the run report), so thread-memory keys, look-back eligibility and canary assertions never carry across scenarios; the run root only holds the report. Each scenario root is free of the app mention so setup uploads/`Say` never activate hands-free handling. A scenario error is a ❌, never thrown out of the runner. Scenario context: `{ SlackApp, Channel, ThreadTs, Upload, Say, Mention, Expect, Fixture, Skip }`.
+4. **How a GH-219 scenario drives the real path (R1).** `Upload` posts the fixture as the bot into the scenario root (the earlier share). `Mention` then (a) posts the question text into the same thread as the bot so the real reply history contains a later question ts, then (b) calls `SimulateAppMentionAsync` with `user: 'U_SLEUTH_SELFTEST'`, the question's `ts`, the root `thread_ts`, **and `files: []`**. A file on the simulated event would make the current-event attachment handler own it (`chat-module.js:2841` → `text`, skip command routing at 1235) and bypass the look-back. The fixture canary stays out of question/comment text; assertions look only at messages posted after the Mention's baseline ts.
+5. **Compass configuration split (R3).** GH-219 look-back is skipped for Compass-mapped channels (`chat-module.js:2923`), so a channel cannot exercise both. The four `lookback-*` scenarios report ⏭ "channel is Compass-mapped" when `Compass.GetMapping(WorkspaceInfo, channel)` is truthy; `compass-budget` reports ⏭ when it is not. Full live coverage therefore needs two dev runs (unmapped QA channel, then a mapped one); the PR body records both receipts. No production mapping is overridden to fake coverage.
+6. **Counters (R4).** Shadow `GetConversationMessagesAsync` and `GetFileContentAsync` on the instance only for the scenario, `finally`-restored, and count only calls whose channel equals the scenario root's channel and thread equals its root (downloads: the fixture's URL). `compass-budget` passes only if: exactly one in-scope reply read around the Mention, its `MaxPages` option ≤ 5, the answer is a successful Compass reply with a non-empty citation block, and no excerpt appears twice. A connection-error or empty-citation reply is ❌, not ✅. It names a fixed release question with retrievable evidence, recorded in the scenario header.
+7. **Report:** final thread post with one line per scenario `✅/❌/⏭ name — evidence` plus a summary; failures include the assertion and permalink. The same text is logged at info with a `[selftest]` prefix plus `exit_code=0|1` (0 only when no ❌), so `journalctl -u sleuth-app | grep '\[selftest\]'` shows it. The service is never exited.
+8. **Cleanup:** `finally` per scenario calls `ChatModule.ClearThreadMemoryAsync(channel, rootTs)` (new public method: delete key, save) and restores shadowed methods.
+9. **Scenarios** (each its own file, ≤ 40 lines): `lookback-basic`, `lookback-command`, `lookback-bare`, `lookback-skip-bad`, `compass-budget`. "Grounded in file" = the model answer quotes a unique canary token that exists only in the fixture.
+
+### Deviations from the issue's Scope text (accepted)
+
+- Issue Scope 2 says register through `#RegisterCommandRoutes`. Here the route lives in a separate `BaseModule` handler: the ChatModule route table is validated against the command catalog and shown in help, and the feature must be absent when the env var is unset.
+- Issue Scope 5 says "Exit code ... written to the journal". The journal line carries `exit_code=0|1` as a value; the service never exits.
+- Issue Scope 3 says `Mention` uses `SimulateAppMentionAsync`; it also posts the question text into the thread first (step 4) so the real reply history contains it.
 
 ## Acceptance
 
@@ -82,7 +93,7 @@ Every thread-handling feature (GH-62, GH-217, GH-219) ends with a human uploadin
 Recon above. Residual unknown carried into Phase 1: whether Bolt's default self-event handling affects the bot's own *uploads* (it does not affect Simulate, which bypasses Bolt). Not blocking.
 
 ### Phase 1 — guard, runner, wiring, ChatModule cleanup (lane: orchestrator, touches `src/app.js` + `src/chat-module.js`)
-- New `src/selftest/selftest-module.js`, `src/selftest/runner.js`; export the two upload-lookup helpers from `scripts/slack-harness-file-upload.js` only if they can be required without side effects, otherwise copy the 10-line retry loop with a source comment (decide at build time; record which).
+- New `src/selftest/selftest-module.js` (extends BaseModule), `src/selftest/runner.js`. Reuse `FindUploadedShareMessage` and `ResolveUploadedMessageInfoAsync`, which `scripts/slack-harness-file-upload.js:707` already exports (its CLI is guarded by `require.main`, line 700); that script is not edited. Verify at build that requiring it has no side effects.
 - `ChatModule.ClearThreadMemoryAsync(ArgChannel, ArgThreadTs)` (additive, no behavior change).
 - `src/app.js` wiring as in Design 1.
 - `tests/selftest.test.js` (MockSlackApp): guard unset → handler not registered / module not constructed; wrong channel → "selftest is dev-only" and nothing else; runner report formatting for ✅/❌/⏭ and a scenario that throws; unknown scenario name replies with the list; cleanup runs on failure.
@@ -182,4 +193,5 @@ Scenarios prove themselves only on a deployed dev build. After the PR merges and
 ```
 
 ## Progress log
+- 2026-10-10: Codex plan QA round 1 (FAIL, 1 Blocker + 4 Should + 2 Nit; thread `relay-system/2026-10-09/gh221-plan-qa.md`, gitignored). R1 Blocker (file on the simulated mention defeats look-back) verified against `chat-module.js:1224-1236` and accepted; R2-R5 accepted and folded into Design; Nit helper-export accepted; Nit TOC/debug-mantra sentence declined (no scope value). Round 2 pending.
 - 2026-10-09: captured (hq writer, ledger row parked), recon'd at 25a07a3 by a read-only subagent; claims spot-checked against `src/app.js`, `scripts/validate-command-catalog.js` and a repo-wide grep for any thread-memory delete API (none). Promoted to `2-WORKING` with provisional ratings replaced by an honest rating. Tracking issue is #221 itself (single-member arc).
