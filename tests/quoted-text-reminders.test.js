@@ -9,6 +9,7 @@ const { ConfigureMockWorkspaceAI } = require('./mocks/mock-workspace-ai');
 
 const { StripQuotedText, IgnoreQuotedText, IsQuotedTextIgnoreEnabled } = require('../src/quoted-text');
 const RemindersAIPipeline = require('../src/reminders-ai-pipeline');
+const ReminderJudgement = require('../src/reminder-judgement');
 const RemindersModule = require('../src/reminders-module');
 const workspaces = require('../src/workspaces');
 const { MockSlackApp } = require('./mocks/mock-slack-app');
@@ -108,8 +109,8 @@ describe('RemindersAIPipeline — quoted text never reaches the analyzer', () =>
     expect(AI.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
   });
 
-  test('KeepQuotedText (explicit force-schedule) sends the whole message', async () => {
-    await Pipeline.AnalyzeMessageForRemindersAsync('go "to the races" tomorrow', { KeepQuotedText: true });
+  test('force mode (explicit force-schedule) sends the whole message', async () => {
+    await Pipeline.AnalyzeMessageForRemindersAsync('go "to the races" tomorrow', { Mode: 'force' });
     expect(AI.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toBe('go "to the races" tomorrow');
   });
 
@@ -124,8 +125,8 @@ describe('RemindersAIPipeline — quoted text never reaches the analyzer', () =>
   });
 
   test('the deterministic direct-ask fallback ignores a time that exists only inside quotes', () => {
-    expect(RemindersAIPipeline.DetectDirectAskWithTimeTrigger('please review "the plan for tomorrow"')).toBeNull();
-    expect(RemindersAIPipeline.DetectDirectAskWithTimeTrigger('please review the plan tomorrow "for context"'))
+    expect(ReminderJudgement.DetectDirectAskWithTimeTrigger('please review "the plan for tomorrow"')).toBeNull();
+    expect(ReminderJudgement.DetectDirectAskWithTimeTrigger('please review the plan tomorrow "for context"'))
       .toMatchObject({ trigger: 'tomorrow' });
   });
 });

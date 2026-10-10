@@ -17,6 +17,7 @@ const ContextResolution = require('./reminder-context-resolution');
 const TaskGrounding = require('./task-grounding');
 const ReminderDisplaySelection = require('./reminder-display-selection');
 const ReminderTextCompletion = require('./reminder-text-completion');
+const ReminderJudgement = require('./reminder-judgement');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -1693,7 +1694,7 @@ class RemindersModule {
     if(ArgEventInfo.thread_ts && ArgEventInfo.thread_ts !== ArgEventInfo.ts) return;
 
     // run the cheap heuristic; skip if it does not match.
-    if(!RemindersAIPipeline.DetectDirectAskWithTimeTrigger(ArgEventInfo.text)) return;
+    if(!ReminderJudgement.DetectDirectAskWithTimeTrigger(ArgEventInfo.text)) return;
 
     // add the :mag: reaction; AddReactionAsync swallows errors internally and returns false on failure.
     const Added = await ArgSlackApp.AddReactionAsync(ArgEventInfo.channel, ArgEventInfo.ts, 'mag');
@@ -1814,7 +1815,7 @@ class RemindersModule {
     // analyze the message for reminders.
     // quoted text is ignored, except for force-schedule (:alarm_clock:), which is explicit intent.
     let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(
-      ArgMessageText, { KeepQuotedText: Boolean(ArgForceSchedule) }
+      ArgMessageText, { Mode: ArgForceSchedule ? 'force' : 'auto' }
     );
     ArgSlackApp.Logger.info(`reminder analysis result:`, AnalysisResult.recommendation);
 

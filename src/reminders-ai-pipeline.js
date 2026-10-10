@@ -6,7 +6,7 @@ const DateUtils = require('./date-utils');
 const { DecideAsync } = require('./ai-decision');
 const DecisionExplain = require('./decision-explain');
 const ReminderOwnership = require('./reminder-ownership');
-const { IgnoreQuotedText } = require('./quoted-text');
+const ReminderJudgement = require('./reminder-judgement');
 
 // deduplication decision spec. Prompt assets and validation live with the shared decision helper;
 // only the payload shaping below is dedup-specific.
@@ -356,45 +356,22 @@ class RemindersAIPipeline {
   }
 
   /**
-   * Analyze a message for reminders using the OpenAI API.
+   * Analyze a message for reminders. The judgement — quote-strip, pre-model exclusions, the model
+   * call and the direct-ask fallback — lives in reminder-judgement.js (GH-149); this returns its
+   * model-shaped analysis, which is always a valid result for the scheduler.
    * @param {string} ArgMessageText Message text to analyze.
-   * @param {{KeepQuotedText?: boolean}} [ArgOptions] KeepQuotedText: don't strip quoted spans (force-schedule).
+   * @param {{Mode?: 'auto'|'force'}} [ArgOptions] force: explicit :alarm_clock: — quoted text kept, no pre-model exclusions.
    * @returns {Promise<GptReminderResponse>}
    */
   async AnalyzeMessageForRemindersAsync(ArgMessageText, ArgOptions = {}) {
-    // quoted text is not analyzed, except for an explicit force-schedule (KeepQuotedText).
-    if(!ArgOptions.KeepQuotedText) {
-      const OwnWords = IgnoreQuotedText(ArgMessageText);
-      if(OwnWords !== ArgMessageText) {
-        // nothing but a quote: no reminder, no model call.
-        if(!OwnWords.trim())
-          return /** @type {GptReminderResponse} */ ({ recommendation: 'ignore', rationale: 'Message is only quoted text.', reminders: [] });
-        ArgMessageText = OwnWords;
-      }
-    }
-
-    // GH-44 Phase 3: routed through the shared decision chokepoint. Prompt assets, the model call,
-    // and the three structural checks (now ValidateReminderAnalysis) all live behind DecideAsync, so
-    // this path gets corpus capture for free while its errors stay byte-identical. No fallback is
-    // configured — the caller has always owned this throw.
-    const AnalysisResult = /** @type {GptReminderResponse} */(
-      await DecideAsync(this.#WorkspaceAI, ReminderAnalysisDecisionSpec, ArgMessageText, {
-        Capture: this.#DecisionCapture,
-        Logger: this.#SlackApp && this.#SlackApp.Logger,
-      })
-    );
-
-    // apply deterministic fallback for direct asks with explicit time terms if the model recommended ignore.
-    if(AnalysisResult.recommendation === 'ignore') {
-      const DeterministicFallback = this.#BuildDeterministicFallbackReminder(ArgMessageText);
-      if(DeterministicFallback) {
-        this.#SlackApp.Logger.info('deterministic reminder fallback activated for direct request with time trigger.');
-        return DeterministicFallback;
-      }
-    }
-
-    // return the analysis result.
-    return AnalysisResult;
+    const Judgement = await ReminderJudgement.JudgeReminderTextAsync(ArgMessageText, {
+      Mode: ArgOptions.Mode === 'force' ? 'force' : 'auto',
+      WorkspaceAI: this.#WorkspaceAI,
+      DecisionSpec: ReminderAnalysisDecisionSpec,
+      Capture: this.#DecisionCapture,
+      Logger: this.#SlackApp && this.#SlackApp.Logger,
+    });
+    return /** @type {GptReminderResponse} */ (Judgement.Analysis);
   }
 
   /**
@@ -722,34 +699,6 @@ class RemindersAIPipeline {
   }
 
   /**
-   * Detect a direct ask paired with an explicit time trigger using a cheap regex heuristic.
-   * Rejects negation/cancellation phrases so "please don't deploy today" returns null.
-   * Shared by the deterministic fallback and the disabled-channel discovery hint reaction
-   * so both paths use the same matcher (no AI calls).
-   * @param {string} ArgMessageText Message text to scan.
-   * @returns {{ trigger: string, actionableLanguage: string }|null}
-   */
-  static DetectDirectAskWithTimeTrigger(ArgMessageText) {
-    const MessageText = IgnoreQuotedText(ArgMessageText || '').trim();
-    if(!MessageText) return null;
-
-    const HasDirectAsk = /\b(can you|could you|please|pls|kindly)\b/i.test(MessageText);
-    const TriggerMatch = MessageText.match(/\b(this morning|today|tonight|tomorrow|by eod|eod)\b/i);
-    if(!HasDirectAsk || !TriggerMatch) return null;
-
-    // reject negation/cancellation intents — the model's `ignore` recommendation is correct for
-    // phrases like "please don't deploy today", "pls cancel tomorrow's rollout", or bare
-    // "can you not ship this morning".
-    const HasNegation = /\b(don'?t|do not|not|never|cannot|can't|won'?t|will not|shouldn'?t|stop|cancel|hold off|skip|ignore|no need|nevermind|never mind)\b/i.test(MessageText);
-    if(HasNegation) return null;
-
-    return {
-      trigger: TriggerMatch[1].toLowerCase(),
-      actionableLanguage: MessageText.replace(/\?+$/, '').trim(),
-    };
-  }
-
-  /**
    * True when the whole trigger is a bare period ("this week", "by end of the week", "EOW", "this sprint")
    * with no day, date, or time of its own. The user never named a time, so if the model's anchor for it
    * lands in the past, saying "the requested time was in the past" would be false (GH-205). Whole-phrase
@@ -829,26 +778,6 @@ class RemindersAIPipeline {
     }
 
     return JitteredDate;
-  }
-
-  /**
-   * Build deterministic fallback reminder for direct requests that include time triggers.
-   * @param {string} ArgMessageText Original message text.
-   * @returns {GptReminderResponse|null}
-   */
-  #BuildDeterministicFallbackReminder(ArgMessageText) {
-    const Detection = RemindersAIPipeline.DetectDirectAskWithTimeTrigger(ArgMessageText);
-    if(!Detection) return null;
-
-    return {
-      recommendation: 'schedule',
-      rationale: 'Deterministic fallback: direct request with explicit time trigger should be scheduled.',
-      reminders: [{
-        actionable_language: Detection.actionableLanguage,
-        scheduling_trigger: Detection.trigger,
-        reminder_message: Detection.actionableLanguage,
-      }]
-    };
   }
 
   /**
