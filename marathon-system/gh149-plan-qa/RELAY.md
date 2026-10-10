@@ -1,7 +1,7 @@
 ---
 Goal: Plan QA of GH-149 reminder judgement consolidation (whack-a-mole addendum 2026-10-10)
 Date: 2026-10-10
-NEXT: codex (Reviewer)
+NEXT: claude-a (Producer)
 STATUS: Open
 ---
 
@@ -259,3 +259,141 @@ Plan revised (read the doc again in full; the Recon, Plan, Sweep result, Preflig
 Round-2 ask: re-check questions 1-7 against the revised doc. Your reviewer block MUST contain a non-empty `Basis:` line (the block validator rejected round 1 for lacking one, exit 8) and end with exactly `VERDICT: PASS` or `VERDICT: FAIL`; on PASS set `STATUS: Approved` at the top.
 
 handing off to codex — codex, take your turn.
+
+
+### Round 2 — codex review
+
+Basis: read the revised GH-149 plan in full, including its adjudication table, and re-read the
+cited source/test regions in this worktree. Applied the SWE planning rubric within the stated
+operational envelope. Codebase-memory Verify: `list_projects(limit=100)` returned all 82 projects
+with no matching worktree; `check_index_coverage` for the cited paths and `src`/`tests` scopes returned
+`project not found or not indexed`. Direct source reads therefore supply the evidence; no graph
+freshness is claimed. No git commands, test suites, executable fixtures or source edits were run.
+Implementation/build/suite results remain **[Unverified — needs clone run]**.
+
+Plan gate: one requirement still needs resolution. F2, F3 and F4 are addressed; F1 is now described
+more honestly but its stated acceptance is narrower than the requested Guard.
+
+#### 1. Grounded paths
+
+The material path corrections match the source: strict completion is module :1539, detection
+:1615, resolution :1623-1625; mention completion is handler :700-702; chat :2153 posts the unsupported
+creation explanation; all six request rows are test :62-67; the quoted-text suite uses an inline
+stub at :95-97. The analysis spec, direct-ask helper, period classifier, fallback and date-stage
+citations match their stated responsibilities. Two harmless stale references remain: plan :112
+still labels module :1587 strict completion (that line schedules), and plan :123 says request rows
+:61-66 rather than :62-67. Use the corrected call-site table during implementation.
+
+#### 2. Requirement coverage
+
+**F1-R2 [Should] — narrowing the guard does not satisfy the addendum**
+(`PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md:49-50,149-152,207-219,287-290`).
+Reproduce now includes the date-stage assertion, Fix has the common owner and Sweep removes the
+loop. But Guard still asks that **every future exclusion must add a corpus row**. The revision
+explicitly exempts regex widening, so an added excluded phrase in the existing `opt_out` predicate
+passes with the old row. There is also a gap even within the new-entry claim: no unique exclusion
+identity is specified. A second entry reusing `opt_out` and matching the old text plus a new phrase
+satisfies the proposed per-entry positive-example guard without adding any row. The narrow probe
+below demonstrates both. Deriving `REASONS` from the table cannot prove that arbitrary new source
+branches never emit an existing token; plan :212-213 overstates that implication.
+
+Cheapest correction: give exclusions distinct identities tied to their definitions and require
+matching corpus evidence per identity/definition in the existing invariant suite. Include negative
+controls for a widened predicate and a new entry reusing an existing reason, rather than only a
+new uncovered reason. Keep prompt-only semantics explicitly separate from what the stubbed test
+can verify. If widening protection is intentionally deferred, adjudicate it as a scope deviation
+from Guard, rather than recording the requirement as accepted and fulfilled. No new framework or
+suite is needed.
+
+Observed input: existing corpus text `don't set a reminder`, reason `opt_out`; widen the predicate
+(or add a same-reason predicate) to also exclude `skip deployment`, without changing the corpus.
+Affected scope: future deterministic exclusion coverage and red control C; both revised guards
+report success for the uncovered new exclusion.
+Falsifier: in a disposable clone, each of those two changes makes the existing invariant fail with
+the original corpus, while the unmodified owner passes; or an explicit accepted deviation resolves
+the original Guard requirement. The final test execution is [Unverified — needs clone run].
+
+#### 3. Extends versus duplicates
+
+The module delegates quote handling to `quoted-text`, completion vocabulary/normalization to
+`DetectCompletionReply`, and the model boundary to `DecideAsync` with the existing decision spec.
+Injecting the request guard at detector :129 avoids copying the detector or introducing a cycle.
+The sweep gives each moved production regex one owner. Keeping the scheduling-trigger gate and
+per-group retry in their existing owners is proportionate. The fallback constant contract is now
+consistent; it centralizes the literal while retaining the retry at module :2005-2007. The scheduling
+`Analysis` early-exit shape fixes the possible :1819 null dereference.
+
+#### 4. Gate ordering
+
+(a) Auto opt-out before the model is now explicitly a behavior change, with a would-schedule stub
+and `ModelCalled:false` assertion. Reusing chat's normalization preserves its existing cases,
+including `don't forget` and `don't set a calendar event; set a reminder`.
+
+(b) Completion modes retain raw text and inject the request predicate at its current normalized-text
+position, after question checks and before negation/future checks. This preserves the previously
+identified quoted-input verdicts and overlapping reason precedence. All six request rows migrate.
+No pinned completion case identified here changes under the revised contract.
+
+(c) Force sends the full message to the model and skips the new exclusions, while its direct-ask
+fallback retains today's independent quote-strip. This matches the existing force test without
+asserting that every internal helper takes unstripped text. Suite parity needs a clone run.
+
+#### 5. Blast radius, rollback and proof
+
+The revised rollback correctly includes the deleted source and re-pointed tests in all rewiring
+reverts. Keeping the new module independently is viable with its dependent invariant/corpus files
+kept consistently. No persistence migration or new operational machinery is warranted.
+Red controls A and B are falsifiable; C is falsifiable for its narrow new-entry example but remains
+insufficient for Guard (F1-R2). The single-home check should count definitions/importing files,
+not every textual match: callers, comments and user-facing prose will still mention these names
+and tomorrow morning. The plan states defining-file scope, which is adequate. Date `Now` must be
+pinned in the corpus test so its ISO anchor remains past; the specified Date block supports this.
+
+#### 6. Roll-forward loop
+
+The revision now honors literal loop retirement with the arithmetic step at plan :226, retaining
+period classification and `wasAdjustedForward = !IsPeriodOnly` semantics at pipeline :969.
+A narrow UTC arithmetic probe agrees with the loop on seven age/boundary cases, including exact
+whole days and the three-days-plus-one-hour test anchor. This is supporting arithmetic evidence,
+not a substitute for the unchanged GH-205 integration tests in a clone. F4 is resolved.
+
+#### 7. Rating
+
+80/65/50/35 and PDDA risk 3 / effort 4 / complexity 4 remain proportionate to the supplied
+recurrence narrative and five-source-file scheduling/completion radius. The revised account now
+recognizes terminal deletion on false completion (:1654-1659). The precise churn score, ledger
+row and historical recurrence counts were not independently audited; no new rating is asserted.
+
+#### Narrow probe evidence
+
+Command: the following pure predicate/arithmetic demonstration, exit **0**, output directed to
+`.relay-scratch/round2-probe.txt`. It models the specified guard; no proposed module exists yet.
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE' > .relay-scratch/round2-probe.txt
+const rows=[{Text:"don't set a reminder",Expect:{Reason:'opt_out'}}];
+const before=[{Reason:'opt_out',Test:t=>/don't set a reminder/.test(t)}];
+const widened=[{Reason:'opt_out',Test:t=>/don't set a reminder|skip deployment/.test(t)}];
+const added=[...before,{Reason:'opt_out',Test:t=>/don't set a reminder|skip deployment/.test(t)}];
+const guard=entries=>entries.every(e=>rows.some(r=>r.Expect.Reason===e.Reason&&e.Test(r.Text)));
+console.log(JSON.stringify({beforeGuard:guard(before),widenedGuard:guard(widened),addedSameReasonGuard:guard(added),newlyExcludedText:'skip deployment',beforeExcluded:before.some(e=>e.Test('skip deployment')),afterExcluded:widened.some(e=>e.Test('skip deployment')),corpusRows:rows.length}));
+const day=86400000,now=Date.parse('2026-10-10T12:00:00Z');let count=0;
+for(const age of [1,day-1,day,day+1,2*day,3*day+3600000,30*day+1]) {
+ let loop=now-age+day;while(loop<now)loop+=day;
+ let arithmetic=now-age+day;if(arithmetic<now)arithmetic+=Math.ceil((now-arithmetic)/day)*day;
+ if(loop!==arithmetic)throw Error('mismatch');count++;
+}
+console.log('UTC loop/arithmetic parity: '+count+' boundary/age cases');
+NODE
+```
+
+Decisive output:
+
+```text
+{"beforeGuard":true,"widenedGuard":true,"addedSameReasonGuard":true,"newlyExcludedText":"skip deployment","beforeExcluded":false,"afterExcluded":true,"corpusRows":1}
+UTC loop/arithmetic parity: 7 boundary/age cases
+```
+
+VERDICT: FAIL
