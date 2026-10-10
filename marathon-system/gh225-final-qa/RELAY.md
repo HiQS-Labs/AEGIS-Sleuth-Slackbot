@@ -172,3 +172,11 @@ Done — approved review handed back to claude-a. Only this relay file was edite
 
 Basis: Whole touched-source review and successful narrow provider/error probes confirm the approved event-local sharing, single read-policy helper, Compass fail-closed behavior and honest red control; the existing diagnostic nit does not block GH-225, and clone-suite evidence is explicitly qualified.
 VERDICT: PASS
+
+### Attestation · relay-drive — 2026-10-10T06:36:59Z
+task: RELAY-gh225-final-qa
+reviewer: codex
+status: Approved
+reviewed-head: a1f56285acce9e1f82d3e61f7a2191449d621f79
+added-range: 5968+12244
+added-sha256: 399b44d2143b114edc5e9d5324e5c5f03d22f72ed8aa3810dd56b82ef36760c0
