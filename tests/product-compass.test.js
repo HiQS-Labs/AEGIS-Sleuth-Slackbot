@@ -179,5 +179,60 @@ describe('Product Compass pipeline canaries', () => {
     expect(mockClient.connect).not.toHaveBeenCalled();
     expect(mockAi.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
   });
+
+  test('GH-225: one thread read per event shared by dispatcher, look-back, Compass and chat context', async () => {
+    const provider = require('../src/thread-context-provider');
+    const slack = new MockSlackApp({ WorkspaceInfo: workspace });
+    new ChatModule(slack, {}, null, null, null);
+    mockAi.ProcessMessageWithTextResponseAsync.mockResolvedValue('generic answer');
+
+    // (a).1 red control: a hands-free reply in a NON-Compass thread with no attachment and no stored
+    // memory used to read twice (dispatcher, then chat context). One read now; two again when the
+    // provider memo is bypassed, so the memo and not an exemption holds the invariant.
+    const generic = [{ ts: '1', text: '<@UBOT123> start', user: 'U1' }, { ts: '2', text: 'reply', user: 'U1' }];
+    slack.GetConversationMessagesAsync = jest.fn().mockResolvedValue(generic);
+    await slack.SimulateMessageAsync({ channel: 'C999', thread_ts: '1', ts: '3', text: 'what now?', user: 'CONTRIBUTOR', files: [] });
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledTimes(1);
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledWith('C999', '1', undefined);
+    expect(slack.SentMessages.at(-1).text).toBe('generic answer');
+    const bypass = jest.spyOn(provider, 'GetThreadAsync').mockImplementation(async (ArgSlack, ArgEvent, ArgThread, { MaxPages } = {}) =>
+      ({ Messages: await ArgSlack.GetConversationMessagesAsync(ArgEvent.channel, ArgThread, MaxPages ? { MaxPages, Latest: ArgEvent.ts } : undefined), Complete: true }));
+    slack.GetConversationMessagesAsync.mockClear();
+    await slack.SimulateMessageAsync({ channel: 'C999', thread_ts: '1', ts: '4', text: 'and now?', user: 'CONTRIBUTOR', files: [] });
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledTimes(2);
+    bypass.mockRestore();
+
+    // (a).2 + (a).3: a Compass @mention in a thread whose earlier message carries a text upload. The
+    // look-back is no longer exempt for Compass, shares the one bounded read, and the upload reaches
+    // the Compass prompt as context memory.
+    const upload = { name: 'notes.md', size: 20, url_private: 'https://files.slack.test/notes.md', url_private_download: 'https://files.slack.test/notes.md' };
+    slack.GetConversationMessagesAsync = jest.fn().mockResolvedValue([{ ts: '1', text: 'root', user: 'U1' }, { ts: '2', text: 'see attached', user: 'U1', files: [upload] }]);
+    slack.GetFileContentAsync.mockResolvedValue('# Earlier notes\nShip the release');
+    await slack.SimulateAppMentionAsync({ channel: 'C123', thread_ts: '1', ts: '5', text: '<@UBOT123> what changed?', user: 'CONTRIBUTOR', files: [] });
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledTimes(1);
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledWith('C123', '1', { MaxPages: 5, Latest: '5' });
+    expect(mockAi.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toContain('Ship the release');
+    expect(slack.SentMessages.at(-1).text).toContain('New capability');
+
+    // (a).4: six pages with a stop reaction on page six -> bounded read gives up after five pages,
+    // the hands-free event stays silent and no consumer pays for a second read.
+    const RealSlack = new (require('../src/slack-app'))(workspace, slack.Logger);
+    await RealSlack.ConnectOneShotAsync();
+    const root = { ts: '1', text: '<@UBOT123> start', user: 'U1' };
+    mockReplies.mockReset().mockImplementation(async ({ cursor }) => {
+      const page = Number(cursor || 0);
+      return { ok: true, messages: [root, { ts: String(page + 2), text: 'reply', user: 'U1',
+        ...(page === 5 ? { reactions: [{ name: 'octagonal_sign' }] } : {}) }],
+        response_metadata: { next_cursor: page < 5 ? String(page + 1) : '' } };
+    });
+    slack.GetConversationMessagesAsync = jest.fn(RealSlack.GetConversationMessagesAsync.bind(RealSlack));
+    mockAi.ProcessMessageWithJsonResponseAsync.mockReset();
+    const sent = slack.SentMessages.length;
+    await slack.SimulateMessageAsync({ channel: 'C123', thread_ts: '1', ts: '9', text: 'still there?', user: 'CONTRIBUTOR', files: [] });
+    expect(mockReplies).toHaveBeenCalledTimes(5);
+    expect(slack.GetConversationMessagesAsync).toHaveBeenCalledTimes(1);
+    expect(slack.SentMessages).toHaveLength(sent);
+    expect(mockAi.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
+  });
 });
 

@@ -16,6 +16,7 @@ const {
   FormatProviderCommandsListLine,
 } = require('./web-search-providers');
 const { CommandRouter } = require('./chat-command-router');
+const ThreadContext = require('./thread-context-provider');
 const { RegisterCatalogRegexAliases } = require('./catalog-regex-aliases');
 const { CommandCatalogPath } = require('./command-catalog');
 const { BuildErrorReportAsync } = require('./diagnostics-report');
@@ -1331,7 +1332,7 @@ class ChatModule {
     // not set on the root message event.
     const ContextThreadTS = ArgEventInfo.thread_ts ?? (FileWasLoaded ? ArgEventInfo.ts : null);
     const MessageText = ContextThreadTS
-      ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+      ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS, undefined, ArgEventInfo)
       : ArgEventInfo.text;
 
     // prepare system instructions.
@@ -2090,7 +2091,7 @@ class ChatModule {
       // file loaded so the context memory block is included even without thread_ts being set.
       const ContextThreadTS = ArgEventInfo.thread_ts ?? (FileWasLoaded ? ArgEventInfo.ts : null);
       const MessageText = ContextThreadTS
-        ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+        ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS, undefined, ArgEventInfo)
         : ArgEventInfo.text;
 
       const SystemInstructions = await this.#PrepareSystemInstructionsAsync();
@@ -2716,19 +2717,12 @@ class ChatModule {
 
       // get all messages in the thread.
       const IsCompassChannel = Boolean(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel));
-      /** @type {any[]} */ let ThreadMessages;
-      /** @type {any[]|undefined} */ let CompleteThread;
-      try {
-        ThreadMessages = (await ArgSlackApp.GetConversationMessagesAsync(
-          ArgEventInfo.channel, ArgEventInfo.thread_ts,
-          IsCompassChannel ? { MaxPages: 5, Latest: ArgEventInfo.ts } : undefined
-        )).filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
-        CompleteThread = ThreadMessages;
-      } catch(error) {
-        // unread messages may contain a stop reaction; incomplete history cannot authorize a reply.
-        if(!IsCompassChannel || error?.code !== 'context-incomplete') throw error;
-        return { ShouldRespond: false };
-      }
+      // GH-225: one read per event, shared with the look-back, Compass and the chat context below.
+      const { Messages, Complete } = await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgEventInfo.thread_ts);
+      // unread messages may contain a stop reaction; incomplete history cannot authorize a reply.
+      if(!Complete) return { ShouldRespond: false };
+      const ThreadMessages = Messages.filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
+      const CompleteThread = ThreadMessages;
 
       // check if the first message in thread has an app mention (hands-free mode).
       const FirstMessage = ThreadMessages[0];
@@ -2932,12 +2926,11 @@ class ChatModule {
   async #FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo, ArgThreadMessages = undefined) {
     if(!ArgEventInfo.thread_ts) return [];
     if(this.#ThreadContextMemory.has(`${ArgEventInfo.channel}:${ArgEventInfo.thread_ts}`)) return [];
-    // GH-217 caps Compass threads at one bounded read per event and Compass carries its own document
-    // context, so the look-back is skipped there on every path.
-    if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) return [];
     try {
+      // GH-225: the per-event provider shares the read with the dispatcher, Compass and the chat
+      // context, so Compass threads no longer need their own exemption to stay within one read.
       const Messages = ArgThreadMessages
-        || await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
+        || (await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgEventInfo.thread_ts)).Messages;
       return Messages
         // strictly earlier only: a delayed event can see replies (and uploads) posted after it.
         .filter((ArgMessage) => Number(ArgMessage.ts) < Number(ArgEventInfo.ts))
@@ -3083,12 +3076,32 @@ class ChatModule {
     await HandleAskCompassCommandAsync(ArgSlackApp, ArgEventInfo, ArgQuestion, this.#WorkspaceAI,
       this.#ChannelModelSettings.GetModelForChannel(ArgEventInfo.channel), async () => {
         const Root = ArgEventInfo.thread_ts || ArgEventInfo.ts;
-        const Messages = ArgMessages || (ArgEventInfo.thread_ts
-          ? await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, Root, { MaxPages: 5, Latest: ArgEventInfo.ts }) : []);
+        let Messages = ArgMessages || [];
+        if(!ArgMessages && ArgEventInfo.thread_ts) {
+          const Thread = await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, Root);
+          if(!Thread.Complete) throw Object.assign(new Error('Thread exceeds complete context limit'), { code: 'context-incomplete' });
+          Messages = Thread.Messages;
+        }
         const Current = Messages.filter(ArgMessage => Number(ArgMessage.ts) < Number(ArgEventInfo.ts));
         Current.push(ArgEventInfo);
         return this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, Root, Current);
       });
+  }
+
+  /**
+   * GH-225: the one place that decides how a chat event reads its thread. Compass-mapped channels
+   * take the bounded complete read (five pages, up to the event) so a hands-free reply is never
+   * authorized from a partially read thread; every other channel keeps the legacy single read.
+   * The provider memoises per event, so the dispatcher, the earlier-file look-back, Compass and the
+   * chat context share one Slack read.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {any} ArgEventInfo The inbound event.
+   * @param {string} ArgThreadTS Thread root timestamp.
+   * @returns {Promise<{Messages: any[], Complete: boolean}>}
+   */
+  #ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgThreadTS) {
+    const Bounded = Boolean(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel));
+    return ThreadContext.GetThreadAsync(ArgSlackApp, ArgEventInfo, ArgThreadTS, Bounded ? { MaxPages: 5 } : {});
   }
 
   /**
@@ -3097,11 +3110,15 @@ class ChatModule {
    * @param {string} ArgChannelID Channel ID where the thread is located.
    * @param {string} ArgThreadTS Timestamp of the parent message of the thread.
    * @param {any[]} [ArgMessages] Already fetched complete thread.
+   * @param {any} [ArgEventInfo] The inbound event (GH-225): when given, the read is shared with every
+   *   other consumer of the same event through the thread-context provider.
    * @returns {Promise<string>}
    */
-  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS, ArgMessages = undefined) {
+  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS, ArgMessages = undefined, ArgEventInfo = undefined) {
     // get all the messages in the thread.
-    const ThreadMessages = ArgMessages || await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS);
+    const ThreadMessages = ArgMessages || (ArgEventInfo
+      ? (await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgThreadTS)).Messages
+      : await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS));
 
     // concatenate all the messages in the thread into a single message.
     const ThreadText = ThreadMessages.reduce((ArgAccumulatedText, ArgCurrentMessage) => {
