@@ -1,6 +1,6 @@
 # Marathon Phase p2
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -200,3 +200,68 @@ Fixed the blockers identified in Round 1:
   - `lookback-bare.js` asserts the sole reply after the baseline is precisely the "I've loaded" confirmation.
 - **Compass extra reads & empty citations:** Updated `compass-budget.js` to first count all calls from `GetConversationMessagesCalls()`, ensuring only a single bounded read occurred (`calls.length === 1 && calls[0].MaxPages <= 5`). Asserted that excerpts in the citations section are non-empty, and verified no duplication by performing `indexOf !== lastIndexOf` against the entire output text to catch excerpts repeated outside the quote block.
 - **Command scenario hydration:** Added an explicit assertion `Context.Expect(Context.Fixture.DownloadCount() === 1, 'exactly one download');` in `lookback-command.js` to guarantee hydration happens before testing the command routing. Also applied the post-baseline filtering rules here.
+
+
+### Round 2 · Reviewer · codex
+
+swept file: yes
+
+**Verdict:** Changes requested
+
+Swept all five scenario files and the entire tests/selftest.test.js, including the pre-existing guard and runner tests. No additional pre-existing defect was found in that test file. Read the parent plan, runner context/counters and actual Compass and model-status renderers. All five scenarios remain below 40 lines (34, 23, 23, 23, 22 including trailing split lines), preserve the mapping split and stay inside the p2 lane.
+
+Evidence scope: Verify using exact on-disk source. MCP list_projects returned all 82 projects with has_more=false; neither this checkout nor the env-pinned GH-221 clone has an indexed project. No applicable generation/coverage metadata exists, so direct source fallback was used. No git, Jest, npm test, executable fixture, validation script, Slack call or scenario Run was executed. Required suite and live outcomes remain **[Unverified — needs clone run]** for the harness/post-merge verification.
+
+Resolved from Round 1:
+- The non-emitting compiler probe now passes. Command: export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node node_modules/typescript/bin/tsc --noEmit --incremental false > "$TMPDIR/p2-round2-tsc.log" 2>&1. Compiler exit **0**, empty diagnostic output. Explicit any annotations satisfy the existing compiler gate.
+- All lookback assertions now exclude messages at/before the Mention baseline; the baseline-only skip-bad history is rejected.
+- Bare confirmation plus unwanted chat is rejected.
+- The command download assertion now establishes the fixture download.
+- Compass counts the unbounded extra call and rejects it; an excerpt duplicated in the answer and sources is rejected.
+
+1. **[Blocker] Compass still passes without an answer body or a populated Sources section.**
+   Observed input: compass-budget.js:18-26 accepts both post-baseline text values below with calls=[{MaxPages:5}], baseTs='2', reply ts='3':
+   - "\n\nSources:\n[1.1] release <https://example.test|open>\n> Canary excerpt" (no answer body).
+   - "Sorry, unavailable.\n> unrelated quote\nSources:" (empty Sources; quote only before the heading).
+   Affected scope: src/selftest/scenarios/compass-budget.js:18-26, parent Design 6 and Round 1 finding 3. The predicate collects quotes from the whole message and does not require any answer text before Sources. The current Compass renderer at src/product-compass.js:192 appends Sources to the answer and places each identified source's excerpt inside that section; this gives a concrete format to validate.
+   Probe command: export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node "$TMPDIR/p2-round2-predicates.cjs" (reproducible source below). Exit **0**. Decisive output: "compass NO answer body: ALL ASSERTIONS PASS"; "compass EMPTY Sources with quote in answer: ALL ASSERTIONS PASS"; control "compass valid sourced answer: ALL ASSERTIONS PASS".
+   Request: split the answer from the actual Sources section; require a non-empty answer body and a non-empty identified citation/excerpt inside Sources. Keep duplicate detection across the whole rendered output and the bounded-read assertions. No semantic grader or runner change is needed.
+   Falsifier: both invalid inputs above fail, while the valid sourced-answer control passes.
+
+2. **[Should] The command assertion still allows an extra AI chat reply.**
+   Observed input: lookback-command.js:17-20 with baseTs='2', download count 1, token 'canary-only-in-file', and replies [{ts:'3',text:'*Channel Model*\nVerified answer'},{ts:'4',text:'Hello, how can I help?'}] passes every assertion.
+   Affected scope: src/selftest/scenarios/lookback-command.js:18-19; the brief requires model status reply, not AI chat. The lack of the token in an unrelated extra chat answer does not establish that the command consumed the mention. The actual src/chat-commands/show-channel-model-command.js posts a single status message containing the Channel Model heading and Verified answer marker.
+   Probe command: node "$TMPDIR/p2-round2-predicates.cjs", exit **0**. Decisive output: "command status PLUS unwanted chat: ALL ASSERTIONS PASS".
+   Request: require the sole later response to be the deterministic model-status message (using its heading and verification marker), while retaining the exactly-one-download check.
+   Falsifier: that two-response history fails; a single later model-status response with one fixture download passes.
+
+Reproducible probe source (scratch only; evaluates source slices, never executes the scenarios):
+
+```js
+const fs = require('fs'), vm = require('vm');
+function probe(label, file, start, end, vars) {
+  const code = fs.readFileSync(file, 'utf8').split('\n').slice(start - 1, end).join('\n');
+  try {
+    vm.runInNewContext(code, { ...vars, Context: {
+      Expect(ok, message) { if (!ok) throw Error(message); },
+      Fixture: { DownloadCount: () => 1 }
+    } });
+    console.log(label + ': ALL ASSERTIONS PASS');
+  } catch (e) { console.log(label + ': REJECTED: ' + e.message); }
+}
+const compass = 'src/selftest/scenarios/compass-budget.js';
+const vals = text => ({calls:[{MaxPages:5}], baseTs:'2', replies:[{ts:'3', text}]});
+probe('compass NO answer body', compass, 13, 31, vals('\n\nSources:\n[1.1] release <https://example.test|open>\n> Canary excerpt'));
+probe('compass EMPTY Sources with quote in answer', compass, 13, 31, vals('Sorry, unavailable.\n> unrelated quote\nSources:'));
+probe('compass valid sourced answer', compass, 13, 31, vals('Release adds widgets [1.1].\n\nSources:\n[1.1] release <https://example.test|open>\n> Canary excerpt'));
+probe('compass duplicated excerpt', compass, 13, 31, vals('Canary excerpt [1.1].\n\nSources:\n[1.1] release\n> Canary excerpt'));
+probe('compass extra unbounded read', compass, 13, 31, {...vals('answer\nSources:\n> excerpt'), calls:[{}, {MaxPages:5}]});
+probe('command status PLUS unwanted chat', 'src/selftest/scenarios/lookback-command.js', 17, 20,
+  {baseTs:'2',token:'canary-only-in-file',replies:[{ts:'3',text:'*Channel Model*\nVerified answer'},{ts:'4',text:'Hello, how can I help?'}]});
+probe('bare confirmation PLUS unwanted chat', 'src/selftest/scenarios/lookback-bare.js', 17, 20,
+  {baseTs:'2',token:'canary-only-in-file',replies:[{ts:'3',text:"I've loaded test.json"},{ts:'4',text:'Hello, how can I help?'}]});
+probe('skip-bad ONLY baseline', 'src/selftest/scenarios/lookback-skip-bad.js', 17, 19,
+  {baseTs:'2',replies:[{ts:'2',text:'what is the marker?'}]});
+```
+
+Handing off to agy — agy, take your turn.
