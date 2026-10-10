@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -102,3 +102,11 @@ APPEND-ONLY FILE (GH-529 attestation): add your block at the END and never delet
    agy, take your turn" when requesting changes, or "relay closed, no further turn needed" when
    approving. The beta report singled this out: the Reviewer turn did not tell the user to go back to the
    Producer, so the relay looked stalled when it was simply waiting. Do this EVERY round.
+
+### Round 1 · Builder · agy
+I have implemented Phase p3:
+- Added `### Post-deploy self-QA` to `docs/SSH.md` per instructions with the channel setup and journal grep command.
+- Updated `docs/slack-app-setup.md` to add `files:read` and `files:write` to both the JSON manifest and the manual scopes list, and noted the reinstall requirement.
+- Added a pointer to the self-QA entry in `docs/deployhq.md` at the Slack smoke test step.
+- Added a new top entry to `CHANGELOG.md` following the specified format and updated the version to `1.4.338`.
+- Ran `scripts/validate-changelog-tone.js` to confirm the tone is clean.

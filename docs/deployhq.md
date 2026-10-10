@@ -99,7 +99,7 @@ Your hosts already run the app at `/root/sleuth-app` (no GitHub Actions runners 
    ls data/runtime/workspaces/   # should still list your workspace files
    test -f .env.runtime && echo "runtime env present" || echo "no .env.runtime (ok if unused)"
    ```
-5. Smoke-test in Slack: `@YourBot help`.
+5. Smoke-test in Slack: `@YourBot help` and run [post-deploy self-QA](SSH.md#post-deploy-self-qa).
 6. Repeat for **Production** when ready (prefer a **manual** deploy the first time).
 
 ### What must survive a deploy

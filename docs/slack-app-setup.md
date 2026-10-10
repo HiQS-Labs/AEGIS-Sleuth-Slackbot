@@ -40,6 +40,8 @@ When you finish, you will have the three credentials AEGIS needs per workspace:
                 "channels:history",
                 "channels:read",
                 "chat:write",
+                "files:read",
+                "files:write",
                 "groups:history",
                 "groups:read",
                 "im:history",
@@ -109,6 +111,8 @@ When you finish, you will have the three credentials AEGIS needs per workspace:
      - `channels:history` - View messages in public channels
      - `channels:read` - View basic channel information
      - `chat:write` - Send messages as the app
+     - `files:read` - View files shared in channels and conversations
+     - `files:write` - Upload, edit, and delete files as the app
      - `groups:history` - View messages in private channels
      - `groups:read` - View basic private channel information
      - `im:history` - View direct message history
@@ -117,6 +121,7 @@ When you finish, you will have the three credentials AEGIS needs per workspace:
      - `reactions:read` - View emoji reactions
      - `reactions:write` - Add emoji reactions
      - `users:read` - View user information (required for diagnostics)
+   - If the dev app lacks them it needs a reinstall.
    - Click "Install to Workspace" at the top of the page
    - Authorize the app
    - Copy the Bot User OAuth Token - you'll need it as `LIVE_TOKEN` (starts with `xoxb-`)
