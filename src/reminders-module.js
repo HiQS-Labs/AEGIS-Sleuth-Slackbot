@@ -1613,8 +1613,9 @@ class RemindersModule {
     if(!ArgEventInfo.thread_ts || ArgEventInfo.thread_ts === ArgEventInfo.ts) return false;
     if(!ArgEventInfo.user || ArgEventInfo.user === ArgSlackApp.BotUserID) return false;
 
-    const Detection = ReminderTextCompletion.DetectCompletionReply(ArgEventInfo.text || '', ArgMode);
-    if(!Detection.IsCompletion) return false;
+    const Judgement = await ReminderJudgement.JudgeReminderTextAsync(ArgEventInfo.text || '', { Mode: ArgMode });
+    if(Judgement.Verdict !== 'complete') return false;
+    const Detection = /** @type {{IsCompletion: boolean, Reason: string}} */ (Judgement.Completion);
 
     // Owner = an assignee (GetAssigneeIDs, which falls back to the sender for unassigned reminders)
     // or the person who asked for the reminder.
