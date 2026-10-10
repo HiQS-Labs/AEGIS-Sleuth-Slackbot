@@ -22,7 +22,7 @@ goal: "Reminder intent judgement has one code owner and one seeded corpus, so th
 
 | What was just completed | What's next |
 |---|---|
-| Implementation landed in `fix(GH-149):` commits; red controls A, B, C1-C3 verified; single-home grep clean | Full `npm test`, final Codex QA relay, PR |
+| Implementation, full gate and final Codex QA (PASS, round 1, attested) done | PR into development; merge is the operator's |
 
 Scope: the "Additional remediation tasks" in the 2026-10-10 whack-a-mole addendum on #149 only. The
 umbrella's original replay-nondeterminism, echo-threshold and reaction-lookback items are NOT in scope
@@ -199,8 +199,8 @@ it. Date extraction itself stays outside the judgement owner.
 
 Seeded with the four shipped cases plus the rows the sweep retires from unit tests: the six #201
 request rows from `reminder-text-completion.test.js:62-67` (each in the mode that pins it), the
-opt-out rows (would-schedule stub, `ModelCalled: false`) and the `don't forget` / `calendar event`
-non-opt-out rows, the negated direct ask, and the force-mode quoted case.
+opt-out row (would-schedule stub, `ModelCalled: false`) and the `don't forget` non-opt-out row (the
+`calendar event` case stays pinned at `tests/chat-module.test.js:86`; final-QA nit), the negated direct ask, and the force-mode quoted case.
 
 `tests/reminder-judgement-corpus.test.js`: `test.each` over the rows, one entry point
 (`JudgeReminderTextAsync`) with `WorkspaceAI.ProcessMessageWithJsonResponseAsync` stubbed per row from
@@ -306,7 +306,7 @@ one JSON file, one test file, no framework, no enterprise fail-safes.
 - [x] FSM invariant: every `EXCLUSIONS` entry and every `REASONS` token has a matching corpus row.
 - [x] The date-stage `while` is gone and GH-205 tests :610-666 pass unchanged.
 - [x] CHANGELOG entry in the two-paragraph format; `node scripts/validate-changelog-tone.js` exits 0.
-- [ ] `utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt` clean before every push.
+- [x] `utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt` clean before every push.
 
 ## Rating and recurrence
 
@@ -379,3 +379,8 @@ C2 widened `opt_out` alternative, C2 flag-only `m` on `quoted_only`: each `1 fai
 41/41. Focused suites green between every rewiring commit. One parity detail kept from today's code:
 `quoted_only` fires only when quote-stripping removed something (an empty message without quotes
 still reaches the model).
+
+Final QA (`marathon-system/gh149-final-qa/RELAY.md`): round 1 codex `VERDICT: PASS`, STATUS Approved,
+relay-drive attestation on reviewed head `327f026`. No Blocker/Should. One Nit (calendar-event row
+promised by the seed paragraph but absent) — Accepted as a doc correction: the paragraph is narrowed;
+the case remains pinned by `tests/chat-module.test.js:86` and the moved regex is unchanged.
