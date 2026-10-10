@@ -23,7 +23,7 @@ related: "GH-215 GH-217 GH-219 GH-221 GH-222; radar #224 target RADAR-product-co
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA round 1 (Codex) returned `VERDICT: FAIL` with F1-F3; every finding adjudicated below and the plan revised | Plan QA round 2, then admission and implementation |
+| Plan QA approved in round 2 (Codex, attested); provider, call-site routing, sweep and new canary implemented; focused suites green and red control observed | Final Codex QA relay on the committed diff, full `npm test`, push and PR against `development` |
 
 ## Why
 

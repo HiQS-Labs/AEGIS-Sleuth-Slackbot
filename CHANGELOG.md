@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.339 - 2026-10-10
+
+When someone talks to me in a thread, I now read that thread from Slack once and reuse it for everything I do with that message, instead of each feature fetching it again. In Product Compass channels I also notice a text file shared earlier in the thread, the same way I already do elsewhere.
+
+**Technical:** GH-225. New `src/thread-context-provider.js` (`GetThreadAsync`) memoises the in-flight `SlackApp.GetConversationMessagesAsync` promise for the lifetime of the inbound event object, so the hands-free dispatcher, the GH-219 earlier-file look-back, Compass and the chat context share one read; `#ReadThreadAsync` in `src/chat-module.js` is the single read-policy decision (`MaxPages: 5` with `Latest` for Compass-mapped channels, legacy single read elsewhere). Removed the inline `MaxPages` literal in `#RunCompassAsync` and the Compass exemption in `#FindEarlierThreadFilesAsync`; the reaction handlers keep their own single reads. The selftest `compass-budget` assertion and the GH-217 six-page stop canary are unchanged. New canary in `tests/product-compass.test.js` proves the non-Compass hands-free path dropped from two reads to one and goes back to two when the memo is bypassed. Known limitation, unchanged: non-Compass hands-free authorization still reads Slack's default first page only.
+
 ## 1.4.338 - 2026-10-09
 
 I can now check my own health after a deployment by running a self-test in a designated channel. My setup instructions have also been updated to include the file permissions I need to read thread uploads.
