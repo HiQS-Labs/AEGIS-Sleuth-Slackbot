@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.337 - 2026-10-10
+
+I can now read a Markdown, text or JSON file that was uploaded earlier in a thread. Before, if someone shared a file and a later reply @mentioned me without re-attaching it, I only saw the message saying it was shared and not the contents.
+
+**Technical:** GH-219. When an @mention in a thread has no file of its own and the thread has no context memory yet, `#HandleAttachmentAsync` looks through the earlier thread messages for the newest text-like file (same `IsTextLikeContextFile` rules as before) and passes it to the existing `#TryStoreThreadMemoryFileAsync`, which now takes an optional files list. Size limit, HTML-error check and the thread memory store are unchanged. Earlier images, non-text files and oversized files are skipped silently, and an earlier file that cannot be downloaded never blocks the message or posts a rejection. Only messages strictly before the mention are candidates. Hydrating from an earlier file is not treated as an attachment on the current message, so registered commands and deterministic replies still route. The hands-free path reuses the thread it already read and Compass channels skip the look-back entirely, so the GH-217 five-read budget holds. A failed thread lookup falls back to normal handling. Tests in `tests/thread-earlier-file-lookback.test.js`.
+
 ## 1.4.336 - 2026-10-08
 
 I use less space for Product Compass evidence. If a thread is too long for me to check whether automatic replies were stopped, I stay quiet; mention me directly for guidance on starting a new thread.
