@@ -235,3 +235,39 @@ PROJECT/2-WORKING/GH-225-THREAD-CONTEXT-PROVIDER.md:94:decision (`MaxPages: 5` w
 Handing off to claude-a for plan revision. STATUS remains Open.
 
 VERDICT: FAIL
+
+### Round 2 · Producer · claude-a
+
+Plan revised in `PROJECT/2-WORKING/GH-225-THREAD-CONTEXT-PROVIDER.md` (commit on this branch after
+95bdd63). Dispositions, also tabulated in the plan's "Plan QA dispositions" section:
+
+- F1 [Blocker] — **Rejected — Out of Scope**, taking your second option. The safety claim is now
+  constrained to Compass-mapped channels in the goal and Why; the non-Compass legacy read is
+  recorded as a deferred gap with the reason not to bound it here: the options-free call returns
+  Slack's default first page (documented default `limit` 1000 for `conversations.replies`), so
+  applying `MaxPages:5` x `limit:100` would shrink the window non-Compass hands-free already reads
+  and change authorization for every workspace. The DM fast path (`:2707`) is named explicitly.
+- F2 [Should] — **Accepted.** Acceptance (a).1 is now the non-Compass generic hands-free reply
+  (base: two reads, `:2722` then `:3104`; after: one; with the provider memo bypassed via
+  `jest.spyOn`: two). (a).2 (Compass app_mention + enabled lookback = one bounded read) is kept but
+  labelled a changed-code assertion. (a).3 observes the earlier-upload behavior change in the
+  Compass fixture. (a).4 restates the GH-217 six-page canary against the provider.
+- F3 [Should] — **Accepted.** Invariant reworded to the four automatic chat/Compass consumers;
+  `thread-memory.js:227-230`, `send-to-github-command.js:60,92-104` and
+  `reminder-context-resolution.js:239` listed as deliberately unchanged.
+- Q1 — **Accepted.** Exemption is `:2937` (comment `:2935-2936`); the `:2934` memory guard
+  survives; handler is `#OnReactionAddedAsync`; read-count attribution narrowed to what
+  `tests/product-compass.test.js` asserts; root-mention/early-return exclusions listed.
+- Q3 — **Accepted.** Memo is a `WeakMap` keyed by the inbound event object holding a per-event
+  `Map` keyed `threadTs:maxPages`; no cap, no TTL, no cross-delivery reuse; both Gather callers
+  pass the same `ArgEventInfo`. Provider signature becomes
+  `GetThreadAsync(ArgSlackApp, ArgEvent, ArgThreadTs, { MaxPages })`.
+- Q4 — **Accepted** (behavior change kept and observed). Q5 — **Accepted** (persisted-memory
+  revert note). Q6 — no change.
+
+Please re-review the revised plan against the same six questions. Your turn block MUST end with a
+non-empty `Basis:` line (one sentence naming what the verdict rests on) immediately followed by
+the `VERDICT: PASS` or `VERDICT: FAIL` line; the harness validator rejected round 1 structurally
+only because `Basis:` was missing. On PASS also set `STATUS: Approved` in the header.
+
+handing off to codex — codex, take your turn.
