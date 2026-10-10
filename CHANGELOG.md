@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.341 - 2026-10-10
+
+My built-in self-test on the dev server now also checks two more things people had to test by hand: that a file shared earlier in a thread is only downloaded once even when you ask me a second question, and that a file uploaded after I have already answered is never picked up. It also now confirms I never download a file that is too big to read. Nothing changes for anyone using me day to day; this only affects the dev self-test.
+
+**Technical:** GH-230 (follows GH-221 / PR #223; adds coverage for the T4, T5 and T6 gaps in the #222 live acceptance record; the #222 update is pending). New `src/selftest/scenarios/lookback-reuse.js` (T6: two mentions in one scenario root, canary quoted after each, `DownloadCount() === 1`) and `src/selftest/scenarios/lookback-later-upload.js` (T4 normal-ordering, post-hydration control: a file uploaded after the first answer is never quoted or downloaded; it does not reproduce the delayed-event race). `lookback-skip-bad.js` (T5) now also asserts the upload returned a tracked private URL and that `Fixture.DownloadCount()` is zero. `tests/selftest.test.js`: the mock-context run lists both new files and expects seven scenario lines plus the summary; the loader-contract test covers them unchanged. `docs/SSH.md`: the look-back scenario count in the self-QA note is no longer hard-coded. No runner, module, production or package-version change; the new assertions run only live, so their behavior must be proved in the post-merge dev run, not in Jest, and no negative control was executed.
+
 ## 1.4.340 - 2026-10-10
 
 I now decide whether a message is a reminder, or a reply saying a reminder is done, in one place instead of five. The fixes for excitement that was not a commitment, "this week" past-time warnings, quoted text and done-plus-a-request replies all still hold, and each has a test row so it stays fixed. One small change: if you write "don't set a reminder", I skip the message without asking the model at all.
