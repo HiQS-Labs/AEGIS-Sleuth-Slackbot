@@ -1,8 +1,8 @@
 ---
 title: "GH-217: Remove redundant Compass evidence and thread reads"
-status: working
+status: Complete
 created: 2026-10-08
-updated: 2026-10-08
+updated: 2026-10-10
 owner: Codex
 goal: "Avoid duplicate model evidence and Slack reads while respecting hands-free stop controls."
 gh_issue: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/217
