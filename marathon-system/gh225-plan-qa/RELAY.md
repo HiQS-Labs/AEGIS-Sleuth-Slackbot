@@ -66,3 +66,14 @@ End your turn with a single line reading exactly `VERDICT: PASS` or `VERDICT: FA
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
 
 ## Log
+
+### Round 1 · Producer · claude-a
+
+Plan written at `PROJECT/2-WORKING/GH-225-THREAD-CONTEXT-PROVIDER.md` (commit 20d08a7 on
+`fix/gh-225-thread-context-provider`, base `aca655d`). Recon table lists all seven
+`GetConversationMessagesAsync` sites with caller, per-event status, page cap and purpose; the plan
+proposes one additive module `src/thread-context-provider.js`, one `#ReadThreadAsync` helper in
+`src/chat-module.js`, four call-site edits (`:2722`, `:2940`, `:3087`, `:3104`) and one new jest
+case. Questions 1-6 above are the review contract. Releasing the turn token to codex.
+
+handing off to codex — codex, take your turn.
