@@ -384,3 +384,7 @@ Final QA (`marathon-system/gh149-final-qa/RELAY.md`): round 1 codex `VERDICT: PA
 relay-drive attestation on reviewed head `327f026`. No Blocker/Should. One Nit (calendar-event row
 promised by the seed paragraph but absent) — Accepted as a doc correction: the paragraph is narrowed;
 the case remains pinned by `tests/chat-module.test.js:86` and the moved regex is unchanged.
+
+## Merge evidence
+
+- PR #228 merged 2026-10-10 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).

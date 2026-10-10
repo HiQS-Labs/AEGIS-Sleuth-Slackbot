@@ -1,6 +1,6 @@
 ---
 title: "GH-225: Shared bounded thread-context provider for Compass, earlier-file lookback and selftest"
-status: working
+status: Complete
 created: 2026-10-10
 updated: 2026-10-10
 owner: claude-a

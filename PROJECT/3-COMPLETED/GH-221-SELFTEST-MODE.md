@@ -1,6 +1,6 @@
 ---
 title: "GH-221: Dev-server-only self-QA mode (@Sleuth selftest)"
-status: Marathon-ready (2-WORKING)
+status: Complete
 created: 2026-10-10
 updated: 2026-10-10
 owner: noel
