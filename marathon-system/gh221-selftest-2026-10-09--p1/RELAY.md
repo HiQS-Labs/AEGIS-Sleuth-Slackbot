@@ -1,5 +1,5 @@
 # Marathon Phase p1
-STATUS: Open
+STATUS: Approved
 NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
@@ -318,3 +318,64 @@ I addressed all the requested changes from Round 2:
 5. **Nit _isSelftestAssertion**: Removed `_isSelftestAssertion` from `runner.js` and `GetRepliesAsync` directly calls the original `GetConversationMessagesAsync` method without any options.
 
 Handing off to codex — codex, take your turn.
+
+
+### Round 3 · Reviewer · codex
+
+swept file: yes
+
+**Verdict:** Approved
+
+Reviewed the parent plan, latest builder block and all five complete artifact files: app (569 lines), chat (3,549), runner (257), module (89), tests (155). No additional verified pre-existing defect found in this sweep. The previously found relay shutdown defect is fixed; the documented legacy bearer-token fallback remains outside this change.
+
+Evidence tier: Verify with direct-source fallback. Both list_projects pages (82 projects, final has_more=false) contain no index for this checkout. Nearest related project sleuth-product-compass is a different checkout, generation 2026-10-08T02:29:43Z. Graph search returned RunAppAsync and Slack read/download methods, has_more=false. Coverage reports selftest files missing, chat/slack metadata changed, scripts excluded. Therefore all material findings use the actual seed source, not that graph's stale implementation. No git, suites, executable fixtures, validators, app boot, artifact edit or external posting was performed. Only RELAY.md changes; probes stay under .relay-scratch/tmp.
+
+**[Pass] Compiler.** Command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; mkdir -p "$TMPDIR"; ./node_modules/.bin/tsc --noEmit --pretty false > "$TMPDIR/r3-tsc.log" 2>&1`. Exit **0**, no diagnostics.
+
+**[Pass] Runner corrections.** P5 command: `node <<'NODE' > "$TMPDIR/r3-probe.log"`, using the following script after the same env export. Exit **0**. This evaluates only the seeded runner in memory with explicit boundary substitutes, without loading any scenario fixture file or connecting to Slack.
+
+- Fixture private/download URL reads plus an unrelated Slack URL produce `downloads:2`; one scenario-thread read plus an unrelated-channel read produces `readsBefore:1,readsAfter:1,options:[{"MaxPages":5,"Latest":"3.0"}]`. Assertion replies carry `options:null` and do not increase counts.
+- Success: scenario root `thread:null`, linked final report `thread:"90.0"`; line-filtered journal retains scenario, summary and `[selftest] exit_code=0`.
+- Final-report post rejection: `rejected:null,restored:true,cleaned:1`, `[selftest] Report delivery failed: report post failed`, `[selftest] exit_code=1`.
+- Unknown-name post rejection: `rejected:null`, prefixed unknown-name receipt and `[selftest] exit_code=1`, with the delivery cause separately logged.
+- EACCES loading: attempted report to `90.0`, `rejected:null`, prefixed `Failed to read scenarios: permission denied`, `exit_code=1`.
+- Cleanup rejection: `restored:true,cleaned:1,rejected:null`, `❌ observe — Cleanup failed: cleanup rejected`, summary `Total: 1, ✅ 0, ❌ 1, ⏭ 0`, `exit_code=1`.
+
+**[Pass] Guard and shutdown.** P6 command: `node <<'NODE' > "$TMPDIR/r3-guard-shutdown.log"`, evaluating the actual module with a minimal BaseModule/runner boundary, and extracting app.js's actual two relay loops into an async function with in-memory relay objects. Exit **0**. Decisive guard output: `{"unset":null,"ordinary":false,"wrong":true,"posts":["selftest is dev-only"],"runs":1,"reentrant":true,"firstHandled":true}`: wrong-channel post rejection is consumed and a concurrent command starts no second run. Relay input: four snapshot/digest relays and two code relays, the first StopAsync rejecting. Output: `stopped:["snapshotA","digestA","snapshotB","digestB","codeA","codeB"]`, one logged `stop rejected` error. Flat loops at app.js:507-512 now reach all owned relays independently of workspace indices.
+
+**[Nit — non-blocking]** runner.js:65 logs unknown-name delivery errors without the bracketed prefix. The documented grep retains the request and failure status but omits the delivery cause; setup-error delivery failures behave similarly. The correctness defects (escaping rejection and missing failure status) are resolved. Optionally prefix these error logs for diagnostic consistency.
+
+**[Unverified — needs clone run]** Targeted Jest/selftest/look-back, full npm test, regression mutation checks, command-validator before/after equivalence, and actual transitive harness import side effects remain for the disposable-clone harness gate. The harness CLI's require.main guard is source-confirmed, not proof of all transitive import behavior. This approval covers the authorized reviewer checks for p1, not p2 live scenarios or p3 docs.  [Unverified — no citation]
+
+#### P5 reproducible runner probe
+
+```js
+const fs=require('fs'),vm=require('vm'),path=require('path');
+const source=fs.readFileSync('src/selftest/runner.js','utf8');
+async function probe(mode){
+let posts=[],logs=[],errors=[],observed=null,rejected=null,cleaned=0;
+const file={url_private_download:'https://files.slack.com/FIX/download',url_private:'https://files.slack.com/FIX/private'};
+const scenario={Name:'observe',Run:async c=>{
+if(mode==='observe'){
+await c.Upload('/scratch/file','comment','file');
+await c.SlackApp.GetFileContentAsync(file.url_private_download);
+await c.SlackApp.GetFileContentAsync(file.url_private);
+await c.SlackApp.GetFileContentAsync('https://files.slack.com/OTHER');
+await c.SlackApp.GetConversationMessagesAsync('OTHER',c.ThreadTs,{MaxPages:9,Latest:'3.0'});
+await c.SlackApp.GetConversationMessagesAsync(c.Channel,c.ThreadTs,{MaxPages:5,Latest:'3.0'});
+const before=c.Fixture.FetchedPagesCount();
+const replies=await c.Fixture.GetRepliesAsync();
+observed={downloads:c.Fixture.DownloadCount(),readsBefore:before,readsAfter:c.Fixture.FetchedPagesCount(),options:c.Fixture.GetConversationMessagesCalls(),replies};
+}
+}};
+const box={module:{exports:{}},__dirname:path.resolve('src/selftest'),require:n=>n==='fs'?{promises:{readdir:async()=>{if(mode==='load-error')throw Object.assign(Error('permission denied'),{code:'EACCES'});return ['observe.js'];}}}:n==='path'?path:n.includes('slack-harness-file-upload')?{ResolveUploadedMessageInfoAsync:async()=>({MessageTS:'2.0',ThreadTS:'1.0'})}:scenario};
+vm.runInNewContext(source,box);
+const read=async(c,t,o)=>[{ts:'4.0',text:'answer',options:o??null}],download=async()=> 'file';
+const app={PostMessageTextAsync:async(c,t,text)=>{posts.push({thread:t,text});if(mode==='unknown-post-error'||(mode==='post-error'&&posts.length===2))throw Error('report post failed');return '1.0';},UploadFileAsync:async()=>({File:file}),GetConversationMessagesAsync:read,GetFileContentAsync:download,GetPermaLinkAsync:async()=> 'https://mock/thread',Logger:{info:t=>logs.push(t),error:(...a)=>errors.push(a)}};
+try{await box.module.exports.RunScenariosAsync(app,'C_QA',{ClearThreadMemoryAsync:async()=>{cleaned++;if(mode==='cleanup-error')throw Error('cleanup rejected');}},mode==='unknown-post-error'?'absent':'all','90.0');}catch(e){rejected=e.message;}
+console.log(JSON.stringify({mode,observed,posts,grepSelftest:logs.flatMap(x=>x.split('\n').filter(l=>l.includes('[selftest]'))),errors,rejected,cleaned,restored:app.GetConversationMessagesAsync===read&&app.GetFileContentAsync===download}));
+}
+(async()=>{for(const mode of ['observe','post-error','unknown-post-error','load-error','cleanup-error'])await probe(mode);})();
+```
+
+Relay closed, no further turn needed.
