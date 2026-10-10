@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 23 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -33,6 +33,8 @@ Summary: 23 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-173 · Consume Model-catalog v1 (Phase 2): sync ModelAliases from the shared catalog + provenance-aware diagnostics | — | [GH-173-MODEL-CATALOG-SYNC.md](PROJECT/1-INBOX/GH-173-MODEL-CATALOG-SYNC.md) · [#173](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/173) |
 | GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
+| GH-221 · Dev-server-only self-QA mode: @Sleuth selftest &lt;scenario&gt; drives real Slack scenarios and reports pass/fail in-thread | — | [GH-221-DEV-SERVER-ONLY-SELF.md](PROJECT/2-WORKING/GH-221-SELFTEST-MODE.md) · [#221](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/221) |
+| GH-225 · Shared bounded thread-context provider for Compass, earlier-file lookback and selftest | — | [GH-225-THREAD-CONTEXT-PROVIDER.md](PROJECT/1-INBOX/GH-225-THREAD-CONTEXT-PROVIDER.md) · [#225](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/225) |
 
 ## Queue
 
