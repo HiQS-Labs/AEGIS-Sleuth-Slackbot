@@ -80,11 +80,11 @@ bash /root/sleuth-app/scripts/deploy.sh
 
 Set `SLEUTH_SELFTEST_CHANNEL` in the dev unit and restart, `@Sleuth selftest all` in that channel, then check the journal:
 ```bash
-ssh sleuth-development 'echo "SLEUTH_SELFTEST_CHANNEL=C01234567" >> /root/sleuth-app/.env && systemctl restart sleuth-app'
+ssh sleuth-development 'sed -i "/^SLEUTH_SELFTEST_CHANNEL=/d" /root/sleuth-app/.env && echo "SLEUTH_SELFTEST_CHANNEL=C_UNMAPPED" >> /root/sleuth-app/.env && systemctl restart sleuth-app'
 # In Slack: @Sleuth selftest all
-ssh sleuth-development "journalctl -u sleuth-app -n 200 | grep '\[selftest\]'"
+ssh sleuth-development "journalctl -u sleuth-app -n 200 | grep '\\[selftest\\]'"
 ```
-Note: The Compass scenario needs a Compass-mapped channel and the four look-back scenarios an unmapped one, so full coverage is two runs.
+Note: The Compass scenario needs a Compass-mapped channel and the four look-back scenarios an unmapped one, so full coverage is two runs. Replace `C_UNMAPPED` with a real channel ID, run the test, then repeat the command with a Compass-mapped channel ID (e.g., `C_COMPASS`).
 
 ### Emergency manual deploy (fallback only)
 

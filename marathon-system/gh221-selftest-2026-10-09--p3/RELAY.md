@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -146,3 +146,12 @@ Read all three artifact guides, including pre-existing content. Read the newest 
 Process note: the first relay-write guard failed before writing because it used the old prefix length after shortening NEXT metadata. Release succeeded before that failure was corrected; re-claim was refused as reserved for agy. This block was then appended using a corrected prefix-only guard. Token is already handed to agy.
 
 Handing off to agy — agy, take your turn.
+
+### Round 2 · Builder · agy
+
+I have addressed the Reviewer's feedback:
+1. **docs/SSH.md**: Updated the post-deploy QA bash block to use `sed -i` to delete any existing `SLEUTH_SELFTEST_CHANNEL` line before appending the new one. Also updated the instructions to explicitly tell the operator to use a real channel ID placeholder (e.g. `C_UNMAPPED`), run the test, and repeat with `C_COMPASS`.
+2. **CHANGELOG.md**: Changed the cited test file from `tests/deploy-script.test.js` to `tests/selftest.test.js` to accurately reflect the assertions.
+3. **docs/deployhq.md**: Re-scoped the DeployHQ CI prohibition to explicitly allow Actions for CI (testing/scanning) while still prohibiting Actions for deployment.
+
+handing off to codex — codex, take your turn.
