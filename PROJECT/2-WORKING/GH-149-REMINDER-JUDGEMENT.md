@@ -22,7 +22,7 @@ goal: "Reminder intent judgement has one code owner and one seeded corpus, so th
 
 | What was just completed | What's next |
 |---|---|
-| Plan accepted by the operator after the 3/3-round plan-QA cap (all findings Accepted) | Implementation in `fix(GH-149):` commits, then final Codex QA |
+| Implementation landed in `fix(GH-149):` commits; red controls A, B, C1-C3 verified; single-home grep clean | Full `npm test`, final Codex QA relay, PR |
 
 Scope: the "Additional remediation tasks" in the 2026-10-10 whack-a-mole addendum on #149 only. The
 umbrella's original replay-nondeterminism, echo-threshold and reaction-lookback items are NOT in scope
@@ -189,8 +189,9 @@ Gate order inside `JudgeReminderTextAsync`:
 Rows `{ Id, Issue, Text, Mode, Model, Expect, Date? }` where `Model` is what the stubbed analyzer
 returns (`null` = the model must not be called) and `Expect` holds `Verdict`, `Reason` (one token
 that must be present), optional `ModelCalled`, `PeriodOnly` (per trigger), `OwnWords`. The optional
-`Date` block (plan-QA F2) is `{ Anchor: <ISO, in the past relative to Now>, Now: <ISO>,
-WasAdjustedForward: bool }`: for such rows the corpus test also runs the real
+`Date` block (plan-QA F2) is `{ AnchorAgeHours, WasAdjustedForward }` (implementation note: the
+anchor is built from one pinned `Now` read at the start of the row, the same way the GH-205 tests do,
+instead of two literal ISO strings that would go stale): for such rows the corpus test also runs the real
 `ExtractDateWithGptAsync` on the row's first trigger with the date extractor stubbed to `Anchor`, and
 asserts `wasAdjustedForward` and that the result is not in the past — so the #205 row reproduces
 "schedule with no past-time warning" end to end, and perturbing `reminders-ai-pipeline.js:969` fails
@@ -291,20 +292,20 @@ one JSON file, one test file, no framework, no enterprise fail-safes.
 
 ## Acceptance
 
-- [ ] Corpus test green with every row; red control A (flip one row's expected verdict) fails.
-- [ ] Red control B (F2): perturb `reminders-ai-pipeline.js` so a period-only trigger sets
+- [x] Corpus test green with every row; red control A (flip one row's expected verdict) fails.
+- [x] Red control B (F2): perturb `reminders-ai-pipeline.js` so a period-only trigger sets
       `wasAdjustedForward`; the #205 corpus row fails.
-- [ ] Red control C1 (F1): add an `EXCLUSIONS` entry with no corpus row; the FSM invariant fails.
-- [ ] Red control C2 (F1-R2/F1-R3): widen the `opt_out` pattern with an extra alternative, and
+- [x] Red control C1 (F1): add an `EXCLUSIONS` entry with no corpus row; the FSM invariant fails.
+- [x] Red control C2 (F1-R2/F1-R3): widen the `opt_out` pattern with an extra alternative, and
       separately add only a flag (`m`) to the `quoted_only` pattern, corpus untouched; the FSM
       invariant fails both times (definition mismatch).
-- [ ] Red control C3 (F1-R2): add a second entry with reason `opt_out` and a new `Id`, corpus
+- [x] Red control C3 (F1-R2): add a second entry with reason `opt_out` and a new `Id`, corpus
       untouched; the FSM invariant fails (no definition / no row for the new `Id`).
 - [ ] Every existing reminders suite green; full `npm test` green on the final commit.
-- [ ] Single-home grep over `src/` for the six patterns above: one defining file each.
-- [ ] FSM invariant: every `EXCLUSIONS` entry and every `REASONS` token has a matching corpus row.
-- [ ] The date-stage `while` is gone and GH-205 tests :610-666 pass unchanged.
-- [ ] CHANGELOG entry in the two-paragraph format; `node scripts/validate-changelog-tone.js` exits 0.
+- [x] Single-home grep over `src/` for the six patterns above: one defining file each.
+- [x] FSM invariant: every `EXCLUSIONS` entry and every `REASONS` token has a matching corpus row.
+- [x] The date-stage `while` is gone and GH-205 tests :610-666 pass unchanged.
+- [x] CHANGELOG entry in the two-paragraph format; `node scripts/validate-changelog-tone.js` exits 0.
 - [ ] `utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt` clean before every push.
 
 ## Rating and recurrence
@@ -371,3 +372,10 @@ Implementation proceeds on this basis.
 Ledger deviation: `roadmap update --accepted-start` was refused (`status-label-unsupported: schema009
 required`); per the #225 precedent the row was moved with the legacy `--section "In progress"
 --status-marker 🚧` instead.
+
+Implementation evidence (2026-10-10 UTC): red controls run with temporary edits, each restored —
+A flipped verdict, B `wasAdjustedForward = true` at the date stage, C1/C3 new same-reason entry,
+C2 widened `opt_out` alternative, C2 flag-only `m` on `quoted_only`: each `1 failed`; restored tree
+41/41. Focused suites green between every rewiring commit. One parity detail kept from today's code:
+`quoted_only` fires only when quote-stripping removed something (an empty message without quotes
+still reaches the model).

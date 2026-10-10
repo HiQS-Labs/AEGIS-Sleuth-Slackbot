@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.340 - 2026-10-10
+
+I now decide whether a message is a reminder, or a reply saying a reminder is done, in one place instead of five. The fixes for excitement that was not a commitment, "this week" past-time warnings, quoted text and done-plus-a-request replies all still hold, and each has a test row so it stays fixed. One small change: if you write "don't set a reminder", I skip the message without asking the model at all.
+
+**Technical:** GH-149 (part of the umbrella; whack-a-mole addendum 2026-10-10). New `src/reminder-judgement.js` with `JudgeReminderTextAsync(text, { Mode: auto|force|mention|strict })`. It owns, in order: completion detection on the raw reply (with the 6584d6f request guard injected into `DetectCompletionReply` at its old position), an `EXCLUSIONS` table (`quoted_only`, `opt_out`), the `DecideAsync` call and the direct-ask fallback, plus `IsPeriodOnlyTrigger`, `OwnWords`, `IsCreationOptOut` and `FORCE_FALLBACK_TRIGGER`. Rewired: `AnalyzeMessageForRemindersAsync` (`KeepQuotedText` became `Mode: 'force'`), the GH-205 date stage (the `while` loop became a single whole-UTC-day step), `#TryCompleteRemindersFromReplyAsync`, the `:mag:` discovery hint, the handler trigger gate, `ChatModule.IsReminderActionIntent` and both force-schedule fallbacks. Each swept regex (d07d643, 6e90bd8, cf9fe6d, 6584d6f) now has one home. New `data/static/ai/reminder-judgement-corpus.json` and `tests/reminder-judgement-corpus.test.js` run the #197/#201/#205/#211 cases through the one entry point with the model stubbed; the #205 row also runs the real date stage. `tests/reminders-fsm-invariants.test.js` ties each exclusion's `Pattern.toString()` to a recorded definition and a matching row. Behavior change: an explicit opt-out in auto mode no longer reaches the model.
+
 ## 1.4.339 - 2026-10-10
 
 When someone talks to me in a thread, I now read that thread from Slack once and reuse it for everything I do with that message, instead of each feature fetching it again. In Product Compass channels I also notice a text file shared earlier in the thread, the same way I already do elsewhere.
