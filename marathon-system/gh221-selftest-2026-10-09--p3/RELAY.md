@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -155,3 +155,48 @@ I have addressed the Reviewer's feedback:
 3. **docs/deployhq.md**: Re-scoped the DeployHQ CI prohibition to explicitly allow Actions for CI (testing/scanning) while still prohibiting Actions for deployment.
 
 handing off to codex — codex, take your turn.
+
+
+### Round 2 · Reviewer · codex
+
+**Verdict:** Changes requested
+
+swept file: no
+
+Read the whole SSH, Slack setup and DeployHQ guides, including their pre-existing content. CHANGELOG.md review covers the authoring contract and newest entries; the 2,796-line historical file was not exhaustively swept. Pre-existing defects remain in scope. No additional actionable pre-existing defect found in the three fully read guides from repository evidence. This is not an approval or a claim that historical changelog statements or live deployment state were verified.  [Unverified — no citation]
+
+**[Pass]** Round 1 findings 2 and 3 are addressed: the newest entry now cites tests/selftest.test.js, whose source contains runner/module assertions; DeployHQ guidance explicitly permits Actions testing/scanning and confines the workflow prohibition to deployment. Both scope lists contain files:read/files:write and the reinstall note remains. The self-QA link targets the SSH heading. Channel placeholders and the mapped/unmapped two-run requirement are explicit.
+
+**[Should] Finish Round 1 finding 1: edit the authoritative service environment setting (docs/SSH.md:81-87).** Deleting duplicate keys in .env fixes the duplicate-file case, but not the inherited-environment case already raised. The repository unit loads .env.runtime (sleuth-app.service:60); LoadEnvFile deliberately refuses to overwrite any inherited value (src/load-env-file.js:28). Thus switching only .env can still leave selftest enabled in the old channel. The prose says “in the dev unit” while the command edits another file. Prefer documenting replacement of SLEUTH_SELFTEST_CHANNEL in the unit's EnvironmentFile, preserving unrelated settings and ensuring the file exists; identify/remove any competing definition if a different environment source is used. Keep the two-run instructions.
+- Observed input: inherited process.env.SLEUTH_SELFTEST_CHANNEL=C_UNMAPPED plus a replacement .env containing SLEUTH_SELFTEST_CHANNEL=C_COMPASS.
+- Affected scope: channel activation and mapped/unmapped second-run coverage. src/app.js:331 passes the effective environment value into SelftestModule.Create; the module refuses requests from another channel.
+- Falsifier: the documented second-channel replacement changes the effective service setting to C_COMPASS even when the prior value was in the unit's EnvironmentFile.
+- Probe command (executed locally, no SSH/service changes):
+  ~~~bash
+  export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+  mkdir -p "$TMPDIR"
+  node <<'NODE'
+  const fs = require('fs');
+  const path = require('path');
+  const { LoadEnvFile } = require('./src/load-env-file');
+  const file = path.join(process.env.TMPDIR, 'channel-precedence.env');
+  fs.writeFileSync(file, 'SLEUTH_SELFTEST_CHANNEL=C_COMPASS\n');
+  process.env.SLEUTH_SELFTEST_CHANNEL = 'C_UNMAPPED';
+  LoadEnvFile(file);
+  console.log('Inherited channel: C_UNMAPPED; requested .env channel: C_COMPASS; effective channel: ' + process.env.SLEUTH_SELFTEST_CHANNEL);
+  delete process.env.SLEUTH_SELFTEST_CHANNEL;
+  LoadEnvFile(file);
+  console.log('Control without inherited setting: ' + process.env.SLEUTH_SELFTEST_CHANNEL);
+  NODE
+  ~~~
+  Exit status: 0. Decisive output:
+  ~~~text
+  Inherited channel: C_UNMAPPED; requested .env channel: C_COMPASS; effective channel: C_UNMAPPED
+  Control without inherited setting: C_COMPASS
+  ~~~
+
+**Verification:** node scripts/validate-changelog-tone.js exited 0: “changelog tone guard: clean. SUMMARY: newest CHANGELOG block "1.4.338 - 2026-10-09" is compliant.” Graph list_projects returned 82 projects, has_more=false, with no project rooted at this worktree or the env-pinned task clone; no applicable graph generation/coverage was available, so cited seeded paths were read directly. No index was created.
+
+**[Unverified — needs clone run]:** npm test and runtime integration were not executed; no live scenarios or server configuration were queried. The harness gate and operator post-deploy acceptance remain required. Only RELAY.md was edited; probe data stayed in .relay-scratch/tmp. No git commands were run.
+
+Handing off to agy — agy, take your turn.
