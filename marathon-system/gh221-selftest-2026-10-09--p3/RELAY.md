@@ -1,6 +1,6 @@
 # Marathon Phase p3
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P3-TURN builder=agy reviewer=codex round-cap=5 -->
 
@@ -110,3 +110,39 @@ I have implemented Phase p3:
 - Added a pointer to the self-QA entry in `docs/deployhq.md` at the Slack smoke test step.
 - Added a new top entry to `CHANGELOG.md` following the specified format and updated the version to `1.4.338`.
 - Ran `scripts/validate-changelog-tone.js` to confirm the tone is clean.
+
+
+### Round 1 · Reviewer · codex
+
+**Verdict:** Changes requested
+
+swept file: no
+
+Read all three artifact guides, including pre-existing content. Read the newest changelog entries and substantial historical sections, but historical output was truncated; this is not an exhaustive whole-file CHANGELOG sweep or approval. Pre-existing defects are in scope; the CI contradiction below is one. No additional actionable pre-existing defects found in the fully read SSH/setup guides within repository evidence. Live deployment claims remain unverified: temp/SOP.md is absent. Graph list_projects returned all 82 projects with has_more=false; this worktree/clone was not indexed, so exact source reads supplied evidence.
+
+1. **[Should] Fix the channel-switch procedure (docs/SSH.md:81-87).** The command appends SLEUTH_SELFTEST_CHANNEL to .env, but full coverage needs two different channels. src/app.js:2 DOES load .env. The actual defect is src/load-env-file.js:28: the first setting wins and duplicate later keys are skipped. Repeating the append command keeps the first channel active; an inherited .env.runtime setting also outranks .env. Document replacement of one authoritative active setting, restart, then repeat with the other channel mapping. Identify the sample channel as a placeholder.
+   - Observed input: SLEUTH_SELFTEST_CHANNEL=C_UNMAPPED followed by SLEUTH_SELFTEST_CHANNEL=C_COMPASS in the same file, as produced by repeating the documented append command.
+   - Affected scope: activation and two-run mapped/unmapped coverage; src/selftest/selftest-module.js:57 accepts only the configured channel.
+   - Falsifier: corrected procedure selects the second channel after the second restart without an earlier or inherited value winning.
+   - Probe: node heredoc requiring fs/path and ./src/load-env-file; wrote those two KEY=value lines to path.join(process.env.TMPDIR, 'selftest-channel.env'), deleted process.env.SLEUTH_SELFTEST_CHANNEL, called LoadEnvFile(file), and printed the requested and effective channels. Executed with TMPDIR="$PWD/.relay-scratch/tmp". Exit 0; decisive output: Requested second channel: C_COMPASS; Effective channel: C_UNMAPPED. A second node -e probe using channel-switch.env repeated the same input and exited 0 with effective=C_UNMAPPED.
+
+2. **[Should] Correct the new changelog test reference (CHANGELOG.md:40).** It cites tests/deploy-script.test.js, which has no selftest reference. Seeded runner/module coverage is tests/selftest.test.js. Name the relevant suite and describe p1/p2 selftest runner/scenarios accurately without implying live success.
+   - Observed input: newest GH-221 paragraph ends “Tests in tests/deploy-script.test.js.”
+   - Affected scope: GH-221 verification trail.
+   - Falsifier: cited suite contains runner/module assertions matching the feature.
+   - Query: rg -n "selftest|SLEUTH_SELFTEST_CHANNEL" tests/deploy-script.test.js exited 1, no output.
+   - Query: rg -n "SelftestModule|factory returns null|refuses execution" tests/selftest.test.js exited 0; output includes SelftestModule describe at line 27, unset-channel factory test at 35, and wrong-channel refusal at 40.
+
+3. **[Should — pre-existing] Correct DeployHQ CI guidance (docs/deployhq.md:3-5,169).** It says no Actions CI and requires no deploy/CI workflows, while .github/workflows/ci.yml runs PR/push tests and scans, consistent with ROUTER/AGENTS. Scope the prohibition to deployment and acknowledge Actions CI.
+   - Observed input: checklist says “Repo has no .github/workflows/ deploy/CI workflows” alongside the checked-in test workflow.
+   - Affected scope: operator verification checklist and CI/deployment ownership.
+   - Falsifier: guide accepts Actions tests/scans while retaining DeployHQ deployment ownership.
+   - Query: rg -n "^name:|^  push:|^  pull_request:|^  test:" .github/workflows/ci.yml exited 0; output: 3:name: Run Tests; 7:  push:; 12:  pull_request:; 29:  test:.
+
+**Verified passes:** node scripts/validate-changelog-tone.js exited 0: changelog tone guard: clean. SUMMARY: newest CHANGELOG block "1.4.338 - 2026-10-09" is compliant. Manifest JSON parses and contains files:read/files:write; manual list agrees. Self-QA link targets the new SSH heading. Five scenario source files match the mapped/unmapped split. No real channel ID or secret observed in the new documentation.
+
+**[Unverified — needs clone run]:** npm test and runtime integration were not executed under the turn restrictions; live scenarios require operator post-deploy acceptance. No git commands or source/artifact edits performed.
+
+Process note: the first relay-write guard failed before writing because it used the old prefix length after shortening NEXT metadata. Release succeeded before that failure was corrected; re-claim was refused as reserved for agy. This block was then appended using a corrected prefix-only guard. Token is already handed to agy.
+
+Handing off to agy — agy, take your turn.
