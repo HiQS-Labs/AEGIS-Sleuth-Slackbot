@@ -32,7 +32,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Issue filed, clone provisioned off origin/development 3fd5455, captured, rated 65/55/50/85, recon done, plan drafted. | Codex plan QA, then the three-file change. |
+| Issue filed, clone provisioned off origin/development 3fd5455, captured, rated 65/55/50/85, recon done, plan drafted. | Codex plan QA (round 1 FAIL folded in, round 2 pending), then the small change. |
 
 ## Observed problem (2026-10-10, dev, base 3fd5455)
 
@@ -46,13 +46,19 @@ goal: >
 
 The issue proposed a hand-maintained deny-list (`restart`, `show-rebalance-reminders`, `show-rebalance-reminders-formatted`, `router-mode`, `code-task`). Recon found the catalog already encodes this per entry, so the plan reuses `CanExecuteWithIfl` instead of adding a second list that would drift. It covers every command the issue named and the other `false` entries. It leaves model switching and `commands`/`run-diagnostics` takeover as they are today (their flag is `true`). Acceptance wording below says "CanExecuteWithIfl false" where the issue said "deny-listed".
 
+## Policy note and user impact
+
+- This **supersedes the 2026-07-16 operator decision** recorded in `src/router-shadow-module.js:11-14` and `src/chat-module.js:953-955` ("FULL takeover — any canonical command, incl. Risk-tagged ones") and the matching promise in `ARCHITECTURE.md:302-304`. It is made at the maintainer's explicit request on 2026-10-10 after the live misroute in #233, and the PR must say so.
+- Impact is not admin-only: every catalog entry with `CanExecuteWithIfl` false loses model takeover in active mode, including public ones such as `show-me`, `show-stats`, `ping`, `show-reminders` and `search-reminders`. Those still run from their literal route or deterministic alias (for example `show-me` has aliases in the catalog); they no longer run from a free-text sentence resolved by Flash Lite. Permissions still belong to each handler; incumbent literal and regex-alias matches still win (GH-174).
+
 ## Plan (one phase, ordered)
 
 1. `src/router-shadow-module.js`: add `canExecuteWithIfl` (boolean|null) to the `RouterShadowCandidate` typedef and to `ResolveCandidateAsync`'s result, read as `Resolution.CatalogEntry.CanExecuteWithIfl === true` (null when there is no entry); error candidates get null. `ShouldExecute` additionally requires `ArgCandidate.canExecuteWithIfl === true` (fail closed). Update its doc comment.
 2. `src/chat-module.js` (`#TryRouterActiveTakeoverAsync`, one line): when there is no incumbent route, the candidate is otherwise executable (confidence >= floor, no error, no clarification) but `canExecuteWithIfl !== true`, log once at info: `router active takeover skipped: '<intentId>' needs a literal command (CanExecuteWithIfl false)`. The corpus record is unchanged and already carries `executed: false` and the candidate (now with the flag).
-3. `tests/router-shadow.test.js`, existing `ShouldExecute` test: add `canExecuteWithIfl: true` to the base candidate and assert false for `false` and for `null`; the floor/null-command/clarification/error assertions are kept.
-4. `tests/chat-module.integration.test.js`, existing `router-mode (GH-397)` describe and its `ArmModeAsync` harness: one new test reproducing the live failure. Active mode, resolver mocked to return `show-rebalance-reminders` at 0.98 for an ordinary sentence, a non-admin user: assert no "only workspace admins or owners can dump the rebalance reminders export" message, the rebalance handler never ran, the corpus record has `executed: false` with `candidate.canExecuteWithIfl === false`, and the skip log fired. The existing "active mode executes a Flash-Lite-resolved command" test (`commands`, flag true) stays green as the positive control, and the existing GH-174 literal-command test still passes.
-5. `CHANGELOG.md`: two-paragraph entry (next patch above the top entry); no `package.json` bump.
+2b. Correct the promises that become false: the `active` bullet in the `src/router-shadow-module.js` header (lines 11-14), the `ShouldExecute` doc comment, the `src/chat-module.js` comment at 953-955, and one short paragraph in `ARCHITECTURE.md` at ~302-304: takeover requires the catalog flag; false or unknown declines to the incumbent pipeline; permissions stay in the handlers; literal and regex-alias matches still win. No catalog edit, no generated help refresh, no new doc.
+3. `tests/router-shadow.test.js` (existing file): in the `ShouldExecute` test add `canExecuteWithIfl: true` to the base candidate and assert: true at exactly the floor (0.7), false for flag `false`, `null` and missing even at confidence 1.0; keep the floor/null-command/clarification/error assertions. In the `ROUTER_ACTIVE_CONFIDENCE_MIN` test add `canExecuteWithIfl: true` to the candidate and assert true at 0.95 and false at 0.9 with the floor at 0.95, so removing the confidence comparison fails.
+4. `tests/chat-module.integration.test.js` (existing `router-mode (GH-397)` describe and `ArmModeAsync`): one new test with the real resolver and the real catalog, the AI JSON mocked in the same snake_case shape as the existing positive test. Active mode, a non-admin `U_REGULAR` (not the arming admin), no files attached: the ordinary sentence ("what is the marker in the uploaded file now?") resolved to `show-rebalance-reminders` at 0.98 must NOT produce the "only workspace admins or owners can dump the rebalance reminders export" message, the admin check must not have been called for that mention (spy on `IsAdminOrOwnerAsync` after arming and clear it), the skip log appears exactly once, and the corpus record has `executed: false` with `candidate.canExecuteWithIfl === false`. In the same test a literal `show-rebalance-reminders` mention from the same user must still produce the real refusal (proving the route is reachable and only the model path is closed). The existing `commands` takeover test (flag true) and the GH-174 literal test stay green as controls.
+5. `CHANGELOG.md`: two-paragraph entry (next patch above the top entry) stating the policy change and that public commands with a false flag also lose free-text takeover; no `package.json` bump.
 
 ## Alternatives rejected
 
@@ -63,13 +69,14 @@ The issue proposed a hand-maintained deny-list (`restart`, `show-rebalance-remin
 
 ## Verification and red control
 
+- Debugging protocol: `/debug-mantra` governs execution (reproduce, trace the fail path, falsify, cross-reference) if any check behaves unexpectedly.
 - Red control (required): write steps 3-4 first and run `npx jest tests/router-shadow.test.js tests/chat-module.integration.test.js` against the UNFIXED source. The new integration test must fail with the "only workspace admins or owners can dump the rebalance reminders export" message present (the observed symptom), and the new `ShouldExecute` assertions must fail. Record both failures, then apply steps 1-2 and see them pass. If the integration test cannot be made to fail on the unfixed code, the test is vacuous and is reworked before the fix.
 - Focused: the same two suites after the fix; then full `npm test` and `npm run build` once each on the final commit, un-sandboxed, exit codes recorded.
 - Live (post-merge, the maintainer runs `/merge-cleanup`): an agent-driven check on dev that a literal admin command still works and that the rebalance misroute no longer happens is not reproducible on demand (trigger unknown); the evidence is the unit and integration tests plus the skip log line.
 
 ## Blast radius and rollback
 
-Two source files, two existing test files, one changelog entry. Effect: in active mode, model-resolved commands whose catalog flag is `false` (or unknown) fall through to the normal pipeline (generic chat) instead of executing; users run those with the literal command, exactly as when the router is off or in shadow mode. Production behavior is unchanged where the router is off. Rollback: revert the commit; no migration, no data change.
+Two source files (plus comment corrections in them), `ARCHITECTURE.md` (one paragraph), two existing test files, one changelog entry. Effect: in active mode, model-resolved commands whose catalog flag is `false` (or unknown) fall through to the normal pipeline (generic chat) instead of executing; users run those with the literal command, exactly as when the router is off or in shadow mode. Production behavior is unchanged where the router is off. Rollback: revert the commit; no migration, no data change.
 
 ## Task rating (2026-10-10)
 
@@ -79,9 +86,11 @@ Rated 65/55/50/85 (priority/severity/appeal/effort-cheapness). Severity 55: a mo
 
 - [ ] Jest (existing `tests/router-shadow.test.js` and the existing `router-mode (GH-397)` integration describe): in `active` mode a candidate whose catalog entry has `CanExecuteWithIfl` false (or unknown) is not executed and no handler runs, even at confidence 1.0; a candidate with the flag true at the floor still executes; a literal `show-rebalance-reminders` mention still runs.
 - [ ] The skip is logged once and the corpus record shows `executed: false`.
+- [ ] The documented takeover promises (`ARCHITECTURE.md`, the two code comments) match the new behavior.
 - [ ] The new integration test fails on the unfixed source (red control recorded) and passes after the fix.
 - [ ] Full `npm test` and `npm run build` pass.
 - [ ] CHANGELOG entry in the usual two-paragraph format.
 
 ## Progress log
 - 2026-10-10: #233 filed; /express refused (no `validate.sh` TESTS registry or `githooks/install.sh` in this repo), so the normal start-task lane; clone off origin/development 3fd5455; captured, rated and promoted; plan drafted. Plan QA pending.
+- 2026-10-10: Codex plan QA round 1 FAIL (S1 docs/promises and public-command impact, S2 acceptance-to-assertion mapping and tuned-floor fixture; Nit file count and debug-mantra) all accepted and folded in; the 2026-07-16 operator decision is now recorded as superseded. Round 2 pending.
