@@ -1,7 +1,7 @@
 # DeployHQ setup for AEGIS
 
 **Canonical deploy path** for development and production servers. This repo does **not** use
-GitHub Actions for CI or deploy — quality gates run in DeployHQ’s build pipeline, and code reaches
+GitHub Actions for deployment — quality gates run in both GitHub Actions CI and DeployHQ’s build pipeline, and code reaches
 the servers via DeployHQ SSH upload + [`scripts/deploy.sh`](../scripts/deploy.sh).
 
 > **First-time local run?** Follow the README install path on your laptop first.
@@ -99,7 +99,7 @@ Your hosts already run the app at `/root/sleuth-app` (no GitHub Actions runners 
    ls data/runtime/workspaces/   # should still list your workspace files
    test -f .env.runtime && echo "runtime env present" || echo "no .env.runtime (ok if unused)"
    ```
-5. Smoke-test in Slack: `@YourBot help`.
+5. Smoke-test in Slack: `@YourBot help` and run [post-deploy self-QA](SSH.md#post-deploy-self-qa).
 6. Repeat for **Production** when ready (prefer a **manual** deploy the first time).
 
 ### What must survive a deploy
@@ -166,7 +166,7 @@ Use this after wiring DeployHQ (dev first, then prod):
 | Data preserved | `data/runtime/` file list unchanged across the deploy |
 | Slack smoke | `@YourBot help` replies |
 | Prod safety | Production stays **manual** unless you intentionally enable auto-deploy |
-| No GitHub Actions | Repo has no `.github/workflows/` deploy/CI workflows |
+| No Actions Deploy | Repo has no `.github/workflows/` deployment workflows |
 
 ---
 

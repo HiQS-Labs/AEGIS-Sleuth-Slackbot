@@ -2809,6 +2809,20 @@ class ChatModule {
   }
 
   /**
+   * Clears the thread context memory for a specific thread and persists the change.
+   * @param {string} ArgChannel Channel ID
+   * @param {string} ArgThreadTs Thread TS
+   * @returns {Promise<void>}
+   */
+  async ClearThreadMemoryAsync(ArgChannel, ArgThreadTs) {
+    const MemoryKey = `${ArgChannel}:${ArgThreadTs}`;
+    if (this.#ThreadContextMemory.has(MemoryKey)) {
+      this.#ThreadContextMemory.delete(MemoryKey);
+      await this.#SaveThreadMemoryAsync();
+    }
+  }
+
+  /**
    * Single dispatch point for every Slack attachment (GH-62).
    *
    * Before this existed, `#OnAppMentionAsync` and `#OnMessageAsync` each reached for attachment

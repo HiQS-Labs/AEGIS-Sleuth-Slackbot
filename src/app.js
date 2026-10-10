@@ -25,6 +25,7 @@ const CombinedLogger = require('./combined-logger');
 const AdminAuth = require('./admin-auth');
 const AdminMailer = require('./admin-mailer');
 const PluginLoader = require('./plugin-loader');
+const SelftestModule = require('./selftest/selftest-module');
 const {
   ShouldPostStartupMessage,
   ShouldIncludeStartupChangelog,
@@ -327,6 +328,8 @@ async function RunAppAsync() {
     const PluginLoaderInstance = new PluginLoader(SlackAppInstance, WorkspaceInfo);
     await PluginLoaderInstance.StartAsync();
 
+    const SelftestModuleInstance = SelftestModule.Create(SlackAppInstance, process.env.SLEUTH_SELFTEST_CHANNEL);
+
     const ChatModuleInstance = new ChatModule(
       SlackAppInstance,
       StatsModuleInstance.Stats,
@@ -351,6 +354,10 @@ async function RunAppAsync() {
       logger.error(`AI provider connectivity test failed for workspace ${WorkspaceName} (default model ${ChatModuleInstance.WorkspaceAI.DefaultModelName}): ${AiTest.error}`);
 
     try {
+      if(SelftestModuleInstance) {
+        SelftestModuleInstance.SetChatModule(ChatModuleInstance);
+      }
+
       // start remaining modules now that stats are available.
       // IMPORTANT: ChatModule must start BEFORE SlackAppInstance so per-channel model overrides are
       // loaded from disk before Slack begins delivering events.
@@ -496,6 +503,14 @@ async function RunAppAsync() {
         logger.error('error stopping github sync module:', error.message);
       }
 
+      // stop all relays explicitly before closing workspace modules.
+      for (const relay of SnapshotRelayModules) {
+        try { await relay.StopAsync(); } catch(error) { logger.error('error stopping snapshot relay:', error.message); }
+      }
+      for (const relay of CodeTaskRelayModules) {
+        try { await relay.StopAsync(); } catch(error) { logger.error('error stopping code task relay:', error.message); }
+      }
+
       // stop all workspace instances in reverse order of dependencies.
       for(let n = 0; n < SlackApps.length; n++) {
         logger.info('stopping modules for workspace:', SlackApps[n].WorkspaceInfo.WORKSPACE_NAME);
@@ -505,8 +520,6 @@ async function RunAppAsync() {
           await ChatModules[n].StopAsync();
           await RemindersModules[n].StopAsync();
           await ListsModules[n].StopAsync();
-          await SnapshotRelayModules[n]?.StopAsync();
-          await CodeTaskRelayModules[n]?.StopAsync();
           await StatsModules[n].StopAsync();
           await SlackApps[n].StopAsync();
         } catch(error) {

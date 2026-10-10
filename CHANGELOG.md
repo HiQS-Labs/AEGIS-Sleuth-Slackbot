@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.338 - 2026-10-09
+
+I can now check my own health after a deployment by running a self-test in a designated channel. My setup instructions have also been updated to include the file permissions I need to read thread uploads.
+
+**Technical:** GH-221. Documented the `selftest` command and required Slack scopes. Added `### Post-deploy self-QA` to `docs/SSH.md` outlining the environment variable `SLEUTH_SELFTEST_CHANNEL` and restart steps. Added `files:read` and `files:write` to `docs/slack-app-setup.md` manifest and manual scope lists. Added pointer to self-QA in `docs/deployhq.md`. Tests in `tests/selftest.test.js`.
+
 ## 1.4.337 - 2026-10-10
 
 I can now read a Markdown, text or JSON file that was uploaded earlier in a thread. Before, if someone shared a file and a later reply @mentioned me without re-attaching it, I only saw the message saying it was shared and not the contents.

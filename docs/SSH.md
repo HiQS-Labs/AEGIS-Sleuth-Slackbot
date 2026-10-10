@@ -76,6 +76,16 @@ After DeployHQ uploads, the server runs:
 bash /root/sleuth-app/scripts/deploy.sh
 ```
 
+### Post-deploy self-QA
+
+Set `SLEUTH_SELFTEST_CHANNEL` in the service's `EnvironmentFile` (`.env.runtime`), remove any competing definition from `.env`, and restart. In that channel, run `@Sleuth selftest all`, then check the journal:
+```bash
+ssh sleuth-development 'touch /root/sleuth-app/.env.runtime && sed -i "/^SLEUTH_SELFTEST_CHANNEL=/d" /root/sleuth-app/.env.runtime /root/sleuth-app/.env 2>/dev/null; echo "SLEUTH_SELFTEST_CHANNEL=C_UNMAPPED" >> /root/sleuth-app/.env.runtime && systemctl restart sleuth-app'
+# In Slack: @Sleuth selftest all
+ssh sleuth-development "journalctl -u sleuth-app -n 200 | grep '\\[selftest\\]'"
+```
+Note: The Compass scenario needs a Compass-mapped channel and the four look-back scenarios an unmapped one, so full coverage is two runs. Replace `C_UNMAPPED` with a real channel ID, run the test, then repeat the command with a Compass-mapped channel ID (e.g., `C_COMPASS`).
+
 ### Emergency manual deploy (fallback only)
 
 ```bash
