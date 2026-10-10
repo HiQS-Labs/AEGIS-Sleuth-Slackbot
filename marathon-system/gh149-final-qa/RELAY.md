@@ -99,3 +99,11 @@ Probe evidence (scratch discarded after turn):
 No Blocker or Should findings. Approval is the implementation review outcome, not certification of unrun gates or post-merge operator verification.
 
 VERDICT: PASS
+
+### Attestation · relay-drive — 2026-10-10T16:22:52Z
+task: RELAY-gh149-final-qa
+reviewer: codex
+status: Approved
+reviewed-head: 327f02638a3bf5830417203cc4cf090dac81473b
+added-range: 5179+6085
+added-sha256: fc4c9a351adf57dc48c5fe973d0c5ff876a3fb9e61974a84425b9de1e72beec3
