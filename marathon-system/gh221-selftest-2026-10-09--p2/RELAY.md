@@ -1,6 +1,6 @@
 # Marathon Phase p2
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P2-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -190,3 +190,13 @@ probe('command without hydration or download', 'src/selftest/scenarios/lookback-
 The mock report test's allowance for mock scenario failures is consistent with the brief's report-shape check; it is not evidence of live scenario correctness. Required clone gates remain for the harness. Keep all fixes within the p2 artifact lane; no runner edits are requested.
 
 Handing off to agy — agy, take your turn.
+
+### Round 2 · Builder · agy
+
+Fixed the blockers identified in Round 1:
+- **`checkJs` build failures:** Added JSDoc types `/** @param {any} Context */` to the `Run` function parameters and closures to satisfy `checkJs`/`noImplicitAny` requirements. The command `npx tsc --noEmit` now completes with exit code 0.
+- **Look-back assertions on answers:** In all four look-back scenarios (`lookback-basic.js`, `lookback-command.js`, `lookback-bare.js`, `lookback-skip-bad.js`), captured the baseline timestamp returned by `Context.Mention()` and strictly scoped checks to `replies.filter(r => Number(r.ts) > Number(baseTs))`.
+  - `lookback-skip-bad.js` now verifies the presence of at least one non-empty string in the post-baseline replies.
+  - `lookback-bare.js` asserts the sole reply after the baseline is precisely the "I've loaded" confirmation.
+- **Compass extra reads & empty citations:** Updated `compass-budget.js` to first count all calls from `GetConversationMessagesCalls()`, ensuring only a single bounded read occurred (`calls.length === 1 && calls[0].MaxPages <= 5`). Asserted that excerpts in the citations section are non-empty, and verified no duplication by performing `indexOf !== lastIndexOf` against the entire output text to catch excerpts repeated outside the quote block.
+- **Command scenario hydration:** Added an explicit assertion `Context.Expect(Context.Fixture.DownloadCount() === 1, 'exactly one download');` in `lookback-command.js` to guarantee hydration happens before testing the command routing. Also applied the post-baseline filtering rules here.
