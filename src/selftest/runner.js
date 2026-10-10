@@ -24,7 +24,12 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
   } catch(error) {
     if(error.code !== 'ENOENT') {
       const Msg = `Failed to read scenarios: ${error.message}`;
-      SlackApp.Logger.info(`[selftest] Report:\n${Msg}\nexit_code=1`);
+      try {
+        await SlackApp.PostMessageTextAsync(ChannelId, InitiatingThreadTs || null, Msg);
+      } catch(postError) {
+        SlackApp.Logger.error('selftest runner failed to post load-error report:', postError.message);
+      }
+      SlackApp.Logger.info(`[selftest] Report:\n[selftest] ${Msg}\n[selftest] exit_code=1`);
       return;
     }
   }
@@ -39,7 +44,12 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
     }
   } catch (error) {
     const Msg = `Failed to load scenarios: ${error.message}`;
-    SlackApp.Logger.info(`[selftest] Report:\n${Msg}\nexit_code=1`);
+    try {
+      await SlackApp.PostMessageTextAsync(ChannelId, InitiatingThreadTs || null, Msg);
+    } catch(postError) {
+      SlackApp.Logger.error('selftest runner failed to post load-error report:', postError.message);
+    }
+    SlackApp.Logger.info(`[selftest] Report:\n[selftest] ${Msg}\n[selftest] exit_code=1`);
     return;
   }
 
@@ -48,7 +58,13 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
     : Scenarios.filter(s => s.Name === TargetScenario);
 
   if(ToRun.length === 0) {
-    await SlackApp.PostMessageTextAsync(ChannelId, InitiatingThreadTs || null, `unknown scenario. available: ${Scenarios.map(s => s.Name).join(', ') || 'none'}`);
+    const Msg = `unknown scenario. available: ${Scenarios.map(s => s.Name).join(', ') || 'none'}`;
+    try {
+      await SlackApp.PostMessageTextAsync(ChannelId, InitiatingThreadTs || null, Msg);
+    } catch(error) {
+      SlackApp.Logger.error('selftest runner failed to post unknown-scenario report:', error.message);
+    }
+    SlackApp.Logger.info(`[selftest] Report:\n[selftest] ${Msg}\n[selftest] exit_code=1`);
     return;
   }
 
@@ -77,11 +93,9 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
     let FetchedPagesCount = 0;
     /** @type {any[]} */
     let GetConversationMessagesCalls = [];
+    const FixtureUrls = new Set();
 
     SlackApp.GetConversationMessagesAsync = async function(Channel, Ts, Options) {
-      if(Options && /** @type {any} */ (Options)._isSelftestAssertion) {
-        return await OriginalGetConversationMessages.call(SlackApp, Channel, Ts, Options);
-      }
       if(Channel === ChannelId && Ts === RootTs) {
         FetchedPagesCount++;
         GetConversationMessagesCalls.push(Options || {});
@@ -90,7 +104,7 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
     };
 
     SlackApp.GetFileContentAsync = async function(Url) {
-      if (Url && Url.includes('slack.com')) {
+      if (Url && FixtureUrls.has(Url)) {
         DownloadCount++;
       }
       return await OriginalGetFileContent.call(SlackApp, Url);
@@ -115,6 +129,10 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
             Comment,
             UploadResult
           );
+          if (UploadResult && UploadResult.File) {
+            if (UploadResult.File.url_private_download) FixtureUrls.add(UploadResult.File.url_private_download);
+            if (UploadResult.File.url_private) FixtureUrls.add(UploadResult.File.url_private);
+          }
           return Object.assign({}, UploadResult, MessageInfo);
         },
         /** @param {string} Text */
@@ -154,7 +172,7 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
           FetchedPagesCount: () => FetchedPagesCount,
           GetConversationMessagesCalls: () => GetConversationMessagesCalls,
           GetRepliesAsync: async () => {
-            const result = await OriginalGetConversationMessages.call(SlackApp, ChannelId, RootTs, { _isSelftestAssertion: true });
+            const result = await OriginalGetConversationMessages.call(SlackApp, ChannelId, RootTs);
             return result ? result : [];
           }
         },
@@ -215,7 +233,7 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
     ReportLines.push(Line);
   }
 
-  const ExitCode = FailCount > 0 ? 1 : 0;
+  let ExitCode = FailCount > 0 ? 1 : 0;
   const Summary = `Total: ${ToRun.length}, ✅ ${PassCount}, ❌ ${FailCount}, ⏭ ${SkipCount}`;
   ReportLines.push(`*${Summary}*`);
 
@@ -223,10 +241,15 @@ async function RunScenariosAsync(SlackApp, ChannelId, ChatModuleInstance, Target
   try {
     await SlackApp.PostMessageTextAsync(ChannelId, InitiatingThreadTs || null, FinalReport);
   } catch(error) {
-    SlackApp.Logger.error(`selftest runner failed to post report:`, error.message);
+    SlackApp.Logger.error('selftest runner failed to post report:', error.message);
+    ReportLines.push(`Report delivery failed: ${error.message}`);
+    ExitCode = 1;
   }
   
-  SlackApp.Logger.info(`[selftest] Report:\n${FinalReport}\nexit_code=${ExitCode}`);
+  const LogLines = ReportLines.map(line => `[selftest] ${line}`);
+  LogLines.unshift(`[selftest] Report:`);
+  LogLines.push(`[selftest] exit_code=${ExitCode}`);
+  SlackApp.Logger.info(LogLines.join('\n'));
 }
 
 module.exports = {

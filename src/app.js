@@ -503,6 +503,14 @@ async function RunAppAsync() {
         logger.error('error stopping github sync module:', error.message);
       }
 
+      // stop all relays explicitly before closing workspace modules.
+      for (const relay of SnapshotRelayModules) {
+        try { await relay.StopAsync(); } catch(error) { logger.error('error stopping snapshot relay:', error.message); }
+      }
+      for (const relay of CodeTaskRelayModules) {
+        try { await relay.StopAsync(); } catch(error) { logger.error('error stopping code task relay:', error.message); }
+      }
+
       // stop all workspace instances in reverse order of dependencies.
       for(let n = 0; n < SlackApps.length; n++) {
         logger.info('stopping modules for workspace:', SlackApps[n].WorkspaceInfo.WORKSPACE_NAME);
@@ -512,8 +520,6 @@ async function RunAppAsync() {
           await ChatModules[n].StopAsync();
           await RemindersModules[n].StopAsync();
           await ListsModules[n].StopAsync();
-          await SnapshotRelayModules[n]?.StopAsync();
-          await CodeTaskRelayModules[n]?.StopAsync();
           await StatsModules[n].StopAsync();
           await SlackApps[n].StopAsync();
         } catch(error) {

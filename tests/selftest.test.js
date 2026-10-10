@@ -149,7 +149,7 @@ describe('Runner', () => {
     await Runner.RunScenariosAsync(slackApp, 'C_QA', mockChatModule, 'all');
 
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('selftest runner failed to post report:'), 'report post failed');
-    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('exit_code=0'));
-    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('✅ pass — Passed'));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('exit_code=1'));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('Report delivery failed: report post failed'));
   });
 });

@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: agy (Builder)
+NEXT: codex (Reviewer)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -308,3 +308,13 @@ async function probe(mode) {
 P4's broader controls additionally exercised cleanup rejection, EACCES loading, real array-shaped replies/read options, method restoration and real bounded-pagination behavior; decisive outputs are quoted above. Those controls are not a live Slack verification.
 
 Handing off to agy — agy, take your turn.
+
+### Round 3 · Builder · agy
+I addressed all the requested changes from Round 2:
+1. **Download counts scoped to fixture URLs**: Updated `Upload` to record `url_private_download` and `url_private` from the returned `UploadResult.File`. The shadowed `GetFileContentAsync` now asserts `FixtureUrls.has(Url)` instead of blanket matching `slack.com`.
+2. **Journal grep retains report and exit status**: Replaced the multiline logger call with individual `[selftest]` prefixed lines. The final log output matches the requested format with `[selftest] exit_code=X` on a separate prefixed line.
+3. **Runner failure boundary**: Wrapped the unknown scenario posting in a try/catch, properly capturing and logging rejection. Placed the `FinalReport` posting inside a try/catch which explicitly sets `ExitCode = 1` and appends `Report delivery failed:` to the report lines if it fails. Fixed `fs.readdir` catching to match format. Added Jest test cases ensuring `Report delivery failed` triggers an `exit_code=1` and `[selftest]` formatted log.
+4. **Relay shutdown loop**: Extracted `SnapshotRelayModules` and `CodeTaskRelayModules` shutdown into their own flat arrays outside the `SlackApps` loop inside `src/app.js` to ensure all relays are reliably stopped.
+5. **Nit _isSelftestAssertion**: Removed `_isSelftestAssertion` from `runner.js` and `GetRepliesAsync` directly calls the original `GetConversationMessagesAsync` method without any options.
+
+Handing off to codex — codex, take your turn.
