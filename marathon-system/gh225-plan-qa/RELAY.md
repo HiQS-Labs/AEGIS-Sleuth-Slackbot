@@ -2,7 +2,7 @@
 Goal: Plan QA of GH-225 (shared bounded thread-context provider) before implementation
 Date: 2026-10-10
 NEXT: claude-a
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -271,3 +271,103 @@ the `VERDICT: PASS` or `VERDICT: FAIL` line; the harness validator rejected roun
 only because `Basis:` was missing. On PASS also set `STATUS: Approved` in the header.
 
 handing off to codex — codex, take your turn.
+
+### Round 3 · Reviewer · codex
+
+Plan QA: **Approved for implementation.** F1's explicitly offered scope-narrowing option is
+accepted; F2 and F3 are resolved. No remaining [Blocker] or [Should] finding. The supplied
+operational envelope supports this small change without additional infrastructure.
+
+Evidence boundary: Verify-tier graph discovery first. `list_projects(limit:100)` returned all
+82 projects, no matching worktree (no further page). The nearest related project is
+`sleuth-product-compass`; `search_graph` returned four matching symbols, no further page.
+`check_index_coverage` reports generation `2026-10-08T02:29:43Z` in that different checkout,
+with changed chat/slack sources and missing/untracked selftest/Compass paths. Direct source
+reads of the seeded worktree therefore support the citations below; no graph completeness or
+current-base identity is inferred from that index. No git command or executable fixture was run.
+Runtime acceptance results remain **[Unverified — needs clone run]**.
+
+1. **Grounded paths and counts:** The seven raw ChatModule read expressions remain at
+   `src/chat-module.js:1815,2313,2357,2722,2940,3087,3104`. The revised recon correctly names
+   `#OnReactionAddedAsync` (`:1799`), deletes the exemption at `:2937` and its comment while
+   preserving the memory guard at `:2934`. Generic non-Compass mentions do lookback then Gather
+   (`:2940`, `:1334`/`:3104`); generic non-Compass hands-free replies do dispatcher then Gather
+   (`:2722`, `:2093`/`:3104`). Their lookback receives the fetched thread at `:2063`.
+   Counts are correctly qualified for early returns, attachments, stored memory and DMs.
+   Compass hands-free reuses the thread at `:2085`; Compass mention reads at `:3087`.
+   Root Compass mentions use an empty transcript at `:3086-3087`, hence zero reads.
+
+2. **Consumers and safety:** The claim now covers four automatic chat/Compass consumers rather
+   than all Slack readers. Unchanged command reads are explicitly named and exist at
+   `src/thread-memory.js:230` and `src/chat-commands/send-to-github-command.js:60,102`;
+   reminder context reads remain at `src/reminder-context-resolution.js:239`.
+   Compass authorization still fails closed through the dispatcher on an incomplete bounded
+   read (planned disposition at plan `:108`; current guard `src/chat-module.js:2727-2730`).
+   The non-Compass first-page authorization gap is disclosed at plan `:123-129`, not fixed.
+   The raw reader really discards continuation information on an options-free success
+   (`src/slack-app.js:863`). This is an acceptable explicit deferral for this task.
+   Keeping reaction reads raw is justified by the mutually exclusive branches
+   (`src/chat-module.js:1801-1808`); the stop read only controls confirmation (`:2316-2323`).
+   Slack's current [replies documentation](https://docs.slack.dev/reference/methods/conversations.replies/)
+   lists default limit 1000 and also an app-distribution-dependent 15-item exception. Thus the
+   window comparison is a policy rationale, not a measurement of this installation's actual
+   returned page size; preserving legacy authorization does not depend on proving that size.
+
+3. **Memo and instrumentation:** The event-object WeakMap replaces the cross-delivery timestamp
+   cache (plan `:95-102`) and is the simpler shape proposed last round. For these call sites,
+   event identity fixes channel/workspace/ts, and `threadTs:maxPages` distinguishes reads within
+   that event. Both generic Gather callers will pass their existing `ArgEventInfo`
+   (plan `:111-114`); Compass's Gather already receives an explicit array
+   (`src/chat-module.js:3090`) and does not need another fetch. Each delivery's consumers must
+   retain that identity. WeakMap reclamation follows object reachability, rather than a literal
+   cleanup at handler exit, but introduces no cross-delivery reuse for fresh event objects.
+   Calling the instance reader preserves the selftest shadow at `src/selftest/runner.js:98-104`.
+   The generic mock at `tests/mocks/mock-slack-app.js:459-460` remains a call-count seam;
+   real pagination is exercised by the bound real reader at `tests/product-compass.test.js:163`.
+   Error retry behavior is now explicit, so the one-read claim is the successful/incomplete
+   path budget, not a promise that transient failures never retry.
+
+4. **Earlier Compass uploads:** Acceptable. Same-event uploaded constraints already reach Compass
+   (`tests/product-compass.test.js:65-72`), and transcript rendering prepends context memory
+   (`src/chat-module.js:3121-3130`). The revised acceptance observes earlier-upload content
+   reaching the prompt (plan `:153-154`). Preserve the strictly earlier filter at
+   `src/chat-module.js:2943`, quiet download handling at `:2861-2870`, and existing-memory
+   guard at `:2934`; no evidence requires a product exemption.
+
+5. **Proof, blast radius and rollback:** The new non-Compass generic hands-free one-read assertion
+   is genuinely red against the base's two independent reads (`src/chat-module.js:2722,3104`).
+   Bypassing the memo can restore two reads; the implementation must keep the provider call
+   spyable and have the bypass return the same result shape. The Compass mention test is
+   correctly labelled changed-code evidence (plan `:150-152`). The six-page fixture remains
+   a separate safety canary (`tests/product-compass.test.js:151-180`), including explicit
+   mention refusal through `src/chat-commands/ask-compass-command.js:19-20`.
+   Acceptance (b), (c) and full npm test are checkable execution gates
+   (plan `:158-162`; selftest assertion `src/selftest/scenarios/compass-budget.js:12-13`).
+   Run these in the implementation clone and retain results; none ran here.
+   One-commit code rollback is honest, with the persisted-memory and already-posted-answer
+   consequences now disclosed (plan `:165-168`; writer `src/chat-module.js:3042-3043`).
+
+6. **Rating:** 70/55/50/65 remains proportionate to the supplied one-bounceback, three-feature/
+   one-fix recurrence and class score 4 (plan's Rating and recurrence section). This supports
+   one bounded structural task, not an umbrella program. Historical ancestry, ledger read-back
+   and class scoring remain supplied evidence, not independently executed verification here.
+
+Static probe command:
+`rg -n 'GetConversationMessagesAsync|GatherThreadContextAsync\(ArgSlackApp, ArgEventInfo.channel|Compass.GetMapping.*return \[\]' src/chat-module.js > .relay-scratch/gh225-round3-static.txt`
+
+Exit status: **0**. Decisive output:
+
+```text
+1334:      ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+2093:        ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+2722:        ThreadMessages = (await ArgSlackApp.GetConversationMessagesAsync(
+2937:    if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) return [];
+2940:        || await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
+3104:    const ThreadMessages = ArgMessages || await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS);
+```
+
+Done — handing the approved plan back to claude-a. Only RELAY.md was edited; probe output stayed
+under .relay-scratch. Implementation and runtime proof remain the next phase.
+
+Basis: Direct seeded-source review confirms the revised scope, event-local sharing and falsifiable red control resolve F1-F3 while preserving the existing Compass completeness guard.
+VERDICT: PASS
