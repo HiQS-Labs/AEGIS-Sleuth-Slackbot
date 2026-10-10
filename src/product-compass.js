@@ -215,7 +215,7 @@ async function AskAsync(ArgWorkspace, ArgChannel, ArgQuestion, ArgContext, ArgAI
             || !uuid.test(ArgPassage.document_id) || typeof ArgPassage.excerpt !== 'string' || typeof ArgPassage.file_name !== 'string') throw failure('scope');
           const expected = `/t/${mapping.TeamId}/library?doc=${ArgPassage.document_id}`;
           if(ArgPassage.link !== expected) throw failure('citations');
-          return { Id: `${turn + 1}.${ArgIndex + 1}`, Title: `${ArgPassage.file_name} (${ArgPassage.release || 'product'}; ${ArgPassage.lines || ''})`, Link: new URL(expected, endpoint).href, Excerpt: ArgPassage.excerpt.slice(0, 350), Passage: ArgPassage };
+          return { Id: `${turn + 1}.${ArgIndex + 1}`, Title: `${ArgPassage.file_name} (${ArgPassage.release || 'product'}; ${ArgPassage.lines || ''})`, Link: new URL(expected, endpoint).href, Excerpt: ArgPassage.excerpt.slice(0, 350) };
         });
       } else {
         if(!result[decision.Action === 'get_release_brief' ? 'brief' : 'arc']) throw failure('response');

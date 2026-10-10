@@ -2723,10 +2723,9 @@ class ChatModule {
         )).filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
         CompleteThread = ThreadMessages;
       } catch(error) {
-        // a Compass thread too long to load completely: decide hands-free state from the first page,
-        // and hand no thread on so the Compass handler refetches and posts its "start a new thread" reply.
+        // unread messages may contain a stop reaction; incomplete history cannot authorize a reply.
         if(!IsCompassChannel || error?.code !== 'context-incomplete') throw error;
-        ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
+        return { ShouldRespond: false };
       }
 
       // check if the first message in thread has an app mention (hands-free mode).

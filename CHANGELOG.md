@@ -33,11 +33,17 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 1.4.336 - 2026-10-10
+## 1.4.337 - 2026-10-10
 
 I can now read a Markdown, text or JSON file that was uploaded earlier in a thread. Before, if someone shared a file and a later reply @mentioned me without re-attaching it, I only saw the message saying it was shared and not the contents.
 
 **Technical:** GH-219. When an @mention in a thread has no file of its own and the thread has no context memory yet, `#HandleAttachmentAsync` looks through the earlier thread messages for the newest text-like file (same `IsTextLikeContextFile` rules as before) and passes it to the existing `#TryStoreThreadMemoryFileAsync`, which now takes an optional files list. Size limit, HTML-error check and the thread memory store are unchanged. Earlier images and other non-text files are skipped silently. A failed thread lookup falls back to normal handling. Tests in `tests/thread-earlier-file-lookback.test.js`.
+
+## 1.4.336 - 2026-10-08
+
+I use less space for Product Compass evidence. If a thread is too long for me to check whether automatic replies were stopped, I stay quiet; mention me directly for guidance on starting a new thread.
+
+**Technical:** GH-217 removes the unused duplicate passage from citation metadata and stops automatic Compass handling after the first incomplete bounded thread read. Complete thread context, citations and explicit-mention refusals retain their existing paths. The existing five-case Compass canary passes; reintroducing each defect separately fails its matching check (duplicate Passage or 11 reads instead of five). Build passes. No new suite, dependency, persistence or CI job. Codex plan review approved after its first record was rejected for rewriting the relay template; the append-only second round passed the driver. Codex final review approved after correcting the ledger plan pointer; an unrelated pre-existing triage diagnostic discrepancy was deferred. Full verification passed: 2,573 Jest tests and 116 Node tests, four existing Jest skips, build and FSM validation. Details and limits are in the GH-217 plan. #lessonslearned A partial thread cannot establish that automatic replies are still enabled when unread messages may contain a stop reaction.
 
 ## 1.4.335 - 2026-10-07
 
