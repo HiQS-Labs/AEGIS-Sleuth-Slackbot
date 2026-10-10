@@ -29,6 +29,17 @@ umbrella's original replay-nondeterminism, echo-threshold and reaction-lookback 
 and stay open on the issue. PR #227 (`fix/gh-225-thread-context-provider`) owns the thread-read sites
 in `src/chat-module.js` around :2722/:2940/:3087/:3104; this task does not touch those regions.
 
+## Quad Concepts
+
+- Pain: reminder intent is judged in five layers across four modules, so each false-positive fix
+  ships as a new regex in whichever layer was nearest -> Fix: one module (`src/reminder-judgement.js`)
+  owns the ordered gates and the model call; the call sites route through it.
+- Pain: no single test can exercise the four shipped false-positive classes because they live in four
+  modules -> Fix: one seeded corpus (`data/static/ai/reminder-judgement-corpus.json`) run through the
+  one entry point with the model stubbed.
+- Pain: a future exclusion can be added without a regression row -> Fix: an FSM invariant that every
+  reason token the module can emit has a corpus row.
+
 ## Asks / acceptance criteria (from the addendum)
 
 - **Reproduce:** table-driven `tests/reminder-judgement-corpus.test.js` fed by
