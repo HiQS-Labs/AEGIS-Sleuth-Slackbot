@@ -1,6 +1,6 @@
 # Marathon Phase p1
 STATUS: Open
-NEXT: codex (Reviewer)
+NEXT: agy (Builder)
 
 <!-- marathon-drive: task=MARATHON-P1-TURN builder=agy reviewer=codex round-cap=7 -->
 
@@ -133,3 +133,91 @@ I implemented the selftest guard, runner, and wiring as specified in the Phase 1
 - **tests/selftest.test.js**: Tested runner functionality using virtual mock scenarios (`jest.mock` with `{ virtual: true }`), ensuring correct formatting and execution handling (pass, throw, skip). Tested guard blocking incorrect channels and checking default failure conditions. `npm test` matches original state.
 
 Handing off to codex — codex, take your turn.
+
+
+### Round 1 · Reviewer · codex
+
+swept file: yes
+
+**Verdict:** Changes requested
+
+Reviewed the parent plan in full and the whole contents of all five artifact files (including all 3,549 lines of `src/chat-module.js`), rather than only the additions. No additional verified pre-existing defect found in app/chat beyond the already documented legacy Web API token fallback; that documented compatibility issue is not a new request here. Wiring order, env argument injection, tenant ownership, `files: []`, bare baseline marker, sequential roots and additive thread-memory deletion follow the plan.
+
+Evidence tier: Verify, with direct-source fallback. `list_projects` returned all 82 projects with no index for this relay checkout. The nearest related project is `sleuth-product-compass`, generation `2026-10-08T02:29:43Z`, a different checkout. Graph search found the Slack methods; coverage on all eight evidence paths marked selftest files missing, chat/slack changed, and scripts excluded. Its graph cannot certify this seed, so findings below use the actual local source and narrow probes. No source/artifact was edited, no git was run, and no Jest, fixture, validation shell script or app boot was run. Scratch stayed in `.relay-scratch/tmp`.
+
+1. **[Blocker] Restore the required checkJs build contract.** New files omit parameter/member/context JSDoc types throughout. The runner's static import also pulls the previously out-of-build CLI harness into the compiler dependency graph. The non-emitting compiler produced 35 errors, including 31 in the new files and four in the imported script. Keep the harness unchanged as the phase requires; make the allowed implementation type-check without broadly suppressing checks on new code.
+   - Observed input: current `tsconfig.json` (`checkJs: true`, `noImplicitAny: true`, `src/**/*.js`) and `src/selftest/runner.js:5`, `src/selftest/selftest-module.js:6-24`, import at `runner.js:3`.
+   - Affected scope: required backend build, even with selftest env unset.
+   - Falsifier: the same non-emitting compiler exits 0 with typed new APIs and the reused helper available, without editing the harness or weakening project compiler settings.
+   - Probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; mkdir -p "$TMPDIR"; ./node_modules/.bin/tsc --noEmit --pretty false > "$TMPDIR/selftest-tsc.log" 2>&1`. Compiler exit status **2**. Decisive output: `src/selftest/runner.js(5,34): error TS7006: Parameter 'SlackApp' implicitly has an 'any' type.`, `src/selftest/selftest-module.js(6,3): error TS7008: Member '#ChatModuleInstance' implicitly has an 'any' type.`, `scripts/slack-harness-file-upload.js(347,46): error TS2339: Property 'needed' does not exist on type 'object & Record<"error", unknown>'.` Four harness errors cover `needed`/`provided` at 347-348.
+
+2. **[Should] Make the observation API measure Design 6 accurately.** `GetConversationMessagesAsync` returns `MessageInfo[]` (`src/slack-app.js:856-880`), while `runner.js:60-61` only captures `Result.messages`, so `Fixture.GetReplies()` remains empty. `runner.js:66-68` counts every workspace download, including unrelated traffic. The three Fixture accessors expose no call options or bounded observation around Mention, preventing the next phase from checking `MaxPages <= 5` through this API. Accumulating reads made before the answer is posted also does not automatically observe the answer; provide a clear way to read the resulting thread after Mention and distinguish assertion reads from measured production reads.
+   - Observed input: probe P2 returns `[{ts:'2.0', text:'answer'}]` for the scenario thread, supplies `{MaxPages:9, Latest:'3.0'}`, then downloads `https://unrelated.example/file`.
+   - Affected scope: canary assertions and Compass budget assertions in the dependent scenarios; concurrent workspace traffic can corrupt counts.
+   - Falsifier: real array-shaped replies are observable after Mention; a fixture download is counted but an unrelated URL is not; the production call's options and before/after counts can distinguish one bounded read from an over-budget or duplicated read.
+   - P2 exit status **0**; decisive output: `{"replies":[],"reads":1,"downloads":1,"fixtureKeys":["DownloadCount","FetchedPagesCount","GetReplies"]}`. The array containing the answer was lost, and an unrelated download counted.
+
+3. **[Should] Preserve the initiating report thread and useful journal receipt.** The handler drops `ArgEventInfo.thread_ts || ArgEventInfo.ts` when calling the runner (`selftest-module.js:54`); both unknown-name replies and final reports use `thread=null` (`runner.js:27,166`). Design 3/7 require a run report in-thread, with links to each separate scenario root; current successful/skipped rows have no links. The journal's `exit_code` is on a separate line without `[selftest]`, so the documented grep does not retain it in a normal line-oriented journal stream.
+   - Observed input: `@Sleuth selftest all`, event `ts='100.0'`, `thread_ts='90.0'`; handler passes only four arguments and no report thread. P2 records final report with `thread:null` and log string `[selftest] Report:\n...\nexit_code=0`.
+   - Affected scope: every live run, unknown scenario response, and post-deploy receipt retrieval.
+   - Falsifier: report and unknown-name response target `90.0` (or `100.0` for a root invocation), each scenario remains its own unmentioned root and is linked from the report, and a line containing `[selftest]` also contains `exit_code=0|1`.
+   - P2 exit status **0**; decisive output: `posts=[{"thread":null,"text":"selftest: running scenario observe"},{"thread":null,"text":"✅ observe — Passed\n*Total: 1, ✅ 1, ❌ 0, ⏭ 0*"}]`.
+
+4. **[Should] Keep runner failures inside a reportable boundary.** Directory errors, scenario require errors, cleanup rejection and final-report posting rejection currently escape the runner. The module catches them but logs only `selftest runner failed:` rather than the promised `[selftest] ... exit_code=1` receipt. In particular a report-post failure discards an already completed result because journal logging is after the awaited post.
+   - Observed input: P3 injects `readdir` rejecting `Error('permission denied')` with `code:'EACCES'`, then separately a final-report post rejecting `Error('report post failed')`. P2 also injects cleanup rejection.
+   - Affected scope: interrupted selftest runs and failures of Slack/disk operations; no final receipt, contrary to the runner's never-throw contract.
+   - Falsifier: each input resolves without leaking rejection, restores shadows, continues later scenarios when safe, and logs a `[selftest]` failure receipt even when Slack cannot accept the report. Add narrow Jest coverage of these failure boundaries, observer shape/scope/options and report-thread propagation; existing tests only exercise successful cleanup/posting.
+   - P3 exit status **0**; decisive output: `{"mode":"load-error","posts":0,"logs":[],"rejected":"permission denied"}` and `{"mode":"post-error","posts":2,"logs":[],"rejected":"report post failed"}`. P2 cleanup control: `posts` contained only the scenario root, `logs:[]`, `rejected:'cleanup rejected'`.
+
+**[Unverified — needs clone run]** Jest selftest/look-back, full npm test, command-validator baseline equivalence, and live import side-effect checks are not certified by this review. The builder's `npm test matches original state` statement has no command/status/output receipt. The harness gate belongs after this turn in its disposable clone. The helper's CLI entry itself is guarded by `require.main === module` at lines 700-705, but that static observation alone does not prove every transitive import side-effect free.
+
+#### Reproducible narrow probe commands
+
+P2 command (executed against seeded runner in an in-memory VM; no app boot, Slack connection or scenario fixture executable):
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+node <<'NODE' > "$TMPDIR/runner-probe.log"
+const fs = require("fs"), vm = require("vm"), path = require("path");
+const source = fs.readFileSync("src/selftest/runner.js", "utf8");
+async function probe(cleanupThrows) {
+  let captured, posts=[], logs=[], sequence=0;
+  const scenario = { Name:"observe", Run: async c => {
+    await c.SlackApp.GetConversationMessagesAsync(c.Channel,c.ThreadTs,{MaxPages:9,Latest:"3.0"});
+    await c.SlackApp.GetFileContentAsync("https://unrelated.example/file");
+    captured = { replies:c.Fixture.GetReplies(),reads:c.Fixture.FetchedPagesCount(),downloads:c.Fixture.DownloadCount(),fixtureKeys:Object.keys(c.Fixture) };
+  }};
+  const box={module:{exports:{}},__dirname:path.resolve("src/selftest"),require:n => n==="fs"?{promises:{readdir:async()=>["observe.js"]}}:n==="path"?path:n.includes("slack-harness-file-upload")?{}:scenario};
+  vm.runInNewContext(source,box);
+  const app={PostMessageTextAsync:async(c,t,text)=>{posts.push({thread:t,text});return String(++sequence)+".0";},GetConversationMessagesAsync:async()=>[{ts:"2.0",text:"answer"}],GetFileContentAsync:async()=>"unrelated",GetPermaLinkAsync:async()=>"https://mock/thread",Logger:{info:t=>logs.push(t)}};
+  let rejected=null;
+  try {await box.module.exports.RunScenariosAsync(app,"C_QA",{ClearThreadMemoryAsync:async()=>{if(cleanupThrows)throw Error("cleanup rejected");}},"all");} catch(e){rejected=e.message;}
+  console.log(JSON.stringify({cleanupThrows,captured,posts,logs,rejected}));
+}
+(async()=>{await probe(false);await probe(true);})();
+NODE
+```
+
+P3 command:
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+node <<'NODE' > "$TMPDIR/error-probe.log"
+const fs=require("fs"),vm=require("vm"),path=require("path");
+const source=fs.readFileSync("src/selftest/runner.js","utf8");
+(async()=>{for(const mode of ["load-error","post-error"]){
+const box={module:{exports:{}},__dirname:path.resolve("src/selftest"),require:n=>n==="fs"?{promises:{readdir:async()=>{if(mode==="load-error")throw Object.assign(Error("permission denied"),{code:"EACCES"});return ["pass.js"];}}}:n==="path"?path:n.includes("slack-harness-file-upload")?{}:{Name:"pass",Run:async()=>{}}};
+vm.runInNewContext(source,box);
+let posts=0,logs=[],rejected=null;
+const app={PostMessageTextAsync:async()=>{if(++posts===2)throw Error("report post failed");return "1.0";},GetPermaLinkAsync:async()=>"https://mock/thread",Logger:{info:t=>logs.push(t)}};
+try{await box.module.exports.RunScenariosAsync(app,"C_QA",null,"all");}catch(e){rejected=e.message;}
+console.log(JSON.stringify({mode,posts,logs,rejected}));
+}})();
+NODE
+```
+
+Sweep falsification note: a separate detector-extraction query initially failed with exit 1 (`Private field '#SlackApp' must be declared in an enclosing class`). It supplies no runtime evidence. Direct-source cross-reference at `chat-module.js:1250` confirms `CommandTextWithoutMention` is passed to the active router; the hypothesized bot-mention rejection in the pre-existing count path was discarded. No request is based on that failed probe.
+
+Root cause: the runner boundary was implemented without carrying the plan's typed API, observation scope and report context through its inputs and failure paths; fix site: the allowed selftest module/runner/tests and their wiring; the shared Slack/harness contracts already define the shapes to consume and must remain unchanged.
+
+Handing off to agy — agy, take your turn.
