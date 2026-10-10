@@ -22,7 +22,7 @@ goal: "Reminder intent judgement has one code owner and one seeded corpus, so th
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA relay ran 3/3 rounds (all findings accepted; final residual is a `toString()` comparison) | Operator decision: accept the adjudicated plan or authorize round 4; then `--accepted-start` and implementation |
+| Plan accepted by the operator after the 3/3-round plan-QA cap (all findings Accepted) | Implementation in `fix(GH-149):` commits, then final Codex QA |
 
 Scope: the "Additional remediation tasks" in the 2026-10-10 whack-a-mole addendum on #149 only. The
 umbrella's original replay-nondeterminism, echo-threshold and reaction-lookback items are NOT in scope
@@ -359,3 +359,15 @@ Outcome: the plan did not reach `STATUS: Approved` inside the 3-round cap (round
 every finding accepted and the last one a two-token change). Per the operator rule (cap reached →
 ask, do not start round 4) implementation was NOT started: no `--accepted-start`, no source changes.
 Operator decision needed: accept the adjudicated plan as reviewed, or authorize one more round.
+
+### Operator acceptance
+
+2026-10-10 UTC: the operator accepted the adjudicated plan as reviewed (option a), after the 3-round
+plan-QA cap, with every finding from rounds 1-3 Accepted and folded in (R3's sole residual, the
+`Pattern.toString()` comparison, included). No fourth round. The relay thread's STATUS stays
+`Escalated`; it was not rewritten to Approved and no reviewer attestation exists for this plan.
+Implementation proceeds on this basis.
+
+Ledger deviation: `roadmap update --accepted-start` was refused (`status-label-unsupported: schema009
+required`); per the #225 precedent the row was moved with the legacy `--section "In progress"
+--status-marker 🚧` instead.
