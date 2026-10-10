@@ -31,7 +31,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Issue filed, clone provisioned off origin/development 6696312, captured, rated 35/15/50/75, recon done. Plan QA pending. | Codex plan QA, then build the three scenario edits. |
+| Issue filed, clone provisioned off origin/development 6696312, captured, rated 35/15/50/75, recon done. Codex plan QA round 1: FAIL (R1 T4 marker question and per-mention bounds, R2 add `npm run build`, nit red-control wording, nit stale docs count) all accepted and folded in; round 2 pending. | Codex plan QA, then build the three scenario edits. |
 
 ## Observed state (recon, 2026-10-10, base 6696312)
 
@@ -45,10 +45,11 @@ goal: >
 ## Plan (one phase, ordered)
 
 1. `src/selftest/scenarios/lookback-reuse.js` (T6): skip if Compass-mapped; write a synthetic JSON with a unique canary; `Upload`; `Mention('what is the marker in the uploaded file?')`; assert a later reply quotes the canary; `Mention('what is the marker value again?')`; assert a later reply (after the second baseline ts) quotes the canary; `Expect(DownloadCount() === 1, 'one download across both mentions')`.
-2. `src/selftest/scenarios/lookback-later-upload.js` (T4 control): skip if Compass-mapped; `Upload` old.json (token A); `Mention('which file?')`; assert the answer quotes token A; `Upload` new.json (token B) after hydration; second `Mention`; assert no reply in the thread ever contains token B and the answer still quotes token A; `Expect(DownloadCount() === 1)`. Header states plainly that this is a normal-ordering, post-hydration control and not the delayed-event race: it shows a later upload is not selected, not that the later file was invisible during candidate selection.
-3. `src/selftest/scenarios/lookback-skip-bad.js` (T5): add `Context.Expect(Context.Fixture.DownloadCount() === 0, 'no download of the oversized file')`; keep the existing assertions; stay at most 40 lines.
+2. `src/selftest/scenarios/lookback-later-upload.js` (T4 control): skip if Compass-mapped; `Upload` old.json (token A); `const ts1 = await Mention('what is the marker in the uploaded file?')`; assert a reply strictly after `ts1` quotes token A; `Upload` new.json (token B) after hydration; `const ts2 = await Mention('what is the marker in the uploaded file now?')`; assert a reply strictly after `ts2` quotes token A; assert no reply anywhere in the thread contains token B; `Expect(DownloadCount() === 1)`. Both questions ask for the marker explicitly (a filename-only answer would not satisfy the assertion) and each positive assertion is bounded by its own Mention timestamp so the first answer cannot satisfy the second. Header states plainly that this is a normal-ordering, post-hydration control and not the delayed-event race: it shows a later upload is not selected or downloaded, not that the later file was invisible during candidate selection, and removing the strictly-earlier-ts filter at `chat-module.js:2936` would not be detected by it. Delayed-event coverage stays pending in #222.
+3. `src/selftest/scenarios/lookback-skip-bad.js` (T5): add `Context.Expect(Context.Fixture.DownloadCount() === 0, 'no download of the oversized file')`; keep the existing assertions; stay at most 40 lines. Guard against a vacuous zero: the assertion is only meaningful because `Upload` recorded the returned private URL(s) in `FixtureUrls`; the live check below confirms the upload returned a tracked URL.
 4. `tests/selftest.test.js`: add the two new filenames to the `readdir` spy list, rename the test to "runs every scenario against MockSlackApp" and expect 8 report lines (7 scenarios plus the summary). No other test change.
-5. `CHANGELOG.md`: two-paragraph entry in the existing format (next patch above the current top entry); no `package.json` bump.
+5. `docs/SSH.md` line 87: change "the four look-back scenarios" to "the look-back scenarios" (the count is now stale).
+6. `CHANGELOG.md`: two-paragraph entry in the existing format (next patch above the current top entry); no `package.json` bump.
 
 ## Alternatives rejected
 
@@ -57,9 +58,9 @@ goal: >
 
 ## Verification and red control
 
-- Focused: `npx jest selftest --forceExit` (loader contract, runner, mock-context run), then full `npm test` once on the final commit, un-sandboxed.
+- Focused: `npx jest selftest --forceExit` (loader contract, runner, mock-context run), then full `npm test` and `npm run build` (the repo's `tsc` typecheck, `package.json:18`) once each on the final commit, un-sandboxed, with exit codes recorded as receipts.
 - Live (post-merge, deploy to dev is automatic via the webhook): `@Sleuth-dev selftest all` in the QA channel; expect seven scenarios, new ones pass, `compass-budget` skipped, `exit_code=0`. Record in a #222 comment.
-- Red control: the new assertions run only live, so a failing control cannot run in Jest. The honest limit is stated here: before relying on the T5 assertion, confirm on dev that `lookback-skip-bad` still passes, and confirm the assertion would count a download by checking that `FixtureUrls` is populated for the oversized upload (it is: `Upload` adds both URLs). A deliberate negative live control is not built.
+- Red control (honest limit): the current Jest suite does not validate these live assertions. In the mock run the upload fails first, so the new scenarios end as caught failures and never reach their assertions. No deliberate negative control has been executed, and none is claimed. The proof is the live dev run, the URL-provenance check on the T5 upload, and the final clone `npm test` plus `npm run build`.
 
 ## Blast radius and rollback
 
@@ -92,6 +93,7 @@ Rated 35/15/50/75 (priority/severity/appeal/effort-cheapness). Severity low: a t
     "src/selftest/scenarios/lookback-later-upload.js",
     "src/selftest/scenarios/lookback-skip-bad.js",
     "tests/selftest.test.js",
+    "docs/SSH.md",
     "CHANGELOG.md"
   ],
   "artifacts_new": [
@@ -105,10 +107,10 @@ Rated 35/15/50/75 (priority/severity/appeal/effort-cheapness). Severity low: a t
       "src/selftest/scenarios/lookback-later-upload.js",
       "src/selftest/scenarios/lookback-skip-bad.js"
     ],
-    "orchestrator_only": [ "tests/selftest.test.js", "CHANGELOG.md" ]
+    "orchestrator_only": [ "tests/selftest.test.js", "docs/SSH.md", "CHANGELOG.md" ]
   }
 }
 ```
 
 ## Progress log
-- 2026-10-10: issue #230 filed from the #222 live-run gaps; fresh clone off origin/development 6696312; captured, rated and promoted; plan drafted. Plan QA pending.
+- 2026-10-10: issue #230 filed from the #222 live-run gaps; fresh clone off origin/development 6696312; captured, rated and promoted; plan drafted. Codex plan QA round 1 (FAIL: 2 Should, 1 Nit) accepted and folded in; round 2 pending.
