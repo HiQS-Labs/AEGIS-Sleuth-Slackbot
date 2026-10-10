@@ -15,19 +15,22 @@ module.exports = {
     
     const later = replies.filter(/** @param {any} r */ r => Number(r.ts) > Number(baseTs));
     const lastReply = later[later.length - 1];
-    Context.Expect(lastReply && lastReply.text && lastReply.text.includes('Sources:'), 'successful cited answer');
     
     if (lastReply && lastReply.text) {
       const text = lastReply.text;
-      const excerpts = text.split('\n')
-        .filter(/** @param {string} l */ l => l.startsWith('> '))
-        .map(/** @param {string} l */ l => l.substring(2).trim())
-        .filter(/** @param {string} e */ e => e.length > 0);
-      Context.Expect(excerpts.length > 0, 'non-empty citation block');
-      
+      const parts = text.split('Sources:');
+      Context.Expect(parts.length >= 2, 'successful cited answer');
+      if (parts.length >= 2) {
+        Context.Expect(parts[0].trim().length > 0, 'has answer body');
+        const hasExcs = parts.slice(1).join('Sources:').split('\n').some(/** @param {string} l */ l => l.startsWith('> ') && l.trim().length > 2);
+        Context.Expect(hasExcs, 'non-empty citation block inside Sources');
+      }
       let dup = false;
-      for (const exc of excerpts) if (text.indexOf(exc) !== text.lastIndexOf(exc)) dup = true;
+      const allExcs = text.split('\n').filter(/** @param {string} l */ l => l.startsWith('> ')).map(/** @param {string} l */ l => l.substring(2).trim());
+      for (const exc of allExcs) if (text.indexOf(exc) !== text.lastIndexOf(exc)) dup = true;
       Context.Expect(!dup, 'no excerpt twice');
+    } else {
+      Context.Expect(false, 'successful cited answer');
     }
   }
 };
