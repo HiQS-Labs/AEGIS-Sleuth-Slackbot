@@ -2849,7 +2849,11 @@ class ChatModule {
       const EarlierResult = await this.#TryStoreThreadMemoryFileAsync(
         ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation, EarlierFiles, true
       );
-      return { Handled: false, TextFileWasStored: EarlierResult.FileWasStored };
+      // hydrating context from an earlier upload is not attachment ownership: `TextFileWasStored`
+      // stays false so registered commands and deterministic replies still route normally, and the
+      // stored memory reaches the AI through the thread context as usual. A bare mention with no
+      // question is fully answered by the "I've loaded…" confirmation.
+      return { Handled: EarlierResult.FileWasStored && !ArgText, TextFileWasStored: false };
     }
 
     // Both image arms hand the resolved file straight through — re-selecting here could pick a
@@ -2915,13 +2919,14 @@ class ChatModule {
     if(!ArgEventInfo.thread_ts) return [];
     if(this.#ThreadContextMemory.has(`${ArgEventInfo.channel}:${ArgEventInfo.thread_ts}`)) return [];
     // GH-217 caps Compass threads at one bounded read per event and Compass carries its own document
-    // context, so the look-back never issues an extra read there — it only reuses what was fetched.
-    if(!ArgThreadMessages && Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) return [];
+    // context, so the look-back is skipped there on every path.
+    if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) return [];
     try {
       const Messages = ArgThreadMessages
         || await ArgSlackApp.GetConversationMessagesAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts);
       return Messages
-        .filter((ArgMessage) => ArgMessage.ts !== ArgEventInfo.ts)
+        // strictly earlier only: a delayed event can see replies (and uploads) posted after it.
+        .filter((ArgMessage) => Number(ArgMessage.ts) < Number(ArgEventInfo.ts))
         .reverse()
         .flatMap((ArgMessage) => ArgMessage.files ?? [])
         .filter((ArgFile) => IsTextLikeContextFile(ArgFile) && !(ArgFile.size > MaxContextBytes));

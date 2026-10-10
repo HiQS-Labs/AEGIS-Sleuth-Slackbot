@@ -1,3 +1,4 @@
+
 'use strict';
 
 /**
@@ -136,6 +137,30 @@ describe('earlier thread file look-back', () => {
 
     expect(SlackApp.SentMessages.map((M) => M.text).join('\n')).not.toContain("couldn't download");
     expect(Ai.ProcessMessageWithTextResponseAsync).toHaveBeenCalled();
+  });
+
+  test('a registered command still routes after an earlier file is hydrated', async () => {
+    const { SlackApp } = Setup([{ user: 'U1', text: 'export', ts: '100.1', files: [JsonFile] }]);
+    const Ai = require('../src/workspace-ai').mock.results.at(-1).value;
+
+    await Mention(SlackApp, { text: 'show-channel-model' });
+
+    expect(SlackApp.GetFileContentAsync).toHaveBeenCalledTimes(1);
+    expect(SlackApp.SentMessages.map((M) => M.text).join('\n')).toContain('model');
+    expect(Ai.ProcessMessageWithTextResponseAsync).not.toHaveBeenCalled();
+  });
+
+  test('a file uploaded after the mention is never picked', async () => {
+    const Later = { ...JsonFile, name: 'future.json', url_private_download: 'https://files.slack.com/future.json?dl=1' };
+    const { SlackApp } = Setup([
+      { user: 'U1', text: 'export', ts: '100.1', files: [JsonFile] },
+      { user: 'U3', text: 'newer', ts: '101.5', files: [Later] },
+    ]);
+
+    await Mention(SlackApp, { text: 'which accounts?' });
+
+    expect(SlackApp.GetFileContentAsync).toHaveBeenCalledWith(JsonFile.url_private_download);
+    expect(SlackApp.GetFileContentAsync).not.toHaveBeenCalledWith(Later.url_private_download);
   });
 
   test('a failed thread lookup falls back to normal handling', async () => {
