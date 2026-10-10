@@ -1849,7 +1849,7 @@ class RemindersModule {
         rationale: 'Simulated reminder for "tomorrow morning" since no scheduling triggers were found.',
         reminders: [{
           actionable_language: ArgMessageText, // treat entire message as actionable when force-scheduling.
-          scheduling_trigger: 'tomorrow morning',
+          scheduling_trigger: ReminderJudgement.FORCE_FALLBACK_TRIGGER,
           reminder_message: ForceScheduledReminderMessage,
         }]
       };
@@ -2006,7 +2006,7 @@ class RemindersModule {
       let UsedFallbackTriggerForGroup = false;
       if(ArgForceSchedule && (!ExtractionResult.success || !ExtractionResult.date)) {
         UsedFallbackTriggerForGroup = true;
-        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync('tomorrow morning');
+        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync(ReminderJudgement.FORCE_FALLBACK_TRIGGER);
       }
 
       // skip this trigger if no date was extracted.
