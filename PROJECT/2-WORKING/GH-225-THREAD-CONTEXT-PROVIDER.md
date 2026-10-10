@@ -23,7 +23,7 @@ related: "GH-215 GH-217 GH-219 GH-221 GH-222; radar #224 target RADAR-product-co
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA approved in round 2 (Codex, attested); provider, call-site routing, sweep and new canary implemented; focused suites green and red control observed | Final Codex QA relay on the committed diff, full `npm test`, push and PR against `development` |
+| Final QA approved in round 1 (Codex, attested, `marathon-system/gh225-final-qa/RELAY.md`); full `npm test` green (142 suites / 2598 tests, node:test 116/0) | Push and PR against `development`; operator lands it (merge not part of this task) |
 
 ## Why
 
@@ -179,6 +179,13 @@ thread-memory store (`:3043`) and already-posted answers remain; neither needs m
 | Q4 earlier Compass uploads | Accepted | Behavior change kept; observed in acceptance (a).3; memory guard and filters preserved |
 | Q5 revert consequence | Accepted | Persisted-memory note added above |
 | Q6 rating | No change | Rating stands; historical inputs remain as supplied evidence |
+
+## Final QA dispositions (round 1, Codex, `VERDICT: PASS`)
+
+| Finding | Disposition | What changed |
+|---|---|---|
+| Nit: `#GetThreadDebugInfo` (wrench diagnostic) processes bell/no_bell but ignores `octagonal_sign`, unlike the dispatcher | Rejected — Out of Scope (pre-existing GH-217 triage discrepancy, diagnostic only, dispatcher stays quiet) | Filed as a separate GitHub issue; nothing changed in this branch |
+| Historical "untouched vs aca655d" claims not independently diffed by the reviewer | Accepted as evidence boundary | `git diff aca655d --stat` in the PR body shows only the four intended files changed under `src/`, `tests/`, `CHANGELOG.md` |
 
 ## Rating and recurrence
 
