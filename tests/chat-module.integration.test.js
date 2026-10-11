@@ -1721,10 +1721,22 @@ describe('ChatModule integration via MockSlackApp', () => {
 
   // GH-397: router mode (off/shadow/active). Exercises the real hot-path hook in #OnAppMentionAsync:
   // the admin toggle flips per-workspace mode, and in `active` mode Flash Lite's resolved command is
-  // executed via the same CommandRouter (full takeover) above the confidence floor, else falls back.
+  // executed via the same CommandRouter above the confidence floor when its catalog entry allows it (GH-233),
+  // else falls back.
   describe('router-mode (GH-397)', () => {
     const ShadowFile = Workspaces.GetSubdirPath('shadow', 'IntegrationWorkspace_router-shadow.jsonl');
     afterEach(async () => { await fs.unlink(ShadowFile).catch(() => {}); });
+
+    /** The corpus append is fire-and-forget in the handler, so poll for the wanted record instead of racing it. */
+    async function ReadShadowRecordsAsync(ArgPredicate) {
+      for (let Attempt = 0; Attempt < 100; Attempt++) {
+        const Text = (await fs.readFile(ShadowFile, 'utf8').catch(() => '')).trim();
+        const Records = Text ? Text.split('\n').map((ArgLine) => JSON.parse(ArgLine)) : [];
+        if (Records.some(ArgPredicate)) return Records;
+        await new Promise((ArgResolve) => setTimeout(ArgResolve, 20));
+      }
+      throw new Error('router shadow record never appeared');
+    }
 
     /** Flip the workspace into a given router mode via the admin command; returns the ChatModule env. */
     async function ArmModeAsync(ArgMode) {
@@ -1812,7 +1824,7 @@ describe('ChatModule integration via MockSlackApp', () => {
       // GH-397 corpus is NOT collateral damage: the deferral is still recorded, and is
       // distinguishable from a low-confidence decline (matched incumbent + high-confidence
       // candidate + executed:false). Without this, deleting AppendRecordAsync would pass.
-      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
+      const Records = await ReadShadowRecordsAsync((ArgR) => ArgR.routerOutcome === 'matched');
       const Deferral = Records[Records.length - 1];
       expect(Deferral.mode).toBe('active');
       expect(Deferral.routerOutcome).toBe('matched');
@@ -1857,8 +1869,8 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(SlackApp.SentMessages.some((ArgM) => /dump the rebalance reminders export/i.test(ArgM.text))).toBe(false);
       expect(AdminSpy).not.toHaveBeenCalledWith('U_REGULAR');
       expect(SlackApp.Logger.InfoMessages.filter((ArgM) => /router active takeover skipped/.test(ArgM))).toHaveLength(1);
-      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
-      const Skipped = Records.find((ArgR) => /marker in the uploaded file/.test(ArgR.rawText));
+      const IsSkipped = (ArgR) => /marker in the uploaded file/.test(ArgR.rawText);
+      const Skipped = (await ReadShadowRecordsAsync(IsSkipped)).find(IsSkipped);
       expect(Skipped.executed).toBe(false);
       expect(Skipped.candidate.canExecuteWithIfl).toBe(false);
 
