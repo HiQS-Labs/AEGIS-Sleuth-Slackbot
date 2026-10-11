@@ -951,8 +951,8 @@ class ChatModule {
 
   /**
    * GH-397 active router mode: let Gemini Flash Lite resolve the command and, above the confidence
-   * floor, execute it (takeover of any canonical command, including Risk-tagged ones, per the
-   * operator decision). Always logs a corpus record. Returns true only when it actually executed a
+   * floor, execute it — only when the catalog entry has CanExecuteWithIfl true, the same contract as
+   * `rmm ifl` (GH-233; this supersedes the 2026-07-16 "any canonical command" decision). Always logs a corpus record. Returns true only when it actually executed a
    * command; otherwise false so the caller falls back to the normal resolver. Never throws — a
    * resolve/execute/log failure degrades to false (normal pipeline runs).
    *
@@ -998,6 +998,11 @@ class ChatModule {
     // GH-174: an incumbent match means the user typed a real command — run THAT, not the model's
     // reading of it. `executed: false` alongside `routerOutcome: 'matched'` is the corpus signal
     // that the router deferred.
+    // GH-233: a confident candidate whose catalog entry forbids a model-resolved run needs a literal command.
+    if(!IncumbentRoute && Candidate && !Candidate.error && !Candidate.needsClarification && Candidate.canonicalCommand
+      && Candidate.canExecuteWithIfl !== true && Candidate.confidence >= this.#RouterShadow.ActiveConfidenceMin()) {
+      ArgSlackApp.Logger.info(`router active takeover skipped: '${Candidate.intentId}' needs a literal command (CanExecuteWithIfl false)`);
+    }
     if(!IncumbentRoute && this.#RouterShadow.ShouldExecute(Candidate)) {
       try {
         Executed = await this.#CommandRouter.RouteAsync(/** @type {string} */ (Candidate.canonicalCommand), ArgEventInfo);

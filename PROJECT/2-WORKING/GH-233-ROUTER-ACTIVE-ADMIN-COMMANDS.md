@@ -32,7 +32,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Issue filed, clone provisioned off origin/development 3fd5455, captured, rated 65/55/50/85, recon done, plan drafted. | Codex plan QA (round 1 FAIL folded in, round 2 pending), then the small change. |
+| Plan Approved (Codex round 2); red control recorded; fix, doc corrections and CHANGELOG 1.4.342 committed; focused suites green. | Full `npm test` + `npm run build`, final Codex QA, PR against `development` (no merge in this task). |
 
 ## Observed problem (2026-10-10, dev, base 3fd5455)
 
@@ -94,3 +94,6 @@ Rated 65/55/50/85 (priority/severity/appeal/effort-cheapness). Severity 55: a mo
 ## Progress log
 - 2026-10-10: #233 filed; /express refused (no `validate.sh` TESTS registry or `githooks/install.sh` in this repo), so the normal start-task lane; clone off origin/development 3fd5455; captured, rated and promoted; plan drafted. Plan QA pending.
 - 2026-10-10: Codex plan QA round 1 FAIL (S1 docs/promises and public-command impact, S2 acceptance-to-assertion mapping and tuned-floor fixture; Nit file count and debug-mantra) all accepted and folded in; the 2026-07-16 operator decision is now recorded as superseded. Round 2 pending.
+- 2026-10-10: Codex plan QA round 2 Approved.
+- 2026-10-10: Red control at commit 1e7ec40 (tests only, source unfixed): `npx jest tests/router-shadow.test.js tests/chat-module.integration.test.js` failed — the three new `ShouldExecute`/flag assertions in `tests/router-shadow.test.js`, and the new integration test, which received "only workspace admins or owners can dump the rebalance reminders export" (the live symptom). After steps 1-2: both suites pass, 108 tests.
+- 2026-10-11: CHANGELOG 1.4.342 written; `node scripts/validate-changelog-tone.js` clean. Catalog count re-checked: 36 entries false, 26 true; 22 of the false entries are non-admin (incl. `show-me`, `show-stats`, `show-reminders`, `search-reminders`, `ping`), named in the entry.

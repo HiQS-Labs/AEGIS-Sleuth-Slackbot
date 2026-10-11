@@ -300,8 +300,11 @@ parentheses is the row shown in that command's output.
    router mode is `shadow` or `active`, `RouterShadowModule` resolves the mention with a cheap
    model first. Model = `ROUTER_SHADOW_MODEL` env → else `DEFAULT_SHADOW_MODEL`
    (`gemini-3.1-flash-lite`). In `active`, if confidence ≥ `ROUTER_ACTIVE_CONFIDENCE_MIN`
-   (default 0.7) and it resolves a runnable canonical command, it **executes** (full takeover);
-   below threshold / error / needs-clarification it **falls back** to the incumbent resolver. In
+   (default 0.7) and it resolves a runnable canonical command whose catalog entry has
+   `CanExecuteWithIfl: true` (the same contract `rmm ifl` enforces, GH-233), it **executes**
+   (takeover); below threshold / error / needs-clarification, or a command whose flag is false or
+   unknown, it **falls back** to the incumbent resolver — those commands run only from their literal
+   route or alias. Permissions still belong to each handler, and an incumbent literal match always wins. In
    `shadow` it logs a corpus record with zero authority. `off` (the default) skips the tier
    entirely. Mode is in-memory, seeded at startup from `ROUTER_SHADOW_DEFAULT_MODE` and flipped
    live by the admin `router-mode` command. This tier is **independent** of the two below —
