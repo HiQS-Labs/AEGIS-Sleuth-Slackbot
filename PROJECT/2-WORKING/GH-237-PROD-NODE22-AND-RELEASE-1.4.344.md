@@ -32,7 +32,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Issue filed, clone off origin/development dd3d6c1, captured, rated 75/60/50/70, read-only production recon, runbook drafted. | Codex plan QA, then Phase A (Node) -> B (guard) -> C (release) in that order, each verified before the next. |
+| Phases A, B and C executed and verified on production (Node 22.23.3; DeployHQ guard; release 1.4.345 incl. GH-239). | Plan PR review and merge; post-merge reconcile; retire the rollback kit after 2026-10-18. |
 
 ## Observed state (2026-10-11, read-only)
 
@@ -212,10 +212,10 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 
 ## Acceptance
 
-- [ ] Production `/usr/bin/node -v` is v22.x; `sleuth-app` runs on it; `better-sqlite3` and `sqlite-vec` load (A3 probe); `health` exits 0; `neochrome` startup checks pass; no new error class after 10 minutes.
-- [ ] DeployHQ guard exists on both servers, first in order, `halt_on_error: true`; red control (18.20.6 -> exit 1, 22.23.2 -> exit 0); the production deploy log shows it ran.
-- [ ] Release PR merged into `main`; production deploy completed with build gates; production serves 1.4.344 (CHANGELOG and file hashes match `main`), nodemailer 10.0.9, healthy after 15 minutes, router still active for `neochrome`.
-- [ ] temp/SOP.md updated (Node on host: 22.x; guard command recorded; prod revision).
+- [x] Production `/usr/bin/node -v` is v22.x; `sleuth-app` runs on it; `better-sqlite3` and `sqlite-vec` load (A3 probe); `health` exits 0; `neochrome` startup checks pass; no new error class after 10 minutes.
+- [x] DeployHQ guard exists on both servers, first in order, `halt_on_error: true`; red control (18.20.6 -> exit 1, 22.23.2 -> exit 0); the production deploy log shows it ran.
+- [x] Release PR merged into `main`; production deploy completed with build gates; production serves 1.4.344 (CHANGELOG and file hashes match `main`), nodemailer 10.0.9, healthy after 15 minutes, router still active for `neochrome`.
+- [x] temp/SOP.md updated (Node on host: 22.x; guard command recorded; prod revision).
 
 ## Progress log
 - 2026-10-11: #237 filed after #204 merged; clone off origin/development dd3d6c1; captured, rated 75/60/50/70, promoted; read-only production recon; runbook drafted. Operator requested the upgrade, then promotion, deploy monitoring and a production check, in this session. Plan QA next.
@@ -226,3 +226,5 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 - 2026-10-11: Phase B executed: DeployHQ SSH command 465398ef (before_changes, position 1 ahead of stop, halt_on_error true, timeout 300, timing all, servers 1662264 + 1659102). Red control: version 18.20.6 -> exit 1, 22.23.2 -> exit 0; the stored command exits 0 on production (Node 22.23.3) and development.
 - 2026-10-11: Codex plan QA round 4 FAIL, STATUS Escalated (cap): R4-S3a `&&` lists escape `set -e`; R4-S3b shutdown evidence must be PID-bound and error-free (A3 included); R4-S4 apply the added-file deletion list even after a successful reverse deploy. All accepted and folded in (`verify_archive`, `shutdown_ok`, one command per line, deletion list always applied). A3's actual run already satisfied R4-S3b (evidence above). Phase C awaits operator decision.
 - 2026-10-11: Helper red controls on production (read-only): `shutdown_ok` passes for the A3 outgoing PID and fails for an unknown PID; `verify_archive` fails for a missing archive and reproduces inventory-A from the A snapshot. The first version passed the unknown-PID control because bash ignores `set -e` inside a function called from `if`; every check now returns explicitly.
+- 2026-10-11: Codex round 4 cap reached; operator chose to proceed with Phase C. Greptile on release PR #238 found two reminder regressions (P1) in the release range; reproduced; operator chose fix-then-release: #239 / PR #240 (tests first, Codex final QA rounds 1-4, merged 1672214). Release bumped to 1.4.345 (5ba79b8); PR #238 retitled and merged into `main` as be5a03e (CI `test` pass on 5ba79b8).
+- 2026-10-11: Phase C executed. Reverse-range preview 14f46708 (`--start-revision be5a03e -r 4f0ca42`): status preview_ready, 44 changed incl. `src/chat-module.js` and `package.json`, 39 removed; the 30 added-since-4f0ca42 paths it does not remove are PROJECT/, relay-system/ and tests/ only (not uploaded). Development deploy 3ace2d42 (5ba79b8) ran the new guard first (completed) before the stop. Production: stop 20:25:08 (`shutdown_ok` passed for PID 2851031), quiescent snapshot C (47 inventory lines, archive = live), DeployHQ deployment 9b0fcb32 (be5a03e) completed in 137 s: all build gates, guard, stop, transfer, deploy.sh; service active 20:27:31 (downtime 2 min 23 s). C4: hashes of src/app.js, src/chat-module.js, src/router-shadow-module.js, src/reminder-judgement.js, package.json equal `main`; nodemailer 10.0.9; Node 22.23.3; NRestarts 0; health ok; all five workspaces started; neochrome AI/Slack ok; router active; errors = 3 known-noise lines; inventory equal to C. temp/SOP.md updated.
