@@ -67,6 +67,22 @@ inventory() {  # $1 = data root (live: /var/lib/aegis-sleuth, or an extracted sn
     for (const f of fs.readdirSync(r+"/reminders").filter(n=>/_reminders\.json$/.test(n)).sort()) { const a=JSON.parse(fs.readFileSync(r+"/reminders/"+f)); if(!Array.isArray(a)) throw new Error(f+" not an array"); for (const x of a) console.log("R "+f+" "+x.ReminderID); }' "$1" | sort
 }
 ```
+Two more helpers, each one command per line so `set -e` applies (plan QA R4-S3a: a failure inside an `a && b` list does not trigger `set -e`):
+```bash
+verify_archive() {  # $1 = archive, $2 = inventory file to write; fails on any extraction or parse error
+  local x; x=$(mktemp -d)
+  tar xzf "$1" -C "$x"
+  inventory "$x/aegis-sleuth" > "$2"
+  rm -rf "$x"
+  test -s "$2"
+}
+shutdown_ok() {  # $1 = outgoing PID, $2 = stop start time; proves this shutdown persisted and completed (R4-S3b)
+  local log; log=$(journalctl _PID="$1" --since "$2" --no-pager)
+  grep -q 'shutdown complete' <<<"$log"
+  grep -q 'saved [0-9]* reminders to file' <<<"$log"
+  ! grep -E '\[ERROR\]' <<<"$log" | grep -vE 'not_in_channel|Failed to post shutdown notification|tag=shutdown'
+}
+```
 A reminder ID missing after a change that is not explained by a reminder firing or being completed in the interval (visible in the journal) is a failure. Plus, scoped to the new process only (`journalctl _PID=<MainPID>` or `--since <ActiveEnterTimestamp>`): `workspace modules started: neochrome` (`src/app.js:429`), `neochrome` Slack/AI/Notion connectivity succeeded, and no error line outside the known-noise list. Baseline 2026-10-11: `{"success":true,...,"IncomingMessageCount":29884,...}`; `NRestarts=0`.
 
 ## Phase A — Node 22 on the current release (production, about 3 minutes of downtime)
@@ -93,10 +109,13 @@ A2. Point apt at Node 22 (no service impact): `bash /root/node18-rollback/setup_
 A3. Swap the runtime (downtime starts; one fail-fast script):
 ```bash
 set -euo pipefail; K=/root/node18-rollback; D=/var/lib/aegis-sleuth
+OLD=$(systemctl show sleuth-app -p MainPID --value); T0=$(date -u '+%F %T')
 systemctl stop sleuth-app
+shutdown_ok "$OLD" "$T0"
 tar czf $K/aegis-sleuth-data-quiescent-A.tgz -C /var/lib aegis-sleuth   # quiescent snapshot (S3)
-inventory /var/lib/aegis-sleuth > $K/inventory-A.txt && test -s $K/inventory-A.txt
-X=$(mktemp -d) && tar xzf $K/aegis-sleuth-data-quiescent-A.tgz -C $X && inventory $X/aegis-sleuth | diff - $K/inventory-A.txt && rm -rf $X
+verify_archive $K/aegis-sleuth-data-quiescent-A.tgz $K/inventory-A-archive.txt
+inventory /var/lib/aegis-sleuth > $K/inventory-A.txt
+diff $K/inventory-A-archive.txt $K/inventory-A.txt
 apt-get install -y nodejs
 /usr/bin/node -v | grep -q '^v22\.'
 cd /root/sleuth-app-v3 && npm ci --omit=dev
@@ -144,34 +163,38 @@ C1. Release commit on `development`, same as earlier releases (`release: 1.4.328
 
 C2. Release PR `development` -> `main` titled `Release 1.4.344: ...`, #193 format. User-visible changes, all on by default (plan QA S7): multi-task delivery (1.4.329); excitement is not a commitment (1.4.330); "this week" past-time handling (1.4.331); quoted text excluded from reminders by default, so a quoted task loses its quoted part, rollback switch `REMINDER_IGNORE_QUOTED_TEXT=off` (1.4.332); owner-scoped completion by thread reply, "done" completes the reminder (1.4.333-1.4.334); earlier-file reading in a thread (1.4.337); single thread read per event (1.4.339); one reminder judgement path, and an explicit "don't set a reminder" skips the model (1.4.340); router active takeover requires `CanExecuteWithIfl`, so 22 non-admin commands such as `show-me`, `show-stats`, `show-reminders` and `ping` need their usual wording (1.4.342); nodemailer 10 and Node >= 20 (1.4.344). Inert on production: selftest and Compass (C0). Wait for the required `test` check, then `gh pr merge --merge` (as #193).
 
-C3. Before deploying (plan QA R2-S4), preview the rollback with the explicit reverse range: `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --dry-run`. Gate: the preview lists `src/chat-module.js` and `package.json`, and either lists files added since 4f0ca42 as deletions or the fallback deletion list (`git diff --name-only --diff-filter=A 4f0ca42 <merge SHA>`) is saved to the plan. If the preview cannot be produced, stop before deploying.
+C3. Before deploying (plan QA R2-S4), preview the rollback with the explicit reverse range: `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --dry-run`. Gate: the preview lists `src/chat-module.js` and `package.json`, and the added-file list (`git diff --name-only --diff-filter=A 4f0ca42 <merge SHA>`) is saved to the plan in every case, since Rollback C always applies it. If the preview cannot be produced, stop before deploying.
 
 Then the quiescent pre-release snapshot and deploy (plan QA R2-S3, R3-S3a). On the host, one fail-fast block:
 ```bash
-set -euo pipefail; K=/root/node18-rollback; S=$K/aegis-sleuth-data-quiescent-C.tgz
+set -euo pipefail; K=/root/node18-rollback; . $K/gh237-lib.sh; S=$K/aegis-sleuth-data-quiescent-C.tgz
+rm -f $K/inventory-C.txt $K/inventory-C-live.txt   # never reuse an earlier inventory
+OLD=$(systemctl show sleuth-app -p MainPID --value); T0=$(date -u '+%F %T')
 systemctl stop sleuth-app
-journalctl -u sleuth-app -n 30 --no-pager | grep -E 'saved [0-9]+ reminders to file|Stopped|Deactivated'   # outgoing process persisted and stopped
+shutdown_ok "$OLD" "$T0"
 tar czf $S -C /var/lib aegis-sleuth
-X=$(mktemp -d) && tar xzf $S -C $X && inventory $X/aegis-sleuth > $K/inventory-C.txt && rm -rf $X
-inventory /var/lib/aegis-sleuth | diff - $K/inventory-C.txt   # archive equals live data
-test -s $K/inventory-C.txt
+verify_archive $S $K/inventory-C.txt
+inventory /var/lib/aegis-sleuth > $K/inventory-C-live.txt
+diff $K/inventory-C.txt $K/inventory-C-live.txt   # archive equals live data
 ```
 If any line fails: `systemctl start sleuth-app`, confirm `health`, and stop the task (no files have changed). Only when it succeeds, from the laptop: `dhq deploy -p aegis-sleuth-slackbot -s Production -b main -r <main merge SHA> --wait` (the guard runs, the pre-upload stop is a no-op, `deploy.sh` starts the service). The build-gate time (about 5 minutes on 2026-08-27) is added to the downtime, accepted for a Sunday release; if the deployment has not started uploading within 5 minutes, cancel it, `systemctl start sleuth-app`, and stop the task. Verify the step list includes the build commands (SOP §3.4) and the guard step.
 
 C4. Verify at start and after 15 minutes: `/root/sleuth-app-v3/CHANGELOG.md` top entry `1.4.344`; sha256 of `src/app.js`, `src/chat-module.js`, `src/router-shadow-module.js`, `package.json` equal to `main`; `node_modules/nodemailer/package.json` version 10.0.9; service active on Node 22, `NRestarts` unchanged since start; `health` exits 0 with `IncomingMessageCount` at or above the A4 value; journal checks scoped to the new PID; router mode `active` for `neochrome` in the startup log; `inventory /var/lib/aegis-sleuth | diff - /root/node18-rollback/inventory-C.txt` shows no missing workspace and no missing `ReminderID` except ones the journal shows fired or completed since the deploy.
 
 Rollback C (code), one sequence:
-1. `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --wait` — an explicit reverse range, so it works even when the failed deploy left 4f0ca42 as the last successful revision. Its `npm ci` reinstalls the 1.4.328 lockfile on Node 22, already proven in A. Verify with C4's hash check against 4f0ca42 and the full C4 health checks (service, `health`, journal, JSON parse).
+1. `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --wait` — an explicit reverse range, so it works even when the failed deploy left 4f0ca42 as the last successful revision. Its `npm ci` reinstalls the 1.4.328 lockfile on Node 22, already proven in A. Then, whether or not DeployHQ reported deletions (plan QA R4-S4): `systemctl stop sleuth-app`, delete every path on the saved added-file list that still exists under `/root/sleuth-app-v3`, `systemctl start sleuth-app`. Verify with C4's hash check against 4f0ca42, a check that none of the listed files remain, and the full C4 health checks (service, `health`, journal, inventory).
 2. There is no `--full` fallback: C3 refuses to deploy unless the reverse-range preview was produced first (plan QA R3-S4). If the reverse deploy itself fails, `systemctl stop sleuth-app`, upload the 4f0ca42 tree by hand from a clean checkout (`git archive 4f0ca42 | ssh root@<prod> 'tar x -C /root/sleuth-app-v3'`), delete the saved added-file list, run `scripts/deploy.sh` (which reinstalls and starts), then the C4 checks.
 
 Data recovery (only if a data problem is found; not part of a normal rollback because the release changes no data format):
 ```bash
 set -euo pipefail; K=/root/node18-rollback; T=$(date -u +%Y%m%dT%H%M%SZ); S=$K/<chosen snapshot>.tgz
-X=$(mktemp -d) && tar xzf $S -C $X && inventory $X/aegis-sleuth > $K/inventory-restore.txt && rm -rf $X && test -s $K/inventory-restore.txt   # validate before touching live data
+rm -f $K/inventory-restore.txt
+verify_archive $S $K/inventory-restore.txt   # validate before touching live data
 systemctl stop sleuth-app
 mv /var/lib/aegis-sleuth /var/lib/aegis-sleuth.failed-$T          # keep the current state, including later work
 tar xzpf $S -C /var/lib     # recreates /var/lib/aegis-sleuth with the snapshot's ownership
-inventory /var/lib/aegis-sleuth | diff - $K/inventory-restore.txt
+inventory /var/lib/aegis-sleuth > $K/inventory-restored-live.txt
+diff $K/inventory-restore.txt $K/inventory-restored-live.txt
 systemctl start sleuth-app   # then run the C4 health checks
 ```
 Snapshots are quiescent (A3 and C3, both taken with the service stopped). Restoring one loses reminders created or completed after it; the `.failed-$T` copy keeps them for manual reconciliation, and the operator chooses before a restore.
@@ -198,3 +221,6 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 - 2026-10-11: Codex plan QA round 1 FAIL (S1 health check, S2 fail-fast, S3 quiescent data snapshot and recovery, S4 reverse-range rollback, S5 NodeSource apt config rollback, S6 Compass presence from workspace files, S7 full user-visible release summary; Nit native inventory). All accepted and folded in; C0 Compass/selftest presence check run read-only (absent in all five workspaces); authenticated stats endpoint confirmed (`success: true`). Round 2 next.
 - 2026-10-11: Codex plan QA round 2 FAIL (R2-S3 quiescent, validated release snapshot and JSON acceptance; R2-S4 reverse-range preview before the deploy and health checks after a rollback; Nit installer `nsolid` pin; optional curl timeouts). All accepted and folded in. Round 3 (last) next.
 - 2026-10-11: Codex plan QA round 3 FAIL (R3-S3a C3 snapshot block not executable/halting; R3-S3b compare reminder records, not file counts; R3-S4 `--full` fallback deleted files after start). All accepted: full fail-fast C3 block with shutdown evidence and archive-equals-live check; `inventory()` of workspace names and `ReminderID`s used at A3, C3, C4 and in recovery; `--full` fallback removed (the pre-deploy reverse preview gate makes it unnecessary; a manual stopped-service fallback replaces it). Phases A and B had no open findings in round 3. The start-task review cap (3 rounds) is reached; operator decision needed for a 4th round.
+- 2026-10-11: Phase A executed 17:44-17:47 UTC (operator chose: 4th review round in parallel, run A and B now). A1 kit verified (deb 18.20.6 amd64; archives readable; setup_22.x sha256 575583bb…, writes only the backed-up keyring/sources/pins). A3: stop 17:45:10, quiescent snapshot inventory 47 lines (5 workspaces, 42 reminders) equal to live, Node v22.23.3, `npm ci --omit=dev` ok, sqlite 1 / sqlite-vec v0.1.9, start 17:45:57 (47 s downtime). Outgoing PID 1927135 logged `saved 42 reminders to file` and `shutdown complete`; only error the known `not_in_channel`. A4: active, NRestarts 0, `/usr/bin/node` v22.23.3, health ok, all workspaces started, `neochrome` Slack/AI/Notion ok, router `active`, errors = 3 known-noise connectivity lines, inventory unchanged.
+- 2026-10-11: Phase B executed: DeployHQ SSH command 465398ef (before_changes, position 1 ahead of stop, halt_on_error true, timeout 300, timing all, servers 1662264 + 1659102). Red control: version 18.20.6 -> exit 1, 22.23.2 -> exit 0; the stored command exits 0 on production (Node 22.23.3) and development.
+- 2026-10-11: Codex plan QA round 4 FAIL, STATUS Escalated (cap): R4-S3a `&&` lists escape `set -e`; R4-S3b shutdown evidence must be PID-bound and error-free (A3 included); R4-S4 apply the added-file deletion list even after a successful reverse deploy. All accepted and folded in (`verify_archive`, `shutdown_ok`, one command per line, deletion list always applied). A3's actual run already satisfied R4-S3b (evidence above). Phase C awaits operator decision.
