@@ -9,8 +9,9 @@
  *   - `shadow` — Flash Lite resolves alongside the current router and a corpus record is logged;
  *                ZERO authority. The current resolver is unaffected.
  *   - `active` — Flash Lite takes over resolution above a confidence threshold and executes the
- *                resolved command (FULL takeover — any canonical command, incl. Risk-tagged ones,
- *                per the operator decision 2026-07-16); below threshold it declines so the caller
+ *                resolved command, but ONLY when the command's catalog entry has CanExecuteWithIfl
+ *                true (GH-233, superseding the 2026-07-16 "any canonical command" decision); a command
+ *                with the flag false or unknown, or a result below threshold, declines so the caller
  *                falls back to the current resolver. A corpus record is logged either way.
  *
  * Everything here is best-effort and must never throw into the hot path: a Flash Lite outage or a
@@ -53,6 +54,7 @@ const SCHEMA_VERSION = 'rmm-schema-v1';
  * @property {string} model
  * @property {string|null} intentId
  * @property {string|null} canonicalCommand
+ * @property {boolean|null} canExecuteWithIfl Catalog policy: true only when the resolved entry allows a model-resolved run; null when unknown
  * @property {number|null} confidence
  * @property {boolean} needsClarification
  * @property {number} latencyMs
@@ -212,6 +214,7 @@ class RouterShadowModule {
         model: Model,
         intentId: Resolution && Resolution.IntentId ? Resolution.IntentId : null,
         canonicalCommand: Resolution && Resolution.CanonicalCommand ? Resolution.CanonicalCommand : null,
+        canExecuteWithIfl: Resolution && Resolution.CatalogEntry ? Resolution.CatalogEntry.CanExecuteWithIfl === true : null,
         confidence: Resolution && typeof Resolution.Confidence === 'number' ? Resolution.Confidence : null,
         needsClarification: !!(Resolution && Resolution.NeedsClarification),
         latencyMs: Date.now() - StartedAt,
@@ -222,6 +225,7 @@ class RouterShadowModule {
         model: Model,
         intentId: null,
         canonicalCommand: null,
+        canExecuteWithIfl: null,
         confidence: null,
         needsClarification: false,
         latencyMs: Date.now() - StartedAt,
@@ -231,8 +235,10 @@ class RouterShadowModule {
   }
 
   /**
-   * Whether, in active mode, a resolved candidate should be executed (full takeover): it must have
-   * resolved cleanly to a runnable canonical command with confidence at/above the floor.
+   * Whether, in active mode, a resolved candidate should be executed (takeover): it must have
+   * resolved cleanly to a runnable canonical command with confidence at/above the floor, AND its catalog
+   * entry must allow a model-resolved run (CanExecuteWithIfl true — the same contract `rmm ifl` enforces).
+   * A false or unknown flag fails closed so the caller falls back to the incumbent pipeline (GH-233).
    * @param {RouterShadowCandidate|null|undefined} ArgCandidate
    * @returns {boolean}
    */
@@ -242,6 +248,7 @@ class RouterShadowModule {
       && !ArgCandidate.error
       && !ArgCandidate.needsClarification
       && ArgCandidate.canonicalCommand
+      && ArgCandidate.canExecuteWithIfl === true
       && typeof ArgCandidate.confidence === 'number'
       && ArgCandidate.confidence >= this.#ConfidenceMin()
     );

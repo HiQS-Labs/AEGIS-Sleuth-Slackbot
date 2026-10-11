@@ -1838,6 +1838,38 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(SlackApp.SentMessages.some((ArgM) => /\*Sleuth AI — Command Reference\*/.test(ArgM.text))).toBe(true);
     });
 
+    // GH-233: the live dev misroute. Flash Lite read an ordinary question as `show-rebalance-reminders` at high
+    // confidence and takeover executed an admin-only dump. Takeover must honor the catalog's CanExecuteWithIfl flag.
+    test('GH-233: a model-resolved command whose CanExecuteWithIfl is false never executes from free text', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      const AdminSpy = jest.spyOn(SlackApp, 'IsAdminOrOwnerAsync');
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'show-rebalance-reminders', confidence: 0.98, rationale: 'misread',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: '', complex_model_name: '', channel_model_name: '', query_text: '', user_mention: '',
+      });
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_REGULAR', text: `${SlackApp.AppMentionString} what is the marker in the uploaded file now?`,
+      });
+
+      // the admin-only handler never ran for the ordinary sentence (the observed symptom is its refusal message)
+      expect(SlackApp.SentMessages.some((ArgM) => /dump the rebalance reminders export/i.test(ArgM.text))).toBe(false);
+      expect(AdminSpy).not.toHaveBeenCalledWith('U_REGULAR');
+      expect(SlackApp.Logger.InfoMessages.filter((ArgM) => /router active takeover skipped/.test(ArgM))).toHaveLength(1);
+      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
+      const Skipped = Records.find((ArgR) => /marker in the uploaded file/.test(ArgR.rawText));
+      expect(Skipped.executed).toBe(false);
+      expect(Skipped.candidate.canExecuteWithIfl).toBe(false);
+
+      // CONTROL: the literal command from the same user still reaches the real handler — only the model path is closed
+      SlackApp.SentMessages.length = 0;
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_REGULAR', text: `${SlackApp.AppMentionString} show-rebalance-reminders`,
+      });
+      expect(SlackApp.SentMessages.some((ArgM) => /only workspace admins or owners can dump the rebalance reminders export/i.test(ArgM.text))).toBe(true);
+    });
+
     test('shadow mode leaves production behavior unchanged', async () => {
       const SlackApp = await ArmModeAsync('shadow');
       // A real command still routes normally while shadow observes.
