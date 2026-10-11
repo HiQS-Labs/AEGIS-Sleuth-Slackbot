@@ -1727,12 +1727,12 @@ describe('ChatModule integration via MockSlackApp', () => {
     const ShadowFile = Workspaces.GetSubdirPath('shadow', 'IntegrationWorkspace_router-shadow.jsonl');
     afterEach(async () => { await fs.unlink(ShadowFile).catch(() => {}); });
 
-    /** The corpus append is fire-and-forget in the handler, so poll for the wanted record instead of racing it. */
+    /** Polls the corpus file for the wanted record, since the handler appends it without awaiting. */
     async function ReadShadowRecordsAsync(ArgPredicate) {
-      for (let Attempt = 0; Attempt < 100; Attempt++) {
-        const Text = (await fs.readFile(ShadowFile, 'utf8').catch(() => '')).trim();
-        const Records = Text ? Text.split('\n').map((ArgLine) => JSON.parse(ArgLine)) : [];
-        if (Records.some(ArgPredicate)) return Records;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const text = (await fs.readFile(ShadowFile, 'utf8').catch(() => '')).trim();
+        const records = text ? text.split('\n').map((ArgLine) => JSON.parse(ArgLine)) : [];
+        if (records.some(ArgPredicate)) return records;
         await new Promise((ArgResolve) => setTimeout(ArgResolve, 20));
       }
       throw new Error('router shadow record never appeared');
