@@ -1,5 +1,5 @@
 ---
-title: "GH-237: production Node 18 -> 22, DeployHQ Node guard, then release 1.4.344 to production"
+title: "GH-237: production Node 18 -> 22, DeployHQ Node guard, then release 1.4.345 to production"
 status: Active (2-WORKING)
 created: 2026-10-11
 updated: 2026-10-11
@@ -23,10 +23,10 @@ related:
   - "docs/deployhq.md (pre-deploy Node guard), scripts/deploy.sh (server npm ci), temp/SOP.md §1-§3 (gitignored host facts)"
 goal: >
   Production runs Node 22 like development, DeployHQ refuses to deploy to any server below Node 20,
-  and production serves release 1.4.344 with a healthy service and no new error class.
+  and production serves release 1.4.345 (planned as 1.4.344; GH-239 was added before release) with a healthy service and no new error class.
 ---
 
-# GH-237 — production Node 22, DeployHQ guard, release 1.4.344
+# GH-237 — production Node 22, DeployHQ guard, release 1.4.345
 
 ## Status
 
@@ -90,7 +90,9 @@ A reminder ID missing after a change that is not explained by a reminder firing 
 
 Window: now (Sunday, low traffic), operator-requested 2026-10-11. All commands run as root on the production host. Each block is a fail-fast `bash -euo pipefail` script; the first failure stops it before the service is started (plan QA S2). A failure in A3 or A4 goes to Rollback A.
 
-A0. Baseline (read-only): `node -v`; `systemctl show sleuth-app -p MainPID -p NRestarts -p ActiveEnterTimestamp`; `health`; error lines in the last 24 h.
+A0. Helpers: save the `health`, `inventory`, `verify_archive` and `shutdown_ok` definitions from this document into `/root/node18-rollback/gh237-lib.sh` on the host (`mkdir -p /root/node18-rollback`, then copy the file over with `scp`); every block below sources it.
+
+Baseline (read-only): `node -v`; `systemctl show sleuth-app -p MainPID -p NRestarts -p ActiveEnterTimestamp`; `health`; error lines in the last 24 h.
 
 A1. Rollback kit, no service impact:
 ```bash
@@ -156,7 +158,7 @@ B2. Verify: `dhq ssh-commands list` shows the guard first, `halt_on_error: true`
 
 Rollback B: `dhq ssh-commands delete <id>`.
 
-## Phase C — release 1.4.344 to production
+## Phase C — release to production (planned as 1.4.344; shipped as 1.4.345)
 
 C0. Pre-checks (read-only, done 2026-10-11): `PRODUCT_COMPASS_CHANNELS` is absent from all five active production workspace files (OCUX, Turn7, abk-alumni-network, neochrome, uclauxiii), so no Compass workflow is mapped (plan QA S6); `SLEUTH_SELFTEST_CHANNEL` is unset, so selftest never registers (`src/app.js:331`).
 
@@ -180,7 +182,7 @@ diff $K/inventory-C.txt $K/inventory-C-live.txt   # archive equals live data
 ```
 If any line fails: `systemctl start sleuth-app`, confirm `health`, and stop the task (no files have changed). Only when it succeeds, from the laptop: `dhq deploy -p aegis-sleuth-slackbot -s Production -b main -r <main merge SHA> --wait` (the guard runs, the pre-upload stop is a no-op, `deploy.sh` starts the service). The build-gate time (about 5 minutes on 2026-08-27) is added to the downtime, accepted for a Sunday release; if the deployment has not started uploading within 5 minutes, cancel it, `systemctl start sleuth-app`, and stop the task. Verify the step list includes the build commands (SOP §3.4) and the guard step.
 
-C4. Verify at start and after 15 minutes: `/root/sleuth-app-v3/CHANGELOG.md` top entry `1.4.344`; sha256 of `src/app.js`, `src/chat-module.js`, `src/router-shadow-module.js`, `package.json` equal to `main`; `node_modules/nodemailer/package.json` version 10.0.9; service active on Node 22, `NRestarts` unchanged since start; `health` exits 0 with `IncomingMessageCount` at or above the A4 value; journal checks scoped to the new PID; router mode `active` for `neochrome` in the startup log; `inventory /var/lib/aegis-sleuth | diff - /root/node18-rollback/inventory-C.txt` shows no missing workspace and no missing `ReminderID` except ones the journal shows fired or completed since the deploy.
+C4. Verify at start and after 15 minutes: `/root/sleuth-app-v3/CHANGELOG.md` top entry equals the released version (1.4.345 as shipped); sha256 of `src/app.js`, `src/chat-module.js`, `src/router-shadow-module.js`, `package.json` equal to `main`; `node_modules/nodemailer/package.json` version 10.0.9; service active on Node 22, `NRestarts` unchanged since start; `health` exits 0 with `IncomingMessageCount` at or above the A4 value; journal checks scoped to the new PID; router mode `active` for `neochrome` in the startup log; `inventory /var/lib/aegis-sleuth | diff - /root/node18-rollback/inventory-C.txt` shows no missing workspace and no missing `ReminderID` except ones the journal shows fired or completed since the deploy.
 
 Rollback C (code), one sequence:
 1. `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --wait` — an explicit reverse range, so it works even when the failed deploy left 4f0ca42 as the last successful revision. Its `npm ci` reinstalls the 1.4.328 lockfile on Node 22, already proven in A. Then, whether or not DeployHQ reported deletions (plan QA R4-S4): `systemctl stop sleuth-app`, delete every path on the saved added-file list that still exists under `/root/sleuth-app-v3`, `systemctl start sleuth-app`. Verify with C4's hash check against 4f0ca42, a check that none of the listed files remain, and the full C4 health checks (service, `health`, journal, inventory).
@@ -214,7 +216,7 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 
 - [x] Production `/usr/bin/node -v` is v22.x; `sleuth-app` runs on it; `better-sqlite3` and `sqlite-vec` load (A3 probe); `health` exits 0; `neochrome` startup checks pass; no new error class after 10 minutes.
 - [x] DeployHQ guard exists on both servers, first in order, `halt_on_error: true`; red control (18.20.6 -> exit 1, 22.23.2 -> exit 0); the production deploy log shows it ran.
-- [x] Release PR merged into `main`; production deploy completed with build gates; production serves 1.4.344 (CHANGELOG and file hashes match `main`), nodemailer 10.0.9, healthy after 15 minutes, router still active for `neochrome`.
+- [x] Release PR merged into `main`; production deploy completed with build gates; production serves 1.4.345 (CHANGELOG and file hashes match `main`), nodemailer 10.0.9, healthy after 15 minutes, router still active for `neochrome`.
 - [x] temp/SOP.md updated (Node on host: 22.x; guard command recorded; prod revision).
 
 ## Progress log
@@ -228,3 +230,4 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 - 2026-10-11: Helper red controls on production (read-only): `shutdown_ok` passes for the A3 outgoing PID and fails for an unknown PID; `verify_archive` fails for a missing archive and reproduces inventory-A from the A snapshot. The first version passed the unknown-PID control because bash ignores `set -e` inside a function called from `if`; every check now returns explicitly.
 - 2026-10-11: Codex round 4 cap reached; operator chose to proceed with Phase C. Greptile on release PR #238 found two reminder regressions (P1) in the release range; reproduced; operator chose fix-then-release: #239 / PR #240 (tests first, Codex final QA rounds 1-4, merged 1672214). Release bumped to 1.4.345 (5ba79b8); PR #238 retitled and merged into `main` as be5a03e (CI `test` pass on 5ba79b8).
 - 2026-10-11: Phase C executed. Reverse-range preview 14f46708 (`--start-revision be5a03e -r 4f0ca42`): status preview_ready, 44 changed incl. `src/chat-module.js` and `package.json`, 39 removed; the 30 added-since-4f0ca42 paths it does not remove are PROJECT/, relay-system/ and tests/ only (not uploaded). Development deploy 3ace2d42 (5ba79b8) ran the new guard first (completed) before the stop. Production: stop 20:25:08 (`shutdown_ok` passed for PID 2851031), quiescent snapshot C (47 inventory lines, archive = live), DeployHQ deployment 9b0fcb32 (be5a03e) completed in 137 s: all build gates, guard, stop, transfer, deploy.sh; service active 20:27:31 (downtime 2 min 23 s). C4: hashes of src/app.js, src/chat-module.js, src/router-shadow-module.js, src/reminder-judgement.js, package.json equal `main`; nodemailer 10.0.9; Node 22.23.3; NRestarts 0; health ok; all five workspaces started; neochrome AI/Slack ok; router active; errors = 3 known-noise lines; inventory equal to C. temp/SOP.md updated.
+- 2026-10-11: PR #241 review fixes: version text now says the release shipped as 1.4.345 (C1-C2 keep the original 1.4.344 plan wording, with the change recorded in the log above); A0 now says how `gh237-lib.sh` gets onto the host (Greptile).
