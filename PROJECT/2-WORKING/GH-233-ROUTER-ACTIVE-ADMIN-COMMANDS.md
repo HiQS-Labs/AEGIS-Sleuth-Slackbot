@@ -32,7 +32,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Plan Approved (Codex round 2); red control recorded; fix, docs and CHANGELOG 1.4.342 committed; full `npm test` + build green. | Full `npm test` + `npm run build`, final Codex QA, PR against `development` (no merge in this task). |
+| Plan Approved (Codex round 2); red control recorded; fix, docs and CHANGELOG 1.4.342 committed; full `npm test` + build green. | Final Codex QA, PR against `development` (no merge in this task). |
 
 ## Observed problem (2026-10-10, dev, base 3fd5455)
 
