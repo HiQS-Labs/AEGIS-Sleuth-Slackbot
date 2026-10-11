@@ -149,6 +149,40 @@
       "Text": "please don't deploy today",
       "Model": { "recommendation": "ignore", "rationale": "negated", "reminders": [] },
       "Expect": { "Verdict": "ignore", "Reason": "model_ignore", "ModelCalled": true }
+    },
+    {
+      "Id": "gh239-mention-request-to-get-it-done",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> please get this done",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh239-mention-explicit-completion-still-completes",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> please mark it done",
+      "Model": null,
+      "Expect": { "Verdict": "complete", "Reason": "completion" }
+    },
+    {
+      "Id": "gh239-earlier-opt-out-does-not-block-later-commitment",
+      "Issue": 239,
+      "Mode": "auto",
+      "Text": "Review the deck; don't set a reminder yet\nI'll work on it tomorrow",
+      "LiveText": "I'll work on it tomorrow",
+      "Model": { "recommendation": "schedule", "rationale": "commitment in the live reply", "reminders": [ { "actionable_language": "work on the deck", "scheduling_trigger": "tomorrow", "reminder_message": "Work on the deck" } ] },
+      "Expect": { "Verdict": "schedule", "Reason": "model_schedule", "ModelCalled": true }
+    },
+    {
+      "Id": "gh239-live-reply-opt-out-still-excluded",
+      "Issue": 239,
+      "Mode": "auto",
+      "Text": "Review the deck by Friday\nThanks, but don't set a reminder for this",
+      "LiveText": "Thanks, but don't set a reminder for this",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "opt_out", "Exclusion": "opt_out", "ModelCalled": false }
     }
   ]
 }
