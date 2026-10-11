@@ -37,11 +37,18 @@ const CREATION_OPT_OUT_PATTERN =
  * Monday" carries a done-word but asks for something else; completing would close the reminder AND
  * drop the request. Not "please": "please mark it done" is a completion. From 6584d6f.
  * GH-239: asking for the work itself ("please get this done", "need it done", "make sure") is a
- * request too; completing it deleted the reminder the sender was asking about. Not "have": "I have
- * it done" is a completion, and "have this done by Friday" is already future-tense.
+ * request too; completing it deleted the reminder the sender was asking about. "have ... done" is a
+ * request only as an imperative (IMPERATIVE_HAVE_PATTERN): "I have it done" is a completion.
  */
 const REQUEST_PATTERN =
   /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you|(?:get|need|want)\s+(?:this|it|that|them)\s+done|make\s+sure)\b/i;
+
+/**
+ * An imperative "have it done" at the start of the reply, optionally after please/pls/kindly
+ * ("please have it done", "have this done please"). A subject in front ("I have it done") is a
+ * completion, so this is anchored rather than folded into REQUEST_PATTERN. GH-239.
+ */
+const IMPERATIVE_HAVE_PATTERN = /^(?:(?:please|pls|kindly)\s+)?have\s+(?:this|it|that|them)\s+done\b/i;
 
 /**
  * A bare period ("this week", "by end of the week", "EOW", "this sprint") with no day, date or time.
@@ -115,7 +122,7 @@ function IsCreationOptOut(ArgText) {
  * @returns {boolean}
  */
 function HasRequestLanguage(ArgText) {
-  return REQUEST_PATTERN.test(ArgText || '');
+  return REQUEST_PATTERN.test(ArgText || '') || IMPERATIVE_HAVE_PATTERN.test(ArgText || '');
 }
 
 /**

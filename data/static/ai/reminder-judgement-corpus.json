@@ -167,6 +167,22 @@
       "Expect": { "Verdict": "complete", "Reason": "completion" }
     },
     {
+      "Id": "gh239-mention-imperative-have-it-done-is-a-request",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> please have it done",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh239-mention-have-this-done-please-is-a-request",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> have this done please",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
       "Id": "gh239-mention-declarative-have-it-done-completes",
       "Issue": 239,
       "Mode": "mention",
