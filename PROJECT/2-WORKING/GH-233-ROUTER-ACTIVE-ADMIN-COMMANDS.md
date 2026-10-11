@@ -32,7 +32,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Plan Approved (Codex round 2); red control recorded; fix, docs and CHANGELOG 1.4.342 committed; full `npm test` + build green. | Final Codex QA, PR against `development` (no merge in this task). |
+| Final Codex QA Approved (round 1); PR #235 open against `development`, CI green (test, CodeRabbit, Greptile). | Maintainer merges #235; then dev deploy and `/merge-cleanup` (post-deploy `selftest all` plus one literal admin command). |
 
 ## Observed problem (2026-10-10, dev, base 3fd5455)
 
