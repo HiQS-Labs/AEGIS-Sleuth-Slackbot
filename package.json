@@ -1,10 +1,10 @@
 {
   "name": "aegis",
-  "version": "1.4.328",
+  "version": "1.4.345",
   "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
   "main": "src/app.js",
   "engines": {
-    "node": ">=18.20.4"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node src/app.js",
@@ -83,7 +83,7 @@
     "better-sqlite3": "^12.9.0",
     "express": "^5.0.1",
     "newrelic": "^12.16.1",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.9",
     "openai": "^6.9.1",
     "sqlite-vec": "^0.1.9"
   },

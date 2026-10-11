@@ -302,6 +302,8 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
   const UserMention = String(ArgArguments.UserMention || '').trim();
 
   switch(ArgIntentId) {
+  case 'ask-compass':
+    return QueryText ? `ask-compass ${QueryText}` : null;
   case 'help-features':
     return 'help';
   case 'commands':
@@ -422,6 +424,8 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
  */
 function BuildSyntaxTemplate(ArgIntentId) {
   switch(ArgIntentId) {
+  case 'ask-compass':
+    return 'ask-compass <question>';
   case 'set-channel-model':
     return "set-channel-model:'<model>'";
   case 'model-switch-default':

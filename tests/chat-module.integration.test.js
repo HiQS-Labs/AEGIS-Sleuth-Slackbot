@@ -1721,10 +1721,22 @@ describe('ChatModule integration via MockSlackApp', () => {
 
   // GH-397: router mode (off/shadow/active). Exercises the real hot-path hook in #OnAppMentionAsync:
   // the admin toggle flips per-workspace mode, and in `active` mode Flash Lite's resolved command is
-  // executed via the same CommandRouter (full takeover) above the confidence floor, else falls back.
+  // executed via the same CommandRouter above the confidence floor when its catalog entry allows it (GH-233),
+  // else falls back.
   describe('router-mode (GH-397)', () => {
     const ShadowFile = Workspaces.GetSubdirPath('shadow', 'IntegrationWorkspace_router-shadow.jsonl');
     afterEach(async () => { await fs.unlink(ShadowFile).catch(() => {}); });
+
+    /** Polls the corpus file for the wanted record, since the handler appends it without awaiting. */
+    async function ReadShadowRecordsAsync(ArgPredicate) {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const text = (await fs.readFile(ShadowFile, 'utf8').catch(() => '')).trim();
+        const records = text ? text.split('\n').map((ArgLine) => JSON.parse(ArgLine)) : [];
+        if (records.some(ArgPredicate)) return records;
+        await new Promise((ArgResolve) => setTimeout(ArgResolve, 20));
+      }
+      throw new Error('router shadow record never appeared');
+    }
 
     /** Flip the workspace into a given router mode via the admin command; returns the ChatModule env. */
     async function ArmModeAsync(ArgMode) {
@@ -1812,7 +1824,7 @@ describe('ChatModule integration via MockSlackApp', () => {
       // GH-397 corpus is NOT collateral damage: the deferral is still recorded, and is
       // distinguishable from a low-confidence decline (matched incumbent + high-confidence
       // candidate + executed:false). Without this, deleting AppendRecordAsync would pass.
-      const Records = (await fs.readFile(ShadowFile, 'utf8')).trim().split('\n').map((ArgLine) => JSON.parse(ArgLine));
+      const Records = await ReadShadowRecordsAsync((ArgR) => ArgR.routerOutcome === 'matched');
       const Deferral = Records[Records.length - 1];
       expect(Deferral.mode).toBe('active');
       expect(Deferral.routerOutcome).toBe('matched');
@@ -1836,6 +1848,38 @@ describe('ChatModule integration via MockSlackApp', () => {
 
       // free text matches no route, so the router keeps its whole purpose
       expect(SlackApp.SentMessages.some((ArgM) => /\*Sleuth AI — Command Reference\*/.test(ArgM.text))).toBe(true);
+    });
+
+    // GH-233: the live dev misroute. Flash Lite read an ordinary question as `show-rebalance-reminders` at high
+    // confidence and takeover executed an admin-only dump. Takeover must honor the catalog's CanExecuteWithIfl flag.
+    test('GH-233: a model-resolved command whose CanExecuteWithIfl is false never executes from free text', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      const AdminSpy = jest.spyOn(SlackApp, 'IsAdminOrOwnerAsync');
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'show-rebalance-reminders', confidence: 0.98, rationale: 'misread',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: '', complex_model_name: '', channel_model_name: '', query_text: '', user_mention: '',
+      });
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_REGULAR', text: `${SlackApp.AppMentionString} what is the marker in the uploaded file now?`,
+      });
+
+      // the admin-only handler never ran for the ordinary sentence (the observed symptom is its refusal message)
+      expect(SlackApp.SentMessages.some((ArgM) => /dump the rebalance reminders export/i.test(ArgM.text))).toBe(false);
+      expect(AdminSpy).not.toHaveBeenCalledWith('U_REGULAR');
+      expect(SlackApp.Logger.InfoMessages.filter((ArgM) => /router active takeover skipped/.test(ArgM))).toHaveLength(1);
+      const IsSkipped = (ArgR) => /marker in the uploaded file/.test(ArgR.rawText);
+      const Skipped = (await ReadShadowRecordsAsync(IsSkipped)).find(IsSkipped);
+      expect(Skipped.executed).toBe(false);
+      expect(Skipped.candidate.canExecuteWithIfl).toBe(false);
+
+      // CONTROL: the literal command from the same user still reaches the real handler — only the model path is closed
+      SlackApp.SentMessages.length = 0;
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_REGULAR', text: `${SlackApp.AppMentionString} show-rebalance-reminders`,
+      });
+      expect(SlackApp.SentMessages.some((ArgM) => /only workspace admins or owners can dump the rebalance reminders export/i.test(ArgM.text))).toBe(true);
     });
 
     test('shadow mode leaves production behavior unchanged', async () => {

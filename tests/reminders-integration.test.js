@@ -2957,6 +2957,73 @@ describe('RemindersModule integration via MockSlackApp', () => {
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       }
     });
+
+    test('multi-task stale reminder delivers all key tasks in posted message', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('stale_multi_task_delivery');
+      const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+
+      const OneDayAgo = new Date();
+      OneDayAgo.setUTCDate(OneDayAgo.getUTCDate() - 1);
+      OneDayAgo.setUTCHours(9, 0, 0, 0);
+
+      const ReminderMessageText = [
+        '<@U_NOEL>, <@U_JOSE> - please follow up on <https://x.slack.com/archives/C1/p1|this>:',
+        '><@U_JOSE> I re-assigned LTVera 485 and 483 to you. Please review them tomorrow morning.',
+        '',
+        'Key task(s):',
+        '• Review LTVera 485',
+        '  _LTVera 485 was re-assigned to the mentioned user._',
+        '• Review LTVera 483',
+        '  _LTVera 483 was re-assigned to the mentioned user._',
+      ].join('\n');
+
+      const ReminderSeed = [
+        {
+          ReminderID: 'stale-multi-task-0001-0001-000000000001',
+          CreatedOn: '2026-03-15T09:00:00.000Z',
+          ShouldPostOn: OneDayAgo.toISOString(),
+          TargetChannelID: 'C_REMINDERS',
+          OriginalChannelID: 'C_REMINDERS',
+          OriginalMessageID: '1773990000.500001',
+          OriginalSenderID: 'U_SENDER',
+          ReminderMessageText,
+          IgnoreSnooze: false,
+          OriginalChannelName: 'reminders',
+          AssigneeID: 'U_SENDER',
+          GitHubUrls: null,
+          State: 'scheduled',
+        },
+      ];
+
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      const Reminders = new RemindersModule(SlackApp);
+
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await fs.writeFile(RuntimePaths.remindersFilePath, JSON.stringify(ReminderSeed, null, 2), 'utf8');
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+
+        await SlackApp.SimulateAppMentionAsync({
+          channel: 'C_REMINDERS',
+          user: 'U_SENDER',
+          text: `${SlackApp.AppMentionString} process reminders now`,
+        });
+
+        // verify delivered message contains all key tasks, not just the first one.
+        const ReminderPosts = SlackApp.SentMessages.filter(m => m.text.includes('Review LTVera 485'));
+        expect(ReminderPosts).toHaveLength(1);
+        expect(ReminderPosts[0].text).toContain('Review LTVera 485');
+        expect(ReminderPosts[0].text).toContain('• Review LTVera 483');
+
+        const Persisted = await ReadPersistedRemindersAsync(RuntimePaths.remindersFilePath);
+        expect(Persisted).toHaveLength(1);
+        expect(Persisted[0].State).toBe('scheduled');
+        expect(Persisted[0].ShouldPostOn > new Date()).toBe(true);
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
   });
 
   // ── TIME-DRIVEN CHECK CYCLE (natural, non-forced) ─────────────────────────────────────────────

@@ -14,7 +14,7 @@ opening a pull request — it is short, and it is the part that actually matters
 **New contributors:** start with [docs/getting-started.md](docs/getting-started.md) for the full
 requirements checklist and first-run steps.
 
-Node **>= 18.20.4** (20 or 22 LTS recommended; see `engines` in `package.json`).
+Node **>= 20** (22 LTS recommended; see `engines` in `package.json`).
 
 ```bash
 npm ci

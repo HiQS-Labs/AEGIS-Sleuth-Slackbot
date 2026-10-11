@@ -845,21 +845,25 @@ class SlackApp {
    * Get all messages in a thread.
    * @param {string} ArgChannelID Channel ID where the thread is located.
    * @param {string} ArgThreadTS Timestamp of the parent message of the thread.
+   * @param {{MaxPages:number, Latest:string}} [ArgOptions] Opt-in bounded complete pagination.
    * @returns {Promise<Array<MessageInfo>>}
    */
-  async GetConversationMessagesAsync(ArgChannelID, ArgThreadTS) {
-    // get all the messages in the thread.
-    const ThreadMessages = await this.#SlackBoltApp.client.conversations.replies({
-      channel: ArgChannelID,
-      ts: ArgThreadTS,
-    });
-
-    // if we could not get the thread messages, report an error.
-    if(!ThreadMessages.ok)
-      throw new Error(`Failed to get thread messages: ${ThreadMessages.error || "unknown error"}`);
-
-    // map the messages to the MessageInfo type and return the array.
-    return ThreadMessages.messages.map(this.#MapSlackMessageToMessageInfo);
+  async GetConversationMessagesAsync(ArgChannelID, ArgThreadTS, ArgOptions = undefined) {
+    const Messages = [];
+    let Cursor;
+    for(let Page = 0; Page < (ArgOptions?.MaxPages || 1); Page++) {
+      const Result = await this.#SlackBoltApp.client.conversations.replies({
+        channel: ArgChannelID, ts: ArgThreadTS,
+        ...(ArgOptions ? { limit: 100, cursor: Cursor, latest: ArgOptions.Latest, inclusive: true } : {}),
+      });
+      if(!Result.ok) throw new Error(`Failed to get thread messages: ${Result.error || 'unknown error'}`);
+      // Slack repeats the thread's parent message at the top of every page; keep it once.
+      Messages.push(...(Result.messages || []).filter(ArgMessage => Page === 0 || ArgMessage.ts !== ArgThreadTS).map(this.#MapSlackMessageToMessageInfo));
+      Cursor = Result.response_metadata?.next_cursor;
+      if(!ArgOptions || (!Cursor && !Result.has_more)) return Messages;
+      if(!Cursor) break;
+    }
+    throw Object.assign(new Error('Thread exceeds complete context limit'), { code: 'context-incomplete' });
   }
 
   /**

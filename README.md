@@ -44,7 +44,7 @@ Slack workspaces. It is multi-tenant, self-hosted, and stores its data on disk y
 
 | Step | Action | Guide |
 |---|---|---|
-| 1 | Install Node 18.20.4+, clone repo, `npm ci` | [Getting Started §1](docs/getting-started.md#step-1--clone-and-install) |
+| 1 | Install Node 20+, clone repo, `npm ci` | [Getting Started §1](docs/getting-started.md#step-1--clone-and-install) |
 | 2 | Copy `.env.example` → `.env`, set `ADMIN_ENCRYPTION_KEY` | [§2](docs/getting-started.md#step-2--create-your-env-file) |
 | 3 | Create a Slack app (Socket Mode) | [§3](docs/getting-started.md#step-3--create-a-slack-app) · [manifest](docs/slack-app-setup.md) |
 | 4 | `npm run dev` | [§4](docs/getting-started.md#step-4--start-aegis) |
@@ -150,7 +150,7 @@ deployment under light load. Nothing here has been load-tested.
 
 | Category | Requirement |
 |---|---|
-| **Runtime** | Node.js **18.20.4+** (20 or 22 LTS recommended), npm, git |
+| **Runtime** | Node.js **20+** (22 LTS recommended), npm, git |
 | **Build tools** | Xcode CLT (macOS) or `build-essential` (Linux) — needed for `better-sqlite3` |
 | **Slack** | A workspace where you can install apps; Socket Mode app with bot + app-level tokens |
 | **AI** | API key from OpenAI, Anthropic, or Google Gemini (at least one) |

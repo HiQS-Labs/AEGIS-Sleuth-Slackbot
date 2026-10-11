@@ -32,7 +32,7 @@ log_error() {
 }
 
 # Configuration variables
-NODE_VERSION="18.20.4"
+NODE_VERSION="22"
 RUNNER_VERSION="2.325.0"
 APP_USER="root"
 # Overridable, to match deploy/reminders-export/install.sh which already honours SLEUTH_APP_DIR.
@@ -105,7 +105,7 @@ install_nodejs() {
     apt-get remove -y nodejs npm 2>/dev/null || true
 
     # Install Node.js via NodeSource repository
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
     apt-get install -y nodejs
 
     # Verify installation

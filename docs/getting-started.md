@@ -15,7 +15,7 @@ Gather everything in this checklist first. Steps below assume you have it ready.
 
 | Requirement | Notes |
 |---|---|
-| **Node.js 18.20.4+** | Node **20 or 22 LTS** recommended. Check: `node -v` |
+| **Node.js 20+** | Node **22 LTS** recommended. Check: `node -v` |
 | **npm** | Ships with Node. Check: `npm -v` |
 | **git** | To clone the repository |
 | **Build tools** (macOS/Linux) | Required for native modules (`better-sqlite3`). macOS: Xcode Command Line Tools (`xcode-select --install`). Linux: `build-essential` |
@@ -238,7 +238,7 @@ Ensure `ADMIN_ENCRYPTION_KEY` is set in `.env` (64 hex characters). The script l
 
 ### Node version warnings
 
-Node 18.20.4+ is the minimum. Node **20 LTS** or **22 LTS** is recommended for fewer dependency warnings.
+Node 20 is the minimum (nodemailer 10 requires it). Node **22 LTS** is recommended.
 
 ---
 

@@ -16,6 +16,8 @@ const ReminderOwnership = require('./reminder-ownership');
 const ContextResolution = require('./reminder-context-resolution');
 const TaskGrounding = require('./task-grounding');
 const ReminderDisplaySelection = require('./reminder-display-selection');
+const ReminderTextCompletion = require('./reminder-text-completion');
+const ReminderJudgement = require('./reminder-judgement');
 const {
   GetAlphabeticalLabel,
   BuildCompactTextForReminder,
@@ -135,9 +137,10 @@ class RemindersModule {
    *   posting    →  posted | failed
    *   posted     →  rescheduled
    *   rescheduled→  scheduled          (waiting for next mark pass)
-   *   scheduled  →  completed          (terminal: white_check_mark reaction — not persisted, reminder deleted)
+   *   scheduled  →  completed          (terminal: white_check_mark reaction, or a text completion reply in the
+   *                                     reminder thread — "done", "@Sleuth I did this" — not persisted, reminder deleted)
    *   scheduled  →  canceled           (terminal: wastebasket reaction — not persisted, reminder deleted)
-   *   overdue    →  completed          (terminal: white_check_mark reaction while overdue)
+   *   overdue    →  completed          (terminal: white_check_mark reaction or text completion reply while overdue)
    *   overdue    →  canceled           (terminal: wastebasket reaction while overdue)
    *   posting    →  dead-letter        (terminal: bot not a channel member — not persisted, reminder deleted)
    *
@@ -442,6 +445,10 @@ class RemindersModule {
       // P3 Phase 2 (staged cutover, default OFF): expose the non-authoritative event ledger so the
       // weekly summary can optionally derive completions from the projection instead of the store.
       ReadAllEventsAsync: () => this.ReadAllEventsAsync(),
+      // Text completion ("@Sleuth I did this" in a reminder thread) — the same terminal transition
+      // + delete the :white_check_mark: reaction performs, owned here so the FSM stays in one place.
+      TryCompleteRemindersFromReplyAsync: (/** @type {any} */ ArgSlackApp, /** @type {any} */ ArgEventInfo, /** @type {'mention'|'strict'} */ ArgMode) =>
+        this.#TryCompleteRemindersFromReplyAsync(ArgSlackApp, ArgEventInfo, ArgMode),
       // FSM gateway — injected so RemindersAppMentionHandler can schedule without a circular import.
       // Do not replace this with a direct #QueueReminderAsync call; that bypasses AI analysis,
       // dedup, date extraction, channel resolution, and #MakeScheduledReminder invariants.
@@ -1524,6 +1531,15 @@ class RemindersModule {
       return false;
     }
 
+    // Text completion: a plain (no @mention) thread reply like "done" / "I did this" in a reminder
+    // thread completes that reminder, exactly as a :white_check_mark: reaction would. Checked BEFORE
+    // the channel-enabled gate on purpose — the ✅ reaction is not gated on it either, and delivered
+    // reminders often live in a channel that does not auto-schedule. Strict mode: the whole reply
+    // must be a short completion phrase, because people also chat in reminder threads.
+    if(ArgEventInfo.thread_ts && ArgEventInfo.thread_ts !== ArgEventInfo.ts) {
+      if(await this.#TryCompleteRemindersFromReplyAsync(ArgSlackApp, ArgEventInfo, 'strict')) return true;
+    }
+
     // check if reminders are enabled for this channel; if not, opportunistically add a :mag:
     // discovery hint so users notice Sleuth would have scheduled this had the channel been enabled.
     // a 1:1 DM has no multi-user "channel" to opt in, so scheduling triggers work by default there
@@ -1577,6 +1593,93 @@ class RemindersModule {
   }
 
   /**
+   * Complete the reminder(s) a thread reply refers to when the reply says the work is done.
+   *
+   * This is the text twin of the :white_check_mark: reaction (reminders-reaction-handler.js): same
+   * terminal transition, same `'completed'` delete reason (so Slack Lists, the completion store and
+   * the event ledger all see an ordinary completion). Detection is deterministic — see
+   * reminder-text-completion.js for the two modes and the negation / future / question guards.
+   *
+   * Returns true only when the reply was consumed: reminders completed, or (mention mode) the thread
+   * is a reminder thread whose reminders are already closed and we said so. A non-completion reply,
+   * or a completion phrase in a thread with no reminder, returns false so it flows on unchanged to
+   * scheduling / the chat assistant.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {{channel: string, ts: string, thread_ts?: string, user?: string, text?: string}} ArgEventInfo Reply event.
+   * @param {'mention'|'strict'} ArgMode Detection mode.
+   * @returns {Promise<boolean>}
+   */
+  async #TryCompleteRemindersFromReplyAsync(ArgSlackApp, ArgEventInfo, ArgMode) {
+    if(!ArgEventInfo.thread_ts || ArgEventInfo.thread_ts === ArgEventInfo.ts) return false;
+    if(!ArgEventInfo.user || ArgEventInfo.user === ArgSlackApp.BotUserID) return false;
+
+    const Judgement = await ReminderJudgement.JudgeReminderTextAsync(ArgEventInfo.text || '', { Mode: ArgMode });
+    if(Judgement.Verdict !== 'complete') return false;
+    const Detection = /** @type {{IsCompletion: boolean, Reason: string}} */ (Judgement.Completion);
+
+    // Owner = an assignee (GetAssigneeIDs, which falls back to the sender for unassigned reminders)
+    // or the person who asked for the reminder.
+    const IsOwner = (/** @type {any} */ ArgReminder, /** @type {string} */ ArgUserID) =>
+      RemindersModule.IsAssignedTo(ArgReminder, ArgUserID, ArgSlackApp.BotUserID) ||
+      ArgReminder.OriginalSenderID === ArgUserID;
+    const { ReminderIDs, Source, NotOwnedCount } = await ReminderTextCompletion.ResolveThreadReminderIDsAsync(
+      ArgSlackApp, ArgEventInfo, this.#PendingRemindersQueue, IsOwner
+    );
+
+    if(ReminderIDs.length === 0) {
+      // Silent without a mention: a plain "done" is not addressed to us. With a mention, answer
+      // honestly instead of letting the chat assistant reply "Thanks for the update!" to a no-op —
+      // either the reminders here belong to someone else, or (on a reminder message) they are
+      // already gone (✅'d earlier, or completed by GitHub sync).
+      if(ArgMode !== 'mention') return false;
+      /** @type {string|null} */
+      let Reply = null;
+      if(NotOwnedCount > 0)
+        Reply = ':information_source: That reminder isn\'t assigned to you, so I left it open. ' +
+          'Its assignee can reply "done", or anyone can react with :white_check_mark: to close it.';
+      else if(Source === 'reminder_message')
+        Reply = ':white_check_mark: That reminder is already closed — nothing left to complete here.';
+      if(!Reply) return false;
+      try {
+        await ArgSlackApp.PostMessageTextAsync(ArgEventInfo.channel, ArgEventInfo.thread_ts, Reply);
+      } catch(error) {
+        ArgSlackApp.Logger.warn('text completion: failed to post no-op reply (non-fatal):', error);
+      }
+      return true;
+    }
+
+    ArgSlackApp.Logger.info(
+      `text completion: mode=${ArgMode} reason=${Detection.Reason} source=${Source} ` +
+      `user=${ArgEventInfo.user} reminders=${JSON.stringify(ReminderIDs)}`
+    );
+
+    for(const ReminderID of ReminderIDs) {
+      const ReminderToComplete = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ReminderID);
+      if(ReminderToComplete)
+        this.#TransitionReminderState(ReminderToComplete, RemindersModule.ReminderState.Completed, `terminal: text_completion (${ArgMode})`);
+    }
+    await this.#DeleteRemindersAsync(ReminderIDs, 'completed');
+
+    // acknowledge: ✅ on the person's reply mirrors the reaction path, plus one short line so the
+    // thread shows the reminder is closed. Neither failure should undo a committed completion.
+    try {
+      await ArgSlackApp.AddReactionAsync(ArgEventInfo.channel, ArgEventInfo.ts, 'white_check_mark');
+    } catch(error) {
+      ArgSlackApp.Logger.warn('text completion: failed to add acknowledgement reaction (non-fatal):', error);
+    }
+    try {
+      const Noun = ReminderIDs.length === 1 ? 'reminder' : `${ReminderIDs.length} reminders`;
+      await ArgSlackApp.PostMessageTextAsync(
+        ArgEventInfo.channel, ArgEventInfo.thread_ts,
+        `:white_check_mark: Marked ${Noun} complete — thanks <@${ArgEventInfo.user}>!`
+      );
+    } catch(error) {
+      ArgSlackApp.Logger.warn('text completion: failed to post acknowledgement (non-fatal):', error);
+    }
+    return true;
+  }
+
+  /**
    * Add a :mag: reaction to messages in disabled channels that look schedulable.
    * Uses the shared cheap regex heuristic — no AI calls. Silently no-ops on bot messages,
    * thread replies, or when the heuristic does not match.
@@ -1592,7 +1695,7 @@ class RemindersModule {
     if(ArgEventInfo.thread_ts && ArgEventInfo.thread_ts !== ArgEventInfo.ts) return;
 
     // run the cheap heuristic; skip if it does not match.
-    if(!RemindersAIPipeline.DetectDirectAskWithTimeTrigger(ArgEventInfo.text)) return;
+    if(!ReminderJudgement.DetectDirectAskWithTimeTrigger(ArgEventInfo.text)) return;
 
     // add the :mag: reaction; AddReactionAsync swallows errors internally and returns false on failure.
     const Added = await ArgSlackApp.AddReactionAsync(ArgEventInfo.channel, ArgEventInfo.ts, 'mag');
@@ -1711,7 +1814,14 @@ class RemindersModule {
     const TriggerMatch = this.#AppMentionHandler.GetSchedulingTriggerMatch(TriggerSourceText) || 'none';
 
     // analyze the message for reminders.
-    let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(ArgMessageText);
+    // quoted text is ignored, except for force-schedule (:alarm_clock:), which is explicit intent.
+    // GH-239: an enriched reply carries earlier thread messages; opt-outs are judged on the live reply.
+    let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(
+      ArgMessageText, {
+        Mode: ArgForceSchedule ? 'force' : 'auto',
+        LiveText: ArgUsedEnrichedThreadContext && ArgLiveReplyText ? ArgLiveReplyText : undefined,
+      }
+    );
     ArgSlackApp.Logger.info(`reminder analysis result:`, AnalysisResult.recommendation);
 
     let UsedSyntheticForceSchedule = false;
@@ -1743,7 +1853,7 @@ class RemindersModule {
         rationale: 'Simulated reminder for "tomorrow morning" since no scheduling triggers were found.',
         reminders: [{
           actionable_language: ArgMessageText, // treat entire message as actionable when force-scheduling.
-          scheduling_trigger: 'tomorrow morning',
+          scheduling_trigger: ReminderJudgement.FORCE_FALLBACK_TRIGGER,
           reminder_message: ForceScheduledReminderMessage,
         }]
       };
@@ -1900,7 +2010,7 @@ class RemindersModule {
       let UsedFallbackTriggerForGroup = false;
       if(ArgForceSchedule && (!ExtractionResult.success || !ExtractionResult.date)) {
         UsedFallbackTriggerForGroup = true;
-        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync('tomorrow morning');
+        ExtractionResult = await this.#AIPipeline.ExtractDateWithGptAsync(ReminderJudgement.FORCE_FALLBACK_TRIGGER);
       }
 
       // skip this trigger if no date was extracted.
@@ -2230,7 +2340,10 @@ class RemindersModule {
         { PathPrefix: 'wrench_triage' }
       );
     }
-    const TriageResult = await this.#AIPipeline.GetReminderTriageAsync(TriageContext.text);
+    // GH-239: same opt-out input as scheduling, so :wrench: explains the decision the scheduler made.
+    const TriageResult = await this.#AIPipeline.GetReminderTriageAsync(TriageContext.text, {
+      LiveText: TriageContext.enriched && TriageContext.liveReplyText ? TriageContext.liveReplyText : undefined,
+    });
     const BaselineFacts = await CollectDiagnosticsBaselineAsync(this.#SlackApp, ArgChannelID, {
       RemindersModule: this,
     });
@@ -4070,11 +4183,18 @@ class RemindersModule {
       const TargetChannelID = ReminderToPost.TargetChannelID;
       const OriginalChannelID = ReminderToPost.OriginalChannelID;
 
-      // Build the compact text using the shared helper function
+      // Build the compact text using the shared helper function.
+      // IncludeAllKeyTasks: a trigger group is ONE record that can hold N tasks (see the "Key task(s):"
+      // reduce above), and the schedule-time confirmation promises all N. Delivery used to render only
+      // the first bullet, so tasks 2..N were confirmed and then never fired — the user's only signal
+      // that work was queued disagreed with the work that arrived. Delivery is the one surface that
+      // must be complete; the list surfaces stay one-line-per-reminder.
       const CompactText = await BuildCompactTextForReminder(
         this.#SlackApp,
         ReminderToPost,
-        GetAlphabeticalLabel(this.#ReminderCounter)
+        GetAlphabeticalLabel(this.#ReminderCounter),
+        undefined,
+        { IncludeAllKeyTasks: true }
       );
 
       // Create metadata for the reminder message. NOTE: we use an array of reminder IDs even though we are only posting
