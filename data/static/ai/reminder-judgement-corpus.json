@@ -207,6 +207,14 @@
       "Expect": { "Verdict": "complete", "Reason": "completion" }
     },
     {
+      "Id": "gh239-mention-past-tense-did-get-it-shipped-completes",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> I managed to get it shipped",
+      "Model": null,
+      "Expect": { "Verdict": "complete", "Reason": "completion" }
+    },
+    {
       "Id": "gh239-mention-declarative-have-it-done-completes",
       "Issue": 239,
       "Mode": "mention",

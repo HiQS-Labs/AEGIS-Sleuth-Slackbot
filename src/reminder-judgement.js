@@ -45,13 +45,14 @@ const WORK_RESULT =
  * Monday" carries a done-word but asks for something else; completing would close the reminder AND
  * drop the request. Not "please": "please mark it done" is a completion. From 6584d6f.
  * GH-239: asking for the work itself ("please get this done", "need it merged", "make sure") is a
- * request too; completing it deleted the reminder the sender was asking about. "have ... done" is a
+ * request too; completing it deleted the reminder the sender was asking about. A past-tense report
+ * ("I did get it shipped", "managed to get it merged") is still a completion. "have ... done" is a
  * request only as an imperative (IMPERATIVE_HAVE_PATTERN): "I have it done" is a completion.
  */
 const REQUEST_PATTERN = new RegExp(
   '\\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\\s+me|show|list|' +
   'sort(?:ed)?\\s+by|set\\s+up|can\\s+you|could\\s+you|make\\s+sure|' +
-  '(?:get|need|want)\\s+(?:this|it|that|them)\\s+' + WORK_RESULT + ')\\b', 'i');
+  '(?<!\\b(?:did|managed\\s+to|finally)\\s+)(?:get|need|want)\\s+(?:this|it|that|them)\\s+' + WORK_RESULT + ')\\b', 'i');
 
 /**
  * An imperative "have it done" at the start of the reply, optionally after please/pls/kindly
