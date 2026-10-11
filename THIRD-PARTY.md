@@ -37,7 +37,7 @@ These are the packages AEGIS requires directly. All are permissive.
 | `better-sqlite3` | ^12.9.0 | MIT |
 | `express` | ^5.0.1 | MIT |
 | `newrelic` | ^12.16.1 | Apache-2.0 |
-| `nodemailer` | ^8.0.1 | MIT-0 |
+| `nodemailer` | ^10.0.9 | MIT-0 |
 | `openai` | ^6.9.1 | Apache-2.0 |
 | `sqlite-vec` | ^0.1.9 | MIT |
 

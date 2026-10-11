@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.344 - 2026-10-11
+
+The library I use to send admin emails is updated to a version that closes several security holes. It needs a newer Node.js, so I now require Node 20 or later; a server still on Node 18 must be upgraded before it gets this release.
+
+**Technical:** Dependabot PR #204: `nodemailer` 9.1.1 -> 10.0.9 (fixes 2 high and 3 medium GitHub advisories that have no 9.x fix). nodemailer 10 declares `engines.node >=20`; its only listed breaking change is that floor, and the one call site (`src/admin-mailer.js` `createTransport` / `sendMail`) is unchanged. Baseline raised to match: `package.json` engines `>=20`, CI `node-version` `22`, `scripts/server-install.sh` installs Node 22 from NodeSource, and the minimum-Node statements in `README.md`, `CONTRIBUTING.md`, `docs/getting-started.md`, `docs/architecture.md` and `docs/server-installation-guide.md`; `THIRD-PARTY.md` lists `^10.0.9`; the `package-lock.json` root engines entry matches. Dev already runs Node 22. Prod runs Node 18 and must be upgraded before `development` is next promoted to `main`. npm only warns on an engines mismatch (no `engine-strict`), so `docs/deployhq.md` now gives a Node-version check as the first pre-deploy SSH command; it aborts a deployment to a server below Node 20 before the service is stopped or files are uploaded. `engine-strict` was rejected because DeployHQ stops the service before `scripts/deploy.sh` runs `npm ci --omit=dev`, so a strict failure there would leave the app down. Cross-model consult (Codex: proceed with an enforceable guard; Agy: hold or add `engine-strict`) is recorded in the PR.
+
 ## 1.4.343 - 2026-10-11
 
 Nothing changes for anyone using me. Two of my router tests could fail at random on a busy machine because they read a log file before I had finished writing it; they now wait for the entry.

@@ -4,7 +4,7 @@
   "description": "Slack app which schedules task reminders by using AI to parse chat messages.",
   "main": "src/app.js",
   "engines": {
-    "node": ">=18.20.4"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node src/app.js",

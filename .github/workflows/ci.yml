@@ -42,11 +42,11 @@ jobs:
           fetch-depth: 0
 
       # 2. Set up the specific version of Node.js.
-      # This should match the version you use in development (v18.20.4 from AGENTS.md)
+      # Node 22 LTS; the minimum is Node 20 (nodemailer 10 requires it, see engines in package.json).
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.20.4'
+          node-version: '22'
           # Use npm's cache to speed up dependency installation
           cache: 'npm'
 

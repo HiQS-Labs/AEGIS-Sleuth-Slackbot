@@ -67,8 +67,11 @@ Mirror [`config/servers.json`](../config/servers.json):
 **Pre-deploy:**
 
 ```bash
+node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' || { echo "Node $(node -v) is below 20 (nodemailer 10 needs >=20); upgrade Node before deploying"; exit 1; }
 systemctl stop sleuth-app || true
 ```
+
+The first line is the Node-version guard: with **Halt deployment if this command fails** enabled, DeployHQ aborts before the service stops or any file uploads, so a server still on Node 18 keeps running its current release. It checks the `node` on root's `PATH`, the same one `scripts/deploy.sh` uses for `npm ci`; confirm the service's `ExecStart` uses that binary too (`systemctl cat sleuth-app`).
 
 **Post-deploy:**
 
