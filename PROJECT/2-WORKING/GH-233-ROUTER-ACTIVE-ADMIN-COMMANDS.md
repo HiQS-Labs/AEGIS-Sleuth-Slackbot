@@ -32,7 +32,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Plan Approved (Codex round 2); red control recorded; fix, doc corrections and CHANGELOG 1.4.342 committed; focused suites green. | Full `npm test` + `npm run build`, final Codex QA, PR against `development` (no merge in this task). |
+| Plan Approved (Codex round 2); red control recorded; fix, docs and CHANGELOG 1.4.342 committed; full `npm test` + build green. | Full `npm test` + `npm run build`, final Codex QA, PR against `development` (no merge in this task). |
 
 ## Observed problem (2026-10-10, dev, base 3fd5455)
 
@@ -97,3 +97,4 @@ Rated 65/55/50/85 (priority/severity/appeal/effort-cheapness). Severity 55: a mo
 - 2026-10-10: Codex plan QA round 2 Approved.
 - 2026-10-10: Red control at commit 1e7ec40 (tests only, source unfixed): `npx jest tests/router-shadow.test.js tests/chat-module.integration.test.js` failed — the three new `ShouldExecute`/flag assertions in `tests/router-shadow.test.js`, and the new integration test, which received "only workspace admins or owners can dump the rebalance reminders export" (the live symptom). After steps 1-2: both suites pass, 108 tests.
 - 2026-10-11: CHANGELOG 1.4.342 written; `node scripts/validate-changelog-tone.js` clean. Catalog count re-checked: 36 entries false, 26 true; 22 of the false entries are non-admin (incl. `show-me`, `show-stats`, `show-reminders`, `search-reminders`, `ping`), named in the entry.
+- 2026-10-11: Rebased onto origin/development 7cf93f0; ledger dump conflict resolved by union of `releases.sql` then `releases check --rebuild` (generation 70 -> 71, `merge-rebuild` receipt, GH-233 row and 65/55/50/85 rating intact), preview regenerated. Gates on the rebased fix commit, un-sandboxed: `npm test` exit 0 (Jest 142 suites passed, 1 skipped; 2614 tests passed, 4 skipped; `node --test` 116 passed); `npm run build` exit 0. Final Codex QA next.
