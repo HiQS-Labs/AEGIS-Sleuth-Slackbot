@@ -69,18 +69,19 @@ inventory() {  # $1 = data root (live: /var/lib/aegis-sleuth, or an extracted sn
 ```
 Two more helpers, each one command per line so `set -e` applies (plan QA R4-S3a: a failure inside an `a && b` list does not trigger `set -e`):
 ```bash
-verify_archive() {  # $1 = archive, $2 = inventory file to write; fails on any extraction or parse error
-  local x; x=$(mktemp -d)
-  tar xzf "$1" -C "$x"
-  inventory "$x/aegis-sleuth" > "$2"
+verify_archive() {  # $1 = archive, $2 = inventory file to write; returns 1 on any failure, in any calling context
+  local x; x=$(mktemp -d) || return 1
+  tar xzf "$1" -C "$x" || { rm -rf "$x"; return 1; }
+  inventory "$x/aegis-sleuth" > "$2" || { rm -rf "$x"; return 1; }
   rm -rf "$x"
   test -s "$2"
 }
 shutdown_ok() {  # $1 = outgoing PID, $2 = stop start time; proves this shutdown persisted and completed (R4-S3b)
-  local log; log=$(journalctl _PID="$1" --since "$2" --no-pager)
-  grep -q 'shutdown complete' <<<"$log"
-  grep -q 'saved [0-9]* reminders to file' <<<"$log"
-  ! grep -E '\[ERROR\]' <<<"$log" | grep -vE 'not_in_channel|Failed to post shutdown notification|tag=shutdown'
+  local log; log=$(journalctl _PID="$1" --since "$2" --no-pager) || return 1
+  grep -q 'shutdown complete' <<<"$log" || return 1
+  grep -q 'saved [0-9]* reminders to file' <<<"$log" || return 1
+  if grep -E '\[ERROR\]' <<<"$log" | grep -qvE 'not_in_channel|Failed to post shutdown notification|tag=shutdown'; then return 1; fi
+  return 0
 }
 ```
 A reminder ID missing after a change that is not explained by a reminder firing or being completed in the interval (visible in the journal) is a failure. Plus, scoped to the new process only (`journalctl _PID=<MainPID>` or `--since <ActiveEnterTimestamp>`): `workspace modules started: neochrome` (`src/app.js:429`), `neochrome` Slack/AI/Notion connectivity succeeded, and no error line outside the known-noise list. Baseline 2026-10-11: `{"success":true,...,"IncomingMessageCount":29884,...}`; `NRestarts=0`.
@@ -224,3 +225,4 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 - 2026-10-11: Phase A executed 17:44-17:47 UTC (operator chose: 4th review round in parallel, run A and B now). A1 kit verified (deb 18.20.6 amd64; archives readable; setup_22.x sha256 575583bb…, writes only the backed-up keyring/sources/pins). A3: stop 17:45:10, quiescent snapshot inventory 47 lines (5 workspaces, 42 reminders) equal to live, Node v22.23.3, `npm ci --omit=dev` ok, sqlite 1 / sqlite-vec v0.1.9, start 17:45:57 (47 s downtime). Outgoing PID 1927135 logged `saved 42 reminders to file` and `shutdown complete`; only error the known `not_in_channel`. A4: active, NRestarts 0, `/usr/bin/node` v22.23.3, health ok, all workspaces started, `neochrome` Slack/AI/Notion ok, router `active`, errors = 3 known-noise connectivity lines, inventory unchanged.
 - 2026-10-11: Phase B executed: DeployHQ SSH command 465398ef (before_changes, position 1 ahead of stop, halt_on_error true, timeout 300, timing all, servers 1662264 + 1659102). Red control: version 18.20.6 -> exit 1, 22.23.2 -> exit 0; the stored command exits 0 on production (Node 22.23.3) and development.
 - 2026-10-11: Codex plan QA round 4 FAIL, STATUS Escalated (cap): R4-S3a `&&` lists escape `set -e`; R4-S3b shutdown evidence must be PID-bound and error-free (A3 included); R4-S4 apply the added-file deletion list even after a successful reverse deploy. All accepted and folded in (`verify_archive`, `shutdown_ok`, one command per line, deletion list always applied). A3's actual run already satisfied R4-S3b (evidence above). Phase C awaits operator decision.
+- 2026-10-11: Helper red controls on production (read-only): `shutdown_ok` passes for the A3 outgoing PID and fails for an unknown PID; `verify_archive` fails for a missing archive and reproduces inventory-A from the A snapshot. The first version passed the unknown-PID control because bash ignores `set -e` inside a function called from `if`; every check now returns explicitly.
