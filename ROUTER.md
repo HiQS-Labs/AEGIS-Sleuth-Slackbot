@@ -83,6 +83,7 @@ chokepoint and one debugging surface (GH-44):
 | Why did the reminder quote me instead of using a tidy title? | The grounding constraint rejected the model's title because it named an entity, identifier, or number absent from your message. Look for `discarding an ungrounded reminder title` in the logs; the rule lives in `src/task-grounding.js`. |
 | What does the pipeline decide across many messages? | `npm run decision:replay` — replays the scenario battery at `tests/fixtures/decision-scenarios/` and reports `PASS`/`FAIL`/`CHANGED-vs-baseline` per scenario. Deterministic, zero network calls. |
 | Did my change alter behavior? | `npm run decision:replay` diffs against the committed baseline; `--update-baseline` re-records it (never implicit). |
+| What did the Slack thread actually say (beyond a screenshot)? | `skills/read-slack/read-slack.sh '<permalink>'` — reads the full thread under the bot's own token on the server, read-only. Host and env-file values: `temp/SOP.md` §3.9. |
 | What did production actually decide? | Enable capture (`SetDecisionCapture`) and read the JSONL corpus under `data/runtime/shadow/`. Replay it with `--from-corpus`. |
 
 Where the pieces live:

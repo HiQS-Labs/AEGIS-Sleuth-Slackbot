@@ -161,14 +161,16 @@ class GeminiProvider {
    * in HTTP server logs.
    * @param {string} ArgModelName
    * @param {object} ArgPayload
+   * @param {AbortSignal} [ArgSignal]
    * @returns {Promise<any>}
    */
-  async #GenerateContentAsync(ArgModelName, ArgPayload) {
+  async #GenerateContentAsync(ArgModelName, ArgPayload, ArgSignal = undefined) {
     const Endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${ArgModelName}:generateContent`;
     const Response = await fetch(Endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.#WorkspaceInfo.GEMINI_API_KEY },
-      body: JSON.stringify(ArgPayload)
+      body: JSON.stringify(ArgPayload),
+      signal: ArgSignal
     });
     
     if(!Response.ok) {
@@ -198,9 +200,10 @@ class GeminiProvider {
    * @param {string} ArgSystemInstructions
    * @param {object} ArgJsonSchemaObject Either the OpenAI `{name, strict, schema}` envelope or a bare JSON Schema.
    * @param {string} ArgModelName
+   * @param {{ signal?: AbortSignal, timeout?: number, maxRetries?: number }} [ArgRequestOptions] Optional request deadline.
    * @returns {Promise<object>}
    */
-  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName) {
+  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName, ArgRequestOptions = undefined) {
     const InnerSchema = GeminiProvider.#SanitizeSchemaForGemini(
       GeminiProvider.#ExtractInnerSchema(ArgJsonSchemaObject)
     );
@@ -214,7 +217,7 @@ class GeminiProvider {
       }
     };
 
-    const Data = await this.#GenerateContentAsync(ArgModelName, Payload);
+    const Data = await this.#GenerateContentAsync(ArgModelName, Payload, ArgRequestOptions?.signal);
 
     this.#WorkspaceStats.OutgoingGptMessageCount++;
     this.#WorkspaceStats.OutgoingGptMessageLength += ArgMessageText.length + ArgSystemInstructions.length;

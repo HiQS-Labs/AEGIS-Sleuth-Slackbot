@@ -536,3 +536,31 @@ curl -X GET "http://localhost:2020/settings/last-file-path" -H "Authorization: B
     "data": "/data/file.json"
 }
 ```
+
+### Product Compass channel grants
+
+`PRODUCT_COMPASS_CHANNELS` is an optional JSON **string** in the existing workspace create/update payload:
+
+```json
+{
+  "PRODUCT_COMPASS_CHANNELS": "{\"C123\":{\"TeamId\":\"11111111-1111-1111-1111-111111111111\",\"CredentialName\":\"roadmap\"}}"
+}
+```
+
+The workspace administrator's mapping grants every member of that Slack channel permission to ask about the mapped Product Compass team, including people without PC accounts. Treat inviting people to the channel as granting access to that team's knowledge. Private/shared channel membership and its retention rules govern answers already posted. Mappings are loaded at service startup, just like the existing workspace settings. After adding, changing or removing a mapping through the workspace API, restart Sleuth to apply it; saving alone does not change the running grant. To revoke access urgently, stop Sleuth or revoke the PAT in Product Compass before editing the mapping, then restart with the new configuration. An in-flight answer may already hold retrieved evidence, and prior replies are not erased. DMs cannot be mapped. Empty `{}` disables the feature after restart. Existing workspace validation/persistence owns this setting; no new admin endpoint is added.
+
+The integration calls only `https://pmf.neochro.me/mcp/token`, with `Authorization: Bearer <credential>` on every request and redirects refused. Use a PC token whose owner belongs to the mapped team. `CredentialName` contains only letters, digits, `_` or `-` (1–48 characters). Configuration contains **references only**, never the token itself.
+
+Native credential identifier: `pc-<UTF-8 hex of WORKSPACE_NAME>-<CredentialName>`. The workspace component prevents accidental credential reuse across tenants. You can calculate the identifier without handling a token:
+
+```js
+'pc-' + Buffer.from('your-workspace-name', 'utf8').toString('hex') + '-roadmap'
+```
+
+On Linux, provision an encrypted credential with `systemd-creds` using secure stdin, and configure `LoadCredentialEncrypted=<identifier>:<encrypted credential path>` on the service. The process reads the decrypted identifier from systemd's managed `CREDENTIALS_DIRECTORY` on each request. Do not put a token into an environment variable, workspace JSON, `.env`, shell argument/history or a plaintext configuration file. On macOS, add a generic password through Keychain Access with service `sleuth.product-compass` and account equal to that identifier. Sleuth reads it using the fixed `/usr/bin/security find-generic-password` command. Other credential backends are unsupported; missing credentials fail closed. Revocation takes effect on the next request; Sleuth does not cache tokens.
+
+In mapped channels, `@Sleuth AI ask-compass <question>` and ordinary mentions use PC evidence. Explicit commands keep their existing precedence. Hands-free thread replies reuse the same workflow and respect `no_bell`/stop reactions. Select a capable reasoning model with the existing `set-channel-model` command; otherwise the workspace default applies. Sleuth uses retrieved passages, not PC's `ask_documents` synthesis. PC owns embeddings, ingestion and release metadata.
+
+Context uses the existing thread/upload assembly, including prior bot answers, with the shared 200 KiB UTF-8 limit. No second summarizer or memory store is introduced. Complete thread reads allow five pages of 100 messages through the current event. Explicit mentions receive a refusal for incomplete/oversized context. Hands-free replies stay silent if the complete thread cannot be read, because an unseen stop reaction may have disabled replies; mention Sleuth explicitly to receive the refusal. Context is never silently truncated. A workflow permits four evidence calls; connect/tools have 15-second deadlines, models 45 seconds, total workflow 120 seconds. Network abort limits local waiting, not a guarantee that upstream computation stopped. Citations include source excerpts for contributors without PC web access. Incomplete indexing is stated; semantic search cannot prove a feature was removed.
+
+Before activation, securely provision a credential, save the channel mapping, restart Sleuth and verify live tools/schema discovery, scoped two-release comparison and thread follow-up, source links/excerpts, and token revocation. Source tests use mocks; deployed PC authorization and retrieval are not proven by them. Disable by removing the mapping and restarting Sleuth; stop the service and revoke the token immediately if disclosure scope was wrong. Logs record stable error categories, workspace and channel, without tokens or retrieved evidence.

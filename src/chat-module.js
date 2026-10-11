@@ -7,6 +7,7 @@ const SlackApp = require('./slack-app');
 const WorkspaceAI = require('./workspace-ai');
 const Workspaces = require('./workspaces');
 const ChannelModelSettings = require('./channel-model-settings');
+const ReminderJudgement = require('./reminder-judgement');
 const SlackFormatUtils = require('./slack-format-utils');
 const { ResolveMentionsForExternalDisplayAsync } = require('./slack-message-pipeline');
 const {
@@ -16,10 +17,13 @@ const {
   FormatProviderCommandsListLine,
 } = require('./web-search-providers');
 const { CommandRouter } = require('./chat-command-router');
+const ThreadContext = require('./thread-context-provider');
 const { RegisterCatalogRegexAliases } = require('./catalog-regex-aliases');
 const { CommandCatalogPath } = require('./command-catalog');
 const { BuildErrorReportAsync } = require('./diagnostics-report');
 const {
+  MaxContextBytes,
+  IsTextLikeContextFile,
   SelectContextMemoryFile,
   IsBinaryMediaFile,
   LooksLikeHtmlErrorPage,
@@ -56,6 +60,8 @@ try {
     console.warn('[chat-module] RAG overlay present but failed to load:', error && error.message);
   }
 }
+const Compass = require('./product-compass');
+const HandleAskCompassCommandAsync = require('./chat-commands/ask-compass-command');
 const HandleAskWooCommandAsync = require('./chat-commands/ask-woo-command');
 const HandleWebSearchProviderCommandAsync = require('./chat-commands/web-search-provider-command');
 const HandleHelpFeaturesCommandAsync = require('./chat-commands/help-features-command');
@@ -529,6 +535,13 @@ class ChatModule {
     }
 
     Router.Register({
+      Pattern: /^ask-compass(?:\s+(.+))?$/is,
+      DescribePattern: /^ask-compass(?:\s|$)/i,
+      Route: 'ask-compass',
+      Handle: (ArgEventInfo, ArgQuery) => this.#RunCompassAsync(this.#SlackApp, ArgEventInfo, ArgQuery || ''),
+    });
+
+    Router.Register({
       Pattern: /^ask-woo(?:\s+(.+))?$/is,
       DescribePattern: /^ask-woo(?:\s|$)/i,
       Route: 'ask-woo',
@@ -938,8 +951,8 @@ class ChatModule {
 
   /**
    * GH-397 active router mode: let Gemini Flash Lite resolve the command and, above the confidence
-   * floor, execute it (takeover of any canonical command, including Risk-tagged ones, per the
-   * operator decision). Always logs a corpus record. Returns true only when it actually executed a
+   * floor, execute it — only when the catalog entry has CanExecuteWithIfl true, the same contract as
+   * `rmm ifl` (GH-233; this supersedes the 2026-07-16 "any canonical command" decision). Always logs a corpus record. Returns true only when it actually executed a
    * command; otherwise false so the caller falls back to the normal resolver. Never throws — a
    * resolve/execute/log failure degrades to false (normal pipeline runs).
    *
@@ -985,6 +998,11 @@ class ChatModule {
     // GH-174: an incumbent match means the user typed a real command — run THAT, not the model's
     // reading of it. `executed: false` alongside `routerOutcome: 'matched'` is the corpus signal
     // that the router deferred.
+    // GH-233: a confident candidate whose catalog entry forbids a model-resolved run needs a literal command.
+    if(!IncumbentRoute && Candidate && !Candidate.error && !Candidate.needsClarification && Candidate.canonicalCommand
+      && Candidate.canExecuteWithIfl !== true && Candidate.confidence >= this.#RouterShadow.ActiveConfidenceMin()) {
+      ArgSlackApp.Logger.info(`router active takeover skipped: '${Candidate.intentId}' needs a literal command (CanExecuteWithIfl false)`);
+    }
     if(!IncumbentRoute && this.#RouterShadow.ShouldExecute(Candidate)) {
       try {
         Executed = await this.#CommandRouter.RouteAsync(/** @type {string} */ (Candidate.canonicalCommand), ArgEventInfo);
@@ -1259,6 +1277,11 @@ class ChatModule {
       if(await this.#TryHandleUnsupportedReminderActionAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText))
         return true;
 
+      if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) {
+        await this.#RunCompassAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText);
+        return true;
+      }
+
       // natural-language and freshness-driven auto-routes always target the OpenAI provider — that
       // is the documented product behavior, not a registry concern.
       const OpenAIWebSearchProvider = GetWebSearchProviderById('web-search');
@@ -1305,12 +1328,17 @@ class ChatModule {
         .catch((Error) => ArgSlackApp.Logger.warn(`near-miss probe failed: ${Error && Error.message ? Error.message : Error}`));
     }
 
+    if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) {
+      await this.#RunCompassAsync(ArgSlackApp, ArgEventInfo, NormalizedCommandText);
+      return true;
+    }
+
     // gather thread context. For a root message that just had a file loaded, use event.ts as the
     // thread root so the context memory block is included in the AI call even though thread_ts is
     // not set on the root message event.
     const ContextThreadTS = ArgEventInfo.thread_ts ?? (FileWasLoaded ? ArgEventInfo.ts : null);
     const MessageText = ContextThreadTS
-      ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+      ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS, undefined, ArgEventInfo)
       : ArgEventInfo.text;
 
     // prepare system instructions.
@@ -1538,10 +1566,9 @@ class ChatModule {
     const HasCreationVerb = /\b(?:make|create|set|add|schedule)\b/.test(NormalizedText);
     if(!HasReminderNoun || !HasCreationVerb) return false;
 
-    // opt-out of creation is not a creation request ("don't set a reminder", "don't need to set a reminder", "don't want to set a reminder").
-    // `don't forget to set a reminder` still matches because `don't` is followed by `forget`, not a creation verb.
-    const IsCreationOptOut = /\b(?:don'?t|do not)(?:\s+(?:need|want)\s+to)?\s+(?:make|create|set|add|schedule)\s+(?:a\s+)?reminder(?:s)?\b/.test(NormalizedText);
-    return !IsCreationOptOut;
+    // opt-out of creation is not a creation request ("don't set a reminder"); the pattern is owned by
+    // reminder-judgement.js (GH-149), which also applies it before the reminder model.
+    return !ReminderJudgement.IsCreationOptOut(NormalizedText);
   }
 
   // GH-62: #IsImageListCreationRequest moved to context-file-classifier.HasListCreationIntent so
@@ -2023,7 +2050,7 @@ class ChatModule {
     try {
       // check if we should respond to this message. This functionality allows the chat module to respond to messages
       // without having to explicitly mention the app, and addresses a common user request for a "hands-free" mode.
-      const { ShouldRespond } = await this.#ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo);
+      const { ShouldRespond, ThreadMessages } = await this.#ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo);
       if(!ShouldRespond) return false;
 
       // check for an uploaded text file (Markdown, snippet, log, CSV, code, etc.) and store it as
@@ -2037,7 +2064,9 @@ class ChatModule {
         ArgSlackApp,
         ArgEventInfo,
         ArgEventInfo.text,
-        HasQuestionText
+        HasQuestionText,
+        false,
+        ThreadMessages // GH-219: reuse the thread already read above instead of a second fetch.
       );
       if(AttachmentResult.Handled) return true;
       const FileWasLoaded = AttachmentResult.TextFileWasStored;
@@ -2058,11 +2087,16 @@ class ChatModule {
         return true;
       }
 
+      if(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel)) {
+        await this.#RunCompassAsync(ArgSlackApp, ArgEventInfo, ArgEventInfo.text, ThreadMessages);
+        return true;
+      }
+
       // gather thread context. Use event.ts as the thread root for root messages that just had a
       // file loaded so the context memory block is included even without thread_ts being set.
       const ContextThreadTS = ArgEventInfo.thread_ts ?? (FileWasLoaded ? ArgEventInfo.ts : null);
       const MessageText = ContextThreadTS
-        ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS)
+        ? await this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, ContextThreadTS, undefined, ArgEventInfo)
         : ArgEventInfo.text;
 
       const SystemInstructions = await this.#PrepareSystemInstructionsAsync();
@@ -2668,7 +2702,7 @@ class ChatModule {
    * Check if the app should respond to a message based on thread context and reactions.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {import('./slack-app').MessageEventInfo} ArgEventInfo Message event information.
-   * @returns {Promise<{ ShouldRespond: boolean, IsStopping?: boolean }>}
+   * @returns {Promise<{ ShouldRespond: boolean, IsStopping?: boolean, ThreadMessages?: any[] }>}
    */
   async #ShouldRespondToMessageAsync(ArgSlackApp, ArgEventInfo) {
     try {
@@ -2687,9 +2721,13 @@ class ChatModule {
       if(!ArgEventInfo.thread_ts) return { ShouldRespond: false };
 
       // get all messages in the thread.
-      const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(
-        ArgEventInfo.channel, ArgEventInfo.thread_ts
-      );
+      const IsCompassChannel = Boolean(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel));
+      // GH-225: one read per event, shared with the look-back, Compass and the chat context below.
+      const { Messages, Complete } = await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgEventInfo.thread_ts);
+      // unread messages may contain a stop reaction; incomplete history cannot authorize a reply.
+      if(!Complete) return { ShouldRespond: false };
+      const ThreadMessages = Messages.filter(ArgMessage => !IsCompassChannel || Number(ArgMessage.ts) <= Number(ArgEventInfo.ts));
+      const CompleteThread = ThreadMessages;
 
       // check if the first message in thread has an app mention (hands-free mode).
       const FirstMessage = ThreadMessages[0];
@@ -2715,7 +2753,7 @@ class ChatModule {
       }
 
       // return the final auto-response state.
-      return { ShouldRespond: ShouldAutoRespond, IsStopping: false };
+      return { ShouldRespond: ShouldAutoRespond, IsStopping: false, ThreadMessages: CompleteThread };
     } catch(error) {
       // log any errors that occur during message processing and return false to indicate that the event was not handled.
       ArgSlackApp.Logger.error("Error in ShouldRespondToMessageAsync:", error);
@@ -2770,6 +2808,20 @@ class ChatModule {
   }
 
   /**
+   * Clears the thread context memory for a specific thread and persists the change.
+   * @param {string} ArgChannel Channel ID
+   * @param {string} ArgThreadTs Thread TS
+   * @returns {Promise<void>}
+   */
+  async ClearThreadMemoryAsync(ArgChannel, ArgThreadTs) {
+    const MemoryKey = `${ArgChannel}:${ArgThreadTs}`;
+    if (this.#ThreadContextMemory.has(MemoryKey)) {
+      this.#ThreadContextMemory.delete(MemoryKey);
+      await this.#SaveThreadMemoryAsync();
+    }
+  }
+
+  /**
    * Single dispatch point for every Slack attachment (GH-62).
    *
    * Before this existed, `#OnAppMentionAsync` and `#OnMessageAsync` each reached for attachment
@@ -2790,15 +2842,32 @@ class ChatModule {
    *   the caller can route it (GH-91). Only the app_mention path sets this, because it is the only
    *   caller that reaches `#CommandRouter.RouteAsync`; the message path would fall through to an AI
    *   answer instead, which is not what "route the command" means.
+   * @param {any[]} [ArgThreadMessages] Thread already fetched by the caller (hands-free path); lets the
+   *   GH-219 look-back reuse it instead of issuing a second Slack read.
    * @returns {Promise<{ Handled: boolean, TextFileWasStored: boolean }>}
    *   `Handled` means the event is fully dealt with and the caller must stop. `TextFileWasStored`
    *   means a text file became thread context memory and the caller may continue to an AI answer.
    */
-  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation, ArgAllowCommandFallthrough = false) {
+  async #HandleAttachmentAsync(ArgSlackApp, ArgEventInfo, ArgText, ArgSuppressConfirmation, ArgAllowCommandFallthrough = false, ArgThreadMessages = undefined) {
     const Intent = ResolveAttachmentIntent(ArgEventInfo.files, ArgText);
 
-    if(Intent.Kind === 'none')
-      return { Handled: false, TextFileWasStored: false };
+    if(Intent.Kind === 'none') {
+      // GH-219: GH-62 only looked at files on the current event. A file uploaded earlier in the thread
+      // (e.g. a JSON export) is never seen when someone @mentions the bot in a later reply.
+      const EarlierFiles = await this.#FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo, ArgThreadMessages);
+      if(EarlierFiles.length === 0)
+        return { Handled: false, TextFileWasStored: false };
+      // an earlier file the user did not re-attach must never block this message: if it cannot be
+      // stored (download failed, HTML error page), log quietly and let normal handling answer.
+      const EarlierResult = await this.#TryStoreThreadMemoryFileAsync(
+        ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation, EarlierFiles, true
+      );
+      // hydrating context from an earlier upload is not attachment ownership: `TextFileWasStored`
+      // stays false so registered commands and deterministic replies still route normally, and the
+      // stored memory reaches the AI through the thread context as usual. A bare mention with no
+      // question is fully answered by the "I've loaded…" confirmation.
+      return { Handled: EarlierResult.FileWasStored && !ArgText, TextFileWasStored: false };
+    }
 
     // Both image arms hand the resolved file straight through — re-selecting here could pick a
     // different attachment than the one this dispatch decision was made on.
@@ -2852,6 +2921,34 @@ class ChatModule {
   }
 
   /**
+   * Text-like files from earlier messages in the event's thread, newest first. Empty when the
+   * event is not in a thread, the thread already has context memory, or the lookup fails.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {import('./slack-app').AppMentionEventInfo|import('./slack-app').MessageEventInfo} ArgEventInfo Event payload.
+   * @param {any[]} [ArgThreadMessages] Thread already fetched by the caller; when given, no Slack read is made.
+   * @returns {Promise<import('./slack-app').SlackFileInfo[]>}
+   */
+  async #FindEarlierThreadFilesAsync(ArgSlackApp, ArgEventInfo, ArgThreadMessages = undefined) {
+    if(!ArgEventInfo.thread_ts) return [];
+    if(this.#ThreadContextMemory.has(`${ArgEventInfo.channel}:${ArgEventInfo.thread_ts}`)) return [];
+    try {
+      // GH-225: the per-event provider shares the read with the dispatcher, Compass and the chat
+      // context, so Compass threads no longer need their own exemption to stay within one read.
+      const Messages = ArgThreadMessages
+        || (await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgEventInfo.thread_ts)).Messages;
+      return Messages
+        // strictly earlier only: a delayed event can see replies (and uploads) posted after it.
+        .filter((ArgMessage) => Number(ArgMessage.ts) < Number(ArgEventInfo.ts))
+        .reverse()
+        .flatMap((ArgMessage) => ArgMessage.files ?? [])
+        .filter((ArgFile) => IsTextLikeContextFile(ArgFile) && !(ArgFile.size > MaxContextBytes));
+    } catch(error) {
+      ArgSlackApp.Logger.warn(`thread file look-back failed: ${error && error.message ? error.message : error}`);
+      return [];
+    }
+  }
+
+  /**
    * Detect an uploaded MD file in the event, download it, and store as thread context memory.
    * Only processes when the event is in a thread (thread_ts is set). Replaces any prior memory
    * for the same thread. Posts a confirmation reply on success, or an error reply on oversized files.
@@ -2860,15 +2957,19 @@ class ChatModule {
    * @param {boolean} [ArgSuppressConfirmation] When true, skip the "I've loaded…" confirmation post.
    *   Pass true when question text is present alongside the upload so the confirmation does not
    *   contaminate the same-turn thread context that the AI will read immediately afterwards.
+   * @param {import('./slack-app').SlackFileInfo[]} [ArgFiles] Files to pick from. Defaults to the event's own files; the
+   *   thread look-back passes files found on earlier messages.
+   * @param {boolean} [ArgQuiet] When true (thread look-back), rejection posts for an unreadable file are
+   *   replaced by a log line so a stale earlier upload never spams or blocks the thread.
    * @returns {Promise<{ FoundContextFile: boolean, FileWasStored: boolean }>}
    *   `FoundContextFile` is true whenever an attachment was recognized as something to act on
    *   (a text file, an oversized/failed text file, or an unsupported binary) so the caller stops
    *   instead of falling through to an ungrounded AI answer.
    */
-  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false) {
+  async #TryStoreThreadMemoryFileAsync(ArgSlackApp, ArgEventInfo, ArgSuppressConfirmation = false, ArgFiles = ArgEventInfo.files, ArgQuiet = false) {
     // accept any text-readable attachment (Markdown, plain text, code, logs, CSV/JSON/YAML, SQL,
     // and Slack code snippets) — not just `.md`. See src/context-file-classifier.js for the rules.
-    const Selection = SelectContextMemoryFile(ArgEventInfo.files);
+    const Selection = SelectContextMemoryFile(ArgFiles);
     if(Selection.Kind === 'no-files')
       return { FoundContextFile: false, FileWasStored: false };
 
@@ -2883,7 +2984,7 @@ class ChatModule {
       ArgSlackApp.Logger.info(
         `[TryStoreThreadMemoryFile] ignoring ${Descriptor} attachment '${UnsupportedFile.name}' (mimetype: ${UnsupportedFile.mimetype || 'unknown'})`
       );
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         `I can only read text-based files as context — Markdown, plain text, code, logs, CSV/JSON/YAML, SQL, and Slack code snippets. *${UnsupportedFile.name}* isn't a text file I can analyze.`
@@ -2893,9 +2994,9 @@ class ChatModule {
 
     const ContextFile = Selection.File;
 
-    const MaxFileSizeBytes = 200 * 1024;
+    const MaxFileSizeBytes = MaxContextBytes;
     if(ContextFile.size > MaxFileSizeBytes) {
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         `The file *${ContextFile.name}* is too large to use as context memory (max 200 KB). Please upload a smaller file.`
@@ -2913,7 +3014,7 @@ class ChatModule {
       Content = await ArgSlackApp.GetFileContentAsync(DownloadURL);
     } catch(error) {
       ArgSlackApp.Logger.error(`failed to download context memory file '${ContextFile.name}':`, error);
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         await BuildErrorReportAsync(
@@ -2927,7 +3028,7 @@ class ChatModule {
 
     if(LooksLikeHtmlErrorPage(Content)) {
       ArgSlackApp.Logger.error(`context memory file '${ContextFile.name}' returned HTML — likely unauthenticated redirect`);
-      await ArgSlackApp.PostMessageTextAsync(
+      if(!ArgQuiet) await ArgSlackApp.PostMessageTextAsync(
         ArgEventInfo.channel,
         ReplyThreadTS,
         `I couldn't read *${ContextFile.name}* — Slack returned a page instead of the file content. Please try uploading it again.`
@@ -2971,15 +3072,58 @@ class ChatModule {
   }
 
   /**
+   * @param {SlackApp} ArgSlackApp
+   * @param {any} ArgEventInfo
+   * @param {string} ArgQuestion
+   * @param {any[]} [ArgMessages]
+   */
+  async #RunCompassAsync(ArgSlackApp, ArgEventInfo, ArgQuestion, ArgMessages) {
+    await HandleAskCompassCommandAsync(ArgSlackApp, ArgEventInfo, ArgQuestion, this.#WorkspaceAI,
+      this.#ChannelModelSettings.GetModelForChannel(ArgEventInfo.channel), async () => {
+        const Root = ArgEventInfo.thread_ts || ArgEventInfo.ts;
+        let Messages = ArgMessages || [];
+        if(!ArgMessages && ArgEventInfo.thread_ts) {
+          const Thread = await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, Root);
+          if(!Thread.Complete) throw Object.assign(new Error('Thread exceeds complete context limit'), { code: 'context-incomplete' });
+          Messages = Thread.Messages;
+        }
+        const Current = Messages.filter(ArgMessage => Number(ArgMessage.ts) < Number(ArgEventInfo.ts));
+        Current.push(ArgEventInfo);
+        return this.#GatherThreadContextAsync(ArgSlackApp, ArgEventInfo.channel, Root, Current);
+      });
+  }
+
+  /**
+   * GH-225: the one place that decides how a chat event reads its thread. Compass-mapped channels
+   * take the bounded complete read (five pages, up to the event) so a hands-free reply is never
+   * authorized from a partially read thread; every other channel keeps the legacy single read.
+   * The provider memoises per event, so the dispatcher, the earlier-file look-back, Compass and the
+   * chat context share one Slack read.
+   * @param {SlackApp} ArgSlackApp Slack app instance.
+   * @param {any} ArgEventInfo The inbound event.
+   * @param {string} ArgThreadTS Thread root timestamp.
+   * @returns {Promise<{Messages: any[], Complete: boolean}>}
+   */
+  #ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgThreadTS) {
+    const Bounded = Boolean(Compass.GetMapping(ArgSlackApp.WorkspaceInfo, ArgEventInfo.channel));
+    return ThreadContext.GetThreadAsync(ArgSlackApp, ArgEventInfo, ArgThreadTS, Bounded ? { MaxPages: 5 } : {});
+  }
+
+  /**
    * Gather context from a Slack thread.
    * @param {SlackApp} ArgSlackApp Slack app instance.
    * @param {string} ArgChannelID Channel ID where the thread is located.
    * @param {string} ArgThreadTS Timestamp of the parent message of the thread.
+   * @param {any[]} [ArgMessages] Already fetched complete thread.
+   * @param {any} [ArgEventInfo] The inbound event (GH-225): when given, the read is shared with every
+   *   other consumer of the same event through the thread-context provider.
    * @returns {Promise<string>}
    */
-  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS) {
+  async #GatherThreadContextAsync(ArgSlackApp, ArgChannelID, ArgThreadTS, ArgMessages = undefined, ArgEventInfo = undefined) {
     // get all the messages in the thread.
-    const ThreadMessages = await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS);
+    const ThreadMessages = ArgMessages || (ArgEventInfo
+      ? (await this.#ReadThreadAsync(ArgSlackApp, ArgEventInfo, ArgThreadTS)).Messages
+      : await ArgSlackApp.GetConversationMessagesAsync(ArgChannelID, ArgThreadTS));
 
     // concatenate all the messages in the thread into a single message.
     const ThreadText = ThreadMessages.reduce((ArgAccumulatedText, ArgCurrentMessage) => {

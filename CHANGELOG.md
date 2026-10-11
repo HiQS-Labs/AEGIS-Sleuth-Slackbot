@@ -33,6 +33,119 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.342 - 2026-10-11
+
+I no longer turn an ordinary question into a command just because my language model guessed it looked like one. A question about an uploaded file was being treated as an admin request for the rebalance reminders export; now I only act on a guess for commands that are marked safe for that, and everything else needs the command written out. One trade-off: a few everyday commands, like showing reminders, stats or `ping`, now need their usual wording or the exact command instead of loose phrasing.
+
+**Technical:** GH-233. Supersedes the 2026-07-16 "full takeover" decision for router active mode (GH-397). `RouterShadowModule.ResolveCandidateAsync` now carries the catalog entry's `CanExecuteWithIfl` onto the candidate (`null` when there is no entry or on error), and `ShouldExecute` additionally requires `canExecuteWithIfl === true`, so it fails closed. `ChatModule.#TryRouterActiveTakeoverAsync` logs `router active takeover skipped: '<intent>' needs a literal command (CanExecuteWithIfl false)` once when a confident candidate is refused, then falls through to the incumbent path. The flag already gated `rmm ifl`; this applies the same `data/static/ai/command-catalog.json` field (26 true, 36 false) to active takeover. Behavior change: the 22 non-admin commands with the flag false (including `show-me`, `show-stats`, `show-reminders`, `search-reminders` and `ping`) no longer run from model-resolved free text; their literal routes and aliases are unchanged, and permission checks stay in the handlers. `ARCHITECTURE.md` and two stale comments in `src/chat-module.js` are corrected. Tests: `tests/router-shadow.test.js` (floor, false/null/absent flag, tuned floor, flag carried from the catalog) and a new case in `tests/chat-module.integration.test.js` reproducing the dev misroute (a non-admin's file question resolved to `show-rebalance-reminders` at 0.98 is not executed, the admin check never runs, and the corpus records `executed: false`). Red control: the new assertions failed on the unfixed source at the tests-only commit (ded6095 after rebase).
+
+## 1.4.341 - 2026-10-10
+
+My built-in self-test on the dev server now also checks two more things people had to test by hand: that a file shared earlier in a thread is only downloaded once even when you ask me a second question, and that a file uploaded after I have already answered is never picked up. It also now confirms I never download a file that is too big to read. Nothing changes for anyone using me day to day; this only affects the dev self-test.
+
+**Technical:** GH-230 (follows GH-221 / PR #223; adds coverage for the T4, T5 and T6 gaps in the #222 live acceptance record; the #222 update is pending). New `src/selftest/scenarios/lookback-reuse.js` (T6: two mentions in one scenario root, canary quoted after each, `DownloadCount() === 1`) and `src/selftest/scenarios/lookback-later-upload.js` (T4 normal-ordering, post-hydration control: a file uploaded after the first answer is never quoted or downloaded; it does not reproduce the delayed-event race). `lookback-skip-bad.js` (T5) now also asserts the upload returned a tracked private URL and that `Fixture.DownloadCount()` is zero. `tests/selftest.test.js`: the mock-context run lists both new files and expects seven scenario lines plus the summary; the loader-contract test covers them unchanged. `docs/SSH.md`: the look-back scenario count in the self-QA note is no longer hard-coded. No runner, module, production or package-version change; the new assertions run only live, so their behavior must be proved in the post-merge dev run, not in Jest, and no negative control was executed.
+
+## 1.4.340 - 2026-10-10
+
+I now decide whether a message is a reminder, or a reply saying a reminder is done, in one place instead of five. The fixes for excitement that was not a commitment, "this week" past-time warnings, quoted text and done-plus-a-request replies all still hold, and each has a test row so it stays fixed. One small change: if you write "don't set a reminder", I skip the message without asking the model at all.
+
+**Technical:** GH-149 (part of the umbrella; whack-a-mole addendum 2026-10-10). New `src/reminder-judgement.js` with `JudgeReminderTextAsync(text, { Mode: auto|force|mention|strict })`. It owns, in order: completion detection on the raw reply (with the 6584d6f request guard injected into `DetectCompletionReply` at its old position), an `EXCLUSIONS` table (`quoted_only`, `opt_out`), the `DecideAsync` call and the direct-ask fallback, plus `IsPeriodOnlyTrigger`, `OwnWords`, `IsCreationOptOut` and `FORCE_FALLBACK_TRIGGER`. Rewired: `AnalyzeMessageForRemindersAsync` (`KeepQuotedText` became `Mode: 'force'`), the GH-205 date stage (the `while` loop became a single whole-UTC-day step), `#TryCompleteRemindersFromReplyAsync`, the `:mag:` discovery hint, the handler trigger gate, `ChatModule.IsReminderActionIntent` and both force-schedule fallbacks. Each swept regex (d07d643, 6e90bd8, cf9fe6d, 6584d6f) now has one home. New `data/static/ai/reminder-judgement-corpus.json` and `tests/reminder-judgement-corpus.test.js` run the #197/#201/#205/#211 cases through the one entry point with the model stubbed; the #205 row also runs the real date stage. `tests/reminders-fsm-invariants.test.js` ties each exclusion's `Pattern.toString()` to a recorded definition and a matching row. Behavior change: an explicit opt-out in auto mode no longer reaches the model.
+
+## 1.4.339 - 2026-10-10
+
+When someone talks to me in a thread, I now read that thread from Slack once and reuse it for everything I do with that message, instead of each feature fetching it again. In Product Compass channels I also notice a text file shared earlier in the thread, the same way I already do elsewhere.
+
+**Technical:** GH-225. New `src/thread-context-provider.js` (`GetThreadAsync`) memoises the in-flight `SlackApp.GetConversationMessagesAsync` promise for the lifetime of the inbound event object, so the hands-free dispatcher, the GH-219 earlier-file look-back, Compass and the chat context share one read; `#ReadThreadAsync` in `src/chat-module.js` is the single read-policy decision (`MaxPages: 5` with `Latest` for Compass-mapped channels, legacy single read elsewhere). Removed the inline `MaxPages` literal in `#RunCompassAsync` and the Compass exemption in `#FindEarlierThreadFilesAsync`; the reaction handlers keep their own single reads. The selftest `compass-budget` assertion and the GH-217 six-page stop canary are unchanged. New canary in `tests/product-compass.test.js` proves the non-Compass hands-free path dropped from two reads to one and goes back to two when the memo is bypassed. Known limitation, unchanged: non-Compass hands-free authorization still reads Slack's default first page only.
+
+## 1.4.338 - 2026-10-09
+
+I can now check my own health after a deployment by running a self-test in a designated channel. My setup instructions have also been updated to include the file permissions I need to read thread uploads.
+
+**Technical:** GH-221. Documented the `selftest` command and required Slack scopes. Added `### Post-deploy self-QA` to `docs/SSH.md` outlining the environment variable `SLEUTH_SELFTEST_CHANNEL` and restart steps. Added `files:read` and `files:write` to `docs/slack-app-setup.md` manifest and manual scope lists. Added pointer to self-QA in `docs/deployhq.md`. Tests in `tests/selftest.test.js`.
+
+## 1.4.337 - 2026-10-10
+
+I can now read a Markdown, text or JSON file that was uploaded earlier in a thread. Before, if someone shared a file and a later reply @mentioned me without re-attaching it, I only saw the message saying it was shared and not the contents.
+
+**Technical:** GH-219. When an @mention in a thread has no file of its own and the thread has no context memory yet, `#HandleAttachmentAsync` looks through the earlier thread messages for the newest text-like file (same `IsTextLikeContextFile` rules as before) and passes it to the existing `#TryStoreThreadMemoryFileAsync`, which now takes an optional files list. Size limit, HTML-error check and the thread memory store are unchanged. Earlier images, non-text files and oversized files are skipped silently, and an earlier file that cannot be downloaded never blocks the message or posts a rejection. Only messages strictly before the mention are candidates. Hydrating from an earlier file is not treated as an attachment on the current message, so registered commands and deterministic replies still route. The hands-free path reuses the thread it already read and Compass channels skip the look-back entirely, so the GH-217 five-read budget holds. A failed thread lookup falls back to normal handling. Tests in `tests/thread-earlier-file-lookback.test.js`.
+
+## 1.4.336 - 2026-10-08
+
+I use less space for Product Compass evidence. If a thread is too long for me to check whether automatic replies were stopped, I stay quiet; mention me directly for guidance on starting a new thread.
+
+**Technical:** GH-217 removes the unused duplicate passage from citation metadata and stops automatic Compass handling after the first incomplete bounded thread read. Complete thread context, citations and explicit-mention refusals retain their existing paths. The existing five-case Compass canary passes; reintroducing each defect separately fails its matching check (duplicate Passage or 11 reads instead of five). Build passes. No new suite, dependency, persistence or CI job. Codex plan review approved after its first record was rejected for rewriting the relay template; the append-only second round passed the driver. Codex final review approved after correcting the ledger plan pointer; an unrelated pre-existing triage diagnostic discrepancy was deferred. Full verification passed: 2,573 Jest tests and 116 Node tests, four existing Jest skips, build and FSM validation. Details and limits are in the GH-217 plan. #lessonslearned A partial thread cannot establish that automatic replies are still enabled when unread messages may contain a stop reaction.
+
+## 1.4.335 - 2026-10-07
+
+I can answer Product Compass release questions in channels your administrator has mapped to a team. Everyone in the channel can contribute, and follow-up questions retain the thread and uploaded document context. Answers include source excerpts and state when evidence is incomplete.
+
+**Technical:** GH-215 adds an opt-in concrete MCP workflow using existing WorkspaceAI model selection, shared 200 KiB document/thread context and native credential references. Team/product/release guards, bounded tool calls and provider cancellation fail closed. No additional ingestion, summarizer, persistence, dependencies or CI jobs. Activation requires credential provisioning and live scoped-retrieval acceptance; mocked canaries are not deployment proof. Remove the mapping and restart Sleuth to disable future queries; prior Slack disclosures remain.
+
+Review fixes before merge:
+
+- A clarifying answer that cites nothing is no longer rejected when a search returned unrelated passages.
+- A bracketed number that isn't a retrieved source ID, such as `[1.65]` for a release, is treated as prose rather than an invalid citation.
+- An invalid search query from the model now reports a retrieval failure. Before, it told the user their own question was too long.
+- A mapped hands-free thread longer than 5 pages now gets the "start a new thread" reply instead of no reply at all.
+- Thread paging keeps the parent message once instead of repeating it at the top of each page.
+
+## 1.4.334 - 2026-10-07
+
+Replying "done" to close a reminder is now more careful. A reply only closes reminders that are yours, meaning assigned to you or asked for by you, so a teammate's "fixed" in a busy thread no longer closes your reminder. If you mention me and it isn't yours, I'll say so and leave it open. And if your reply also asks for something, like "merged, now remind me to deploy it Monday", I handle the request instead of just closing the old reminder.
+
+**Technical:** Follow-ups to #202 from code review (GH-201).
+
+- `src/reminder-text-completion.js`: new `REQUEST_PATTERN` refuses a completion when the reply also asks for something anywhere in it (`remind`, `reminder`, `create`, `schedule`, `reschedule`, `snooze`, `cancel`, `delete`, `remove`, `give me`, `show`, `list`, `sort(ed) by`, `set up`, `can/could you`), reason `contains_request`. Previously "@Sleuth merged, now create a reminder to deploy it Monday" closed the old reminder and dropped the new one, and "@Sleuth give me my tasks sorted by priority" closed on "sorted".
+- `ResolveThreadReminderIDsAsync` now takes an ownership predicate and returns only reminders the replier owns, plus `NotOwnedCount`. The old narrowing ran only with 2+ reminders and only when the replier owned at least one, so anyone could close a single reminder, and a non-owner's reply closed all of them. The hand-rolled assignee check is gone.
+- `RemindersModule#TryCompleteRemindersFromReplyAsync` passes owner = `RemindersModule.IsAssignedTo` (which keeps the unassigned-falls-back-to-sender rule) or `OriginalSenderID`. A mention from a non-owner gets "That reminder isn't assigned to you, so I left it open"; a plain reply stays silent. The "already closed" post is now wrapped in try/catch like the other acknowledgements, so a Slack failure no longer surfaces as a handler error.
+- Tests: request-plus-done cases, single-reminder non-owner, original-thread requester/assignee/teammate, non-owner end-to-end, and a rejected "already closed" post.
+
+## 1.4.333 - 2026-10-07
+
+You can now close a reminder by just telling me. Reply in the reminder's thread with "@Sleuth I did this", "@Sleuth done", or simply "done" / "all done ✅", and I'll mark it complete, add a ✅ to your reply, and confirm in the thread — the same as reacting with ✅. I only do this when you clearly say it's finished: "not done yet", "will do it tomorrow", "almost done", or a question like "is this done?" leave the reminder open. If several people have reminders in one thread, your reply only closes yours.
+
+**Technical:** Previously the ✅ reaction (`reminders-reaction-handler.js`) was the only completion path. A threaded reply such as `@Sleuth AI v2 I did this` matched no reminder route in `RemindersAppMentionHandler.OnAppMentionAsync`, fell through to `ChatModule`, and got a generic "Thanks for the update!" plus a "Search the web for: I did this" button while the reminder stayed open.
+
+- New `src/reminder-text-completion.js` (deterministic, no LLM call): `DetectCompletionReply(text, mode)` and `ResolveThreadReminderIDsAsync(slackApp, event, pending)`.
+  - `mention` mode (bot @-mentioned): a completion phrase anywhere in a reply of ≤25 words.
+  - `strict` mode (plain thread reply): the whole reply must be a short (≤8 words) completion phrase, since people also chat in reminder threads.
+  - Both refuse negated/partial ("not done", "almost done"), future/conditional ("will do", "done by Friday", "when done"), question ("…?", "did you finish"), and command-lead ("show done tasks", "what's done") forms.
+  - Reminder resolution: `sleuth-ai-reminder-ids` metadata on the thread root (delivered reminder), falling back to pending reminders whose `OriginalThreadTs ?? OriginalMessageID` is the thread (scheduling-confirmation thread). With several candidates, narrows to reminders assigned to the replier.
+- `RemindersModule#TryCompleteRemindersFromReplyAsync` performs the same terminal `completed` transition (reason `terminal: text_completion (<mode>)`) and `#DeleteRemindersAsync(ids, 'completed')` as the ✅ reaction, so Slack Lists, CompletionStore and the event ledger see an ordinary completion. Acknowledges with a ✅ reaction on the reply and a one-line thread message; ack failures are non-fatal. A mention-mode completion on an already-closed reminder replies "already closed" instead of reaching chat.
+- Wiring: injected into `RemindersAppMentionHandler` as `TryCompleteRemindersFromReplyAsync` and checked first in `OnAppMentionAsync` (thread replies only); called in `RemindersModule#OnMessageAsync` for thread replies before the channel-enabled gate (the ✅ reaction is not gated on it either). Handler registration order is unchanged; non-completion replies route exactly as before.
+- FSM doc comment updated: `scheduled|overdue → completed` now also lists the text completion reply. `validate:fsm` passes.
+- Tests: `tests/reminder-text-completion.test.js` (77 cases — detector matrix for both modes, resolver shapes, and end-to-end through `RemindersModule` + `MockSlackApp`, including the reported "@Sleuth I did this" case, chatter that must not complete, per-assignee narrowing, and the already-closed reply).
+
+## 1.4.332 - 2026-10-06
+
+I now ignore anything inside quotation marks when deciding whether something is a task. If you paste a quote for someone to check, the time and sentences inside it no longer end up in a reminder. A message that is only a quote won't create one at all. The :alarm_clock: reaction still uses the whole message.
+
+**Technical:** Requested by Noel.
+
+- New `src/quoted-text.js` strips balanced straight, curly and guillemet double-quoted spans. Apostrophes, inch marks and unbalanced quotes are left alone.
+- Applied in `#GetSchedulingTriggerMatch` (the shared scheduling gate), `AnalyzeMessageForRemindersAsync` (so scheduling and the `:wrench:` triage see the same text) and `DetectDirectAskWithTimeTrigger`. A quote-only message returns `ignore` without a model call.
+- Force-schedule (`:alarm_clock:`) passes `KeepQuotedText: true` and is unchanged. The reminder blockquote still shows the original message.
+- Kill switch: `REMINDER_IGNORE_QUOTED_TEXT=off`. Documented in `AGENTS.md` section 12.
+- Tradeoff: a quoted task such as `remind @bob to "update the deck" tomorrow` now loses the quoted part. Slack blockquotes and code spans are not covered.
+- Tests: `tests/quoted-text-reminders.test.js`.
+
+## 1.4.331 - 2026-10-02
+
+When someone wrote "this week's checkpoints are…" I used to set the reminder for the next morning and add *"The requested time was in the past"*, even though nobody had asked for a time. "This week" now means tomorrow morning if it's Monday to Thursday, or a few hours from now if the week is already ending. And I only say a requested time was in the past when you actually gave one.
+
+**Technical:** GH-205. There were two separate causes, both now fixed.
+
+- **Prompt.** [`data/static/ai/date-extraction-instructions.md`](data/static/ai/date-extraction-instructions.md) had no `this week` rule, so the model applied the explicit-date 8 AM default to the BASE DATE itself. On prod, a message sent at 11:00 got 08:00 that morning. Added a `this week` / `end of week` / `EOW` rule (Mon–Thu: 8 AM the next day; Fri–Sun: BASE DATE + 3 h, matching `today`). Both 8 AM defaults now exclude a period-only phrase whose BASE-DATE 8 AM has already passed. Mixed phrases (`this week at 3 PM`) keep the existing composition rules, and explicit past times are still returned as-is.
+- **Warning.** `ExtractDateWithGptAsync` still rolls a past anchor forward 24 h. It now leaves `wasAdjustedForward` false when the whole trigger is a bare period (`RemindersAIPipeline.IsPeriodOnlyTrigger`, a whole-phrase match), because there was no requested time to call past. A bare period's anchor can be days old (for example, that Monday's 8 AM), so it keeps rolling forward a day at a time until it is no longer past. Without that, it would fire immediately with the warning hidden. A trailing `.` or `!` on the trigger still counts as a bare period. Triggers that name a clock time, a date or a time of day keep the warning, and the `yesterday` / `afternoon` behavior pinned by GH-94 is unchanged.
+
+Tests: [tests/reminders-ai-pipeline.test.js](tests/reminders-ai-pipeline.test.js). A past `This week` anchor rolls forward unflagged, and this test fails if the fix is reverted. Mixed `this week at 9 AM` / `on 1 Oct 2026` / `in the afternoon` still flag (red controls). A days-old `This week` anchor lands in the future, and this test fails if the roll-forward loop is removed. The whole-phrase matcher is covered both ways, and the prompt policy text is asserted.
+
+## 2026-10-02
+
+Agents can now read a Slack thread from its link, instead of working from a screenshot. Paste the permalink and the agent sees the whole conversation, including messages above and below the part that was cropped.
+
+**Technical:** Tooling only, no runtime change, so no version bump. New [`skills/read-slack/`](skills/read-slack/SKILL.md): `read-slack.sh` parses the permalink locally, then pipes a read-only Node script to the server over SSH. That script reads the live process's `SLEUTH_DATA_DIR`, takes the workspace's `LIVE_TOKEN` from `workspaces/<name>_workspace.json`, and calls Slack from the server, so the bot token never leaves the host. Only `conversations.replies` and `users.info` are allowed; it posts nothing and writes nothing. Hosts, secrets-file paths, and workspace names are passed in by the operator (`--host`, `--env-file`, `--workspace`) and never committed. `--sudo` covers a non-root login. Pointers added to `AGENTS.md` (Viewing Logs) and `ROUTER.md` (debugging table).
+
 ## 1.4.330 - 2026-09-16
 
 I used to treat "I'm so excited to show the site probably by end of day tomorrow" as a task and set a reminder for it. That's just someone looking forward to something, not a commitment — I now leave those alone. If you ping me to say you don't need a reminder, I also no longer reply as if you had asked me to create one.

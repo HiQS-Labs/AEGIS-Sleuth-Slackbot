@@ -300,8 +300,11 @@ parentheses is the row shown in that command's output.
    router mode is `shadow` or `active`, `RouterShadowModule` resolves the mention with a cheap
    model first. Model = `ROUTER_SHADOW_MODEL` env → else `DEFAULT_SHADOW_MODEL`
    (`gemini-3.1-flash-lite`). In `active`, if confidence ≥ `ROUTER_ACTIVE_CONFIDENCE_MIN`
-   (default 0.7) and it resolves a runnable canonical command, it **executes** (full takeover);
-   below threshold / error / needs-clarification it **falls back** to the incumbent resolver. In
+   (default 0.7) and it resolves a runnable canonical command whose catalog entry has
+   `CanExecuteWithIfl: true` (the same contract `rmm ifl` enforces, GH-233), it **executes**
+   (takeover); below threshold / error / needs-clarification, or a command whose flag is false or
+   unknown, it **falls back** to the incumbent resolver — those commands run only from their literal
+   route or alias. Permissions still belong to each handler, and an incumbent literal match always wins. In
    `shadow` it logs a corpus record with zero authority. `off` (the default) skips the tier
    entirely. Mode is in-memory, seeded at startup from `ROUTER_SHADOW_DEFAULT_MODE` and flipped
    live by the admin `router-mode` command. This tier is **independent** of the two below —
@@ -555,3 +558,9 @@ Use the test layers in this order:
 4. `@Sleuth AI run-tests` or `npm run slack:harness:post -- ...` only when you need real-workspace confirmation
 
 That ordering keeps live-workspace checks narrow and intentional, while the repeatable logic coverage stays in Jest where it belongs.
+
+### Product Compass knowledge queries (GH-215)
+
+Opt-in `PRODUCT_COMPASS_CHANNELS` grants connect the existing ChatModule command/fallback and hands-free paths to `src/chat-commands/ask-compass-command.js` and `src/product-compass.js`. The concrete MCP client discovers the fixed PC endpoint, constrains product/release IDs to the mapped team's catalog, retrieves passages/briefs/arcs, and asks WorkspaceAI to reason with them using the existing channel model. It never calls PC's answer synthesizer. PC owns RAG; Sleuth adds no corpus or conversation persistence.
+
+Thread context and uploaded files use ChatModule's existing assembly and the exported `MaxContextBytes` (200 KiB) from `context-file-classifier.js`. Only mapped queries opt into complete bounded replies pagination. Model JSON calls accept optional deadline/cancellation options through DecideAsync → WorkspaceAI → provider; other calls preserve defaults. Tokens are per-request native credential reads, and workspace JSON stores only team/channel grants and credential names. Setup, bounds, revocation and live acceptance are in `docs/web-api.md` → Product Compass channel grants.

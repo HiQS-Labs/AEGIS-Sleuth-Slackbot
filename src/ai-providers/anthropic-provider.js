@@ -79,9 +79,10 @@ class AnthropicProvider {
    * @param {string} ArgSystemInstructions
    * @param {object} ArgJsonSchemaObject Either the OpenAI `{name, strict, schema}` envelope or a bare JSON Schema.
    * @param {string} ArgModelName
+   * @param {{ signal?: AbortSignal, timeout?: number, maxRetries?: number }} [ArgRequestOptions] Optional request deadline.
    * @returns {Promise<object>}
    */
-  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName) {
+  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName, ArgRequestOptions = undefined) {
     const InnerSchema = AnthropicProvider.#ExtractInnerSchema(ArgJsonSchemaObject);
 
     // system is an array so we can attach cache_control and get a cache hit on repeated
@@ -92,7 +93,7 @@ class AnthropicProvider {
       system: [{ type: 'text', text: ArgSystemInstructions, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: ArgMessageText }],
       output_config: { format: { type: 'json_schema', schema: InnerSchema } },
-    }));
+    }), ArgRequestOptions);
 
     this.#WorkspaceStats.OutgoingGptMessageCount++;
     this.#WorkspaceStats.OutgoingGptMessageLength += ArgMessageText.length + ArgSystemInstructions.length;

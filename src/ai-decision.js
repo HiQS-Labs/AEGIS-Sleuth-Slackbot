@@ -37,6 +37,7 @@ const path = require('path');
  * wrong answer is cheap fails open to a permissive default, one whose wrong answer is expensive
  * fails closed to a restrictive default.
  * @typedef {Object} AiDecisionOptions
+ * @property {{signal?: AbortSignal, timeout?: number, maxRetries?: number}} [RequestOptions] Optional request deadline.
  * @property {any}    [Fallback] Value returned when the model errors or answers unusably. Null or
  * omitted rethrows instead, which is the right choice when the caller already handles the throw.
  * @property {{warn: Function}} [Logger] Logger used to record a fallback. Optional.
@@ -205,7 +206,9 @@ async function DecideAsync(ArgWorkspaceAI, ArgSpec, ArgInput, ArgOptions = {}) {
 
     // Only pass a model name when the spec pins one: WorkspaceAI applies its own default for the
     // 3-arg form, and passing `undefined` explicitly is not guaranteed to be the same thing.
-    Response = ArgSpec.ModelName
+    Response = ArgOptions.RequestOptions
+      ? await ArgWorkspaceAI.ProcessMessageWithJsonResponseAsync(InputText, Instructions, Schema, ArgSpec.ModelName, ArgOptions.RequestOptions)
+      : ArgSpec.ModelName
       ? await ArgWorkspaceAI.ProcessMessageWithJsonResponseAsync(
         InputText, Instructions, Schema, ArgSpec.ModelName,
       )

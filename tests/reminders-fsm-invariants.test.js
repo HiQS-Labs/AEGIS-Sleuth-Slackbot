@@ -413,3 +413,36 @@ describe('completion capture to the Sleuth completion store', () => {
     SaveSpy.mockRestore();
   });
 });
+
+// GH-149: every deterministic reminder exclusion is bound to a corpus row. Widening an exclusion's
+// pattern (source or flags), adding an entry, or reusing a reason under a new Id fails here until
+// data/static/ai/reminder-judgement-corpus.json records the definition and a matching example row.
+describe('reminder judgement exclusions are corpus-bound (GH-149)', () => {
+  const ReminderJudgement = require('../src/reminder-judgement');
+  const Corpus = require('../data/static/ai/reminder-judgement-corpus.json');
+
+  test('exclusion ids are unique', () => {
+    const Ids = ReminderJudgement.EXCLUSIONS.map(ArgEntry => ArgEntry.Id);
+    expect(new Set(Ids).size).toBe(Ids.length);
+  });
+
+  test.each(ReminderJudgement.EXCLUSIONS.map(ArgEntry => [ArgEntry.Id, ArgEntry]))(
+    'exclusion %s has a recorded definition and a matching corpus row', (ArgId, ArgEntry) => {
+      expect(Corpus.Definitions[ArgId]).toBe(ArgEntry.Pattern.toString());
+      const Rows = Corpus.Rows.filter(ArgRow => ArgRow.Expect.Exclusion === ArgId);
+      expect(Rows.length).toBeGreaterThan(0);
+      const Probe = ArgEntry.Input === 'normalized' ? ReminderJudgement.NormalizeIntentText : ReminderJudgement.OwnWords;
+      expect(Rows.some(ArgRow => ArgEntry.Pattern.test(Probe(ArgRow.Text)))).toBe(true);
+    });
+
+  test('every recorded definition is a live exclusion', () => {
+    const Live = new Set(ReminderJudgement.EXCLUSIONS.map(ArgEntry => ArgEntry.Id));
+    for(const Id of Object.keys(Corpus.Definitions)) expect(Live.has(Id)).toBe(true);
+  });
+
+  test('every reason token has a corpus row and every corpus reason is known', () => {
+    const Seen = new Set(Corpus.Rows.map(ArgRow => ArgRow.Expect.Reason));
+    for(const Reason of ReminderJudgement.REASONS) expect(Seen.has(Reason)).toBe(true);
+    for(const Reason of Seen) expect(ReminderJudgement.REASONS).toContain(Reason);
+  });
+});

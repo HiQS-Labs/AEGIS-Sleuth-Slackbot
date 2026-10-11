@@ -106,9 +106,10 @@ class OpenAIProvider {
    * @param {string} ArgSystemInstructions
    * @param {ResponseSchema} ArgJsonSchemaObject
    * @param {string} ArgModelName
+   * @param {{ signal?: AbortSignal, timeout?: number, maxRetries?: number }} [ArgRequestOptions] Optional request deadline.
    * @returns {Promise<object>}
    */
-  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName) {
+  async ProcessMessageWithJsonResponseAsync(ArgMessageText, ArgSystemInstructions, ArgJsonSchemaObject, ArgModelName, ArgRequestOptions = undefined) {
     const ModelConfig = GetModelConfig(ArgModelName);
     const RequestPayload = {
       model: ArgModelName,
@@ -128,13 +129,18 @@ class OpenAIProvider {
 
     let CompletionResponse;
     try {
-      CompletionResponse = await this.#OpenAI.chat.completions.create(/** @type {any} */ (RequestPayload));
+      CompletionResponse = ArgRequestOptions
+        ? await this.#OpenAI.chat.completions.create(/** @type {any} */ (RequestPayload), ArgRequestOptions)
+        : await this.#OpenAI.chat.completions.create(/** @type {any} */ (RequestPayload));
     } catch(error) {
-      if(ModelConfig.temperature === 1 || !IsTemperatureUnsupportedError(error)) throw error;
-      CompletionResponse = await this.#OpenAI.chat.completions.create({
+      if(ArgRequestOptions?.signal?.aborted || ModelConfig.temperature === 1 || !IsTemperatureUnsupportedError(error)) throw error;
+      const RetryPayload = {
         .../** @type {any} */ (RequestPayload),
         temperature: 1,
-      });
+      };
+      CompletionResponse = ArgRequestOptions
+        ? await this.#OpenAI.chat.completions.create(RetryPayload, ArgRequestOptions)
+        : await this.#OpenAI.chat.completions.create(RetryPayload);
     }
 
     this.#WorkspaceStats.OutgoingGptMessageCount++;
