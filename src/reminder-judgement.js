@@ -33,22 +33,33 @@ const CREATION_OPT_OUT_PATTERN =
   /\b(?:don'?t|do not)(?:\s+(?:need|want)\s+to)?\s+(?:make|create|set|add|schedule)\s+(?:a\s+)?reminder(?:s)?\b/;
 
 /**
+ * Past participles the completion detector accepts as "the work is done" (the single-word half of
+ * COMPLETION_CORE in reminder-text-completion.js). "get it shipped" asks for the work; "shipped"
+ * alone reports it. Keep in step with COMPLETION_CORE. GH-239.
+ */
+const WORK_RESULT =
+  '(?:done|completed?|finished|fixed|shipped|resolved|closed|delivered|submitted|deployed|merged|handled|wrapped\\s+up|sorted|sent)';
+
+/**
  * A request anywhere in a completion reply. "@Sleuth merged, now create a reminder to deploy it
  * Monday" carries a done-word but asks for something else; completing would close the reminder AND
  * drop the request. Not "please": "please mark it done" is a completion. From 6584d6f.
- * GH-239: asking for the work itself ("please get this done", "need it done", "make sure") is a
+ * GH-239: asking for the work itself ("please get this done", "need it merged", "make sure") is a
  * request too; completing it deleted the reminder the sender was asking about. "have ... done" is a
  * request only as an imperative (IMPERATIVE_HAVE_PATTERN): "I have it done" is a completion.
  */
-const REQUEST_PATTERN =
-  /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you|(?:get|need|want)\s+(?:this|it|that|them)\s+done|make\s+sure)\b/i;
+const REQUEST_PATTERN = new RegExp(
+  '\\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\\s+me|show|list|' +
+  'sort(?:ed)?\\s+by|set\\s+up|can\\s+you|could\\s+you|make\\s+sure|' +
+  '(?:get|need|want)\\s+(?:this|it|that|them)\\s+' + WORK_RESULT + ')\\b', 'i');
 
 /**
  * An imperative "have it done" at the start of the reply, optionally after please/pls/kindly
  * ("please have it done", "have this done please"). A subject in front ("I have it done") is a
  * completion, so this is anchored rather than folded into REQUEST_PATTERN. GH-239.
  */
-const IMPERATIVE_HAVE_PATTERN = /^(?:(?:please|pls|kindly)\s+)?have\s+(?:this|it|that|them)\s+done\b/i;
+const IMPERATIVE_HAVE_PATTERN =
+  new RegExp('^(?:(?:please|pls|kindly)\\s+)?have\\s+(?:this|it|that|them)\\s+' + WORK_RESULT + '\\b', 'i');
 
 /**
  * A bare period ("this week", "by end of the week", "EOW", "this sprint") with no day, date or time.

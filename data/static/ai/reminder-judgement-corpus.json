@@ -183,6 +183,30 @@
       "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
     },
     {
+      "Id": "gh239-mention-get-it-shipped-is-a-request",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> please get it shipped",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh239-mention-need-it-merged-is-a-request",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> need it merged",
+      "Model": null,
+      "Expect": { "Verdict": "ignore", "Reason": "not_completion", "Detail": "contains_request" }
+    },
+    {
+      "Id": "gh239-mention-declarative-shipped-completes",
+      "Issue": 239,
+      "Mode": "mention",
+      "Text": "<@U0SLEUTH> shipped it this morning",
+      "Model": null,
+      "Expect": { "Verdict": "complete", "Reason": "completion" }
+    },
+    {
       "Id": "gh239-mention-declarative-have-it-done-completes",
       "Issue": 239,
       "Mode": "mention",
