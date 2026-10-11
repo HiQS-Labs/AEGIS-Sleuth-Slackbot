@@ -1815,8 +1815,12 @@ class RemindersModule {
 
     // analyze the message for reminders.
     // quoted text is ignored, except for force-schedule (:alarm_clock:), which is explicit intent.
+    // GH-239: an enriched reply carries earlier thread messages; opt-outs are judged on the live reply.
     let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(
-      ArgMessageText, { Mode: ArgForceSchedule ? 'force' : 'auto' }
+      ArgMessageText, {
+        Mode: ArgForceSchedule ? 'force' : 'auto',
+        LiveText: ArgUsedEnrichedThreadContext && ArgLiveReplyText ? ArgLiveReplyText : undefined,
+      }
     );
     ArgSlackApp.Logger.info(`reminder analysis result:`, AnalysisResult.recommendation);
 

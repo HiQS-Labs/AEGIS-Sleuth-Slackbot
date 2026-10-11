@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.345 - 2026-10-11
+
+Two reminder fixes before they reach production. If you ask me in a reminder's thread to "please get this done", I no longer treat that as the task being finished and close the reminder. And if someone said "don't set a reminder" earlier in a thread, a later "I'll work on it tomorrow" in that thread can still become a reminder.
+
+**Technical:** GH-239 (found by Greptile on release PR #238; both regressions arrived in 1.4.329–1.4.344, never on production). `REQUEST_PATTERN` in `src/reminder-judgement.js` now also matches requests for the work itself (`get|have|need|want this|it|that|them done`, `make sure`), so `DetectCompletionReply`'s request guard returns `contains_request`; explicit completions (`done`, `mark this done`, `merged`, `all done ✅`) still complete. The `opt_out` exclusion gains `LiveOnly: true`: `JudgeReminderTextAsync` takes an optional `LiveText`, and `LiveOnly` exclusions test the live reply's own words instead of the joined thread context; `RemindersAIPipeline.AnalyzeMessageForRemindersAsync` passes it through and `RemindersModule` supplies the live reply for enriched thread replies. The model still reads the whole context. Four corpus rows in `data/static/ai/reminder-judgement-corpus.json` (two bug rows, two controls); `tests/reminder-judgement-corpus.test.js` passes `LiveText`. Red control: the two bug rows failed on the unfixed source (commit 1ff7bad).
+
 ## 1.4.344 - 2026-10-11
 
 The library I use to send admin emails is updated to a version that closes several security holes. It needs a newer Node.js, so I now require Node 20 or later; a server still on Node 18 must be upgraded before it gets this release.

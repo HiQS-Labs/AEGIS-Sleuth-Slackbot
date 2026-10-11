@@ -36,9 +36,11 @@ const CREATION_OPT_OUT_PATTERN =
  * A request anywhere in a completion reply. "@Sleuth merged, now create a reminder to deploy it
  * Monday" carries a done-word but asks for something else; completing would close the reminder AND
  * drop the request. Not "please": "please mark it done" is a completion. From 6584d6f.
+ * GH-239: asking for the work itself ("please get this done", "need it done", "make sure") is a
+ * request too; completing it deleted the reminder the sender was asking about.
  */
 const REQUEST_PATTERN =
-  /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you)\b/i;
+  /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you|(?:get|have|need|want)\s+(?:this|it|that|them)\s+done|make\s+sure)\b/i;
 
 /**
  * A bare period ("this week", "by end of the week", "EOW", "this sprint") with no day, date or time.
@@ -60,10 +62,13 @@ const DIRECT_ASK_NEGATION_PATTERN =
  * `Input`: 'quote_removed' tests the own words only when quote-stripping removed something (an empty
  * message with no quotes still reaches the model, as it always has); 'normalized' tests
  * NormalizeIntentText(own words).
+ * `LiveOnly`: when the caller passes `LiveText` (an enriched thread reply), test the live reply's own
+ * words instead of the joined thread context, so an earlier opt-out cannot veto a later commitment
+ * (GH-239). The model still reads the whole context.
  */
 const EXCLUSIONS = Object.freeze([
-  Object.freeze({ Id: 'quoted_only', Reason: 'quoted_only', Modes: Object.freeze(['auto']), Input: 'quote_removed', Pattern: /^\s*$/ }),
-  Object.freeze({ Id: 'opt_out', Reason: 'opt_out', Modes: Object.freeze(['auto']), Input: 'normalized', Pattern: CREATION_OPT_OUT_PATTERN }),
+  Object.freeze({ Id: 'quoted_only', Reason: 'quoted_only', Modes: Object.freeze(['auto']), Input: 'quote_removed', LiveOnly: false, Pattern: /^\s*$/ }),
+  Object.freeze({ Id: 'opt_out', Reason: 'opt_out', Modes: Object.freeze(['auto']), Input: 'normalized', LiveOnly: true, Pattern: CREATION_OPT_OUT_PATTERN }),
 ]);
 
 /** Reason tokens emitted after the exclusions. */
@@ -168,10 +173,11 @@ const EXCLUSION_RATIONALES = Object.freeze({
 /**
  * Judge one message.
  * @param {string} ArgText Message text.
- * @param {{Mode?: 'auto'|'force'|'mention'|'strict', WorkspaceAI?: any, DecisionSpec?: any, Capture?: any, Logger?: any}} [ArgOptions]
+ * @param {{Mode?: 'auto'|'force'|'mention'|'strict', WorkspaceAI?: any, DecisionSpec?: any, Capture?: any, Logger?: any, LiveText?: string}} [ArgOptions]
  *   auto: scheduling, quoted text and opt-outs excluded before the model. force: scheduling for an
  *   explicit :alarm_clock: — the whole message goes to the model, no pre-model exclusions.
  *   mention / strict: completion detection on the raw reply, no model call.
+ *   LiveText: the live reply when ArgText is enriched thread context; `LiveOnly` exclusions read it.
  * @returns {Promise<ReminderJudgement>}
  */
 async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
@@ -197,7 +203,8 @@ async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
   for(const Entry of EXCLUSIONS) {
     if(!Entry.Modes.includes(Mode)) continue;
     if(Entry.Input === 'quote_removed' && Own === Text) continue;
-    const Input = Entry.Input === 'normalized' ? NormalizeIntentText(Own) : Own;
+    const EntryOwn = Entry.LiveOnly && typeof ArgOptions.LiveText === 'string' ? OwnWords(ArgOptions.LiveText) : Own;
+    const Input = Entry.Input === 'normalized' ? NormalizeIntentText(EntryOwn) : EntryOwn;
     if(Entry.Pattern.test(Input)) {
       return {
         Verdict: 'ignore',
