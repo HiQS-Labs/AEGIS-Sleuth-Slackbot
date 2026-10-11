@@ -1,8 +1,8 @@
 ---
 title: "GH-233: active-mode router takeover must honor the catalog's CanExecuteWithIfl flag"
-status: Working (2-WORKING)
+status: Complete
 created: 2026-10-10
-updated: 2026-10-10
+updated: 2026-10-11
 owner: noel
 branch: fix/gh-233-router-active-deny-list
 doc_type: bugfix
