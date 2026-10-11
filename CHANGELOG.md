@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.343 - 2026-10-11
+
+Nothing changes for anyone using me. Two of my router tests could fail at random on a busy machine because they read a log file before I had finished writing it; they now wait for the entry.
+
+**Technical:** Follow-up to GH-233 / PR #235. In `tests/chat-module.integration.test.js` (`router-mode (GH-397)`), `ChatModule.#TryRouterActiveTakeoverAsync` appends the router corpus record without awaiting it, so the GH-233 test and the GH-174 deferral test raced the append; the GH-233 test failed once under a full parallel `npm test` (`Cannot read properties of undefined (reading 'executed')`). New `ReadShadowRecordsAsync(predicate)` polls the corpus file (20 ms steps, 2 s cap) until the wanted record exists; both reads use it. Red control: with a temporary 300 ms delay injected into `RouterShadowModule.AppendRecordAsync`, the old reads fail both tests and the new reads pass them. The describe comment no longer says "full takeover". Test-only; no production change.
+
 ## 1.4.342 - 2026-10-11
 
 I no longer turn an ordinary question into a command just because my language model guessed it looked like one. A question about an uploaded file was being treated as an admin request for the rebalance reminders export; now I only act on a guess for commands that are marked safe for that, and everything else needs the command written out. One trade-off: a few everyday commands, like showing reminders, stats or `ping`, now need their usual wording or the exact command instead of loose phrasing.
