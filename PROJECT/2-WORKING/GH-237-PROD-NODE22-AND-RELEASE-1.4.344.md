@@ -55,7 +55,7 @@ Phase A changes only the runtime, on the release production already runs. If it 
 ```bash
 health() {  # exit 0 only when the running process answers with real data for neochrome
   local t; t=$(grep -E '^WEB_API_BEARER_TOKEN=' /root/sleuth-app-v3/.env.runtime | cut -d= -f2-)
-  curl -s -H "Authorization: Bearer $t" http://127.0.0.1:2020/workspace/neochrome/stats \
+  curl -s --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $t" http://127.0.0.1:2020/workspace/neochrome/stats \
     | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{const j=JSON.parse(b);process.exit(j.success===true&&j.data&&j.data.IncomingMessageCount>0?0:1)})'
 }
 ```
@@ -72,6 +72,7 @@ A1. Rollback kit, no service impact:
 set -euo pipefail; K=/root/node18-rollback; mkdir -p $K
 cp /var/cache/apt/archives/nodejs_18.20.6-1nodesource1_amd64.deb $K/
 dpkg-deb -f $K/nodejs_18.20.6-1nodesource1_amd64.deb Version Architecture   # must print 18.20.6-1nodesource1 / amd64
+ls -1 /etc/apt/preferences.d /etc/apt/sources.list.d > $K/apt-listing-before.txt   # prior presence (production: preferences.d has only nodejs)
 tar czf $K/apt-node18.tgz -C / etc/apt/sources.list.d etc/apt/preferences.d usr/share/keyrings/nodesource.gpg
 tar czf $K/node_modules-node18.tgz -C /root/sleuth-app-v3 node_modules
 tar tzf $K/apt-node18.tgz >/dev/null && tar tzf $K/node_modules-node18.tgz >/dev/null
@@ -85,7 +86,8 @@ A3. Swap the runtime (downtime starts; one fail-fast script):
 ```bash
 set -euo pipefail; K=/root/node18-rollback; D=/var/lib/aegis-sleuth
 systemctl stop sleuth-app
-tar czf $K/aegis-sleuth-data-quiescent-$(date -u +%Y%m%dT%H%M%SZ).tgz -C /var/lib aegis-sleuth   # quiescent snapshot (S3)
+tar czf $K/aegis-sleuth-data-quiescent-A.tgz -C /var/lib aegis-sleuth   # quiescent snapshot (S3)
+tar tzf $K/aegis-sleuth-data-quiescent-A.tgz | grep -q '^aegis-sleuth/workspaces/neochrome_workspace.json$'
 apt-get install -y nodejs
 /usr/bin/node -v | grep -q '^v22\.'
 cd /root/sleuth-app-v3 && npm ci --omit=dev
@@ -100,7 +102,7 @@ Rollback A (A3 or A4 failed), one fail-fast script:
 ```bash
 set -euo pipefail; K=/root/node18-rollback
 systemctl stop sleuth-app || true
-rm -f /etc/apt/sources.list.d/nodesource.* /etc/apt/preferences.d/nodejs
+rm -f /etc/apt/sources.list.d/nodesource.* /etc/apt/preferences.d/nodejs /etc/apt/preferences.d/nsolid   # installer-written files (setup_22.x writes both pins)
 tar xzf $K/apt-node18.tgz -C /
 apt-get update
 apt-get install -y --allow-downgrades $K/nodejs_18.20.6-1nodesource1_amd64.deb
@@ -133,23 +135,26 @@ C1. Release commit on `development`, same as earlier releases (`release: 1.4.328
 
 C2. Release PR `development` -> `main` titled `Release 1.4.344: ...`, #193 format. User-visible changes, all on by default (plan QA S7): multi-task delivery (1.4.329); excitement is not a commitment (1.4.330); "this week" past-time handling (1.4.331); quoted text excluded from reminders by default, so a quoted task loses its quoted part, rollback switch `REMINDER_IGNORE_QUOTED_TEXT=off` (1.4.332); owner-scoped completion by thread reply, "done" completes the reminder (1.4.333-1.4.334); earlier-file reading in a thread (1.4.337); single thread read per event (1.4.339); one reminder judgement path, and an explicit "don't set a reminder" skips the model (1.4.340); router active takeover requires `CanExecuteWithIfl`, so 22 non-admin commands such as `show-me`, `show-stats`, `show-reminders` and `ping` need their usual wording (1.4.342); nodemailer 10 and Node >= 20 (1.4.344). Inert on production: selftest and Compass (C0). Wait for the required `test` check, then `gh pr merge --merge` (as #193).
 
-C3. Snapshot data right before the deploy (`tar czf $K/aegis-sleuth-data-pre-1.4.344-<ts>.tgz -C /var/lib aegis-sleuth`; not quiescent, the A3 snapshot is the quiescent one). Deploy: `dhq deploy -p aegis-sleuth-slackbot -s Production -b main -r <main merge SHA> --wait`. Verify the step list includes the build commands (SOP §3.4) and the guard step. Immediately record the rollback delta with `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --dry-run` (plan QA S4): it must list `src/chat-module.js` and `package.json` among the changes.
+C3. Before deploying (plan QA R2-S4), preview the rollback with the explicit reverse range: `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --dry-run`. Gate: the preview lists `src/chat-module.js` and `package.json`, and either lists files added since 4f0ca42 as deletions or the fallback deletion list (`git diff --name-only --diff-filter=A 4f0ca42 <merge SHA>`) is saved to the plan. If the preview cannot be produced, stop before deploying.
 
-C4. Verify at start and after 15 minutes: `/root/sleuth-app-v3/CHANGELOG.md` top entry `1.4.344`; sha256 of `src/app.js`, `src/chat-module.js`, `src/router-shadow-module.js`, `package.json` equal to `main`; `node_modules/nodemailer/package.json` version 10.0.9; service active on Node 22, `NRestarts` unchanged since start; `health` exits 0 with `IncomingMessageCount` at or above the A4 value; journal checks scoped to the new PID; router mode `active` for `neochrome` in the startup log.
+Then the quiescent pre-release snapshot (plan QA R2-S3): `systemctl stop sleuth-app; tar czf $K/aegis-sleuth-data-quiescent-C.tgz -C /var/lib aegis-sleuth; tar tzf ... | grep -q neochrome_workspace.json` — and immediately deploy (the guard runs, the pre-upload stop is a no-op, `deploy.sh` starts the service): `dhq deploy -p aegis-sleuth-slackbot -s Production -b main -r <main merge SHA> --wait`. This adds the build-gate time (about 5 minutes on 2026-08-27) to the downtime, accepted for a Sunday release; if the deploy does not start within 2 minutes, `systemctl start sleuth-app` and stop the task. Verify the step list includes the build commands (SOP §3.4) and the guard step.
+
+C4. Verify at start and after 15 minutes: `/root/sleuth-app-v3/CHANGELOG.md` top entry `1.4.344`; sha256 of `src/app.js`, `src/chat-module.js`, `src/router-shadow-module.js`, `package.json` equal to `main`; `node_modules/nodemailer/package.json` version 10.0.9; service active on Node 22, `NRestarts` unchanged since start; `health` exits 0 with `IncomingMessageCount` at or above the A4 value; journal checks scoped to the new PID; router mode `active` for `neochrome` in the startup log; every JSON file under `/var/lib/aegis-sleuth/workspaces` and `/var/lib/aegis-sleuth/reminders` still parses (`node -e` over the directory listing, read-only) and the reminder file count equals the C snapshot's.
 
 Rollback C (code), one sequence:
-1. `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --wait` — an explicit reverse range, so it works even when the failed deploy left 4f0ca42 as the last successful revision. Its `npm ci` reinstalls the 1.4.328 lockfile on Node 22, already proven in A. Verify with C4's hash check against 4f0ca42.
+1. `dhq deploy -p aegis-sleuth-slackbot -s Production -b main --start-revision <main merge SHA> -r 4f0ca42 --wait` — an explicit reverse range, so it works even when the failed deploy left 4f0ca42 as the last successful revision. Its `npm ci` reinstalls the 1.4.328 lockfile on Node 22, already proven in A. Verify with C4's hash check against 4f0ca42 and the full C4 health checks (service, `health`, journal, JSON parse).
 2. If DeployHQ cannot run it, fall back to `--full -r 4f0ca42`, then remove files added after 4f0ca42 (`git diff --name-only --diff-filter=A 4f0ca42 <merge SHA>`), since a full upload does not delete them.
 
 Data recovery (only if a data problem is found; not part of a normal rollback because the release changes no data format):
 ```bash
-set -euo pipefail; K=/root/node18-rollback; T=$(date -u +%Y%m%dT%H%M%SZ)
+set -euo pipefail; K=/root/node18-rollback; T=$(date -u +%Y%m%dT%H%M%SZ); S=$K/<chosen snapshot>.tgz
+tar tzf $S | grep -q '^aegis-sleuth/workspaces/neochrome_workspace.json$'   # validate before touching live data
 systemctl stop sleuth-app
 mv /var/lib/aegis-sleuth /var/lib/aegis-sleuth.failed-$T          # keep the current state, including later work
-mkdir /var/lib/aegis-sleuth && tar xzf $K/<chosen snapshot>.tgz -C /var/lib     # -p keeps ownership as root
-systemctl start sleuth-app
+tar xzpf $S -C /var/lib     # recreates /var/lib/aegis-sleuth with the snapshot's ownership
+systemctl start sleuth-app   # then run the C4 health checks
 ```
-Restoring a snapshot loses reminders created or completed after it; the `.failed-$T` copy keeps them for manual reconciliation, and the operator chooses before a restore.
+Snapshots are quiescent (A3 and C3, both taken with the service stopped). Restoring one loses reminders created or completed after it; the `.failed-$T` copy keeps them for manual reconciliation, and the operator chooses before a restore.
 ## Alternatives rejected
 
 - Upgrade Node inside the release deploy (one step): a failure could not be told apart from a code regression, and rollback would need two changes at once.
@@ -171,3 +176,4 @@ Rated 75/60/50/70 (priority/severity/appeal/effort-cheapness). Severity 60: prod
 ## Progress log
 - 2026-10-11: #237 filed after #204 merged; clone off origin/development dd3d6c1; captured, rated 75/60/50/70, promoted; read-only production recon; runbook drafted. Operator requested the upgrade, then promotion, deploy monitoring and a production check, in this session. Plan QA next.
 - 2026-10-11: Codex plan QA round 1 FAIL (S1 health check, S2 fail-fast, S3 quiescent data snapshot and recovery, S4 reverse-range rollback, S5 NodeSource apt config rollback, S6 Compass presence from workspace files, S7 full user-visible release summary; Nit native inventory). All accepted and folded in; C0 Compass/selftest presence check run read-only (absent in all five workspaces); authenticated stats endpoint confirmed (`success: true`). Round 2 next.
+- 2026-10-11: Codex plan QA round 2 FAIL (R2-S3 quiescent, validated release snapshot and JSON acceptance; R2-S4 reverse-range preview before the deploy and health checks after a rollback; Nit installer `nsolid` pin; optional curl timeouts). All accepted and folded in. Round 3 (last) next.
