@@ -1,6 +1,6 @@
 ---
 title: "GH-237: production Node 18 -> 22, DeployHQ Node guard, then release 1.4.345 to production"
-status: Active (2-WORKING)
+status: Complete
 created: 2026-10-11
 updated: 2026-10-11
 owner: noel
