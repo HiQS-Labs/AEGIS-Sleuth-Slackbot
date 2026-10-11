@@ -114,6 +114,20 @@ describe('RemindersAIPipeline — quoted text never reaches the analyzer', () =>
     expect(AI.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toBe('go "to the races" tomorrow');
   });
 
+  // GH-239: an enriched reply's earlier opt-out must not veto the live commitment, on both doors.
+  test('LiveText reaches the judgement from scheduling and from :wrench: triage', async () => {
+    const Enriched = "Review the deck; don't set a reminder yet\nI'll work on it tomorrow";
+    const Scheduled = await Pipeline.AnalyzeMessageForRemindersAsync(Enriched, { LiveText: "I'll work on it tomorrow" });
+    expect(Scheduled.recommendation).toBe('schedule');
+    expect(AI.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toBe(Enriched);
+    const Triage = await Pipeline.GetReminderTriageAsync(Enriched, { LiveText: "I'll work on it tomorrow" });
+    expect(Triage.analysis.recommendation).toBe('schedule');
+    // CONTROL: without LiveText the whole context is judged, as before, and the opt-out applies.
+    AI.ProcessMessageWithJsonResponseAsync.mockClear();
+    expect((await Pipeline.AnalyzeMessageForRemindersAsync(Enriched)).recommendation).toBe('ignore');
+    expect(AI.ProcessMessageWithJsonResponseAsync).not.toHaveBeenCalled();
+  });
+
   test('an unquoted message is passed through byte-for-byte', async () => {
     await Pipeline.AnalyzeMessageForRemindersAsync("I'll deploy the hotfix tomorrow morning");
     expect(AI.ProcessMessageWithJsonResponseAsync.mock.calls[0][0]).toBe("I'll deploy the hotfix tomorrow morning");

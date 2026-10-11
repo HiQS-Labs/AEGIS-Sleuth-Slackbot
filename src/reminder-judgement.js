@@ -33,12 +33,34 @@ const CREATION_OPT_OUT_PATTERN =
   /\b(?:don'?t|do not)(?:\s+(?:need|want)\s+to)?\s+(?:make|create|set|add|schedule)\s+(?:a\s+)?reminder(?:s)?\b/;
 
 /**
+ * Past participles the completion detector accepts as "the work is done" (the single-word half of
+ * COMPLETION_CORE in reminder-text-completion.js). "get it shipped" asks for the work; "shipped"
+ * alone reports it. Keep in step with COMPLETION_CORE. GH-239.
+ */
+const WORK_RESULT =
+  '(?:done|completed?|finished|fixed|shipped|resolved|closed|delivered|submitted|deployed|merged|handled|wrapped\\s+up|sorted|sent)';
+
+/**
  * A request anywhere in a completion reply. "@Sleuth merged, now create a reminder to deploy it
  * Monday" carries a done-word but asks for something else; completing would close the reminder AND
  * drop the request. Not "please": "please mark it done" is a completion. From 6584d6f.
+ * GH-239: asking for the work itself ("please get this done", "need it merged", "make sure") is a
+ * request too; completing it deleted the reminder the sender was asking about. A past-tense report
+ * ("I did get it shipped", "managed to get it merged") is still a completion. "have ... done" is a
+ * request only as an imperative (IMPERATIVE_HAVE_PATTERN): "I have it done" is a completion.
  */
-const REQUEST_PATTERN =
-  /\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\s+me|show|list|sort(?:ed)?\s+by|set\s+up|can\s+you|could\s+you)\b/i;
+const REQUEST_PATTERN = new RegExp(
+  '\\b(?:remind|reminders?|create|schedule|reschedule|snooze|cancel|delete|remove|give\\s+me|show|list|' +
+  'sort(?:ed)?\\s+by|set\\s+up|can\\s+you|could\\s+you|make\\s+sure|' +
+  '(?<!\\b(?:did|managed\\s+to|finally)\\s+)(?:get|need|want)\\s+(?:this|it|that|them)\\s+' + WORK_RESULT + ')\\b', 'i');
+
+/**
+ * An imperative "have it done" at the start of the reply, optionally after please/pls/kindly
+ * ("please have it done", "have this done please"). A subject in front ("I have it done") is a
+ * completion, so this is anchored rather than folded into REQUEST_PATTERN. GH-239.
+ */
+const IMPERATIVE_HAVE_PATTERN =
+  new RegExp('^(?:(?:please|pls|kindly)\\s+)?have\\s+(?:this|it|that|them)\\s+' + WORK_RESULT + '\\b', 'i');
 
 /**
  * A bare period ("this week", "by end of the week", "EOW", "this sprint") with no day, date or time.
@@ -60,10 +82,13 @@ const DIRECT_ASK_NEGATION_PATTERN =
  * `Input`: 'quote_removed' tests the own words only when quote-stripping removed something (an empty
  * message with no quotes still reaches the model, as it always has); 'normalized' tests
  * NormalizeIntentText(own words).
+ * `LiveOnly`: when the caller passes `LiveText` (an enriched thread reply), test the live reply's own
+ * words instead of the joined thread context, so an earlier opt-out cannot veto a later commitment
+ * (GH-239). The model still reads the whole context.
  */
 const EXCLUSIONS = Object.freeze([
-  Object.freeze({ Id: 'quoted_only', Reason: 'quoted_only', Modes: Object.freeze(['auto']), Input: 'quote_removed', Pattern: /^\s*$/ }),
-  Object.freeze({ Id: 'opt_out', Reason: 'opt_out', Modes: Object.freeze(['auto']), Input: 'normalized', Pattern: CREATION_OPT_OUT_PATTERN }),
+  Object.freeze({ Id: 'quoted_only', Reason: 'quoted_only', Modes: Object.freeze(['auto']), Input: 'quote_removed', LiveOnly: false, Pattern: /^\s*$/ }),
+  Object.freeze({ Id: 'opt_out', Reason: 'opt_out', Modes: Object.freeze(['auto']), Input: 'normalized', LiveOnly: true, Pattern: CREATION_OPT_OUT_PATTERN }),
 ]);
 
 /** Reason tokens emitted after the exclusions. */
@@ -109,7 +134,7 @@ function IsCreationOptOut(ArgText) {
  * @returns {boolean}
  */
 function HasRequestLanguage(ArgText) {
-  return REQUEST_PATTERN.test(ArgText || '');
+  return REQUEST_PATTERN.test(ArgText || '') || IMPERATIVE_HAVE_PATTERN.test(ArgText || '');
 }
 
 /**
@@ -168,10 +193,11 @@ const EXCLUSION_RATIONALES = Object.freeze({
 /**
  * Judge one message.
  * @param {string} ArgText Message text.
- * @param {{Mode?: 'auto'|'force'|'mention'|'strict', WorkspaceAI?: any, DecisionSpec?: any, Capture?: any, Logger?: any}} [ArgOptions]
+ * @param {{Mode?: 'auto'|'force'|'mention'|'strict', WorkspaceAI?: any, DecisionSpec?: any, Capture?: any, Logger?: any, LiveText?: string}} [ArgOptions]
  *   auto: scheduling, quoted text and opt-outs excluded before the model. force: scheduling for an
  *   explicit :alarm_clock: — the whole message goes to the model, no pre-model exclusions.
  *   mention / strict: completion detection on the raw reply, no model call.
+ *   LiveText: the live reply when ArgText is enriched thread context; `LiveOnly` exclusions read it.
  * @returns {Promise<ReminderJudgement>}
  */
 async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
@@ -197,7 +223,8 @@ async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
   for(const Entry of EXCLUSIONS) {
     if(!Entry.Modes.includes(Mode)) continue;
     if(Entry.Input === 'quote_removed' && Own === Text) continue;
-    const Input = Entry.Input === 'normalized' ? NormalizeIntentText(Own) : Own;
+    const EntryOwn = Entry.LiveOnly && typeof ArgOptions.LiveText === 'string' ? OwnWords(ArgOptions.LiveText) : Own;
+    const Input = Entry.Input === 'normalized' ? NormalizeIntentText(EntryOwn) : EntryOwn;
     if(Entry.Pattern.test(Input)) {
       return {
         Verdict: 'ignore',

@@ -33,7 +33,7 @@ describe('reminder judgement corpus (GH-149)', () => {
     };
 
     const Judgement = await ReminderJudgement.JudgeReminderTextAsync(ArgRow.Text, {
-      Mode: ArgRow.Mode, WorkspaceAI, DecisionSpec: StubSpec,
+      Mode: ArgRow.Mode, WorkspaceAI, DecisionSpec: StubSpec, LiveText: ArgRow.LiveText,
     });
 
     expect(Judgement.Verdict).toBe(ArgRow.Expect.Verdict);

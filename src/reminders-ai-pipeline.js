@@ -360,7 +360,8 @@ class RemindersAIPipeline {
    * call and the direct-ask fallback — lives in reminder-judgement.js (GH-149); this returns its
    * model-shaped analysis, which is always a valid result for the scheduler.
    * @param {string} ArgMessageText Message text to analyze.
-   * @param {{Mode?: 'auto'|'force'}} [ArgOptions] force: explicit :alarm_clock: — quoted text kept, no pre-model exclusions.
+   * @param {{Mode?: 'auto'|'force', LiveText?: string}} [ArgOptions] force: explicit :alarm_clock: — quoted text kept, no pre-model exclusions.
+   *   LiveText: the live reply when ArgMessageText is enriched thread context (GH-239).
    * @returns {Promise<GptReminderResponse>}
    */
   async AnalyzeMessageForRemindersAsync(ArgMessageText, ArgOptions = {}) {
@@ -370,6 +371,7 @@ class RemindersAIPipeline {
       DecisionSpec: ReminderAnalysisDecisionSpec,
       Capture: this.#DecisionCapture,
       Logger: this.#SlackApp && this.#SlackApp.Logger,
+      LiveText: ArgOptions.LiveText,
     });
     return /** @type {GptReminderResponse} */ (Judgement.Analysis);
   }
@@ -775,10 +777,11 @@ class RemindersAIPipeline {
    * the message routed to, and whether synthesis was on) rather than only WHAT was decided. Sourced
    * from the spec's own extractor, so this stays correct if the facts change.
    * @param {string} ArgMessageText Message to triage.
+   * @param {{LiveText?: string}} [ArgOptions] LiveText: the live reply when ArgMessageText is enriched context (GH-239).
    * @returns {Promise<{analysis: GptReminderResponse, dateExtractions: DateExtractionResult[], debugFacts: object|null}>}
    */
-  async GetReminderTriageAsync(ArgMessageText) {
-    const AnalysisResult = await this.AnalyzeMessageForRemindersAsync(ArgMessageText);
+  async GetReminderTriageAsync(ArgMessageText, ArgOptions = {}) {
+    const AnalysisResult = await this.AnalyzeMessageForRemindersAsync(ArgMessageText, { LiveText: ArgOptions.LiveText });
     const DateExtractions = [];
 
     for(const CurrentReminder of AnalysisResult.reminders) {
