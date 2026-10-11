@@ -92,7 +92,7 @@ export GIT_USER_EMAIL="your.email@domain.com"
 
 The script will:
 - Update system packages
-- Install Node.js 18.x
+- Install Node.js 22.x
 - Clone the repository to `/root/sleuth-app`
 - Install npm production dependencies
 - Configure `sleuth-app.service`

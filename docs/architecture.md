@@ -19,7 +19,7 @@ AEGIS is a multi-tenant Slack application that combines AI-powered task reminder
 - Forward admin-only `ask-woo` questions to an external WP DB Toolkit RAG service when a workspace enables that integration
 
 ### Key Technologies
-- **Runtime**: Node.js v18.20.4+ (JavaScript)
+- **Runtime**: Node.js v20+ (JavaScript)
 - **Slack Integration**: Bolt for JavaScript SDK
 - **AI Provider**: OpenAI API (GPT-4o-mini default, GPT-4o for complex date extraction)
 - **Web Framework**: Express for REST API
