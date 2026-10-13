@@ -3,6 +3,8 @@ title: "Recon: GH-243 long reminder messages"
 created: 2026-10-12
 updated: 2026-10-12
 status: Reference
+owner: noel
+goal: Record the bounded current-state trace for GH-243.
 roadmap_exempt: true
 ---
 # Recon Map — long reminder messages

@@ -1,10 +1,24 @@
 {
   "_about": "GH-149 seeded corpus for src/reminder-judgement.js. Every row runs through JudgeReminderTextAsync with the model stubbed to `Model` (null = the model must not be called). Every EXCLUSIONS entry needs its definition under `Definitions` (Pattern.toString()) and at least one row naming it in Expect.Exclusion; tests/reminders-fsm-invariants.test.js enforces both. Add a row for every new false-positive class.",
   "Definitions": {
+    "long_message": "/^[\\s\\S]{501}/",
     "quoted_only": "/^\\s*$/",
     "opt_out": "/\\b(?:don'?t|do not)(?:\\s+(?:need|want)\\s+to)?\\s+(?:make|create|set|add|schedule)\\s+(?:a\\s+)?reminder(?:s)?\\b/"
   },
   "Rows": [
+    {
+      "Id": "gh243-long-automatic-note",
+      "Issue": 243,
+      "Mode": "auto",
+      "Text": "Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Background detail about the completed review today. Please review the plan tomorrow.",
+      "Model": null,
+      "Expect": {
+        "Verdict": "ignore",
+        "Reason": "long_message",
+        "Exclusion": "long_message",
+        "ModelCalled": false
+      }
+    },
     {
       "Id": "gh197-first-person-excitement",
       "Issue": 197,

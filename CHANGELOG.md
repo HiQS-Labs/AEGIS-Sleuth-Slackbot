@@ -33,6 +33,20 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 2026-10-12 — GH-243 long reminder messages
+Long Slack messages (more than 500 characters) now stay out of automatic reminder queues.
+When you explicitly schedule one, the reminder uses a concise task and a link to the original
+message instead of repeating the whole list. Display settings and synthesis failures cannot bring
+the long copy back; a failed extraction shows a short source-reference fallback.
+
+**Technical:** Phases 1–2 of GH-243. Existing judgement owns raw-live admission; explicit task-above
+and confirmed proposals retain gateway/date/dedup semantics. Selector bounds long-source task/context,
+composer omits long quotes, ownership reads original mentions, confirmation reuses the source link.
+Existing <=500 behavior and old stored records remain compatible. Phase 3 (three scheduling options
+and a typed choice) is deferred. Revert the PR for rollback; no persistence migration.
+**Validation:** focused existing suites and red controls, build, AI/structural validators and replay
+evidence recorded in the project plan; final verification and independent review pending.
+
 ## 1.4.345 - 2026-10-11
 
 Two reminder fixes before they reach production. If you ask me in a reminder's thread to "please get this done", I no longer treat that as the task being finished and close the reminder. And if someone said "don't set a reminder" earlier in a thread, a later "I'll work on it tomorrow" in that thread can still become a reminder.

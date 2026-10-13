@@ -148,5 +148,35 @@
         "deploy"
       ]
     }
+  },
+  {
+    "name": "GH-243 automatic long note ignored",
+    "kind": "message",
+    "event": {
+      "user": "U_NOEL",
+      "text": "<@U_SAM> We finalized the release handoff and completed a review today.\nBackground: the plan covers shell, privacy, delivery status, draft revisions, calendar protection and staging acceptance.\nThe checklist includes prerequisites and references for each phase; those are background for the review, not separate reminders.\nScope notes: the work is ordered so dependencies are verified before proceeding. Keep existing contracts and do not start delivery until reviewers agree.\nPlease review the handoff plan and confirm alignment with the execution checklist."
+    },
+    "expect": {
+      "expectNone": true
+    }
+  },
+  {
+    "name": "GH-243 explicit long list concise and source-linked",
+    "kind": "reaction",
+    "event": {
+      "user": "U_NOEL",
+      "text": "<@U_SAM> We finalized the release handoff and completed a review today.\nBackground: the plan covers shell, privacy, delivery status, draft revisions, calendar protection and staging acceptance.\nThe checklist includes prerequisites and references for each phase; those are background for the review, not separate reminders.\nScope notes: the work is ordered so dependencies are verified before proceeding. Keep existing contracts and do not start delivery until reviewers agree.\nPlease review the handoff plan and confirm alignment with the execution checklist."
+    },
+    "expect": {
+      "reminderCount": 1,
+      "taskContains": [
+        "review",
+        "plan"
+      ],
+      "maxTaskLength": 280,
+      "assignee": "U_SAM",
+      "noOriginalCopy": true,
+      "sourceLink": true
+    }
   }
 ]

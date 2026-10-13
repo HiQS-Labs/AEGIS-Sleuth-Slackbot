@@ -21,7 +21,7 @@ goal: >
 
 | Most recently completed phase | What's next |
 | --- | --- |
-| Intake registered; production incident and prior fixes verified. | Recon map and surgical plan QA; implement Phases 1–2 only. |
+| Plan Codex-approved round 2 at 516750b; Phases 1–2 implemented and focused/real-model acceptance verified. | Final Codex QA and full repository gate, then ready PR. Phase 3 deferred. |
 
 ## Operator requirements
 
@@ -127,4 +127,19 @@ Phase 3 remains deferred under this one project, not a hidden active task or sep
   the attributed live evidence; reviewers do not infer production state without private SOP.
 - Persisted roadmap row rmi-01M4SCBF2ZPH9JRKKD8PKZZ36R, GH-243, In progress, rated 75/55/50/70
   was read back through the CLI. One incident is session observation, not exhaustive frequency.
-- Plan QA round 2 pending; implementation not started.
+- Plan QA round 2 Approved, attested against 516750b (relay-system/2026-10-12/gh243-plan.md).
+- Phase 1: pre-model raw exclusion, explicit-mode wiring, bounded canonical selector/context and quote omission.
+- Phase 2: manual/analyzer summary instructions, source link confirmation, source-based ownership and real replay.
+- Tests: 11 focused suites / 420 passing; build, validate:ai, FSM/isolation/render clean; decision replay 23/23.
+- Red controls: initial admission/selector checks failed 7 cases against old code; restored base selector/composer
+  failed 9 body/display checks. New implementation passes. Existing short fixtures remain unchanged.
+- Actual delivery integration invokes process-reminders and checks concise linked messages + reaction metadata.
+- Real-model project replay: 2/2 passed, same 559-character list auto ignored and explicit alarm becomes
+  "Review the release handoff plan and confirm alignment with the execution checklist", owner U_SAM.
+- Full real-model battery: 8/9 passed; GH-143 A failed. Unchanged-base isolated clone sampled same A:
+  1/3 passed, 2/3 selected parent-only task. This confirms existing GH-149 nondeterminism; not claimed green,
+  not relaxed or fixed here. New project checks passed and this short multi-reference gap remains open.
+- Replay harness fix: reaction scenario previously called a nonexistent optional method and scheduled
+  nothing; uses existing SimulateReactionAddedAsync now. Complete bullet/body/source checks remain in
+  the existing harness, no new suite.
+- Final independent QA/full gate pending. No merge/deploy or historical rewrite.

@@ -73,3 +73,23 @@ describe('reminder judgement corpus (GH-149)', () => {
     }
   });
 });
+
+describe('GH-243 raw long-message admission', () => {
+  const Schedule = { recommendation: 'schedule', rationale: 'request', reminders: [{ reminder_message: 'Review the plan', actionable_language: 'Please review the plan', scheduling_trigger: 'tomorrow' }] };
+  test.each([500, 501])('raw boundary at %i characters', async Length => {
+    const Text = 'Please review the plan tomorrow. '.padEnd(Length, ' ');
+    const WorkspaceAI = { ProcessMessageWithJsonResponseAsync: jest.fn(async () => Schedule) };
+    const Result = await ReminderJudgement.JudgeReminderTextAsync(Text, { WorkspaceAI, DecisionSpec: StubSpec });
+    expect(Result.Verdict).toBe(Length === 500 ? 'schedule' : 'ignore');
+    expect(WorkspaceAI.ProcessMessageWithJsonResponseAsync).toHaveBeenCalledTimes(Length === 500 ? 1 : 0);
+  });
+  test('short live commitments and explicit long requests remain admitted', async () => {
+    const Text = 'Background detail. '.repeat(35) + 'Please review the plan tomorrow.';
+    for(const Options of [{ LiveText: 'Please review it tomorrow.' }, { ExplicitSchedule: true }, { Mode: 'force' }]) {
+      const WorkspaceAI = { ProcessMessageWithJsonResponseAsync: jest.fn(async () => Schedule) };
+      const Result = await ReminderJudgement.JudgeReminderTextAsync(Text, { ...Options, WorkspaceAI, DecisionSpec: StubSpec });
+      expect(Result.Verdict).toBe('schedule');
+      expect(WorkspaceAI.ProcessMessageWithJsonResponseAsync).toHaveBeenCalledTimes(1);
+    }
+  });
+});
