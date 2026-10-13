@@ -8,6 +8,12 @@ goal: Record the bounded current-state trace for GH-243.
 roadmap_exempt: true
 ---
 # Recon Map — long reminder messages
+
+## Status
+
+| What was just completed | What's next |
+| --- | --- |
+| Bounded recon reconciled from source and graph leads. | Implement/review through the canonical GH-243 project plan. |
 Commit: 40a911aeea55d1a00e70747fc61d9a574b88c61f · Mode: graph+source · Lanes: parent A, read-only agents B/C and D.
 Graph project aegis-sleuth-slack-bot generation 2026-10-13T00:42:44Z; source paths no recorded gaps.
 Tests, data/static and docs excluded by fast indexing; direct reads used. Coverage is best-effort.

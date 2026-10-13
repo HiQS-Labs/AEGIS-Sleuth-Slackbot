@@ -19,7 +19,9 @@ goal: >
 
 # GH-243 — long reminders
 
-| Most recently completed phase | What's next |
+## Status
+
+| What was just completed | What's next |
 | --- | --- |
 | Plan Codex-approved round 2 at 516750b; Phases 1–2 implemented and focused/real-model acceptance verified. | Final Codex QA and full repository gate, then ready PR. Phase 3 deferred. |
 
