@@ -23,7 +23,7 @@ goal: >
 
 | What was just completed | What's next |
 | --- | --- |
-| Plan Codex-approved round 2 at 516750b; Phases 1–2 implemented and focused/real-model acceptance verified. | Final Codex QA and full repository gate, then ready PR. Phase 3 deferred. |
+| Phases 1–2 implementation Codex-approved round 2 at 73f5d76; full isolated gate passed; PR #244 opened. | Await merge/release of PR #244. Phase 3 remains explicitly deferred. |
 
 ## Operator requirements
 
@@ -152,8 +152,25 @@ S1 accepted: wrench caller trimmed raw text before judgement. Preserve raw origi
 for the empty-input guard. New actual-wrench 500/501/empty checks failed the 501 control against
 the prior caller; all three pass after the two-line fix. Four affected suites / 199 tests and build
 pass. Source resolver already preserves raw liveReplyText; no resolver change needed.
-Startup smoke at approved prior code: npm run dev on temporary empty data and independent local port
+Startup smoke at prior implementation 550a074: npm run dev on temporary empty data and independent local port
 started web API and shut down cleanly, no workspaces/tokens or Slack posts.
 Full PDDA observe has existing doc debt; changed project/recon status/frontmatter and canonical
 DB-derived dashboard coverage pass. Frozen legacy ROADMAP checker mismatch is reported, not patched.
 Final QA round 2 and exact-commit full gate pending.
+
+
+### Ready PR — 2026-10-12
+PR: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/244 (development).
+Final Codex review round 2 Approved against 73f5d76, attested in the local final relay.
+Exact reviewed commit full gate in separate full clone: 142 Jest suites, 2644 tests passed;
+one existing suite/four tests skipped; 116 Node tests passed, zero failures. Before/after HEAD
+73f5d76 and clean worktree identity matched. Build/AI/FSM/isolation/render checks passed on that
+gate clone too. Startup smoke used temporary empty runtime data, independent port, no Slack writes.
+Implementation is PR-ready, not landed or deployed. Preserve this clone for merge handoff.
+After merge/release, verify origin and safely retire the clone through repository cleanup.
+Phase 3 remains a deferred section here; #243 is not closed by this PR.
+Administrative documentation updates after the reviewed/tested commit change no production/test assets;
+hosted checks will additionally verify the final PR head.
+Known limitations retained: existing GH-149 short-reference real-model variance; full PDDA observe
+reports old document debt/frozen ROADMAP coverage mismatch. Changed docs' targeted frontmatter,
+status and canonical DB-derived dashboard coverage checks pass.

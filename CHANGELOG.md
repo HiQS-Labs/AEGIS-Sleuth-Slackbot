@@ -33,6 +33,15 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 2026-10-12 — GH-243 verification and PR
+Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.
+
+**Verification:** final Codex relay approved 73f5d76; isolated full gate passed 142 Jest suites /
+2644 tests and 116 Node tests (one existing suite/four tests skipped), with unchanged clone identity.
+Build, prompt/structural validation and decision replay 23/23 passed. New long-list real-model cases
+passed 2/2. The broader real-model battery remains 8/9 because of the existing GH-149 short-reference
+variance, reproduced on unchanged base. No merge or deployment.
+
 ## 2026-10-12 — GH-243 long reminder messages
 Long Slack messages (more than 500 characters) now stay out of automatic reminder queues.
 When you explicitly schedule one, the reminder uses a concise task and a link to the original
