@@ -36,6 +36,9 @@
 ## 2026-10-12 — GH-243 verification and PR
 Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.
 
+**Technical:** Documentation-only handoff update; runtime and test assets match the independently
+reviewed implementation at 73f5d76.
+
 **Verification:** final Codex relay approved 73f5d76; isolated full gate passed 142 Jest suites /
 2644 tests and 116 Node tests (one existing suite/four tests skipped), with unchanged clone identity.
 Build, prompt/structural validation and decision replay 23/23 passed. New long-list real-model cases
