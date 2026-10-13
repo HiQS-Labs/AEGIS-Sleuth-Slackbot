@@ -41,7 +41,7 @@ goal: >
 
 ## Grounded scope
 Recon: [recon-gh243-long-reminders.md](recon-gh243-long-reminders.md).
-Cell: irreversible x crossing -> full evidence floor, because stored presentation is consumed by exports.
+Cell: reversible x crossing -> recon-lite + falsify minimum; full seam evidence obtained because stored presentation is consumed by exports. Revert changes code, not bodies already created.
 Outcome: long notes stay out of automatic queues; explicit reminders are readable and retain source access.
 Smallest bet: extend existing judgement, selection, composer and two explicit callers; no new scheduler.
 Rejected: flags alone (live incident had synthesis on), truncation alone (loses task intent), another model
@@ -54,8 +54,8 @@ Source scope is newly created Slack-message reminders; authored Slack List rows 
 1. Define one shared >500 raw-character predicate in reminder-judgement. Auto admission and triage ignore
    long live messages before the model (use LiveText when enriched; context length alone must not suppress
    a short genuine commitment). Keep short tasks unchanged.
-2. Remove the automatic post-model direct-ask override; keep its cheap detector for discovery hints.
-   Model ignore remains ignore. Mark explicitly confirmed/task-above scheduling separately from force,
+2. Preserve the existing short direct-ask fallback and discovery detector. Long live messages never
+   reach the model or its fallback. Mark explicitly confirmed/task-above scheduling separately from force,
    since both currently pass force=false and must retain their date/dedup semantics.
 3. Enforce safe display in the canonical selector for long original OR analyzed source: a grounded
    single-line title/span <=280 characters can display; oversized/missing/rejected output uses a
@@ -66,7 +66,7 @@ Source scope is newly created Slack-message reminders; authored Slack List rows 
 Acceptance: >500 auto message (including actual deadline) produces no analyzer call, record or confirmation;
 500-char positive control still analyzed. Explicit long requests never contain a full source copy in
 stored body/confirmation, including flag-off, oversize, invalid title and extraction failure.
-Red controls: base auto fallback creates a record; base long force body/selector emits full source.
+Red controls: base long auto fallback creates a record; base long force body/selector emits full source.
 Replace existing tests that require these retired behaviors rather than silently disabling coverage.
 
 ## Phase 2 — concise explicit reminders with source links
@@ -117,4 +117,14 @@ Phase 3 remains deferred under this one project, not a hidden active task or sep
 - Intake GH-243, isolated full clone/base 40a911a, branch recorded in frontmatter.
 - Operator chose >500 characters only, rejecting sentence/line threshold for this project.
 - Parent reproduction: model ignore override and full enriched source confirmed; summary flag already on.
-- Plan review pending. Implementation not started.
+- Plan QA round 1 requested retaining <=500 short direct-ask fallback; accepted. It is outside this
+  project to retire short fallback. Four-sentence fixtures <=500 keep their incumbent flag behavior.
+- Raw-length protection uses original analyzed source before whitespace normalization; whitespace-heavy
+  501-character cases are acceptance inputs too.
+- Reversibility label corrected; no extra rollback machinery.
+- Parent provenance: gh issue/pr searches 2026-10-12 found only open dependency PR #242; GH-43/68/143
+  closed, GH-51/149 open. Production journald/read-slack and SHA probes earlier this session supply
+  the attributed live evidence; reviewers do not infer production state without private SOP.
+- Persisted roadmap row rmi-01M4SCBF2ZPH9JRKKD8PKZZ36R, GH-243, In progress, rated 75/55/50/70
+  was read back through the CLI. One incident is session observation, not exhaustive frequency.
+- Plan QA round 2 pending; implementation not started.
