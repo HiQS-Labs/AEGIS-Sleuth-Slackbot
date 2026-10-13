@@ -2308,8 +2308,8 @@ class RemindersModule {
     }
 
     // guard against empty/missing text (file shares, message_changed, block-kit-only messages).
-    const OriginalText = typeof OriginalMessage.text === 'string' ? OriginalMessage.text.trim() : '';
-    if(!OriginalText) {
+    const OriginalText = typeof OriginalMessage.text === 'string' ? OriginalMessage.text : '';
+    if(!OriginalText.trim()) {
       await this.#SlackApp.PostMessageTextAsync(
         ArgChannelID,
         ArgMessageID,

@@ -610,6 +610,38 @@ describe('RemindersModule integration via MockSlackApp', () => {
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       }
     });
+
+    test.each([500, 501, 0])('GH-243 raw boundary in wrench triage: %i', async Length => {
+      const WorkspaceInfo = MakeWorkspaceInfo('gh243_wrench_' + Length);
+      const Text = Length ? 'Please review the plan tomorrow. '.padEnd(Length, ' ') : '   ';
+      const MessageTS = '1773990000.000953';
+      const MockProcess = ConfigureMockWorkspaceAI(MockWorkspaceAI, { reminderMessage: 'Review the plan' });
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo, ThreadMessagesById: {
+          [`C_CLIENT:${MessageTS}`]: [{ user: 'U_CLIENT', text: Text, ts: MessageTS }],
+        },
+      });
+      const Reminders = new RemindersModule(SlackApp);
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        MockProcess.mockClear();
+        await SlackApp.SimulateReactionAddedAsync({
+          user: 'U_OPERATOR', reaction: 'wrench', item: { channel: 'C_CLIENT', ts: MessageTS },
+        });
+        const Replies = SlackApp.SentMessages.map(Message => Message.text).join('\n');
+        if(Length === 500) {
+          expect(MockProcess).toHaveBeenCalled();
+          expect(Replies).toContain('Recommendation: *schedule*');
+        } else {
+          expect(MockProcess).not.toHaveBeenCalled();
+          expect(Replies).toContain(Length ? 'Recommendation: *ignore*' : 'no text to triage');
+        }
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
     // SEAM (end-to-end): a long message goes through the REAL pipeline — analyzer → length-aware
     // synthesis → #ComposeReminderMessageAsync (full original in a `>` blockquote) → append
     // "Key task(s):\n• <synthesized>" → store — and then through the REAL digest line builder

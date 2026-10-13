@@ -145,3 +145,15 @@ Phase 3 remains deferred under this one project, not a hidden active task or sep
   nothing; uses existing SimulateReactionAddedAsync now. Complete bullet/body/source checks remain in
   the existing harness, no new suite.
 - Final independent QA/full gate pending. No merge/deploy or historical rewrite.
+
+
+### Final QA round 1 disposition
+S1 accepted: wrench caller trimmed raw text before judgement. Preserve raw original and trim only
+for the empty-input guard. New actual-wrench 500/501/empty checks failed the 501 control against
+the prior caller; all three pass after the two-line fix. Four affected suites / 199 tests and build
+pass. Source resolver already preserves raw liveReplyText; no resolver change needed.
+Startup smoke at approved prior code: npm run dev on temporary empty data and independent local port
+started web API and shut down cleanly, no workspaces/tokens or Slack posts.
+Full PDDA observe has existing doc debt; changed project/recon status/frontmatter and canonical
+DB-derived dashboard coverage pass. Frozen legacy ROADMAP checker mismatch is reported, not patched.
+Final QA round 2 and exact-commit full gate pending.
