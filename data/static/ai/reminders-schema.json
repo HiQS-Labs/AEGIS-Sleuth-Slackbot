@@ -28,7 +28,7 @@
             },
             "reminder_message": {
               "type": "string",
-              "description": "The task reminder text. IMPORTANT: If the original message contains text enclosed in quotes (single or double), use that quoted text verbatim as the reminder_message, including the quote marks. Do not summarize or shorten quoted text."
+              "description": "One-line actionable task summary, at most 280 characters. Preserve safely short quoted task names; summarize long lists/notes instead of copying them. The original message is linked for details."
             },
             "context": {
               "type": "string",

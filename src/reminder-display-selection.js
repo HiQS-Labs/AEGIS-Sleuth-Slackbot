@@ -1,6 +1,10 @@
 'use strict';
 
 const TaskGrounding = require('./task-grounding');
+const { IsLongReminderMessage } = require('./reminder-judgement');
+
+const MAX_LONG_TASK_LENGTH = 280;
+const LONG_TASK_FALLBACK = 'Follow up on the original message';
 
 /**
  * What a reminder candidate should DISPLAY — the pure decision, with no Slack formatting and no
@@ -51,7 +55,8 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
 
   // verbatim path: synthesis disabled for this message's length segment → show the user's wording
   // unchanged. This reproduces the pre-GH-337 synthesis-OFF behavior byte-for-byte.
-  if(NormalizedOriginal && ArgSynthesisOn === false)
+  const LongSource = IsLongReminderMessage(ArgNormalizedOriginalText) || IsLongReminderMessage(ArgAnalyzedSourceText);
+  if(NormalizedOriginal && ArgSynthesisOn === false && !LongSource)
     return { text: NormalizedOriginal, source: 'verbatim', ungroundedTerms: [] };
 
   const RawReminderMessage = (Candidate.reminder_message || '').trim();
@@ -75,6 +80,21 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
     : [];
   const ReminderMessage = UngroundedTerms.length > 0 ? '' : RawReminderMessage;
 
+  const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
+  const IsLikelyOverCompressed = ReminderWordCount <= 2
+    && ActionableLanguage.length > (ReminderMessage.length + 12);
+
+  // long-source safety is stronger than display flags and never falls back to the whole list.
+  if(LongSource) {
+    const Title = ReminderMessage.replace(/\s+/g, ' ').trim();
+    const Span = ActionableLanguage.replace(/\s+/g, ' ').trim();
+    if(Title && Title.length <= MAX_LONG_TASK_LENGTH && !IsLikelyOverCompressed)
+      return { text: Title, source: 'title', ungroundedTerms: UngroundedTerms };
+    if(Span && Span.length <= MAX_LONG_TASK_LENGTH)
+      return { text: Span, source: 'span', ungroundedTerms: UngroundedTerms };
+    return { text: LONG_TASK_FALLBACK, source: 'fallback', ungroundedTerms: UngroundedTerms };
+  }
+
   // Deterministic quality fallback: a brief that looks suspiciously over-compressed relative to the
   // span it came from loses to the span.
   //
@@ -88,9 +108,7 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   //
   // Safer now than when it was written: the grounding check above guarantees a surviving title uses
   // only source vocabulary, so a short title can no longer be short *and* invented.
-  const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
-  const IsLikelyOverCompressed = ReminderWordCount <= 2
-    && ActionableLanguage.length > (ReminderMessage.length + 12);
+
 
   if(IsLikelyOverCompressed) return { text: ActionableLanguage, source: 'span', ungroundedTerms: UngroundedTerms };
   if(ReminderMessage) return { text: ReminderMessage, source: 'title', ungroundedTerms: UngroundedTerms };
@@ -123,6 +141,9 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   const Candidate = ArgReminderInfo || {};
   const Context = (Candidate.context || '').trim();
   if(!Context) return { text: '', suppressedBy: 'empty' };
+  if((IsLongReminderMessage(ArgNormalizedOriginalText) || IsLongReminderMessage(ArgAnalyzedSourceText))
+    && (Context.length > MAX_LONG_TASK_LENGTH || /[\r\n]/.test(Context)))
+    return { text: '', suppressedBy: 'empty' };
 
   const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
   if(ArgSynthesisOn === false) return { text: '', suppressedBy: 'verbatim-path' };

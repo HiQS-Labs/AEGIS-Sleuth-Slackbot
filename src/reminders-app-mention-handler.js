@@ -1096,7 +1096,8 @@ class RemindersAppMentionHandler {
           SourceMsgTs,
           Candidate.assigneeID || ArgEventInfo.user,
           false,
-          ArgEventInfo.thread_ts || ArgEventInfo.ts
+          ArgEventInfo.thread_ts || ArgEventInfo.ts,
+          null, false, null, true
         );
         if(WasScheduled) CreatedCount++;
       } catch(Error) {
@@ -1248,7 +1249,8 @@ class RemindersAppMentionHandler {
       ArgEventInfo.thread_ts,
       Context.liveReplyText,
       true,
-      Context.enrichment
+      Context.enrichment,
+      true
     );
 
     if(WasScheduled) return true;

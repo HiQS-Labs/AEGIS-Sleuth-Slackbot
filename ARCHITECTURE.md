@@ -118,6 +118,21 @@ the `#SelectReminderTaskText` reduce). Both must be handed the same synthesis ro
 grounding source, or the two disagree for one reminder — see the invariant comment above
 `SynthesisRouting` in `src/reminders-module.js`, which is authoritative.
 
+### Long Slack-message reminder contract (GH-243)
+
+Automatic detection and triage ignore a live message longer than 500 raw characters before model
+analysis. Short replies may still use long thread context. Explicit alarm-clock, task-above and
+confirmed-proposal scheduling use the same gateway; explicit intent is separate from force's
+default-time/dedup behavior.
+
+For long original or analyzed source, the shared selector keeps a grounded one-line title/span
+within 280 characters; missing, rejected or oversized extraction uses a short source-reference
+fallback. Display flags cannot restore a long verbatim task. Long source quotes are omitted from
+new stored bodies. Assignment reads the original display source independently of its quote.
+Confirmation and stored/delivered messages link to the original; unavailable permalinks retain a
+channel reference without restoring the quote. Existing records and authored Slack List rows
+are not migrated by this Slack-message change.
+
 ### Reminder FSM and Write-Path Contract
 
 Reminder state is an explicit FSM with three enforcement points — do not bypass any of them:

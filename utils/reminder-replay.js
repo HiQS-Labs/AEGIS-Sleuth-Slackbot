@@ -166,7 +166,9 @@ async function RunScenarioAsync(ArgScenario, ArgIndex) {
 
   const IsThreadReply = Thread.length > 1;
   if(ArgScenario.kind === 'reaction') {
-    await SlackApp.SimulateReactionAsync?.('alarm_clock', { channel: CHANNEL, ts: LiveMessage.ts, user: 'U_REACTOR' });
+    await SlackApp.SimulateReactionAddedAsync({
+      reaction: 'alarm_clock', user: 'U_REACTOR', item: { channel: CHANNEL, ts: LiveMessage.ts },
+    });
   } else if(ArgScenario.kind === 'app_mention') {
     await SlackApp.SimulateAppMentionAsync({
       channel: CHANNEL, user: LiveMessage.user, text: LiveMessage.text,
@@ -183,18 +185,14 @@ async function RunScenarioAsync(ArgScenario, ArgIndex) {
     for(const Sent of SlackApp.SentMessages || []) console.log(`   [slack] ${String(Sent.text).slice(0, 160)}`);
   }
 
-  // Grade the BULLETS from the confirmation message, not `ReminderMessageText`. The stored text is
-  // the whole composed body — quoted source, context line and all — so grading it would score the
-  // prepended context as if it were the task, and a "no reminder should contain X" expectation
-  // would fail on the quote of X rather than on the task. The bullet is what a person reads.
+  // keep complete bullet blocks: a copied list after its first line must count against the limit.
   const AllReminders = Reminders.GetAllReminders();
-  const Confirmation = (SlackApp.SentMessages || [])
+  const Confirmations = (SlackApp.SentMessages || [])
     .map((/** @type {any} */ ArgSent) => String(ArgSent.text || ''))
-    .find((/** @type {string} */ ArgText) => ArgText.includes('Tasks for'));
-  const Bullets = (Confirmation || '')
-    .split('\n')
-    .filter((/** @type {string} */ ArgLine) => ArgLine.trim().startsWith('•'))
-    .map((/** @type {string} */ ArgLine) => ArgLine.replace(/^\s*•\s*/, '').replace(/^Sleuth\s+-\s*/, '').trim());
+    .filter((/** @type {string} */ ArgText) => ArgText.includes('Tasks for'));
+  const Confirmation = Confirmations.join('\n\n');
+  const Bullets = Array.from(Confirmation.matchAll(/(?:^|\n)•\s+([\s\S]*?)(?=\n•|\n\nTasks for|\n  _|$)/g))
+    .map(ArgMatch => ArgMatch[1].replace(/^Sleuth\s+-\s*/, '').trim());
 
   // Pair each BULLET with its OWN reminder's assignees. Flattening assignees across all reminders
   // and attaching the union to every bullet let a two-task output pass with the right person on the
@@ -209,7 +207,13 @@ async function RunScenarioAsync(ArgScenario, ArgIndex) {
     };
   });
   await Reminders.StopAsync();
-  return Produced;
+  return Object.assign(Produced, { Evidence: {
+    RecordCount: AllReminders.length,
+    Bodies: AllReminders.map(ArgReminder => String(ArgReminder.ReminderMessageText || '')),
+    Confirmations,
+    SourceLink: await SlackApp.GetPermaLinkAsync(CHANNEL, LiveMessage.ts),
+    Original: LiveMessage.text,
+  } });
 }
 
 /**
@@ -220,6 +224,20 @@ function Grade(ArgScenario, ArgProduced) {
   const Failures = [];
   const AllText = ArgProduced.map((/** @type {any} */ ArgItem) => ArgItem.text).join('\n');
   const Expect = ArgScenario.expect || {};
+  const Evidence = ArgProduced.Evidence;
+  if(Expect.expectNone && Evidence?.RecordCount)
+    Failures.push(`expected zero stored records, got ${Evidence.RecordCount}`);
+  if(Expect.expectNone && Evidence?.Confirmations.length)
+    Failures.push('expected no scheduling confirmation');
+  if(Expect.noOriginalCopy) {
+    const Source = String(Evidence?.Original || '').replace(/\s+/g, ' ').trim();
+    if(!Source || !Evidence?.Bodies.length) Failures.push('source-copy check needs nonempty source and stored body');
+    for(const Body of [...(Evidence?.Bodies || []), ...(Evidence?.Confirmations || [])])
+      if(Body.replace(/\s+/g, ' ').includes(Source) || (String(Evidence.Original).length > 500 && /(^|\n)>/.test(Body))) Failures.push('whole source copied into stored body or confirmation');
+  }
+  if(Expect.sourceLink)
+    for(const Body of [...(Evidence?.Bodies || []), ...(Evidence?.Confirmations || [])])
+      if(!Body.includes(Evidence.SourceLink)) Failures.push('stored body or confirmation lacks original source link');
 
   // A scenario with NOTHING scheduled passes every negative check vacuously — "no reminder contains
   // X" is trivially true of no reminders. Any graded scenario must therefore assert that something

@@ -8,13 +8,14 @@ Your job is to infer the underlying task and rewrite it as a short imperative re
 
 Rules:
 - Output a task title, not a conversation transcript.
+- Keep the title on one line, at most 280 characters. For a long plan/list, summarize the requested work (for example, review the plan and confirm alignment); do not repeat its background or enumerate its phases. The reminder links to the original message for full details.
 - Prefer an imperative verb at the start when the action is clear.
 - Remove conversational framing such as `how hard is it to`, `can we`, `could you`, `would you`, `should we`, `is it possible to`, and similar question wrappers.
 - Preserve the concrete object of the task, including product names, prices, quantities, destinations, and variants.
 - Preserve the full core intent; do not over-compress the task into a vague noun phrase.
 - Do not include scheduling language such as `tomorrow`, `next week`, `by EOD`, or `this morning` in the task title.
 - Do not prepend filler such as `Remember to`, `Need to`, or `Please`.
-- Keep quoted task names verbatim, including the quote marks, when the quoted text is the task target.
+- Keep safely short quoted task names verbatim, including quote marks. If the quoted target exceeds 280 characters, summarize its requested work instead.
 - If the message is already a direct task/request, keep that intent and clean it up only as needed.
 - **RESOLVE THE REFERENCE**: the title must never leave `the above`, `all of the above`, `it`,
   `this`, or `that` as the thing to be done. When earlier messages are included above the live

@@ -462,7 +462,8 @@ class RemindersModule {
         /** @type {any} */ ArgThreadTS,
         /** @type {any} */ ArgLiveReplyText,
         /** @type {any} */ ArgUsedEnrichedThreadContext,
-        /** @type {any} */ ArgEnrichment
+        /** @type {any} */ ArgEnrichment,
+        /** @type {any} */ ArgExplicitSchedule
       ) =>
         this.#TryScheduleRemindersAsync(
           ArgSlackApp,
@@ -474,7 +475,8 @@ class RemindersModule {
           ArgThreadTS,
           ArgLiveReplyText,
           ArgUsedEnrichedThreadContext,
-          ArgEnrichment
+          ArgEnrichment,
+          ArgExplicitSchedule
         ),
       CheckRemindersAsync: (/** @type {any} */ ArgIgnoreSnooze) => this.#CheckRemindersAsync(ArgIgnoreSnooze),
     });
@@ -1786,6 +1788,7 @@ class RemindersModule {
    * which earlier message supplied the context and which structural path resolved it. Recorded on the
    * reminder and in the ledger so a WRONG stitch is auditable after the fact instead of silent. Null
    * on every non-enriched path, and absent-stays-absent all the way to the event payload.
+   * @param {boolean} [ArgExplicitSchedule] Confirmed proposal/task-above intent; keeps normal date/dedup semantics.
    * @returns {Promise<boolean>}
    */
   async #TryScheduleRemindersAsync(
@@ -1798,7 +1801,8 @@ class RemindersModule {
     /** @type {string|null} */ ArgThreadTs = null,
     /** @type {string|null} */ ArgLiveReplyText = null,
     ArgUsedEnrichedThreadContext = false,
-    /** @type {{SourceTs: string|null, Path: string}|null} */ ArgEnrichment = null
+    /** @type {{SourceTs: string|null, Path: string}|null} */ ArgEnrichment = null,
+    ArgExplicitSchedule = false
   ) {
     if(!this.#AIPipeline) {
       this.#SlackApp.Logger.warn('skipping reminder scheduling before reminders startup finished initializing.');
@@ -1819,6 +1823,7 @@ class RemindersModule {
     let AnalysisResult = await this.#AIPipeline.AnalyzeMessageForRemindersAsync(
       ArgMessageText, {
         Mode: ArgForceSchedule ? 'force' : 'auto',
+        ExplicitSchedule: ArgExplicitSchedule,
         LiveText: ArgUsedEnrichedThreadContext && ArgLiveReplyText ? ArgLiveReplyText : undefined,
       }
     );
@@ -1833,7 +1838,7 @@ class RemindersModule {
       // only spend an LLM call to synthesize a concise task title when synthesis is enabled for THIS
       // message's length segment; when it is off the original message text is the displayed task
       // (selected verbatim by #SelectReminderTaskText), so the call would be wasted. Fall back to the
-      // original message if synthesis fails.
+      // safe bounded source reference for long messages if synthesis fails.
       // GH-43 Phase 2: route on the RAW message, not the display-normalized one. Normalization
       // collapses newlines to spaces, and the sentence counter now treats a newline as a thought
       // boundary — normalizing first would make that rule inert at the exact call site that decides
@@ -1844,7 +1849,7 @@ class RemindersModule {
         try {
           ForceScheduledReminderMessage = await this.#AIPipeline.ExtractManualReminderTaskAsync(ArgMessageText);
         } catch(error) {
-          ArgSlackApp.Logger.error('failed to infer manual reminder task text, falling back to original message:', error);
+          ArgSlackApp.Logger.error('failed to infer manual reminder task text, using safe display fallback:', error);
         }
       }
 
@@ -2045,8 +2050,8 @@ class RemindersModule {
         const TaskLine = `\n• ${this.#SelectReminderTaskText(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn, ArgMessageText)}`;
         // GH-43 Phase 3: context renders SUBORDINATELY on its own indented italic line, never inline
         // in the bullet. Fusing the two is the second defect from the report — the root-cause
-        // paragraph and the commitment sharing one string. The full original stays in the blockquote
-        // above, so the bullet is free to be short and the context is free to be optional.
+        // paragraph and the commitment sharing one string. Long originals remain at the source link;
+        // short originals can still be quoted above.
         return ArgAccumulatedText + TaskLine
           + this.#SelectReminderContextLine(ArgCurrentReminder, DisplaySourceMessageText, SynthesisOn, ArgMessageText);
       }, NewReminderMessageText + "\n\nKey task(s):");
@@ -2060,7 +2065,8 @@ class RemindersModule {
       // and ending "i am going to deploy the changes tomorrow morning" assigned the deploy to its
       // audience and left its author off entirely. Mentions still win for a second-person ask, which
       // is what keeps GH-22 shared assignment ("can you both test this") intact.
-      const ExtractedAssigneeIDs = this.#ExtractAssigneeIDsFromReminderText(NewReminderMessageText);
+      // ownership reads the source, independently of whether its long quote is omitted.
+      const ExtractedAssigneeIDs = DecisionExplain.ExtractMentionIDs(DisplaySourceMessageText, this.#SlackApp.BotUserID);
       // the actionable spans for THIS trigger group — not the whole message, so an unrelated
       // first-person sentence elsewhere in a long note cannot hijack ownership.
       const GroupActionableLanguage = CurrentReminders
@@ -2302,8 +2308,8 @@ class RemindersModule {
     }
 
     // guard against empty/missing text (file shares, message_changed, block-kit-only messages).
-    const OriginalText = typeof OriginalMessage.text === 'string' ? OriginalMessage.text.trim() : '';
-    if(!OriginalText) {
+    const OriginalText = typeof OriginalMessage.text === 'string' ? OriginalMessage.text : '';
+    if(!OriginalText.trim()) {
       await this.#SlackApp.PostMessageTextAsync(
         ArgChannelID,
         ArgMessageID,
@@ -2666,8 +2672,11 @@ class RemindersModule {
       const ShouldPostOnUtcString = CurrentReminder.ShouldPostOn.toUTCString();
       const SlackDateFormat = `<!date^${ShouldPostOnUnixTime}^{date_long_pretty} at {time}|${ShouldPostOnUtcString}>`;
 
+      const SourceLink = CurrentReminder.ReminderMessageText.match(/<(https?:\/\/[^>|]+)\|this>/);
+      const SourceReference = SourceLink ? `<${SourceLink[1]}|Original message>` : `<#${CurrentReminder.OriginalChannelID}>`;
+
       // add task summary for the current group of reminders which share the same scheduling trigger.
-      FeedbackMessage += `\n\nTasks for ${SlackDateFormat}:`;
+      FeedbackMessage += `\n\nTasks for ${SlackDateFormat}:\n${SourceReference}`;
 
       // add note if this reminder's date was adjusted from past to future.
       if(ArgAdjustedReminders && ArgAdjustedReminders.has(CurrentReminder)) {
@@ -2797,7 +2806,7 @@ class RemindersModule {
 
     // split the sanitized message text into lines then prepend each line with a '>' character to
     // create a blockquote so the original message text is easier to read in the reminder message.
-    const QuotedMessageLines = SanitizedMessageText.split("\n")
+    const QuotedMessageLines = ReminderJudgement.IsLongReminderMessage(ArgMentionSourceText) ? '' : SanitizedMessageText.split("\n")
       .map((ArgMessageLine) => `>${ArgMessageLine}`)
       .join("\n");
 

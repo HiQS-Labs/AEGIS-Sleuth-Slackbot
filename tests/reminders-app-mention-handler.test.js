@@ -172,6 +172,7 @@ describe('RemindersAppMentionHandler', () => {
       // shared resolver, so the provenance — including the antecedent's author — is the resolver's,
       // and "do the above" over several earlier tasks can no longer silently drop one.
       { SourceTs: '1700000000.000001', SourceUser: 'U_SOURCE', Path: 'task_above_shorthand_in_thread' },
+      true, // explicitly requested; retain normal date/dedup semantics.
     );
     // The analyzed text is the resolver's marker block, byte-identical in shape to every other door.
     expect(TryScheduleRemindersAsync.mock.calls[0][1])

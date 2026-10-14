@@ -452,7 +452,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
     // force-schedule path: a >=4-sentence ("Longer") message synthesizes by DEFAULT, and an explicit
     // _LONG=off suppresses both the synthesis LLM call and the synthesized display text. A helper keeps
     // the two cases byte-identical except for the flag under test.
-    const RunForceScheduleLongSegmentCase = async (ArgWorkspaceSlug, ArgMessageTS, ArgSynthesizedTitle) => {
+    const RunForceScheduleLongSegmentCase = async (ArgWorkspaceSlug, ArgMessageTS, ArgSynthesizedTitle, ArgOriginalText, ArgNoPermalink = false) => {
       const WorkspaceInfo = MakeWorkspaceInfo(ArgWorkspaceSlug);
       const ExtractCalls = [];
       const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
@@ -460,6 +460,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
           return { year: 2026, month: 5, day: 6, hour: 8, minute: 0, second: 0, rationale: 'Tomorrow morning.' };
         if(ArgSchema?.name === 'manual_reminder_task_response') {
           ExtractCalls.push(ArgMessageText);
+          if(ArgSynthesizedTitle === null) throw new Error('synthesis unavailable');
           return { rationale: 'inferred', reminder_message: ArgSynthesizedTitle };
         }
         return { recommendation: 'ignore', rationale: 'No explicit scheduling trigger.', reminders: [] };
@@ -476,7 +477,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
       // a >=4-sentence message → routed to the "Longer" synthesis segment. Title is >3 words so the
       // over-compression fallback in #SelectReminderTaskText keeps the synthesized title (doesn't swap
       // in the verbatim actionable span).
-      const OriginalText = 'Heads up everyone. Some background context here. A bit more detail follows. Please raise Ground Advantage shipping to six dollars.';
+      const OriginalText = ArgOriginalText || 'Heads up everyone. Some background context here. A bit more detail follows. Please raise Ground Advantage shipping to six dollars.';
       const SlackApp = new MockSlackApp({
         WorkspaceInfo,
         ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' },
@@ -486,6 +487,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
           }],
         },
       });
+      if(ArgNoPermalink) SlackApp.GetPermaLinkAsync = async () => null;
       const Reminders = new RemindersModule(SlackApp);
 
       await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
@@ -494,7 +496,15 @@ describe('RemindersModule integration via MockSlackApp', () => {
         user: 'U_OPERATOR', reaction: 'alarm_clock', item: { channel: 'C_CLIENT', ts: ArgMessageTS },
       });
 
-      const Result = { WasHandled, ExtractCalls, FirstMessage: SlackApp.SentMessages[0]?.text || '', OriginalText };
+      const Stored = Reminders.GetAllReminders();
+      const Compact = Stored.length ? await BuildCompactTextForReminder(SlackApp, Stored[0], 'A') : '';
+      const BeforeDelivery = SlackApp.SentMessages.length;
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_REMINDERS', user: 'U_OPERATOR',
+        text: `${SlackApp.AppMentionString} process reminders now`,
+      });
+      const Delivered = SlackApp.SentMessages.slice(BeforeDelivery).filter(Message => Message.metadata);
+      const Result = { WasHandled, ExtractCalls, FirstMessage: SlackApp.SentMessages[0]?.text || '', OriginalText, Stored, Compact, Delivered };
       await Reminders.StopAsync();
       await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       return Result;
@@ -535,6 +545,103 @@ describe('RemindersModule integration via MockSlackApp', () => {
       }
     });
 
+
+    test.each([false, true])('GH-243 long explicit list stays concise with flags off (synthesis failure=%s)', async Failure => {
+      const Prior = process.env.REMINDER_TEXT_SYNTHESIS;
+      process.env.REMINDER_TEXT_SYNTHESIS = 'off';
+      const Source = '<@U_TARGET> ' + 'Background detail about the review. '.repeat(20)
+        + 'Please review the plan and confirm alignment.';
+      try {
+        const R = await RunForceScheduleLongSegmentCase('gh243_explicit_' + Failure, '1773990000.000950',
+          Failure ? null : 'Review the plan and confirm alignment', Source);
+        expect(R.WasHandled).toBe(true);
+        expect(R.Stored).toHaveLength(1);
+        expect(R.ExtractCalls).toHaveLength(1);
+        expect(R.Stored[0].AssigneeIDs).toEqual(['U_TARGET']);
+        for(const Text of [R.FirstMessage, R.Stored[0].ReminderMessageText, R.Compact]) {
+          expect(Text).not.toContain('Background detail');
+          expect(Text).not.toContain('>' + Source);
+          expect(Text).toContain('https://');
+        }
+        expect(R.Delivered.length).toBeGreaterThan(0);
+        for(const Message of R.Delivered) {
+          expect(Message.text).not.toContain('Background detail');
+          expect(Message.text).toContain('https://');
+          expect(Message.metadata.event_type).toBe('sleuth-ai-reminder-ids');
+        }
+        expect(R.FirstMessage).toContain('Original message');
+        expect(R.Stored[0].ReminderMessageText).toContain(Failure
+          ? 'Follow up on the original message' : 'Review the plan and confirm alignment');
+      } finally {
+        if(Prior === undefined) delete process.env.REMINDER_TEXT_SYNTHESIS;
+        else process.env.REMINDER_TEXT_SYNTHESIS = Prior;
+      }
+    });
+
+    test('GH-243 unavailable permalink gives a channel reference without a long quote', async () => {
+      const Source = 'Background detail about the review. '.repeat(20) + 'Please review the plan.';
+      const R = await RunForceScheduleLongSegmentCase('gh243_no_link', '1773990000.000951',
+        'Review the plan', Source, true);
+      expect(R.Stored).toHaveLength(1);
+      expect(R.FirstMessage).toContain('<#C_CLIENT>');
+      expect(R.Stored[0].ReminderMessageText).toContain('<#C_CLIENT>');
+      expect(R.FirstMessage + R.Stored[0].ReminderMessageText).not.toContain('Background detail');
+    });
+
+    test('GH-243 long automatic request creates no record or confirmation', async () => {
+      const WorkspaceInfo = MakeWorkspaceInfo('gh243_auto_ignore');
+      const MockProcess = ConfigureMockWorkspaceAI(MockWorkspaceAI, { reminderMessage: 'Review the plan' });
+      const SlackApp = new MockSlackApp({ WorkspaceInfo });
+      const Reminders = new RemindersModule(SlackApp);
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        MockProcess.mockClear();
+        const BeforePosts = SlackApp.SentMessages.length;
+        await SlackApp.SimulateMessageAsync({
+          channel: 'D_LONG', channel_type: 'im', user: 'U_SENDER',
+          text: 'Background detail. '.repeat(35) + 'Please review the plan tomorrow.', ts: '1773990000.000952',
+        });
+        expect(Reminders.GetAllReminders()).toHaveLength(0);
+        expect(MockProcess).not.toHaveBeenCalled();
+        expect(SlackApp.SentMessages).toHaveLength(BeforePosts);
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
+
+    test.each([500, 501, 0])('GH-243 raw boundary in wrench triage: %i', async Length => {
+      const WorkspaceInfo = MakeWorkspaceInfo('gh243_wrench_' + Length);
+      const Text = Length ? 'Please review the plan tomorrow. '.padEnd(Length, ' ') : '   ';
+      const MessageTS = '1773990000.000953';
+      const MockProcess = ConfigureMockWorkspaceAI(MockWorkspaceAI, { reminderMessage: 'Review the plan' });
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo, ThreadMessagesById: {
+          [`C_CLIENT:${MessageTS}`]: [{ user: 'U_CLIENT', text: Text, ts: MessageTS }],
+        },
+      });
+      const Reminders = new RemindersModule(SlackApp);
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        MockProcess.mockClear();
+        await SlackApp.SimulateReactionAddedAsync({
+          user: 'U_OPERATOR', reaction: 'wrench', item: { channel: 'C_CLIENT', ts: MessageTS },
+        });
+        const Replies = SlackApp.SentMessages.map(Message => Message.text).join('\n');
+        if(Length === 500) {
+          expect(MockProcess).toHaveBeenCalled();
+          expect(Replies).toContain('Recommendation: *schedule*');
+        } else {
+          expect(MockProcess).not.toHaveBeenCalled();
+          expect(Replies).toContain(Length ? 'Recommendation: *ignore*' : 'no text to triage');
+        }
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
     // SEAM (end-to-end): a long message goes through the REAL pipeline — analyzer → length-aware
     // synthesis → #ComposeReminderMessageAsync (full original in a `>` blockquote) → append
     // "Key task(s):\n• <synthesized>" → store — and then through the REAL digest line builder

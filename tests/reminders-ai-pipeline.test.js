@@ -385,7 +385,7 @@ describe('RemindersAIPipeline', () => {
         expect(Routing.actionableSpanRatio).toBe(0);
         // ...but the DECISION must be made on the raw measurement, which is non-zero.
         expect(Routing.spanRatioUsable).toBe(true);
-        expect(Routing.routedBy).toBe('buried_task_ratio');
+        expect(Routing.routedBy).toBe('long_message'); // >500 explicit-source safety wins.
         expect(Routing.segment).toBe('long');
         expect(Routing.synthesisOn).toBe(true);
       });
@@ -404,8 +404,9 @@ describe('RemindersAIPipeline', () => {
         expect(NoSpan.actionableSpanRatio).toBe(0);
         expect(TinySpan.spanRatioUsable).toBe(true);
         expect(NoSpan.spanRatioUsable).toBe(false);
-        expect(TinySpan.routedBy).toBe('buried_task_ratio');
-        expect(NoSpan.routedBy).toBe('sentence_count');
+        expect(TinySpan.routedBy).toBe('long_message');
+        expect(NoSpan.routedBy).toBe('long_message');
+        expect(TinySpan.segment).toBe('long');
       });
 
       it('the ratio ceiling is compared on the RAW value, not the rounded one', () => {
@@ -419,7 +420,8 @@ describe('RemindersAIPipeline', () => {
         expect(Routing.messageLength).toBe(1000);
         expect(Routing.actionableSpanRatio).toBe(0.35);           // rounds TO the ceiling
         expect(0.354).toBeGreaterThan(RemindersAIPipeline.BURIED_TASK_MAX_SPAN_RATIO); // raw exceeds it
-        expect(Routing.routedBy).toBe('sentence_count');          // so the gate must NOT claim it
+        expect(Routing.routedBy).toBe('long_message');
+        expect(Routing.segment).toBe('normal');                 // ratio gate must NOT claim it
       });
 
       it('the legacy master flag still overrides the ratio gate, and says so', () => {
