@@ -10,7 +10,7 @@
       },
       "reminder_message": {
         "type": "string",
-        "description": "Concise imperative reminder title inferred from the original message."
+        "description": "One-line imperative reminder title, at most 280 characters, summarizing requested work rather than repeating a long list or background."
       }
     },
     "required": [

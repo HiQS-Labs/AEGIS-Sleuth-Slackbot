@@ -25,6 +25,17 @@ const { DetectCompletionReply } = require('./reminder-text-completion');
 /** Trigger used when a force-schedule (:alarm_clock:) finds no time of its own (GH-114). */
 const FORCE_FALLBACK_TRIGGER = 'tomorrow morning';
 
+// long Slack messages require explicit scheduling; count raw characters before quote/space removal.
+const LONG_MESSAGE_PATTERN = /^[\s\S]{501}/;
+
+/**
+ * @param {string} ArgText Raw Slack message text.
+ * @returns {boolean}
+ */
+function IsLongReminderMessage(ArgText) {
+  return LONG_MESSAGE_PATTERN.test(ArgText || '');
+}
+
 /**
  * Explicit opt-out of reminder creation ("don't set a reminder", "don't need to set a reminder").
  * `don't forget to set a reminder` does not match: `don't` is followed by `forget`. From d07d643.
@@ -87,6 +98,7 @@ const DIRECT_ASK_NEGATION_PATTERN =
  * (GH-239). The model still reads the whole context.
  */
 const EXCLUSIONS = Object.freeze([
+  Object.freeze({ Id: 'long_message', Reason: 'long_message', Modes: Object.freeze(['auto']), Input: 'raw', LiveOnly: true, Pattern: LONG_MESSAGE_PATTERN }),
   Object.freeze({ Id: 'quoted_only', Reason: 'quoted_only', Modes: Object.freeze(['auto']), Input: 'quote_removed', LiveOnly: false, Pattern: /^\s*$/ }),
   Object.freeze({ Id: 'opt_out', Reason: 'opt_out', Modes: Object.freeze(['auto']), Input: 'normalized', LiveOnly: true, Pattern: CREATION_OPT_OUT_PATTERN }),
 ]);
@@ -175,6 +187,7 @@ function IgnoreAnalysis(ArgRationale) {
 }
 
 const EXCLUSION_RATIONALES = Object.freeze({
+  long_message: 'Long messages are ignored automatically; use an explicit reminder command or alarm-clock reaction.',
   quoted_only: 'Message is only quoted text.',
   opt_out: 'Message explicitly opts out of reminder creation.',
 });
@@ -193,7 +206,7 @@ const EXCLUSION_RATIONALES = Object.freeze({
 /**
  * Judge one message.
  * @param {string} ArgText Message text.
- * @param {{Mode?: 'auto'|'force'|'mention'|'strict', WorkspaceAI?: any, DecisionSpec?: any, Capture?: any, Logger?: any, LiveText?: string}} [ArgOptions]
+ * @param {{Mode?: 'auto'|'force'|'mention'|'strict', WorkspaceAI?: any, DecisionSpec?: any, Capture?: any, Logger?: any, LiveText?: string, ExplicitSchedule?: boolean}} [ArgOptions]
  *   auto: scheduling, quoted text and opt-outs excluded before the model. force: scheduling for an
  *   explicit :alarm_clock: — the whole message goes to the model, no pre-model exclusions.
  *   mention / strict: completion detection on the raw reply, no model call.
@@ -222,9 +235,12 @@ async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
   const Own = Mode === 'force' ? Text : OwnWords(Text);
   for(const Entry of EXCLUSIONS) {
     if(!Entry.Modes.includes(Mode)) continue;
+    if(Entry.Id === 'long_message' && ArgOptions.ExplicitSchedule === true) continue;
     if(Entry.Input === 'quote_removed' && Own === Text) continue;
     const EntryOwn = Entry.LiveOnly && typeof ArgOptions.LiveText === 'string' ? OwnWords(ArgOptions.LiveText) : Own;
-    const Input = Entry.Input === 'normalized' ? NormalizeIntentText(EntryOwn) : EntryOwn;
+    const Input = Entry.Input === 'raw'
+      ? (Entry.LiveOnly && typeof ArgOptions.LiveText === 'string' ? ArgOptions.LiveText : Text)
+      : Entry.Input === 'normalized' ? NormalizeIntentText(EntryOwn) : EntryOwn;
     if(Entry.Pattern.test(Input)) {
       return {
         Verdict: 'ignore',
@@ -244,7 +260,9 @@ async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
   });
   let Reason = Analysis.recommendation === 'schedule' ? 'model_schedule' : 'model_ignore';
 
-  if(Analysis.recommendation === 'ignore') {
+  // a long explicit request uses the existing manual synthesis/default-time path, not a raw-text override.
+  const LongLiveMessage = IsLongReminderMessage(typeof ArgOptions.LiveText === 'string' ? ArgOptions.LiveText : Text);
+  if(Analysis.recommendation === 'ignore' && !LongLiveMessage) {
     const Detection = DetectDirectAskWithTimeTrigger(Own);
     if(Detection) {
       if(ArgOptions.Logger && typeof ArgOptions.Logger.info === 'function')
@@ -280,6 +298,7 @@ async function JudgeReminderTextAsync(ArgText, ArgOptions = {}) {
 
 module.exports = {
   JudgeReminderTextAsync,
+  IsLongReminderMessage,
   OwnWords,
   NormalizeIntentText,
   IsCreationOptOut,

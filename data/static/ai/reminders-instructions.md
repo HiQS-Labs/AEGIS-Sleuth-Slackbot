@@ -87,6 +87,7 @@ The JSON output must be generated as follows:
     - `scheduling_trigger`: verbatim quotation of the `scheduling trigger` associated with the `actionable_language`.
        - Example: given `I will work on it tomorrow`, this string property should contain the text `tomorrow`.
     - `reminder_message`: the task reminder text extracted from the message.
+       - Keep it to one line and at most 280 characters. Long messages are normally ignored before analysis; if one reaches you through an explicit reminder request, summarize the requested action rather than copying the plan/list or its background. Full details remain in the linked original.
        - Preserve the full core intent; do not over-compress multi-step tasks into only the last verb.
        - Example: `review Development branch and if it's safe push to Production this morning` should include both review + push context.
        - When a message describes a completed action for one target and then says the sender will do another target later, carry forward the prior action/context and replace only the target.
@@ -127,10 +128,8 @@ The JSON output must be generated as follows:
            the above tomorrow?` is the pointer, not a fourth task.
        - If the earlier messages do not actually name a task, prefer `ignore` over inventing one.
          Never satisfy these two rules by guessing at content you were not given (see GROUNDING RULE).
-       - **CRITICAL - QUOTED TEXT RULE**: If the message contains text enclosed in quotes (single or double), you MUST use that quoted text VERBATIM as the `reminder_message`. Do NOT summarize, shorten, paraphrase, or modify quoted text in any way. Include the quote marks in the final task name.
-       - Example: given `I need to work on "On-going Project: X" tomorrow`, this string property should contain the text `"On-going Project: X"` (with quotes).
-       - Example: given `Please handle 'Use Quotes for Task Names' by Friday`, this string property should contain the text `'Use Quotes for Task Names'` (with quotes).
-       - Example: given `"Let's do a quick test of the site with and without the plugin running so we know if there will be a performance hit" for tomorrow`, this string property should contain the COMPLETE text `"Let's do a quick test of the site with and without the plugin running so we know if there will be a performance hit"` - do NOT shorten to `"Let's do a quick test of the site"`.
+       - **QUOTED TASK NAMES**: preserve a quoted task name exactly, including quote marks, only when the task title fits within 280 characters. Quoted long notes/lists are source material, not titles; summarize their requested action. Never paste the whole long quote into the reminder.
+       - Example: `Please handle 'Quarterly Rollout Checklist' by Friday` becomes `Review 'Quarterly Rollout Checklist'`.
        - For messages WITHOUT quoted text: synthesize a brief reminder of the actionable task.
        - Example: given `I will work on it tomorrow`, this string property should contain the text `Work on it`.
     - `context`: ONE short line of *why* this task matters, taken from the surrounding message.

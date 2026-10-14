@@ -360,7 +360,7 @@ class RemindersAIPipeline {
    * call and the direct-ask fallback — lives in reminder-judgement.js (GH-149); this returns its
    * model-shaped analysis, which is always a valid result for the scheduler.
    * @param {string} ArgMessageText Message text to analyze.
-   * @param {{Mode?: 'auto'|'force', LiveText?: string}} [ArgOptions] force: explicit :alarm_clock: — quoted text kept, no pre-model exclusions.
+   * @param {{Mode?: 'auto'|'force', LiveText?: string, ExplicitSchedule?: boolean}} [ArgOptions] force: explicit :alarm_clock: — quoted text kept, no pre-model exclusions.
    *   LiveText: the live reply when ArgMessageText is enriched thread context (GH-239).
    * @returns {Promise<GptReminderResponse>}
    */
@@ -372,6 +372,7 @@ class RemindersAIPipeline {
       Capture: this.#DecisionCapture,
       Logger: this.#SlackApp && this.#SlackApp.Logger,
       LiveText: ArgOptions.LiveText,
+      ExplicitSchedule: ArgOptions.ExplicitSchedule,
     });
     return /** @type {GptReminderResponse} */ (Judgement.Analysis);
   }
@@ -606,8 +607,9 @@ class RemindersAIPipeline {
    * ("can do I'll work on it today"), so a verbatim bullet would show the reader the one text that
    * needed explaining. It forces synthesis ON regardless of segment — only the explicit legacy
    * master override (`REMINDER_TEXT_SYNTHESIS=off`) beats it, so a deliberate global opt-out is
-   * never silently defeated.
-   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, enrichedContext: boolean, routedBy: 'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count' }}
+   * never silently defeated for short sources. GH-243 long-source safety requires synthesis
+   * regardless of display flags; it never permits a full-message fallback.
+   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, enrichedContext: boolean, routedBy: 'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count' }}
    */
   static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
     const Original = (ArgOriginalText || '').trim();
@@ -645,11 +647,12 @@ class RemindersAIPipeline {
 
     const Segment = /** @type {'normal'|'long'} */ (IsBuriedTask ? 'long' : SentenceSegment);
 
+    const LongSource = ReminderJudgement.IsLongReminderMessage(ArgOriginalText);
     const MasterOverride = RemindersAIPipeline.GetLegacyMasterSynthesisOverride();
     // GH-143: enrichment beats the per-segment defaults but never the explicit master override —
-    // the segment flags are defaults, the master flag is an operator's deliberate opt-out.
+    // long-source safety overrides flags; short sources keep their existing opt-out.
     const EnrichedContext = ArgOptions?.EnrichedContext === true;
-    const SynthesisOn = MasterOverride !== null
+    const SynthesisOn = LongSource ? true : MasterOverride !== null
       ? MasterOverride
       : EnrichedContext
         ? true
@@ -657,8 +660,8 @@ class RemindersAIPipeline {
           ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
           : RemindersAIPipeline.IsNormalTextSynthesisEnabled());
 
-    const RoutedBy = /** @type {'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'} */ (
-      MasterOverride !== null ? 'master_override'
+    const RoutedBy = /** @type {'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'} */ (
+      LongSource ? 'long_message' : MasterOverride !== null ? 'master_override'
         : EnrichedContext ? 'enriched_context'
           : (IsBuriedTask ? 'buried_task_ratio' : 'sentence_count')
     );

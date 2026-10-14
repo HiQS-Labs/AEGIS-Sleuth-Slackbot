@@ -136,3 +136,25 @@ describe('SelectContextLine', () => {
     ).suppressedBy).toBe('restates-task');
   });
 });
+
+describe('GH-243 long-source safety', () => {
+  const Original = 'Background detail about the review. '.repeat(20) + 'Please review the plan tomorrow.';
+  test.each([
+    ['flags off', { reminder_message: 'Review the plan', actionable_language: Original }, false, 'Review the plan'],
+    ['whole-source title', { reminder_message: Original, actionable_language: Original }, true, 'Follow up on the original message'],
+    ['no title', { actionable_language: Original }, true, 'Follow up on the original message'],
+    ['rejected title', { reminder_message: 'Review Snowflake', actionable_language: Original }, true, 'Follow up on the original message'],
+  ])('%s never returns the full long source', (_Label, Candidate, SynthesisOn, Expected) => {
+    const Result = SelectTaskText(Candidate, Original, SynthesisOn, Original);
+    expect(Result.text).toBe(Expected);
+    expect(Result.text.length).toBeLessThanOrEqual(280);
+    expect(Result.text).not.toContain('Background detail');
+  });
+  test('long analyzed context cannot leak through a short live reply', () => {
+    expect(SelectTaskText({ reminder_message: Original, actionable_language: Original }, 'Please do that tomorrow', false, Original).text)
+      .toBe('Follow up on the original message');
+  });
+  test('oversized subordinate context is suppressed', () => {
+    expect(SelectContextLine({ reminder_message: 'Review the plan', context: Original }, Original, true, Original).text).toBe('');
+  });
+});
