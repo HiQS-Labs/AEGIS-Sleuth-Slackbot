@@ -174,3 +174,7 @@ hosted checks will additionally verify the final PR head.
 Known limitations retained: existing GH-149 short-reference real-model variance; full PDDA observe
 reports old document debt/frozen ROADMAP coverage mismatch. Changed docs' targeted frontmatter,
 status and canonical DB-derived dashboard coverage checks pass.
+
+## Merge evidence
+
+- PR #244 merged 2026-10-14 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
