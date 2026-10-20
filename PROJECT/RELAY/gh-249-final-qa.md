@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -128,5 +128,25 @@ Handing off to Producer claude-a — disposition S1 and the nits, apply the boun
 - **Nit (ARCHITECTURE inventory drift) — Declined here, parked.** Pre-existing, not caused by GH-249. Filed in the local (gitignored) `PARKED/` ledger as P-001.
 
 Handing off to Reviewer codex — re-review S1 and the touched files.
+
+### Reviewer · Round 2 · codex
+
+Ship — S1 closed; no Blocker/Should remains.
+
+swept file: yes
+
+Read all five implementation files, both smoke scripts, the complete plan/receipt and plan-QA record, the full architecture and server guide, and the scoped GH-249 CHANGELOG entry. No additional Blocker/Should defects found, including in unchanged portions of those files. The pre-existing architecture inventory nit from round 1 remains a separate follow-up; the producer's claimed local parking entry was not independently checked. Generated ledgers excluded as instructed. Graph Verify orientation and coverage again point to another checkout, generation `2026-10-13T00:42:44Z`; deploy/docs/changelog are excluded and GH-249 paths absent, so current seeded source reads supply the evidence. `temp/SOP.md` is absent: production results below are attributed to the supplied receipt, not an independent live-state assertion. No Git, suites, executable fixtures or production operations ran; only non-executing static checks. Only this relay file was edited.
+
+- **[Pass] S1 closed at the owning boundary.** `deploy/git-pulse-mirror/install.sh:19-27` now executes `chmod 600 "$CONFIG"` after both successful configuration paths, before installation and service startup at lines 29-36. The no-argument path does not rewrite contents; missing config still exits 2 at lines 23-25. With `set -e` at line 12, failed chmod prevents service startup. The supplied follow-up receipt at `PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md:194-198` records both 644→600 paths with unchanged contents, an already-600 rerun, all rc=0, service success and a clean mirror. This directly addresses S1's original failing input. An independent full installer rerun here is **[Unverified — needs clone run]**; the recorded production exercise is accepted as the bounded runtime evidence required by Setup.
+- **[Pass] README and leak-evidence dispositions accepted.** README lines 14 and 21-23 now say “up to 5 min after the hour” and tracked edits, explicitly preserving untracked files. Plan/receipt lines 199-202 qualify sampling and distinguish structural credential handling from observational scans. Sync-script lines 25-33 and 37-40 still read/export the literal token, keep the helper's variable expansion deferred, clear inherited helpers, and use credential-free clone/fetch authentication without persistent config. No new scanner or cleanup machinery was added.
+- **[Pass] Acceptance mapping and proportionality remain sound.** Plan/receipt lines 173-187 cover missing-input controls, authenticated main SHA equality, branch/clean state, data parsing, enabled timer/next elapse, the real reader, rerun stability, tracked-content reset, and token scans with a positive control. Service lines 7-12 and timer lines 7-10 match the plan. Consumer path, override and separate freshness clocks remain at README lines 69-80, architecture line 243 and server-guide lines 185-190. The supplied implementation uses placeholders and server-only repo configuration (`install.sh:16,21`), with no private repo identifier or credential value found in the scoped artifacts. Rating `60/20/50/85` remains consistent with the bounded task and rationale at plan lines 157-161; generated ledger persistence was not independently audited. No acceptance criterion lacks a corresponding source/doc or receipt entry; the receipt's leak observations retain the limitations above.
+- **[Nit] Static-check receipt needs one qualification.** Plan/receipt line 173 says shellcheck passed, but reviewer command `shellcheck deploy/git-pulse-mirror/install.sh deploy/git-pulse-mirror/sync-git-pulse-mirror.sh` exited 1 with only `sync-git-pulse-mirror.sh line 33: SC2016 (info): Expressions don't expand in single quotes`. The quoting is intentional: the credential helper must expand the variable later, inside its shell. Command `shellcheck --exclude=SC2016 deploy/git-pulse-mirror/install.sh deploy/git-pulse-mirror/sync-git-pulse-mirror.sh` exited 0, no output. Qualify the recorded shellcheck invocation when next updating the receipt; preserve the single quotes. Command `bash -n deploy/git-pulse-mirror/install.sh deploy/git-pulse-mirror/sync-git-pulse-mirror.sh PROJECT/2-WORKING/GH-249-smoke/smoke.sh PROJECT/2-WORKING/GH-249-smoke/leak-check.sh` exited 0, no output. All commands used `PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"`; no probe artifacts were generated.
+
+Root cause: creation-only umask did not enforce permissions on an existing config; Fix site: unconditional installer chmod after config creation/reuse; Why not upstream/downstream: the installer owns this file and now enforces its contract before service activation.
+
+VERDICT: PASS
+Basis: S1 is addressed in source and the supplied targeted runtime receipt; no Blocker/Should remains. Approval covers the seeded artifacts and recorded evidence, with independent runtime/gate execution left to the harness as instructed.
+
+Relay closed (Approved), no further review turn needed. Producer claude-a receives the completed review for the harness gate and normal delivery.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
