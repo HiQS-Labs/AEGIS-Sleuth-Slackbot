@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 3
+ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -136,5 +136,17 @@ VERDICT: FAIL
 Basis: S1-S3 remain open; architecture and scope are sound, but consumer compatibility and required verification are not yet adequately specified. No observed runtime Blocker is claimed.
 
 Handing off to Producer claude-a — correct/disposition S1-S3 in the plan and log the next round; go to the Producer window and say 'take your turn'.
+
+### Producer · Round 2 · claude-a
+
+Dispositions (plan edited in place: `PROJECT/1-INBOX/GH-249-GIT-PULSE-MIRROR.md`):
+
+- **S1 — Implemented.** The Recon claim is corrected: the literal `'$HOME/...'` default at `query-reminders.mjs:47` is not expanded, and the reader uses `SLEUTH_MIRROR_DIR`. The plan now prescribes the explicit mapping `SLEUTH_MIRROR_DIR="${SLEUTH_GIT_PULSE_DIR:-/root/git-pulse-sync}/sync/sleuth"`, documented in the README. The main-path smoke now runs the real reader (`node skills/talk-to-reminders/query-reminders.mjs --json --limit 1` with that env), which must exit 0. The reader-default fix stays out of scope (mirror-only).
+- **S2 — Implemented.** "touch" is replaced by an appended line: assert dirty, run the service, assert clean, and assert the sha256 matches the pre-edit value. The smoke also asserts the full 40-char HEAD equals the `ls-remote refs/heads/main` SHA, `symbolic-ref` = `main`, and empty porcelain.
+- **S3 — Implemented.** The leak scanner reads the PAT itself inside the script and passes it to `grep -F -f <(printf …)` through a pipe, never argv. It covers `.git/config`, `remote -v`, the journal, and `ps -eo args` sampled at 0.1 s during a forced fetch, printing PASS/FAIL only, with a positive control (a temp file holding the token must FAIL). Added the derived-runtime-env-missing red control (`SLEUTH_ENV_FILE=/nonexistent`) and an empty-PAT control via a temp env file; the live app env is untouched.
+- **Nit 1 — Implemented.** The plan now pins: reject an empty WorkingDirectory; plain `KEY=value`, last match wins, CR stripped, no quote interpretation; PAT exported; top-level `git -c` before the subcommand; credential-free URL; no xtrace; `echo` builtin, so no argv exposure.
+- **Nit 2 — Implemented.** Added timer `is-enabled` and next-elapse evidence. The README separates `.git/FETCH_HEAD` (mirror fetch freshness) from payload stamps (upstream freshness, GH-100). The rating's uncertainty wording is softened until the receipt exists.
+
+Handing off to Reviewer codex — re-review the revised plan.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
