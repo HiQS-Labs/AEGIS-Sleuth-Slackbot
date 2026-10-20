@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -148,5 +148,26 @@ Dispositions (plan edited in place: `PROJECT/1-INBOX/GH-249-GIT-PULSE-MIRROR.md`
 - **Nit 2 — Implemented.** Added timer `is-enabled` and next-elapse evidence. The README separates `.git/FETCH_HEAD` (mirror fetch freshness) from payload stamps (upstream freshness, GH-100). The rating's uncertainty wording is softened until the receipt exists.
 
 Handing off to Reviewer codex — re-review the revised plan.
+
+### Reviewer · Round 2 · codex
+
+Ship — plan approved; implementation and deployment verification remain future work.
+
+swept file: yes
+
+Read the entire revised 150-line plan, all eight files under `deploy/reminders-export/`, and the named architecture, consumer, server-guide and GH-86 references. No additional Blocker/Should defects found in the plan, including its unchanged sections. Graph tools are unavailable in this turn, so current seeded source reads provide the evidence; no graph generation or coverage result is claimed. `temp/SOP.md` is absent, so the producer's live-host/prerequisite statements remain attributed assertions rather than independently verified deployment facts. No Git, suites, executable fixtures or production operations were run.
+
+- **[Pass] S1 closed at plan level.** `PROJECT/1-INBOX/GH-249-GIT-PULSE-MIRROR.md:44-49` correctly identifies the literal `$HOME` default and the distinct consumer variable; lines 127-129 require the real reader invocation with an absolute override. This matches `skills/talk-to-reminders/query-reminders.mjs:47,103-107`. The reader fix stays outside the mirror task.
+- **[Pass] S2 closed at plan level.** Plan lines 123-134 now require a full upstream SHA comparison, branch `main`, clean porcelain, installer rerun, and a content-changing append with dirty-before/clean-after and original-byte hash assertions. Removing reset can no longer satisfy the specified tracked-file control merely because touch left bytes unchanged. **[Unverified — needs clone run]** for executed reset/idempotency controls and runtime behavior.
+- **[Pass] S3 closed at plan level.** Plan lines 117-122 cover missing service config, missing runtime env and empty PAT without editing the live app env. Lines 135-140 feed the scanner pattern through process substitution, cover config/remote/journal/sampled argv, and require a positive control. Narrow scratch probe command: `bash -c 'PAT=relay_dummy_secret; printf "%s\n" "$PAT" > "$TMPDIR/scanner-positive.txt"; printf "%s\n" safe > "$TMPDIR/scanner-negative.txt"; if grep -qF -f <(printf "%s\n" "$PAT") "$TMPDIR/scanner-positive.txt"; then echo positive_control=FAIL_detected; else exit 1; fi; if grep -qF -f <(printf "%s\n" "$PAT") "$TMPDIR/scanner-negative.txt"; then exit 1; else echo negative_control=PASS; fi'`, with `TMPDIR="$PWD/.relay-scratch/tmp"`; exit 0, decisive output `positive_control=FAIL_detected` and `negative_control=PASS`. This measures scanner matching only. **[Unverified — needs clone run]** for actual authentication surfaces; periodic argv sampling is observational evidence, not proof that no shorter-lived process can leak.
+- **[Pass] Scope and implementation contract remain proportionate.** Plan lines 75-101 specify live-tree derivation, empty-directory rejection, literal PAT parsing, nonpersistent top-level Git config, credential-free HTTPS, no xtrace, and systemd serialization. Layout follows `deploy/reminders-export/install.sh:27-40` and `sleuth-reminders-export.service:8`; the new unit avoids that service's optional hardcoded env file at line 11. Server-only repo configuration at plan lines 97-99 keeps the private name out of committed artifacts. No shared framework, lock layer or new suite is needed. Rating rationale at lines 146-150 is reasonable for the stated envelope, subject to the future receipt.
+- **[Nit] Allow the configured jitter in the timer smoke.** Plan line 127 says the next elapse is “within the hour,” while lines 95-96 add up to five minutes of randomized delay. Compare against the hourly boundary plus that delay (and ordinary timer accuracy), rather than rejecting a valid next elapse just over 60 minutes away. This is a smoke wording correction, not a reason to change the timer design.
+
+Root cause: prior consumer assumptions and weak smoke instructions; Fix site: the revised plan's Recon and Verification; Why not upstream/downstream: the explicit mapping and falsifiable controls resolve plan readiness without expanding the mirror task.
+
+VERDICT: PASS
+Basis: S1-S3 are addressed, no Blocker/Should remains, and the plan meets the stated scope with bounded verification. Approval certifies plan readiness, not an implemented script or deployed service.
+
+Relay closed (Approved), no further turn needed. Producer claude-a receives the approved plan for implementation through the normal harness gates.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
