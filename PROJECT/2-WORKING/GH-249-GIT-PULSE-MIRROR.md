@@ -19,7 +19,7 @@ related: "GH-248 (first consumer: HiQS activity → Slack threads); GH-100 (mirr
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA: Codex relay approved round 2 (`PROJECT/RELAY/gh-249-plan-qa.md`, reviewed `eda57b4`). | Implement `deploy/git-pulse-mirror/`, install on production, record the smoke receipt below, then final Codex QA and the PR. |
+| Implemented `deploy/git-pulse-mirror/`; installed on production; smoke, red controls and leak check all pass (receipt below). Plan QA approved round 2. | Final Codex relay QA on the diff + receipt, then the PR against `development`. Mirror is live on prod; merging only versions the files. |
 
 ## Ask
 
@@ -159,3 +159,34 @@ an enabler, not a defect; nothing is broken without it. **appeal 50:** neutral (
 given). **effort 85:** small, mirrors an existing pattern, and all prerequisites (git, PAT access,
 disk) were probed on the box 2026-10-20; the deployment receipt will confirm them. Recurrence: not
 applicable (new capability). Uncertainty: low, and resolved by the smoke receipt.
+
+## Production install + smoke receipt (2026-10-20, ~23:38–23:42 UTC)
+
+Installed on the **production** server from a copy of `deploy/git-pulse-mirror/` at `a6d6223`
+(copied to a temp dir on the box; production's app tree was not `git pull`ed to an unmerged branch).
+Scripts used: [`GH-249-smoke/smoke.sh`](GH-249-smoke/smoke.sh) (the repo name is passed as an
+argument, never stored) and [`GH-249-smoke/leak-check.sh`](GH-249-smoke/leak-check.sh). Output
+verbatim except for the redacted host:
+
+| Check | Result |
+|---|---|
+| `bash -n`, shellcheck (local), `systemd-analyze verify` | pass (verify's only unit complaint was the not-yet-installed ExecStart path) |
+| Red: `SLEUTH_ENV_FILE=/nonexistent` | `FAIL` as required → `env file not readable: /nonexistent`; no dir created, no network |
+| Red: empty `SLEUTH_RAG_GITHUB_PAT=` | `FAIL` as required → `SLEUTH_RAG_GITHUB_PAT missing from <tmp>` |
+| Red: repo var unset | `FAIL` as required → `SLEUTH_GIT_PULSE_REPO: set SLEUTH_GIT_PULSE_REPO (owner/name) in /etc/default/…` |
+| Red: `/etc/default/sleuth-git-pulse-mirror` moved aside | unit fails (`Result=resources`); recovers once restored |
+| Main: first clone | `HEAD == remote main (dc205fe0d9c9)`, the full SHA from an **authenticated** `ls-remote refs/heads/main`; on `main`; clean |
+| Main: data | `sync/sleuth/reminders-neochrome.json` parses as JSON; mirror is 30 MB |
+| Main: timer | `is-enabled` = enabled; next elapse `00:04:12` (25 min, within 1 h + 5 min jitter); service `Result=success`, exit 0 |
+| Main: real consumer | `SLEUTH_MIRROR_DIR=/root/git-pulse-sync/sync/sleuth node <live tree>/skills/talk-to-reminders/query-reminders.mjs --json --limit 1` → exit 0, 1483 bytes |
+| Adjacent: `install.sh` rerun with no argument | units, config and installed script byte-identical (sha256); HEAD unchanged |
+| Adjacent: reset control | appended a line to a tracked file → porcelain dirty → service run → clean, original sha256 restored |
+| Leak: positive control | scanner reports `FAIL` on a temp file containing the token (scanner works) |
+| Leak: `.git/config`, `remote -v`, journal | `PASS` (token absent) |
+| Leak: `ps -eo args` sampled every 0.1 s during a forced fetch | `PASS`, 113 git process lines sampled |
+| Status line | `git-pulse mirror /root/git-pulse-sync at dc205fe0d 2026-10-20T16:27:37-07:00` |
+
+Found during the smoke and fixed in this branch: `install.sh` printed systemd's "Consumed … CPU"
+line instead of the sync status line. It now greps the script's own `^git-pulse mirror ` line. The
+fixed installer was re-run on prod; installed artifacts stayed byte-identical (the installed sync
+script's sha256 matches the repo copy).

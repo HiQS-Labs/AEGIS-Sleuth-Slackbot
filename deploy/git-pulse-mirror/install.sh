@@ -33,7 +33,7 @@ echo "  installed script → $INSTALL_DIR, units → $UNIT_DIR"
 systemctl daemon-reload
 systemctl enable --now sleuth-git-pulse-mirror.timer
 systemctl start sleuth-git-pulse-mirror.service
-journalctl -u sleuth-git-pulse-mirror.service -n 1 --no-pager -o cat
+journalctl -u sleuth-git-pulse-mirror.service -n 20 --no-pager -o cat | grep '^git-pulse mirror ' | tail -1
 
 echo
 echo "Done. Verify:"
