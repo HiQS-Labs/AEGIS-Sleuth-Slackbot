@@ -381,11 +381,12 @@ function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnreso
     return Title.length >= LiveReply.length * ECHO_COVERAGE;
   };
 
+  // both predicates must hold on the SAME text: a pointer title whose displayed text is a concrete
+  // span that happens to echo the reply (`Do it` shown as `Deploy the hotfix tomorrow`) is a real
+  // task, not a pointer echo.
+  const IsPointerEcho = (/** @type {string} */ ArgText) => ArgIsUnresolved(ArgText) && IsEchoOfLiveReply(ArgText);
   const Kept = ArgRendered
-    .filter(ArgEntry => {
-      const Own = ArgEntry.rawText || ArgEntry.text;
-      return !((ArgIsUnresolved(Own) || ArgIsUnresolved(ArgEntry.text)) && (IsEchoOfLiveReply(Own) || IsEchoOfLiveReply(ArgEntry.text)));
-    })
+    .filter(ArgEntry => !(IsPointerEcho(ArgEntry.rawText || ArgEntry.text) || IsPointerEcho(ArgEntry.text)))
     .map(ArgEntry => ArgEntry.candidate);
   // Never return nothing. A message whose every candidate is a bare pointer still schedules
   // something a human can act on by opening the thread.

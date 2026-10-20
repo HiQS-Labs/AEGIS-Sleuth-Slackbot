@@ -92,6 +92,15 @@ describe('GH-250 — the pointer-echo filter still sees the pointer behind the t
     expect(Result.kept.map(ArgCandidate => ArgCandidate.reminder_message)).toEqual(['Take the car', 'Bring the cooler']);
   });
 
+  test('a pointer title whose displayed text is a concrete span is a task, not an echo — predicates pair on one text', () => {
+    const Reply = 'I\'ll deploy the hotfix tomorrow and ping the client';
+    const Entries = [
+      { candidate: { reminder_message: 'Ping the client' }, text: 'Ping the client', rawText: 'Ping the client' },
+      { candidate: { reminder_message: 'Do it' }, text: 'Deploy the hotfix tomorrow', rawText: 'Do it' },
+    ];
+    expect(DropUnresolvedReferenceCandidates(Entries, true, NeedsEarlierContext, Reply).droppedCount).toBe(0);
+  });
+
   test('a distinct pronoun-bearing task is still kept (the GH-143 over-drop)', () => {
     const Reply = 'I\'ll file a GH issue about it tomorrow and discuss it with the team Friday';
     const Entries = [

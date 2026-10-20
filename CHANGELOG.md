@@ -34,6 +34,7 @@
 -->
 
 ## 1.4.346 - 2026-10-20
+
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,
 with the source link, the owner, a labelled due date and a labelled age. I no longer repeat your
 raw wording with the `@mention` and "please" left in, I never cut a title off mid-word, I refuse
@@ -59,7 +60,7 @@ via the same fit (the `…the pixel tester on my en…` defect); `BuildCompactRe
 omitted); delivery caps extra Key tasks at 3 plus `+N more ↗︎`. Prompt assets
 (`reminders-instructions.md`/`-schema.json`, `manual-reminder-task-*`) state the contract (4–14
 words, ≤90 chars, no mentions/please/URLs, no questions/status remarks, no `…`, resolve pointers).
-Golden set `tests/fixtures/reminder-title-golden.json` (36 samples: the issue's reminders plus one
+Golden set `tests/fixtures/reminder-title-golden.json` (42 samples: the issue's reminders plus one
 per rule) run through the real selector by `tests/reminder-title-contract.test.js`, asserting the
 acceptance criteria (budget, no mid-word cut, no addressee/please, no bare pointer, grounded).
 `scripts/decision-replay.js` enforces the same invariants on every scenario

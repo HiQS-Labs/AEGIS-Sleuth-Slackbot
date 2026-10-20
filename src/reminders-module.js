@@ -2429,6 +2429,9 @@ class RemindersModule {
         text: this.#SelectReminderTaskText(
           ArgCandidate, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
         ),
+        // GH-250: the same raw words scheduling hands the filter, or triage keeps a pointer that
+        // scheduling drops and explains a candidate set production never had.
+        rawText: ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
       })),
       TriageContext.enriched, ContextResolution.NeedsEarlierContext, TriageContext.liveReplyText,
     ).kept;
