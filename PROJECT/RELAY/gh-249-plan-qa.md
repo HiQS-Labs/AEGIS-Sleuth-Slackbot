@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 1 / 3
 
@@ -101,5 +101,40 @@ ROUND: 1 / 3
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1 · codex
+
+Block — plan corrections required; no artifact/source edits made.
+
+swept file: yes
+
+Reviewed the entire GH-249 plan and all eight files in `deploy/reminders-export/`, plus the named architecture, consumer, server-guide and GH-86 references. No additional defects in the plan beyond the findings below. Source inspection, not a production attestation: `temp/SOP.md` is absent in this checkout, so live host/PAT/disk claims were not independently re-probed. Graph Verify orientation: nearest indexed project `aegis-sleuth-slack-bot`, generation `2026-10-13T00:42:44Z`, belongs to another checkout; coverage reports deploy/docs excluded and GH-249 absent. Current seeded source reads therefore supply the evidence.
+
+- **[Should] S1 — Correct the existing-reader claim and document the actual env mapping.** Plan `PROJECT/1-INBOX/GH-249-GIT-PULSE-MIRROR.md:42-44` says readers work unchanged, but `skills/talk-to-reminders/query-reminders.mjs:47` assigns the **literal** string `'$HOME/git-pulse-sync/sync/sleuth'`, and lines 103-107 pass it directly to `path.join`/readFile and exit 2 on absence. JavaScript does not expand `$HOME`. It also reads `SLEUTH_MIRROR_DIR`, not the proposed `SLEUTH_GIT_PULSE_DIR`. Cheapest fix: correct Recon and include an explicit consumer invocation/config mapping `SLEUTH_MIRROR_DIR="${SLEUTH_GIT_PULSE_DIR:-$HOME/git-pulse-sync}/sync/sleuth"`; keep a reader code fix outside this mirror-only task.
+  Observed input: consumer line 47 with `SLEUTH_MIRROR_DIR` unset; static probe `python3` extracted that assignment and printed `default_is_absolute=False`, `default_contains_literal_HOME=True` (exit 0).
+  Affected scope: this named consumer invoked without its own absolute directory override; the mirror's default directory itself is sensible.
+  Falsifier: an explicit absolute `SLEUTH_MIRROR_DIR` pointing at the populated `sync/sleuth` directory must allow the reader to load; a literal `$HOME/...` path must not be described as expansion. Reproduce the real reader invocation in the later smoke/clone run.
+
+- **[Should] S2 — Make the reset smoke fail when reset is removed.** Plan line 114 says “touch a tracked file … confirm it is reset.” Touch changes timestamps, not bytes, so this check can pass even with no reset at all. Replace it with an actual content edit in the dedicated mirror, assert dirty before the run, then assert original bytes and clean status afterward. Also explicitly assert current branch `main` and HEAD equality with `origin/main`, rather than only the abbreviated comparison at lines 110-111; these are acceptance requirements at line 21.
+  Observed input: the literal “touch a tracked file” instruction at line 114. Scratch-only probe `python3` wrote `b"tracked-content\n"`, hashed it, applied `os.utime(p, None)`, and hashed again: `touch_content_unchanged=True`, `no_reset_needed_for_byte_comparison=True` (exit 0; file under `.relay-scratch/tmp/touch-control.txt`).
+  Affected scope: the planned dirty-file reset verification, not a request to add a cleanup subsystem or new test suite.
+  Falsifier: a content-changing edit must remain dirty if reset is deliberately omitted in an isolated clone, and disappear after the real service run. **[Unverified — needs clone run]** for that executable red control; no Git or fixtures were run here.
+
+- **[Should] S3 — Close the credential-verification gaps without leaking through the check itself.** Plan line 115's `grep -r <token> ...` puts the search token in the scanner's argv if followed literally, while lines 115-117 omit any `ps` observation despite the requirement at line 22. “Compared without printing it” does not keep argv private. Specify a scanner that reads the token internally/from protected input, emits only pass/fail, and examines config, remote, journal and sampled Git/helper argv during authentication. Add a missing **derived live `.env.runtime`** red control: line 108 only removes `/etc/default/sleuth-git-pulse-mirror`, a different file. Keep the live app's credentials intact; exercise the missing-runtime-file control in isolation. Record exact commands/status and sanitized outcomes in the planned receipt.
+  Observed input: line 115's token-as-pattern command; Verification lines 107-117 contain no `ps` check and only the config-file-absent/empty-PAT cases. Static Python inspection of the Verification section returned `verification_mentions_ps=False` (exit 0).
+  Affected scope: the plan's security and credential-loading verification, not an observed production leak or a demand for enterprise hardening.
+  Falsifier: a dummy secret deliberately inserted into each inspected surface must make the scanner fail without appearing in its own argv/output; missing derived runtime env must fail before network access, with a named non-secret error. The intact configuration must succeed. **[Unverified — needs clone run]** for executable controls.
+
+- **[Pass] Pattern reuse and scope are proportionate.** The proposed installer/service/timer layout and outside-app script directory (plan lines 63-96) match `deploy/reminders-export/install.sh:27-40` and its `Type=oneshot` service at line 8. A separate pull script is appropriate: the precedent publisher uses the contents API (`publish-reminders-export.mjs:53-84`), not a reusable clone/fetch implementation. No framework extraction, app change, lock layer or new suite is warranted for this envelope.
+- **[Pass] Repo-side grounding for GH-101 and GH-86.** The problematic `EnvironmentFile=-/root/sleuth-app/.env.runtime` is present at `deploy/reminders-export/sleuth-reminders-export.service:11`; derivation from systemd is prescribed at `PROJECT/1-INBOX/GH-86-RUNTIME-STATE-LOCATION.md:71-79`. Literal reading avoids the sourcing issue described in `docs/server-installation-guide.md:264-269`. This supports the design, not the unobserved deployed-state assertions.
+- **[Nit] Pin small implementation details rather than infer them from the auth ellipsis.** Plan lines 70-78 should say to reject an empty WorkingDirectory before joining `.env.runtime`, define supported PAT assignment spelling (plain literal versus quoted/CRLF), export the PAT for the helper, use a credential-free HTTPS URL, disable xtrace, and put `-c` before the `clone` subcommand (not clone's persistent `-c` option). These are implementation review points, not evidence of a current leak. No actual helper or script exists in this artifact to certify.
+- **[Nit] Verification/receipt clarity.** Add timer enabled/next-hourly-elapse evidence (plan line 85) and distinguish `.git/FETCH_HEAD` mtime as last fetch freshness from upstream export-data freshness (line 95). Rating `60/20/50/85` has a coherent rationale at lines 122-127, but effort's live-prerequisite evidence remains the producer's assertion here; soften “Uncertainty: none material” until the cited deployment receipt exists.
+
+Root cause: the plan treats a documented path and nominal smoke commands as stronger evidence than their actual source/inputs support; Fix site: Recon, consumer instructions and Verification in GH-249; Why not upstream/downstream: these corrections make this plan falsifiable without expanding its mirror-only implementation scope.
+
+VERDICT: FAIL
+Basis: S1-S3 remain open; architecture and scope are sound, but consumer compatibility and required verification are not yet adequately specified. No observed runtime Blocker is claimed.
+
+Handing off to Producer claude-a — correct/disposition S1-S3 in the plan and log the next round; go to the Producer window and say 'take your turn'.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
