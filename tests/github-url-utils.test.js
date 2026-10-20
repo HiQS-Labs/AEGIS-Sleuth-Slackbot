@@ -1,6 +1,10 @@
 'use strict';
 
-const { ExtractGitHubUrls } = require('../src/github-url-utils');
+const {
+  ExtractGitHubUrls,
+  ExtractIssueReferences,
+  IssueKey,
+} = require('../src/github-url-utils');
 
 describe('ExtractGitHubUrls', () => {
   test('extracts a bare issue URL', () => {
@@ -38,6 +42,43 @@ describe('ExtractGitHubUrls', () => {
     expect(ExtractGitHubUrls(
       'Check <https://woocommerce.com/products/churn-saver/|this plugin>'
     )).toEqual([]);
+  });
+});
+
+describe('ExtractIssueReferences', () => {
+  test('resolves shorthand against the default repo', () => {
+    expect(ExtractIssueReferences('Fixes #12', 'HiQS-Labs/rebalanceOS')).toEqual([
+      'hiqs-labs/rebalanceos#12',
+    ]);
+  });
+
+  test('recognizes qualified owner/repo#n and URLs', () => {
+    const Refs = ExtractIssueReferences(
+      'See BinoidCBD/LTVera-Pandas#99 and https://github.com/HiQS-Labs/XYZ-forge/issues/7',
+      'HiQS-Labs/rebalanceOS'
+    );
+    expect(Refs).toEqual(expect.arrayContaining([
+      'binoidcbd/ltvera-pandas#99',
+      'hiqs-labs/xyz-forge#7',
+    ]));
+  });
+
+  test('deduplicates mixed forms of the same issue', () => {
+    expect(ExtractIssueReferences(
+      'Fixes #12 and https://github.com/HiQS-Labs/rebalanceOS/issues/12 and HiQS-Labs/rebalanceOS#12',
+      'HiQS-Labs/rebalanceOS'
+    )).toEqual(['hiqs-labs/rebalanceos#12']);
+  });
+
+  test('returns empty for blank input', () => {
+    expect(ExtractIssueReferences('', 'a/b')).toEqual([]);
+    expect(ExtractIssueReferences(null, 'a/b')).toEqual([]);
+  });
+});
+
+describe('IssueKey', () => {
+  test('lowercases owner and repo', () => {
+    expect(IssueKey('HiQS-Labs/RebalanceOS', 42)).toBe('hiqs-labs/rebalanceos#42');
   });
 });
 

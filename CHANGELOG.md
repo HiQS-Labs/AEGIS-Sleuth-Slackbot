@@ -33,6 +33,22 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 2026-10-20 — GitHub issue stream (git-pulse#5 / GH-248)
+I can now post newly filed GitHub issues into a Slack channel every 15 minutes and keep the
+thread updated with comments, linked PRs, and close/reopen — without duplicating anything after a
+restart. It stays off until you turn it on.
+
+**Technical:** New `GitHubIssueStreamModule` (extends `BaseModule`) polls GitHub issues + issue
+comments for an allowlist of repos, posts one parent message per new issue, and threads follow-ups.
+Allowlist defaults to the union of RebalanceOS-published `sync/repos/*.json` in git-pulse
+(override with `GITHUB_ISSUE_STREAM_REPOS`). Env kill switch: `GITHUB_ISSUE_STREAM_WORKSPACES` +
+`GITHUB_ISSUE_STREAM_CHANNEL_ID` (no default). State is durable JSON under
+`data/runtime/github-issue-stream/` — deliberately not SQLite, matching the snapshot-relay
+seen-set pattern (the issue text asked for SQLite; this was an approved deviation). Pure planner
+in `github-issue-stream-planner.js`; `ExtractIssueReferences` added to `github-url-utils.js`
+without changing `ExtractGitHubUrls`. Respects workspace/channel DND without advancing cursors.
+Default off; no Slack event handlers registered. Tests: `tests/github-issue-stream-*.test.js`.
+
 ## 2026-10-12 — GH-243 verification and PR
 Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.
 
