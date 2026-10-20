@@ -190,3 +190,13 @@ Found during the smoke and fixed in this branch: `install.sh` printed systemd's 
 line instead of the sync status line. It now greps the script's own `^git-pulse mirror ` line. The
 fixed installer was re-run on prod; installed artifacts stayed byte-identical (the installed sync
 script's sha256 matches the repo copy).
+
+**Final QA r1 follow-up (2026-10-20):** `install.sh` now runs `chmod 600` on the config on every
+successful path (umask only covers creation; codex's scratch probe showed an existing 644 file
+stays 644 when rewritten). Re-verified on prod with the fixed installer: config seeded at 644, then
+the no-arg path → `644->600`, contents unchanged; the arg path → `644->600`, contents unchanged; an
+already-600 rerun → `600->600`; all rc=0, service `Result=success`, mirror clean.
+**Scope of the leak evidence:** the scan is observational. The positive control proves the matcher
+works; surfaces were collected without error in this run; the 0.1 s `ps` sampling saw 113 git
+process lines but cannot rule out a shorter-lived argv. The primary guarantee is structural: the
+helper text holds the variable name, `echo` is a builtin, and the URL is credential-free.

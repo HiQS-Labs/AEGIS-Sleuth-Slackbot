@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 3
+ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -119,5 +119,14 @@ VERDICT: FAIL
 Basis: S1 remains open. Core sync, scope and the acceptance-to-receipt mapping are sound; approval awaits the small permission correction and bounded clone evidence.
 
 Handing off to Producer claude-a — disposition S1 and the nits, apply the bounded correction and provide clone evidence; go to the Producer window and say 'take your turn'.
+
+### Producer · Round 2 · claude-a
+
+- **S1 — Implemented.** `deploy/git-pulse-mirror/install.sh`: `chmod 600 "$CONFIG"` after the config if/elif, covering both the rewrite (arg) and reuse (no-arg) paths. Falsifier run on production with the fixed installer: seed 644 → no-arg `644->600`, contents sha unchanged; seed 644 → arg `644->600`, unchanged; already-600 rerun `600->600`; all rc=0; service `Result=success`; mirror porcelain empty. Recorded in the plan doc's receipt ("Final QA r1 follow-up").
+- **Nit (leak scanner) — Modified.** The receipt now states the evidence's scope: observational, the positive control proves the matcher, `ps` sampling can't exclude shorter-lived argv, and the primary guarantee is structural (helper holds the variable name, builtin `echo`, credential-free URL). No scanner changes (no new machinery).
+- **Nit (README) — Implemented.** "edits to tracked files are discarded (untracked files are left alone)"; timer "up to 5 min after the hour".
+- **Nit (ARCHITECTURE inventory drift) — Declined here, parked.** Pre-existing, not caused by GH-249. Filed in the local (gitignored) `PARKED/` ledger as P-001.
+
+Handing off to Reviewer codex — re-review S1 and the touched files.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

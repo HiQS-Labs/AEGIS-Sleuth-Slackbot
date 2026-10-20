@@ -24,6 +24,7 @@ elif [ ! -f "$CONFIG" ]; then
     echo "usage: $0 <owner/name>   (no $CONFIG yet)" >&2
     exit 2
 fi
+chmod 600 "$CONFIG"   # umask only covers creation; enforce on rewrite and reuse too
 
 mkdir -p "$INSTALL_DIR"
 install -m 755 "$SRC_DIR/sync-git-pulse-mirror.sh" "$INSTALL_DIR/"

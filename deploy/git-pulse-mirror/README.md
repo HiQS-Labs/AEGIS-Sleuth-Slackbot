@@ -11,15 +11,16 @@ the mirror picks those commits up on its next pull.
 ## Data flow
 
 ```
-sleuth-git-pulse-mirror.timer  (hourly, ±5 min)
+sleuth-git-pulse-mirror.timer  (hourly, up to 5 min after the hour)
         └─ sleuth-git-pulse-mirror.service (oneshot)
               └─ sync-git-pulse-mirror.sh
                     first run:  git clone  https://github.com/<repo>.git  →  $SLEUTH_GIT_PULSE_DIR
                     later runs: git fetch origin <branch> && git reset --hard FETCH_HEAD
 ```
 
-**Read-only by design.** Every run hard-resets to the remote branch; anything written into the
-mirror is discarded within the hour. Never commit or push from it.
+**Read-only by design.** Every run hard-resets to the remote branch, so edits to tracked files
+are discarded within the hour (untracked files are left alone). Never write, commit or push
+from it.
 
 ## Config
 
