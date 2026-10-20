@@ -52,7 +52,7 @@ ROUND: 1 / 3
    was merely waiting looked stalled. A turn that ends without this line is not finished.
 
 ## Setup
-- Artifact under review: the completed GH-249 diff, `git diff 0f15b89..HEAD` (base = `origin/development` at task start). Files:
+- Artifact under review: the completed GH-249 diff from base commit 0f15b89 (origin development at task start) to HEAD, i.e. git diff 0f15b89..HEAD. Files:
   `deploy/git-pulse-mirror/` (all 5 files — the implementation), `ARCHITECTURE.md` (Server-side mirror paragraph),
   `docs/server-installation-guide.md` (new optional section), `CHANGELOG.md` (top entry),
   `PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md` (approved plan + **production smoke receipt** at the bottom),
