@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh the read-only git-pulse mirror (GH-249)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Repo name + mirror dir, written by install.sh. No "-" prefix: a missing file fails the unit loudly
+# instead of running unconfigured (the GH-101 lesson).
+EnvironmentFile=/etc/default/sleuth-git-pulse-mirror
+ExecStart=/root/sleuth-git-pulse-mirror/sync-git-pulse-mirror.sh
+TimeoutStartSec=300

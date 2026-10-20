@@ -239,6 +239,8 @@ SSH tunnel, no Web API auth, no clone needed for local tooling to read the curre
 - **Provenance:** `source.type: "sleuth-reminders-file"` ← AEGIS's own authoritative `data/runtime/reminders/neochrome_reminders.json`.
 
 This is the fast, zero-network read path for any **local** "talk to my reminders" tooling / skill: read the file, synthesize. Do not treat the mirror as a write surface or a source of truth — `data/runtime/` in the running service remains authoritative.
+
+**Server-side mirror (GH-249).** On the production server, a read-only clone of the same repo lives at `${SLEUTH_GIT_PULSE_DIR:-/root/git-pulse-sync}`, refreshed hourly by `sleuth-git-pulse-mirror.timer` (fetch + hard reset; never committed to). Server-side scripts read git-pulse files from there. The existing reader's default `SLEUTH_MIRROR_DIR` is a literal `'$HOME/…'` string, so set it explicitly (`/root/git-pulse-sync/sync/sleuth`). Last fetch time = mtime of `.git/FETCH_HEAD`; data freshness = the payload's own stamp. See [`deploy/git-pulse-mirror/README.md`](deploy/git-pulse-mirror/README.md).
 <!-- ============================================================================
      END MANUAL SECTION: local-reminder-export-mirror
      ============================================================================ -->

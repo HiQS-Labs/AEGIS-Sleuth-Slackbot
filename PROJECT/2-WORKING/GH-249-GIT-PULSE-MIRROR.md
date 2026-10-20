@@ -2,14 +2,24 @@
 gh_issue: 249
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249
 title: "Prod: hourly read-only mirror of the private git-pulse export repo for Sleuth scripts"
-status: Proposed (1-INBOX — not yet active)
+status: Working (2-WORKING)
 created: 2026-10-20
+updated: 2026-10-20
+owner: noel
+goal: "Hourly, read-only, token-safe clone of the private git-pulse repo on production for Sleuth scripts"
 doc_type: feature
+branch: feat/AEGIS-Sleuth-Slackbot-gh249-git-pulse-mirror-2026-10-20
 rated: 60/20/50/85
 related: "GH-248 (first consumer: HiQS activity → Slack threads); GH-100 (mirror staleness); GH-101 (export unit env path)"
 ---
 
 # GH-249 — Hourly read-only git-pulse mirror on production
+
+## Status
+
+| What was just completed | What's next |
+|---|---|
+| Plan QA: Codex relay approved round 2 (`PROJECT/RELAY/gh-249-plan-qa.md`, reviewed `eda57b4`). | Implement `deploy/git-pulse-mirror/`, install on production, record the smoke receipt below, then final Codex QA and the PR. |
 
 ## Ask
 
@@ -124,7 +134,8 @@ Shell and systemd deploy files, mirroring the precedent, which has no tests. Che
   `git rev-parse HEAD` equals the full SHA from `git ls-remote origin refs/heads/main`. Assert
   `git symbolic-ref --short HEAD` = `main` and `git status --porcelain` is empty. Assert
   `sync/sleuth/reminders-neochrome.json` parses as JSON. Assert `systemctl is-enabled` on the timer
-  = `enabled`, and `list-timers` shows the next elapse within the hour. Run the real consumer:
+  = `enabled`, and `list-timers` shows the next elapse within one hour plus the 5 min randomized delay
+  (plan QA r2 nit). Run the real consumer:
   `SLEUTH_MIRROR_DIR=/root/git-pulse-sync/sync/sleuth node skills/talk-to-reminders/query-reminders.mjs --json --limit 1`
   must exit 0 and load from the mirror (S1).
 - **Smoke, adjacent path:** re-run `install.sh` with no argument (idempotent: `sha256sum` of the units

@@ -182,6 +182,13 @@ systemctl restart sleuth-app
 If `WEB_API_BEARER_TOKEN` is omitted, AEGIS falls back to the legacy development token `test`. Do not rely on that
 fallback for production integrations.
 
+### Optional: Read-Only git-pulse Mirror For Server-Side Scripts
+
+To give server-side scripts a local copy of the private git-pulse repo (refreshed hourly, never committed to), run
+`bash deploy/git-pulse-mirror/install.sh <owner/name>` from the live app tree. It reuses `SLEUTH_RAG_GITHUB_PAT` from
+the live `.env.runtime` and keeps the repo name in a server-only file. Path, freshness check and rollback:
+[`deploy/git-pulse-mirror/README.md`](../deploy/git-pulse-mirror/README.md) (GH-249).
+
 ## Routine Deployments
 
 **Primary path:** DeployHQ — see [`docs/deployhq.md`](deployhq.md).
