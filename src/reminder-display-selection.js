@@ -1,10 +1,15 @@
 'use strict';
 
 const TaskGrounding = require('./task-grounding');
+const TitleContract = require('./reminder-title-contract');
 const { IsLongReminderMessage } = require('./reminder-judgement');
 
+/**
+ * Upper bound on a candidate taken from a LONG source (GH-243). A candidate longer than this is a
+ * list dump, not a title, and is rejected outright rather than salvaged by the budget fit — the
+ * long copy must never come back through any path. Context lines share the bound.
+ */
 const MAX_LONG_TASK_LENGTH = 280;
-const LONG_TASK_FALLBACK = 'Follow up on the original message';
 
 /**
  * What a reminder candidate should DISPLAY — the pure decision, with no Slack formatting and no
@@ -35,17 +40,39 @@ const LONG_TASK_FALLBACK = 'Follow up on the original message';
  */
 
 /**
+ * @typedef {Object} TitleContractFacts
+ * @property {Array<{source: string, reasons: string[]}>} rejected Every candidate the contract
+ * refused before the displayed one, with the rule slugs that refused it. Empty when the first
+ * candidate in order was accepted.
+ * @property {string[]} normalized Which transforms the normalizer applied to the displayed text.
+ * @property {boolean} shortened Whether the displayed text was cut to the budget (at a boundary).
+ * @property {number} words Word count of the displayed text.
+ * @property {number} chars Character count of the displayed text.
+ */
+
+/**
  * Choose the displayed task text for one reminder candidate.
+ *
+ * GH-250: whichever candidate wins, it is shown in ONE shape. Each candidate is normalized (framing,
+ * addressee, courtesy and URLs removed), validated against the contract's hard rules, and only then
+ * shortened to the budget at a clause or word boundary. A candidate the contract refuses is skipped
+ * in favor of the next one; when every candidate is refused the templated fallback is used — never
+ * the raw text, never a mid-word cut.
+ *
+ * Candidate ORDER keeps the routing decision meaningful: with synthesis off and a normal-length
+ * source the user's own (normalized) sentence is tried first, as the flag promises; with synthesis
+ * on, the analyzer's grounded title is tried first. The verbatim text is only ever a candidate when
+ * it is itself a single task line — a multi-sentence message is not a title, whatever the flag says.
  *
  * @param {DisplaySelectionInput} ArgReminderInfo Candidate from the analyzer.
  * @param {string} [ArgNormalizedOriginalText] Normalized original message (the verbatim source).
  * @param {boolean} [ArgSynthesisOn] The already-decided routing for this message. When omitted the
- * caller has no routing decision and the verbatim path is NOT taken — matching the historical
+ * caller has no routing decision and the verbatim path is NOT taken first — matching the historical
  * behavior where an absent decision meant "fall through to the candidate".
  * @param {string} [ArgAnalyzedSourceText] The FULL text the analyzer was given, including any
  * thread context GH-55 prepended. Grounding must be checked against everything the model actually
  * saw; see the grounding constant below for why a subset silently disables synthesis (GH-68).
- * @returns {{text: string, source: 'verbatim'|'title'|'span'|'fallback', ungroundedTerms: string[]}}
+ * @returns {{text: string, source: 'verbatim'|'title'|'span'|'fallback', ungroundedTerms: string[], contract: TitleContractFacts}}
  * `ungroundedTerms` is non-empty only when a proposed title was REJECTED — that is the event worth
  * logging, and it is returned rather than logged so this stays pure.
  */
@@ -53,11 +80,9 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   const NormalizedOriginal = (ArgNormalizedOriginalText || '').trim();
   const Candidate = ArgReminderInfo || {};
 
-  // verbatim path: synthesis disabled for this message's length segment → show the user's wording
-  // unchanged. This reproduces the pre-GH-337 synthesis-OFF behavior byte-for-byte.
+  // long-source safety is stronger than display flags and never falls back to the whole list
+  // (GH-243). The verbatim text is not a candidate at all for a long source.
   const LongSource = IsLongReminderMessage(ArgNormalizedOriginalText) || IsLongReminderMessage(ArgAnalyzedSourceText);
-  if(NormalizedOriginal && ArgSynthesisOn === false && !LongSource)
-    return { text: NormalizedOriginal, source: 'verbatim', ungroundedTerms: [] };
 
   const RawReminderMessage = (Candidate.reminder_message || '').trim();
   const ActionableLanguage = (Candidate.actionable_language || '').trim();
@@ -74,26 +99,14 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   // invented and the title was discarded. The two features cancelled out exactly: enrichment on,
   // synthesis on, verbatim output. Widening keeps the guarantee (nothing outside the source may be
   // named) while measuring it against the real source.
+  //
+  // GH-250: the contract runs AFTER grounding and only removes text, so a title that passes here
+  // still names nothing the source does not.
   const GroundingSource = `${NormalizedOriginal} ${ActionableLanguage} ${(ArgAnalyzedSourceText || '').trim()}`;
   const UngroundedTerms = RawReminderMessage
     ? TaskGrounding.UngroundedTerms(RawReminderMessage, GroundingSource)
     : [];
   const ReminderMessage = UngroundedTerms.length > 0 ? '' : RawReminderMessage;
-
-  const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
-  const IsLikelyOverCompressed = ReminderWordCount <= 2
-    && ActionableLanguage.length > (ReminderMessage.length + 12);
-
-  // long-source safety is stronger than display flags and never falls back to the whole list.
-  if(LongSource) {
-    const Title = ReminderMessage.replace(/\s+/g, ' ').trim();
-    const Span = ActionableLanguage.replace(/\s+/g, ' ').trim();
-    if(Title && Title.length <= MAX_LONG_TASK_LENGTH && !IsLikelyOverCompressed)
-      return { text: Title, source: 'title', ungroundedTerms: UngroundedTerms };
-    if(Span && Span.length <= MAX_LONG_TASK_LENGTH)
-      return { text: Span, source: 'span', ungroundedTerms: UngroundedTerms };
-    return { text: LONG_TASK_FALLBACK, source: 'fallback', ungroundedTerms: UngroundedTerms };
-  }
 
   // Deterministic quality fallback: a brief that looks suspiciously over-compressed relative to the
   // span it came from loses to the span.
@@ -108,16 +121,93 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   //
   // Safer now than when it was written: the grounding check above guarantees a surviving title uses
   // only source vocabulary, so a short title can no longer be short *and* invented.
+  const ReminderWordCount = ReminderMessage.split(/\s+/).filter(Boolean).length;
+  const IsLikelyOverCompressed = ReminderWordCount <= 2
+    && ActionableLanguage.length > (ReminderMessage.length + 12);
 
+  /** @type {Array<{source: string, reasons: string[]}>} */
+  const Rejected = [];
+  if(UngroundedTerms.length > 0) Rejected.push({ source: 'title', reasons: ['ungrounded'] });
+  else if(ReminderMessage && IsLikelyOverCompressed) Rejected.push({ source: 'title', reasons: ['over-compressed'] });
 
-  if(IsLikelyOverCompressed) return { text: ActionableLanguage, source: 'span', ungroundedTerms: UngroundedTerms };
-  if(ReminderMessage) return { text: ReminderMessage, source: 'title', ungroundedTerms: UngroundedTerms };
-  if(ActionableLanguage) return { text: ActionableLanguage, source: 'span', ungroundedTerms: UngroundedTerms };
+  /** @type {Array<{source: 'verbatim'|'title'|'span', text: string, options: {RequireSingleSentence?: boolean, MaxSourceChars?: number}}|null>} */
+  const Order = [];
+  // every candidate must be ONE task line: a multi-sentence or list-shaped text is a dump whichever
+  // field it arrived in (the force-schedule path pins the span to the whole message; a model title
+  // can be a pasted list). A long source additionally rejects anything over the GH-243 bound.
+  const Options = LongSource
+    ? { RequireSingleSentence: true, MaxSourceChars: MAX_LONG_TASK_LENGTH }
+    : { RequireSingleSentence: true };
+  const TitleCandidate = ReminderMessage && !IsLikelyOverCompressed
+    ? { source: /** @type {'title'} */ ('title'), text: ReminderMessage, options: Options }
+    : null;
+  const SpanCandidate = ActionableLanguage
+    ? { source: /** @type {'span'} */ ('span'), text: ActionableLanguage, options: Options }
+    : null;
+  const VerbatimCandidate = NormalizedOriginal && !LongSource
+    ? { source: /** @type {'verbatim'} */ ('verbatim'), text: NormalizedOriginal, options: Options }
+    : null;
+  if(ArgSynthesisOn === false) Order.push(VerbatimCandidate, TitleCandidate, SpanCandidate);
+  else Order.push(TitleCandidate, SpanCandidate, VerbatimCandidate);
+
+  for(const Entry of Order) {
+    if(!Entry) continue;
+    const Normalized = TitleContract.NormalizeReminderTitle(Entry.text);
+    const Validation = TitleContract.ValidateReminderTitle(Normalized.text, Entry.options);
+    if(!Validation.ok) {
+      Rejected.push({ source: Entry.source, reasons: Validation.reasons });
+      continue;
+    }
+    const Fitted = TitleContract.FitTitleToBudget(Normalized.text);
+    return {
+      text: Fitted.text,
+      source: Entry.source,
+      ungroundedTerms: UngroundedTerms,
+      contract: {
+        rejected: Rejected,
+        normalized: Normalized.changes,
+        shortened: Fitted.shortened,
+        words: TitleContract.CountTitleWords(Fitted.text),
+        chars: Fitted.text.length,
+      },
+    };
+  }
+
+  // Every candidate refused — including a candidate that is only a pointer (`Ask him`, `Do it`).
+  // The template never reads a long source (its copy must not come back, GH-243) and never reads
+  // the raw text: the subject goes through the same normalizer as a title, and it comes from the
+  // live reply first, then from the earlier context the analyzer was given — which is where the
+  // thing `him` or `the above` points at usually is. With no subject anywhere, the generic title.
+  const SubjectLines = LongSource
+    ? []
+    : [NormalizedOriginal, ...ContextLinesOf(ArgAnalyzedSourceText)];
+  const Fallback = TitleContract.BuildFallbackTitle(SubjectLines);
+
   return {
-    text: NormalizedOriginal || 'Task not specified',
+    text: Fallback.text,
     source: 'fallback',
     ungroundedTerms: UngroundedTerms,
+    contract: {
+      rejected: Rejected,
+      normalized: [],
+      shortened: false,
+      words: TitleContract.CountTitleWords(Fallback.text),
+      chars: Fallback.text.length,
+    },
   };
+}
+
+/**
+ * The analyzed source as individual lines with the wire-format markers and their numbering removed,
+ * for the fallback subject. Empty when there is no analyzed source.
+ * @param {string} ArgAnalyzedSourceText
+ * @returns {string[]}
+ */
+function ContextLinesOf(ArgAnalyzedSourceText) {
+  return StripContextMarkers(ArgAnalyzedSourceText || '')
+    .split(/\r?\n/)
+    .map((/** @type {string} */ ArgLine) => ArgLine.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -160,7 +250,12 @@ function SelectContextLine(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
   // bullet it was supposed to explain ("• Fix GH-143" / "_Fix GH-143_"). Found in cross-model
   // review; reachable for short enriched replies now that they force synthesis.
   const Task = SelectTaskText(Candidate, NormalizedOriginal, ArgSynthesisOn, ArgAnalyzedSourceText).text;
-  if(TaskGrounding.NormalizeForGrounding(Context) === TaskGrounding.NormalizeForGrounding(Task))
+  // GH-250: a templated fallback carries its subject from the source, which is often the very line
+  // the model offered as context. Compare without the template's prefix so that case is caught too.
+  const TaskSubject = Task.startsWith(TitleContract.FALLBACK_TITLE_PREFIX)
+    ? Task.slice(TitleContract.FALLBACK_TITLE_PREFIX.length)
+    : Task;
+  if(TaskGrounding.NormalizeForGrounding(Context) === TaskGrounding.NormalizeForGrounding(TaskSubject))
     return { text: '', suppressedBy: 'restates-task' };
 
   return { text: Context, suppressedBy: null };

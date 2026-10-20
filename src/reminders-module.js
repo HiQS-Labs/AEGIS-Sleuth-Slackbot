@@ -1963,6 +1963,15 @@ class RemindersModule {
       candidate: ArgCandidate,
       text: this.#SelectReminderTaskText(ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText),
     }));
+    // GH-250 telemetry: one line per candidate, no text. `source` is which path the displayed title
+    // came from, `rejected` names every candidate the output contract refused first and why, so the
+    // verbatim/fallback share and the title-length distribution can be read from the logs.
+    for(const Rendered of RenderedCandidates) {
+      const Selection = ReminderDisplaySelection.SelectTaskText(
+        Rendered.candidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
+      );
+      ArgSlackApp.Logger.info(RemindersModule.DescribeTitleContract(Selection, StructuralPath));
+    }
     const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
       RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
       ArgLiveReplyText || '',
@@ -2498,6 +2507,18 @@ class RemindersModule {
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
         );
+        // GH-250: why the task text looks the way it does — which path it came from, and what the
+        // output contract refused before it. The same facts the scheduling path logs.
+        const TitleSelection = ReminderDisplaySelection.SelectTaskText(
+          Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, TriageContext.text,
+        );
+        FeedbackLines.push(
+          `  ↳ title: source=${TitleSelection.source} words=${TitleSelection.contract.words}` +
+          ` chars=${TitleSelection.contract.chars}${TitleSelection.contract.shortened ? ' (shortened at a boundary)' : ''}` +
+          (TitleSelection.contract.rejected.length > 0
+            ? ` refused=${TitleSelection.contract.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`).join(', ')}`
+            : '')
+        );
 
         if(!DateResult.success) {
           FeedbackLines.push('  ↳ date parse: failed');
@@ -2700,6 +2721,23 @@ class RemindersModule {
 
     // return the composed feedback message.
     return FeedbackMessage;
+  }
+
+  /**
+   * One structured log line describing how a reminder title was chosen (GH-250). No message text
+   * is logged — only the path, the counts, and the rule slugs — so this is safe at info level.
+   * @param {ReturnType<typeof ReminderDisplaySelection.SelectTaskText>} ArgSelection
+   * @param {string} ArgPath Structural path label for the message, as the other display log lines use.
+   * @returns {string}
+   */
+  static DescribeTitleContract(ArgSelection, ArgPath) {
+    const Facts = ArgSelection.contract;
+    const Rejected = Facts.rejected.length > 0
+      ? Facts.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`).join(',')
+      : 'none';
+    return `reminder title contract: path=${ArgPath} source=${ArgSelection.source}` +
+      ` words=${Facts.words} chars=${Facts.chars} shortened=${Facts.shortened ? 'yes' : 'no'}` +
+      ` normalized=${Facts.normalized.length > 0 ? Facts.normalized.join(',') : 'none'} rejected=${Rejected}`;
   }
 
   /**

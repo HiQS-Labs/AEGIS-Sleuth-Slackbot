@@ -11,20 +11,58 @@ const { SelectTaskText, SelectContextLine } = require('../src/reminder-display-s
 // its threshold went unexamined until it started firing on the reported message.
 
 describe('SelectTaskText — verbatim path', () => {
-  test('synthesis off shows the normalized original unchanged', () => {
+  test('synthesis off shows the user wording, normalized to the contract (GH-250)', () => {
+    // the user's own sentence still wins the flag-off case — but it comes out in the one shape every
+    // path shares: commitment framing dropped, imperative capital, nothing added.
     expect(SelectTaskText(
       { reminder_message: 'Deploy it', actionable_language: 'i will deploy it' },
-      'i will deploy it tomorrow morning', false,
-    )).toEqual({ text: 'i will deploy it tomorrow morning', source: 'verbatim', ungroundedTerms: [] });
+      'i will deploy the hotfix tomorrow morning', false,
+    )).toMatchObject({
+      text: 'Deploy the hotfix tomorrow morning', source: 'verbatim', ungroundedTerms: [],
+      contract: { normalized: ['request-framing', 'capitalized'], shortened: false, words: 5 },
+    });
+  });
+
+  test('GH-250: a multi-sentence message is never a title, whatever the flag says', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Roll out the export bucket fix', actionable_language: 'I will roll it out' },
+      'the nightly export was writing to the old bucket. I will roll it out tomorrow', false,
+    );
+    expect(Selection).toMatchObject({ text: 'Roll out the export bucket fix', source: 'title' });
+    expect(Selection.contract.rejected).toEqual([{ source: 'verbatim', reasons: ['not-imperative', 'multi-sentence'] }]);
+  });
+
+  test('GH-250: an addressee, courtesy words and a trailing question mark never reach the bullet', () => {
+    expect(SelectTaskText(
+      {},
+      '<@U_MIKE> can we please wrap up the LTVera website layout improvements tonight, please?', false,
+    )).toMatchObject({ text: 'Wrap up the LTVera website layout improvements tonight', source: 'verbatim' });
   });
 
   test('an omitted routing decision does NOT take the verbatim path', () => {
     // absent means "no decision was computed", not "synthesis is off" — collapsing the two would
     // make every caller that forgets the argument silently dump the whole message.
     expect(SelectTaskText(
-      { reminder_message: 'Deploy it', actionable_language: 'i will deploy it' },
-      'i will deploy it tomorrow morning',
+      { reminder_message: 'Deploy the hotfix', actionable_language: 'i will deploy the hotfix' },
+      'i will deploy the hotfix tomorrow morning',
     ).source).toBe('title');
+  });
+
+  test('GH-250: a pointer with no resolvable object falls to the generic template, never a raw pointer', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Deploy it', actionable_language: 'i will deploy it' },
+      'i will deploy it tomorrow morning', false,
+    );
+    expect(Selection).toMatchObject({ text: 'Follow up on the original message', source: 'fallback' });
+    expect(Selection.contract.rejected.map(ArgEntry => ArgEntry.source)).toEqual(['verbatim', 'title', 'span']);
+  });
+
+  test('GH-250: a pointer resolves to a subject from the earlier context the analyzer saw', () => {
+    const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> the invoice from Acme is overdue, please chase it\n[the message to act on]\nask him tomorrow';
+    expect(SelectTaskText(
+      { reminder_message: 'Ask him', actionable_language: 'ask him' },
+      'ask him tomorrow', true, Analyzed,
+    )).toMatchObject({ text: 'Follow up: The invoice from Acme is overdue', source: 'fallback' });
   });
 });
 
@@ -33,7 +71,7 @@ describe('SelectTaskText — the over-compression fallback', () => {
     expect(SelectTaskText(
       { reminder_message: 'Deploy', actionable_language: 'I will deploy the whole staging cluster' },
       'I will deploy the whole staging cluster tonight', true,
-    )).toMatchObject({ text: 'I will deploy the whole staging cluster', source: 'span' });
+    )).toMatchObject({ text: 'Deploy the whole staging cluster', source: 'span' });
   });
 
   test('GH-43: a THREE-word imperative title WINS over a first-person span', () => {
@@ -42,14 +80,18 @@ describe('SelectTaskText — the over-compression fallback', () => {
     expect(SelectTaskText(
       { reminder_message: 'deploy the changes', actionable_language: 'i am going to deploy the changes' },
       'i am going to deploy the changes tomorrow morning', true,
-    )).toMatchObject({ text: 'deploy the changes', source: 'title' });
+    )).toMatchObject({ text: 'Deploy the changes', source: 'title' });
   });
 
-  test('a short title against a similarly short span is not over-compressed', () => {
-    expect(SelectTaskText(
+  test('a short title against a similarly short span is not over-compressed — but GH-250 still refuses one word', () => {
+    // nothing here names an object: the one-word title, the pointer span and the pointer message
+    // are all refused, and with no subject anywhere the generic template is shown.
+    const Selection = SelectTaskText(
       { reminder_message: 'Ship', actionable_language: 'I will ship it' },
       'I will ship it tomorrow', true,
-    )).toMatchObject({ text: 'Ship', source: 'title' });
+    );
+    expect(Selection).toMatchObject({ text: 'Follow up on the original message', source: 'fallback' });
+    expect(Selection.contract.rejected[0]).toEqual({ source: 'title', reasons: ['too-short', 'bare-pointer'] });
   });
 });
 
@@ -60,7 +102,7 @@ describe('SelectTaskText — the grounding constraint', () => {
     expect(SelectTaskText(
       { reminder_message: 'Bump the Snowflake query timeout', actionable_language: 'i will push that fix' },
       Source, true,
-    )).toEqual({ text: 'i will push that fix', source: 'span', ungroundedTerms: ['Snowflake'] });
+    )).toMatchObject({ text: 'Push that fix', source: 'span', ungroundedTerms: ['Snowflake'] });
   });
 
   test('the rejected terms are RETURNED, not logged — this module stays pure', () => {
@@ -80,12 +122,13 @@ describe('SelectTaskText — the grounding constraint', () => {
 
   test('with no title at all the span is used and nothing is reported as ungrounded', () => {
     expect(SelectTaskText({ actionable_language: 'i will push that fix' }, Source, true))
-      .toEqual({ text: 'i will push that fix', source: 'span', ungroundedTerms: [] });
+      .toMatchObject({ text: 'Push that fix', source: 'span', ungroundedTerms: [] });
   });
 
-  test('with neither title nor span it falls back rather than rendering empty', () => {
-    expect(SelectTaskText({}, Source, true)).toMatchObject({ text: Source, source: 'fallback' });
-    expect(SelectTaskText({}, '', true)).toMatchObject({ text: 'Task not specified', source: 'fallback' });
+  test('with neither title nor span the (normalized) message is used, and with no message at all the template', () => {
+    expect(SelectTaskText({}, Source, true))
+      .toMatchObject({ text: 'Push that fix tomorrow morning after the index change', source: 'verbatim' });
+    expect(SelectTaskText({}, '', true)).toMatchObject({ text: 'Follow up on the original message', source: 'fallback' });
   });
 });
 
@@ -117,9 +160,9 @@ describe('SelectContextLine', () => {
   test('a context that merely restates the task is suppressed as noise', () => {
     expect(SelectContextLine(
       {
-        reminder_message: 'Roll it out',
+        reminder_message: 'Roll out the fix',
         actionable_language: 'I will roll it out',
-        context: 'roll it out',
+        context: 'roll out the fix',
       },
       Source, true,
     )).toEqual({ text: '', suppressedBy: 'restates-task' });
@@ -128,9 +171,9 @@ describe('SelectContextLine', () => {
   test('restatement is judged after normalization, so punctuation and case do not hide it', () => {
     expect(SelectContextLine(
       {
-        reminder_message: 'Roll it out',
+        reminder_message: 'Roll out the fix',
         actionable_language: 'I will roll it out',
-        context: 'Roll it out!',
+        context: 'Roll out the fix!',
       },
       Source, true,
     ).suppressedBy).toBe('restates-task');

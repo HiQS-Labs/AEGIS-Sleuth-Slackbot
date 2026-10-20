@@ -34,6 +34,7 @@ const ReminderOwnership = require('../src/reminder-ownership');
 // the harness hold its own copy of the display rule and report a bullet production would not render.
 // Everything display-related goes through reminder-display-selection, which production also calls.
 const ReminderDisplaySelection = require('../src/reminder-display-selection');
+const TitleContract = require('../src/reminder-title-contract');
 
 const DefaultScenariosPath = path.join(
   __dirname, '..', 'tests', 'fixtures', 'decision-scenarios', 'reminder-extraction-battery.json',
@@ -243,8 +244,17 @@ async function RunScenarioAsync(ArgScenario) {
     // `RemindersModule#SelectReminderTaskText`. Only Slack mrkdwn normalization and the warn line
     // stay behind in the module, neither of which changes what text is chosen.
     const NormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(MessageText);
-    const DisplayedTasks = Analysis.reminders.map((/** @type {any} */ ArgR) =>
-      ReminderDisplaySelection.SelectTaskText(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
+    const TaskSelections = Analysis.reminders.map((/** @type {any} */ ArgR) =>
+      ReminderDisplaySelection.SelectTaskText(ArgR, NormalizedOriginal, Routing.synthesisOn));
+    const DisplayedTasks = TaskSelections.map(ArgSelection => ArgSelection.text);
+    // GH-250: which path each displayed title came from, and what the output contract refused
+    // before it. Recorded in the baseline so a change in the verbatim/fallback share is drift.
+    const TitleSources = TaskSelections.map(ArgSelection => ({
+      source: ArgSelection.source,
+      words: ArgSelection.contract.words,
+      shortened: ArgSelection.contract.shortened,
+      rejected: ArgSelection.contract.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`),
+    }));
     const DisplayedContext = Analysis.reminders.map((/** @type {any} */ ArgR) =>
       ReminderDisplaySelection.SelectContextLine(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
 
@@ -257,6 +267,7 @@ async function RunScenarioAsync(ArgScenario) {
         candidateCount: Analysis.reminders.length,
         displayedTasks: DisplayedTasks,
         displayedContext: DisplayedContext,
+        titleSources: TitleSources,
         triggers: Analysis.reminders.map((/** @type {any} */ ArgR) => ArgR.scheduling_trigger),
         ownership: {
           assignees: AssigneeIDs,
@@ -333,6 +344,14 @@ function CheckExpectations(ArgScenario, ArgObserved) {
     Reasons.push(`synthesisOn ${ArgObserved.routing.synthesisOn} != ${Expected.synthesisOn}`);
   }
 
+  // GH-250 — the output contract holds for EVERY scenario, declared or not. These are the
+  // acceptance criteria of the issue as invariants: a scenario that renders a title outside the
+  // budget, cut mid-word, addressed to someone, asking a question, or pointing at nothing goes red
+  // here even if its author never wrote an expectation for it.
+  if(ArgObserved.decision === 'reminder-analysis') {
+    for(const Reason of ReminderTitleContractViolations(Tasks)) Reasons.push(`TITLE CONTRACT: ${Reason}`);
+  }
+
   // GH-43 Phase 3 — the task/context split and the grounding constraint.
   const Contexts = ArgObserved.displayedContext || [];
   for(const Needle of (Expected.contextContains || [])) {
@@ -372,6 +391,38 @@ function CheckExpectations(ArgScenario, ArgObserved) {
   }
 
   return Reasons;
+}
+
+/**
+ * The GH-250 acceptance criteria, checked on rendered task text. Shared by the harness and the
+ * golden-set test so the two cannot disagree about what a finished reminder must look like.
+ * @param {string[]} ArgTasks Displayed task titles.
+ * @returns {string[]} human-readable violations; empty when every title satisfies the contract.
+ */
+function ReminderTitleContractViolations(ArgTasks) {
+  const Violations = [];
+  for(const Task of ArgTasks || []) {
+    const Text = String(Task ?? '');
+    const Words = TitleContract.CountTitleWords(Text);
+    if(Text.length > TitleContract.TITLE_MAX_CHARS)
+      Violations.push(`${Text.length} chars > ${TitleContract.TITLE_MAX_CHARS} in ${JSON.stringify(Text)}`);
+    if(Words > TitleContract.TITLE_MAX_WORDS)
+      Violations.push(`${Words} words > ${TitleContract.TITLE_MAX_WORDS} in ${JSON.stringify(Text)}`);
+    if(Words < TitleContract.TITLE_MIN_WORDS)
+      Violations.push(`${Words} word(s) < ${TitleContract.TITLE_MIN_WORDS} in ${JSON.stringify(Text)}`);
+    // a mid-word cut leaves the ellipsis glued to a fragment that is not a word boundary of the
+    // original — detectable as an ellipsis preceded by no space-separated word boundary at the cut.
+    if(/\S…$/.test(Text) && !/\s\S+…$/.test(Text))
+      Violations.push(`mid-word truncation in ${JSON.stringify(Text)}`);
+    if(/^(?:<@|<!|@[\w])/.test(Text)) Violations.push(`addressee mention in ${JSON.stringify(Text)}`);
+    if(/\b(?:please|pls)\b/i.test(Text)) Violations.push(`courtesy word in ${JSON.stringify(Text)}`);
+    if(/https?:\/\//i.test(Text)) Violations.push(`raw URL in ${JSON.stringify(Text)}`);
+    if(/\?$/.test(Text)) Violations.push(`question as title ${JSON.stringify(Text)}`);
+    if(!TitleContract.HasConcreteObject(Text) && !Text.startsWith(TitleContract.FALLBACK_TITLE_PREFIX)
+       && Text !== TitleContract.GENERIC_FALLBACK_TITLE)
+      Violations.push(`bare pointer ${JSON.stringify(Text)}`);
+  }
+  return Violations;
 }
 
 /**
@@ -498,7 +549,7 @@ async function MainAsync(ArgArgv) {
 
 module.exports = {
   ParseArgs, Canonicalize, SerializeCanonical, RunScenarioAsync, RunAllAsync,
-  DiffAgainstBaseline, CheckExpectations, MainAsync,
+  DiffAgainstBaseline, CheckExpectations, ReminderTitleContractViolations, MainAsync,
 };
 
 if(require.main === module) {

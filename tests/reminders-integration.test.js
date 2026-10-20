@@ -434,8 +434,10 @@ describe('RemindersModule integration via MockSlackApp', () => {
 
         expect(WasHandled).toBe(true);
         expect(SlackApp.SentMessages.length).toBeGreaterThan(0);
-        // the digest bullet shows the original message verbatim, not the synthesized title...
-        expect(SlackApp.SentMessages[0].text).toContain(`• ${OriginalText}`);
+        // the digest bullet shows the user's own wording — normalized to the GH-250 title contract
+        // (the `How hard is it to` question wrapper dropped) — not the synthesized title...
+        expect(SlackApp.SentMessages[0].text).toContain('• Make our Ground Advantage $5 shipping to $6');
+        expect(SlackApp.SentMessages[0].text).not.toContain(`• ${OriginalText}`);
         expect(SlackApp.SentMessages[0].text).not.toContain('SYNTHESIZED TITLE');
         // ...and the synthesis LLM call is never made (no wasted work) when synthesis is OFF.
         expect(ExtractCalls).toHaveLength(0);
@@ -527,7 +529,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
       }
     });
 
-    test('force-schedule keeps a long message verbatim and skips the synthesis call when REMINDER_TEXT_SYNTHESIS_LONG=off', async () => {
+    test('force-schedule skips the synthesis call when REMINDER_TEXT_SYNTHESIS_LONG=off, and GH-250 never dumps the long message', async () => {
       const Prior = ['REMINDER_TEXT_SYNTHESIS', 'REMINDER_TEXT_SYNTHESIS_NORMAL', 'REMINDER_TEXT_SYNTHESIS_LONG']
         .map(Name => [Name, process.env[Name]]);
       Prior.forEach(([Name]) => delete process.env[Name]);
@@ -537,9 +539,12 @@ describe('RemindersModule integration via MockSlackApp', () => {
         expect(R.WasHandled).toBe(true);
         // _LONG=off → no wasted synthesis call...
         expect(R.ExtractCalls).toHaveLength(0);
-        // ...and the verbatim original is the displayed task, not the (uncomputed) synthesized title.
-        expect(R.FirstMessage).toContain(`• ${R.OriginalText}`);
-        expect(R.FirstMessage).not.toContain('Raise Ground Advantage shipping to six dollars');
+        // ...and the displayed task is neither the multi-sentence original (a dump, refused by the
+        // title contract) nor the (uncomputed) synthesized title: it is the templated fallback,
+        // whose subject is the one sentence of the source that reads as a task.
+        expect(R.FirstMessage).not.toContain(`• ${R.OriginalText}`);
+        expect(R.FirstMessage).not.toContain('Some background context');
+        expect(R.FirstMessage).toContain('• Follow up: Raise Ground Advantage shipping to six dollars');
       } finally {
         Prior.forEach(([Name, Val]) => { if(Val === undefined) delete process.env[Name]; else process.env[Name] = Val; });
       }
@@ -1002,7 +1007,8 @@ describe('RemindersModule integration via MockSlackApp', () => {
           reminders: [
             { actionable_language: 'Client C HPOS', scheduling_trigger: 'Friday at 3 PM', reminder_message: 'Client C HPOS - Matt & Mike' },
             { actionable_language: 'QueryGuard logs', scheduling_trigger: 'Friday at 3 PM', reminder_message: 'QueryGuard - look at logs' },
-            { actionable_language: 'KISS woo plugin', scheduling_trigger: 'Friday at 3 PM', reminder_message: 'KISS woo fast plugin intercept' },
+            // a duplicate extraction of the second item: renders identically and must collapse.
+            { actionable_language: 'QueryGuard logs', scheduling_trigger: 'Friday at 3 PM', reminder_message: 'QueryGuard - look at logs' },
           ],
         };
       });
@@ -1022,7 +1028,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
       const Reminders = new RemindersModule(SlackApp);
 
       const PriorSynthesisFlag = process.env.REMINDER_TEXT_SYNTHESIS;
-      delete process.env.REMINDER_TEXT_SYNTHESIS; // default = OFF (verbatim message becomes every bullet)
+      delete process.env.REMINDER_TEXT_SYNTHESIS; // default = OFF
       try {
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
         await fs.writeFile(RuntimePaths.enabledChannelsFilePath, JSON.stringify(['C_ENABLED']), 'utf8');
@@ -1038,9 +1044,13 @@ describe('RemindersModule integration via MockSlackApp', () => {
         expect(FeedbackMessage).toBeDefined();
         // only ONE reminder is queued for the single trigger group ...
         expect(FeedbackMessage.text).toContain('1 Slack reminder has been scheduled');
-        // ... and the "Tasks for ..." bullet list shows that task exactly once, not once per candidate.
+        // ... and the "Tasks for ..." bullet list collapses the duplicate extraction, so two distinct
+        // tasks render as two bullets, not three. (Before GH-250, synthesis OFF made every bullet the
+        // verbatim list message, so all three collapsed into one list dump; the title contract now
+        // refuses a list-shaped line as a title and each candidate shows its own task.)
         const BulletCount = (FeedbackMessage.text.match(/\n• /g) || []).length;
-        expect(BulletCount).toBe(1);
+        expect(BulletCount).toBe(2);
+        expect(FeedbackMessage.text).not.toContain('WEEK & PROJECT items');
 
         const PersistedReminders = JSON.parse(await fs.readFile(RuntimePaths.remindersFilePath, 'utf8'));
         expect(PersistedReminders).toHaveLength(1);

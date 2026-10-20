@@ -133,6 +133,38 @@ Confirmation and stored/delivered messages link to the original; unavailable per
 channel reference without restoring the quote. Existing records and authored Slack List rows
 are not migrated by this Slack-message change.
 
+### Reminder title output contract (GH-250)
+
+Whichever path produces a reminder's task text — the user's verbatim wording, the analyzer's
+title, the verbatim evidence span, or a fallback — it is shown in one shape. `src/reminder-title-contract.js`
+is the pure rule set and `SelectTaskTextRaw` in `src/reminder-display-selection.js` is its only
+production caller (the replay harness and the golden-set test go through the same selector):
+
+1. **Grounding first** (GH-43/68, unchanged): a title naming a term absent from the analyzed source is
+   discarded before anything else runs.
+2. **Normalize** each candidate by removing text only: leading addressee mentions and greetings,
+   `please`/`kindly`, URLs (a labelled Slack link keeps its label), request and commitment framing
+   (`can you`, `let's`, `I'll`, `remember to`), trailing punctuation; capitalize the first word.
+3. **Validate**: refuse a question, a status note (`I don't think…`, `heads up on…`), a
+   determiner-led statement, a multi-sentence or list-shaped line, a pre-cut `…` title, a one-word
+   title, or a bare pointer with no concrete object (`Ask him`, `Do all of the above`).
+4. **Order**: with synthesis off and a normal-length source the user's own (normalized) sentence is
+   tried first; otherwise title, span, then verbatim. A long source (GH-243) never offers the
+   verbatim text and refuses any candidate over 280 characters.
+5. **Fit** the accepted text to 14 words / 90 characters at a clause or word boundary — never mid-word.
+6. **Fallback** when every candidate is refused: `Follow up: <subject>`, the first sentence of the
+   live reply or of the earlier context the analyzer saw that names something (so `ask him` in a
+   thread becomes `Follow up: The invoice from Acme is overdue`); else `Follow up on the original message`.
+   Never the raw text, and never for a long source.
+
+The selection result carries `contract` facts (`rejected`, `normalized`, `shortened`, `words`,
+`chars`); `RemindersModule` logs them once per candidate as `reminder title contract:` and the
+`:wrench:` triage shows them per candidate. List surfaces render one format,
+`A.) <link|summary> · <owner> · due <date> · <age>`, with the age always present and labelled, and
+a delivered record shows at most 3 of its extra tasks plus `+N more ↗︎`. Digest summaries of
+records stored before this contract are still cut at 140 characters, but on a word boundary.
+Records are not migrated: the stored `Key task(s):` bullets remain the persisted form.
+
 ### Reminder FSM and Write-Path Contract
 
 Reminder state is an explicit FSM with three enforcement points — do not bypass any of them:

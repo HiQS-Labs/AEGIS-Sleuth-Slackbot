@@ -28,8 +28,21 @@ describe('TruncateCompactSummary', () => {
     const Long = `${'word '.repeat(60)}end`; // well over the limit
     const Result = TruncateCompactSummary(Long);
     expect(Result.endsWith('…')).toBe(true);
-    expect(Result.length).toBeLessThanOrEqual(MAX_COMPACT_SUMMARY_LENGTH + 1);
+    expect(Result.length).toBeLessThanOrEqual(MAX_COMPACT_SUMMARY_LENGTH);
     expect(Result).not.toMatch(/ …$/); // trailing space trimmed before ellipsis
+  });
+
+  test('GH-250: the cut lands on a word boundary, never mid-word', () => {
+    // the reported digest line: `…the pixel tester on my en…`
+    const Long = 'I don\'t think those issues are related to Meettie implementation. I still have to test the pixel tester on my end before I can say anything else about it';
+    const Result = TruncateCompactSummary(Long);
+    expect(Result.endsWith('…')).toBe(true);
+    expect(Result.length).toBeLessThanOrEqual(MAX_COMPACT_SUMMARY_LENGTH);
+    const Kept = Result.slice(0, -1);
+    expect(Long.startsWith(Kept)).toBe(true);
+    // the character after the kept text in the original is a separator: the cut did not split a word.
+    expect(Long.charAt(Kept.length)).toMatch(/[\s,;:]/);
+    expect(Result).not.toMatch(/\ben…$/);
   });
 
   test('does not sever a Slack token (<@mention> / <url|label>) mid-bracket', () => {
@@ -205,8 +218,8 @@ describe('BuildCompactReminderLine', () => {
   test('builds the canonical line with permalink-wrapped summary', () => {
     const Line = BuildCompactReminderLine(BaseParts);
     expect(Line).toBe(
-      'A.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> (3 days old) - <@U_TARGET> - ' +
-      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT>'
+      'A.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> · <@U_TARGET> · due ' +
+      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT> · 3 days old'
     );
   });
 
@@ -215,11 +228,18 @@ describe('BuildCompactReminderLine', () => {
     expect(Line).toContain('Ping <@U_OTHER> about it <https://x.slack.com/archives/C1/p123|↗︎>');
   });
 
-  test('omits the age suffix for same-day reminders and the link for missing permalinks', () => {
+  test('GH-250: a same-day reminder still carries a labelled age, and the link is omitted without a permalink', () => {
     const Line = BuildCompactReminderLine({ ...BaseParts, PermaLink: null, AgeDays: 0 });
-    expect(Line).toContain('A.) Ship the hotfix - <@U_TARGET> - ');
-    expect(Line).not.toContain('days old');
+    expect(Line).toContain('A.) Ship the hotfix · <@U_TARGET> · due ');
+    expect(Line.endsWith(' · created today')).toBe(true);
     expect(Line).not.toContain('|↗︎>');
+    expect(BuildCompactReminderLine({ ...BaseParts, AgeDays: 1 }).endsWith(' · 1 day old')).toBe(true);
+  });
+
+  test('GH-250: the due date is labelled and the age is a separate trailing field, so neither reads as the other', () => {
+    const Line = BuildCompactReminderLine(BaseParts);
+    expect(Line).toMatch(/ · due <!date\^\d+\^\{date_short\} \{time\}\|[^>]+> · 3 days old$/);
+    expect(Line).not.toContain('(3 days old)');
   });
 });
 
@@ -259,8 +279,8 @@ describe('BuildCompactTextForReminder (parity with the shared line builder)', ()
     const Line = await BuildCompactTextForReminder(SlackApp, Reminder, 'B');
 
     expect(Line).toBe(
-      'B.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> (3 days old) - <@U_TARGET> - ' +
-      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT>'
+      'B.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> · <@U_TARGET> · due ' +
+      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT> · 3 days old'
     );
     expect(SlackApp.GetPermaLinkAsync).toHaveBeenCalledWith('C1', '123.456');
   });

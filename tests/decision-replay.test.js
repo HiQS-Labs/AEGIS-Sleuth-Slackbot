@@ -131,18 +131,37 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
      */
     const FailedIDs = ArgRows => ArgRows.filter(ArgR => ArgR.status === 'FAIL').map(ArgR => ArgR.id);
 
+    // GH-250 changed what a routing perturbation can reach. The output contract is a SECOND guard
+    // that runs on every candidate whatever the routing said: a multi-sentence, list-shaped, or
+    // status-note message is refused as a title even when the flag puts it first. So the verbatim
+    // DUMP can no longer appear, and the perturbations below prove routing is load bearing through
+    // what it still controls — the context line (suppressed on the verbatim path) — while the
+    // contract is proven load bearing through the refusal it records on the same rows.
+    /**
+     * @param {any[]} ArgRows
+     * @param {string} ArgId
+     * @returns {string[]} what the contract refused before the displayed title of that row.
+     */
+    const RefusedOn = (ArgRows, ArgId) =>
+      ArgRows.find(ArgR => ArgR.id === ArgId).observed.titleSources[0].rejected;
+
     // 1. disable the buried-task ratio gate. S-07 and S-12 are single/low-sentence long notes that
-    //    only the ratio can route, so they must go red.
+    //    only the ratio can route. S-12 goes red because its context line disappears on the verbatim
+    //    path; S-07's status note is refused by the contract instead, so its title survives.
     const OriginalMinLength = Pipeline.BURIED_TASK_MIN_LENGTH;
     Pipeline.BURIED_TASK_MIN_LENGTH = Number.MAX_SAFE_INTEGER;
     try {
-      expect(FailedIDs(await RunAllAsync(Battery.scenarios)).sort()).toEqual(['S-07', 'S-12']);
+      const Rows = await RunAllAsync(Battery.scenarios);
+      expect(FailedIDs(Rows).sort()).toEqual(['S-12']);
+      expect(RefusedOn(Rows, 'S-07')).toEqual(['verbatim:status-remark']);
     } finally {
       Pipeline.BURIED_TASK_MIN_LENGTH = OriginalMinLength;
     }
 
     // 2. revert CountSentences to the shipped punctuation-only rule. S-16 has no quoted span at all,
-    //    so its ratio is 0 and unusable — the newline rule is the ONLY thing that can route it.
+    //    so its ratio is 0 and unusable — the newline rule is the ONLY thing that can route it. Its
+    //    verbatim note is now refused by the contract (`heads up on …` is a status remark), so the
+    //    row stays green; the refusal is the evidence that routing put the note first.
     const OriginalCountSentences = Pipeline.CountSentences;
     Pipeline.CountSentences = (/** @type {string} */ ArgText) => {
       const Text = (ArgText || '').trim();
@@ -151,7 +170,10 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
       return Math.max(Matches ? Matches.length : 0, 1);
     };
     try {
-      expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual(['S-16']);
+      const Rows = await RunAllAsync(Battery.scenarios);
+      expect(FailedIDs(Rows)).toEqual([]);
+      expect(RefusedOn(Rows, 'S-16')).toEqual(['verbatim:status-remark']);
+      expect(Rows.find(ArgR => ArgR.id === 'S-16').observed.routing.synthesisOn).toBe(false);
     } finally {
       Pipeline.CountSentences = OriginalCountSentences;
     }
@@ -168,10 +190,14 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
       return Math.max(Matches ? Matches.length : 0, 1);
     };
     try {
-      // S-01 is the reported production message; S-07 and S-12 are the other two verbatim dumps.
-      // S-16 joins them because it was added later specifically to need the newline rule.
-      expect(FailedIDs(await RunAllAsync(Battery.scenarios)).sort())
-        .toEqual(['S-01', 'S-07', 'S-12', 'S-16']);
+      // S-01 is the reported production message and S-12 the other note whose context line only
+      // the synthesized path renders. S-07 and S-16 (the other two verbatim dumps before GH-250)
+      // now stay green because the contract refuses the dump — asserted, so a contract that stops
+      // refusing would turn this red again.
+      const Rows = await RunAllAsync(Battery.scenarios);
+      expect(FailedIDs(Rows).sort()).toEqual(['S-01', 'S-12']);
+      expect(RefusedOn(Rows, 'S-07')).toEqual(['verbatim:status-remark']);
+      expect(RefusedOn(Rows, 'S-16')).toEqual(['verbatim:status-remark']);
     } finally {
       Pipeline.BURIED_TASK_MIN_LENGTH = OriginalMinLength;
       Pipeline.CountSentences = OriginalCountSentences;
@@ -189,7 +215,7 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
 
     // S-01, the reported message: a short task with the background on its own line, and the
     // 480-character original left where it belongs — the blockquote.
-    expect(ById['S-01'].observed.displayedTasks).toEqual(['deploy the changes']);
+    expect(ById['S-01'].observed.displayedTasks).toEqual(['Deploy the changes']);
     expect(ById['S-01'].observed.displayedContext[0]).toMatch(/fixed batch/);
     expect(ById['S-01'].observed.displayedContext[0])
       .not.toBe(ById['S-01'].observed.displayedTasks[0]);
@@ -200,7 +226,7 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     // S-20 is adversarial: the title names Snowflake and 4x, neither of which the author wrote.
     // Both are rejected and the bullet falls back to the quoted span.
     expect(ById['S-20'].status).toBe('PASS');
-    expect(ById['S-20'].observed.displayedTasks).toEqual(['i will push that fix']);
+    expect(ById['S-20'].observed.displayedTasks).toEqual(['Push that fix']);
     expect(ById['S-20'].observed.displayedContext).toEqual(['']);
 
     // THE HARNESS RUNS THE PRODUCTION RULE, not a copy of it. agy's branch relay (r1) found that
@@ -232,18 +258,19 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
       // the shared selector really did let the invented entity through — proving the check, not the
       // harness, is what normally stops it.
       expect(DisplaySelection.SelectTaskText(
-        { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy it' },
-        'i will deploy it tomorrow', true,
+        { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy the pipeline' },
+        'i will deploy the pipeline tomorrow', true,
       ).text).toBe('Deploy the Snowflake pipeline');
     } finally {
       Grounding.UngroundedTerms = Original;
     }
 
-    // restored: the same call now rejects the invented entity and falls back to the quoted span.
+    // restored: the same call now rejects the invented entity and falls back to the quoted span
+    // (in GH-250 contract shape: capitalized, nothing added).
     expect(DisplaySelection.SelectTaskText(
-      { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy it' },
-      'i will deploy it tomorrow', true,
-    )).toMatchObject({ text: 'deploy it', source: 'span', ungroundedTerms: ['Snowflake'] });
+      { reminder_message: 'Deploy the Snowflake pipeline', actionable_language: 'deploy the pipeline' },
+      'i will deploy the pipeline tomorrow', true,
+    )).toMatchObject({ text: 'Deploy the pipeline', source: 'span', ungroundedTerms: ['Snowflake'] });
   });
 
   test('GH-43 Phase 1B: the never-invent-users guard is real, not just a prompt instruction', async () => {
