@@ -170,4 +170,12 @@ Basis: S1-S3 are addressed, no Blocker/Should remains, and the plan meets the st
 
 Relay closed (Approved), no further turn needed. Producer claude-a receives the approved plan for implementation through the normal harness gates.
 
+
+### Attestation · relay-drive — 2026-10-20T23:36:07Z
+task: RELAY-gh-249-plan-qa
+reviewer: codex
+status: Approved
+reviewed-head: eda57b409369aaef2eaaafe570b9ca237049fc58
+added-range: 18182+4384
+added-sha256: a856b39b086eb0a954e37c93c14f88d21d627f7776cc7132bf75c23449474110
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
