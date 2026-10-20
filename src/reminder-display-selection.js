@@ -46,6 +46,8 @@ const MAX_LONG_TASK_LENGTH = 280;
  * candidate in order was accepted.
  * @property {string[]} normalized Which transforms the normalizer applied to the displayed text.
  * @property {boolean} shortened Whether the displayed text was cut to the budget (at a boundary).
+ * @property {string} unshortened The normalized text BEFORE the cut when `shortened`, else `''`.
+ * This is what lets a harness prove the cut landed on a boundary of the real text.
  * @property {number} words Word count of the displayed text.
  * @property {number} chars Character count of the displayed text.
  */
@@ -158,7 +160,25 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
       Rejected.push({ source: Entry.source, reasons: Validation.reasons });
       continue;
     }
+    // the grounding guarantee is re-checked on the text that will actually be shown. The normalizer
+    // only removes text, but removing text INSIDE a quoted name would change which document or task
+    // is named (`"The Kindly Migration"` → `"The Migration"`); quoted spans are protected from the
+    // transforms, and this check is what makes that protection a guarantee rather than a hope.
+    const RegroundedTerms = TaskGrounding.UngroundedTerms(Normalized.text, GroundingSource);
+    if(RegroundedTerms.length > 0) {
+      Rejected.push({ source: Entry.source, reasons: ['ungrounded-after-normalize'] });
+      continue;
+    }
     const Fitted = TitleContract.FitTitleToBudget(Normalized.text);
+    // shortening may cut a title down to its verb (`Review "a very long quoted name…"` →
+    // `Review…`); a shortened title must still satisfy the contract or it is no title.
+    if(Fitted.shortened) {
+      const AfterCut = TitleContract.ValidateReminderTitle(Fitted.text.replace(/…$/, ''));
+      if(!AfterCut.ok) {
+        Rejected.push({ source: Entry.source, reasons: AfterCut.reasons.map(ArgReason => `shortened:${ArgReason}`) });
+        continue;
+      }
+    }
     return {
       text: Fitted.text,
       source: Entry.source,
@@ -167,6 +187,7 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
         rejected: Rejected,
         normalized: Normalized.changes,
         shortened: Fitted.shortened,
+        unshortened: Fitted.shortened ? Normalized.text : '',
         words: TitleContract.CountTitleWords(Fitted.text),
         chars: Fitted.text.length,
       },
@@ -190,7 +211,8 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
     contract: {
       rejected: Rejected,
       normalized: [],
-      shortened: false,
+      shortened: Fallback.shortened,
+      unshortened: Fallback.unshortened,
       words: TitleContract.CountTitleWords(Fallback.text),
       chars: Fallback.text.length,
     },
@@ -311,6 +333,13 @@ function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynt
  * Drop a candidate that is only the LIVE REPLY echoed back — the pointer sitting beside its own
  * expansion — without touching a candidate that merely happens to contain a pronoun.
  *
+ * GH-250: the test reads the candidate's OWN words (`rawText`, the analyzer's title or span) when
+ * the caller supplies them, not only the displayed text. The output contract replaces a pointer
+ * title with a templated fallback (`Do all of the above` → `Follow up: Take the car`), and judged on
+ * that display the echo would look resolved and survive beside the tasks it points at. Both sides
+ * of the comparison go through the title normalizer, so request framing (`can you … tomorrow?`)
+ * does not dilute the coverage ratio.
+ *
  * The narrow rule matters. The first version dropped every title the reference detector matched
  * whenever any sibling did not, and that deletes real work: a thread "the cache bug is blocking
  * users" then "I'll file a GH issue about it tomorrow and discuss it with the team Friday" yields
@@ -322,7 +351,8 @@ function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynt
  * So the test is redundancy, not vagueness: the candidate must both read as a bare pointer AND be
  * the live reply restated. "can you do all of the above" is the message itself, carrying nothing
  * its siblings do not already carry. "Discuss it with the team" is not.
- * @param {Array<{candidate: any, text: string}>} ArgRendered Candidates with their displayed text.
+ * @param {Array<{candidate: any, text: string, rawText?: string}>} ArgRendered Candidates with
+ * their displayed text and, optionally, the pre-contract text the pointer check should read.
  * @param {boolean} ArgEnriched Whether earlier context was prepended for this message.
  * @param {(ArgText: string) => boolean} ArgIsUnresolved Reference detector (NeedsEarlierContext).
  * @param {string} [ArgLiveReplyText] The author's own message, unenriched.
@@ -335,7 +365,8 @@ function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnreso
   if(!ArgEnriched) return { kept: All, droppedCount: 0 };
 
   const Normalize = (/** @type {string} */ ArgText) =>
-    (ArgText || '').toLowerCase().replace(/<@[^>]+>/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+    TitleContract.NormalizeReminderTitle(ArgText || '').text
+      .toLowerCase().replace(/<@[^>]+>/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
   const LiveReply = Normalize(ArgLiveReplyText);
   if(!LiveReply) return { kept: All, droppedCount: 0 };
 
@@ -351,7 +382,10 @@ function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnreso
   };
 
   const Kept = ArgRendered
-    .filter(ArgEntry => !(ArgIsUnresolved(ArgEntry.text) && IsEchoOfLiveReply(ArgEntry.text)))
+    .filter(ArgEntry => {
+      const Own = ArgEntry.rawText || ArgEntry.text;
+      return !((ArgIsUnresolved(Own) || ArgIsUnresolved(ArgEntry.text)) && (IsEchoOfLiveReply(Own) || IsEchoOfLiveReply(ArgEntry.text)));
+    })
     .map(ArgEntry => ArgEntry.candidate);
   // Never return nothing. A message whose every candidate is a bare pointer still schedules
   // something a human can act on by opening the thread.

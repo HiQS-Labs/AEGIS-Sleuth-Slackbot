@@ -32,8 +32,10 @@
  * can introduce a term the source does not contain. The grounding guarantee (GH-43/68) is therefore
  * untouched: every transform below only REMOVES text.
  *
- * Pure by design: no Slack client, no logger, no I/O. `reminder-display-selection.js` is the only
- * production caller; the replay harness and the golden-set test call it through the same selector.
+ * Pure by design: no Slack client, no logger, no I/O. `SelectTaskTextRaw` in
+ * `reminder-display-selection.js` is the only production caller that SELECTS a title (the replay
+ * harness and the golden-set test go through that selector); `reminders-display-utils.js` reuses
+ * `FitTitleToBudget` and `MAX_DISPLAYED_SUBTASKS` for rendering only.
  */
 
 /** Hard cap on a displayed title, in characters. */
@@ -65,6 +67,14 @@ const LEADING_GREETING_PATTERN = /^(?:hey|hi|hello|yo|hiya|good (?:morning|after
  */
 const LEADING_MENTION_PATTERN = /^(?:<@[^>]+>|<!(?:here|channel|everyone)(?:\|[^>]*)?>|@[\w][\w.-]*)[\s,:;!.\-–—]*/;
 const TRAILING_CC_PATTERN = /[\s,;(-]*\b(?:cc|c\/c|fyi)\b[:\s]*(?:<@[^>]+>[\s,)]*)+$/i;
+
+/**
+ * A quoted task name. Protected from every transform below: the quotation is the task's identity
+ * (`Review "The Kindly Migration"` must not lose its `Kindly`), and the grounding verifier treats
+ * the quoted string as one term. Same shape as the verifier's own pattern.
+ */
+const QUOTED_SPAN_PATTERN = /["“][^"”]+["”]|(?<![\p{L}\p{N}])['‘][^'’]+['’](?![\p{L}\p{N}])/gu;
+const PROTECTED_SPAN_PATTERN = /\u0001(\d+)\u0001/g;
 
 /** Courtesy words that carry no task content, anywhere in the title. */
 const COURTESY_WORD_PATTERN = /(?:^|\s|,)\s*\b(?:please|pls|plz|kindly)\b[,]?/gi;
@@ -210,6 +220,14 @@ function NormalizeReminderTitle(ArgText) {
   let Text = Collapse(ArgText);
   if(!Text) return { text: '', changes: Changes };
 
+  // 0. quoted task names are opaque to every transform below and restored verbatim at the end.
+  /** @type {string[]} */
+  const ProtectedSpans = [];
+  Text = Text.replace(QUOTED_SPAN_PATTERN, ArgSpan => {
+    ProtectedSpans.push(ArgSpan);
+    return `\u0001${ProtectedSpans.length - 1}\u0001`;
+  });
+
   // 1. URLs never belong in a title: the source permalink is attached by the renderer. A labelled
   // Slack link keeps its label; a bare link goes, along with the lead-in that pointed at it.
   const WithoutUrls = Text
@@ -265,7 +283,8 @@ function NormalizeReminderTitle(ArgText) {
   const Capitalized = CapitalizeFirstWord(Text);
   if(Capitalized !== Text) { Changes.push('capitalized'); Text = Capitalized; }
 
-  return { text: Collapse(Text), changes: Changes };
+  const Restored = Text.replace(PROTECTED_SPAN_PATTERN, (_, ArgIndex) => ProtectedSpans[Number(ArgIndex)] || '');
+  return { text: Collapse(Restored), changes: Changes };
 }
 
 /**
@@ -277,10 +296,14 @@ function NormalizeReminderTitle(ArgText) {
  * @returns {boolean}
  */
 function HasConcreteObject(ArgText) {
-  const Stripped = String(ArgText ?? '').toLowerCase().replace(POINTER_IDIOM_PATTERN, ' ');
+  const Lower = String(ArgText ?? '').toLowerCase().trim();
+  const Stripped = Lower.replace(POINTER_IDIOM_PATTERN, ' ');
+  // the leading verb is skipped only when it is still there. When a pointer idiom OPENED the title
+  // (`Continue migration`), the idiom was the verb and the first remaining word is the object.
+  const LeadingIdiomRemoved = /^\s/.test(Stripped);
   const Tokens = Stripped.split(/[^\p{L}\p{N}#$@'’._-]+/u).map(ArgToken => ArgToken.replace(/^['’.]+|['’.]+$/g, '')).filter(Boolean);
   const Content = Tokens.filter((ArgToken, ArgIndex) => {
-    if(ArgIndex === 0 && !/[\p{N}#$@]/u.test(ArgToken)) return false;
+    if(ArgIndex === 0 && !LeadingIdiomRemoved && !/[\p{N}#$@]/u.test(ArgToken)) return false;
     return !NON_CONTENT_WORDS.has(ArgToken.replace(/['’]s$/, ''));
   });
   return Content.length > 0;
@@ -293,9 +316,14 @@ function HasConcreteObject(ArgText) {
  * @returns {boolean}
  */
 function HasSentenceBoundary(ArgText) {
+  const Text = String(ArgText ?? '');
   // the punctuation must close a WORD: `1.) Client C HPOS 2.) QueryGuard` is one line of list
   // markers, not three sentences, and `v1.2 release` is a version.
-  return /(?<=\p{L})[.!?]["'”’)\]]?\s+\S/u.test(String(ArgText ?? ''));
+  if(/(?<=\p{L})[.!?]["'”’)\]]?\s+\S/u.test(Text)) return true;
+  // ...or close a NUMBER when a capitalized sentence follows: `Review PR 123. Deploy the release`
+  // is two tasks. An enumerator (`1.) Client`, `1. deploy`) has a bracket or a lowercase word after
+  // it and is left to the list check; a version (`v1.2`) has no whitespace after the dot.
+  return /(?<=\p{N})[.!?]\s+\p{Lu}/u.test(Text);
 }
 
 /**
@@ -305,7 +333,10 @@ function HasSentenceBoundary(ArgText) {
  * @returns {boolean}
  */
 function IsListShaped(ArgText) {
-  const Markers = String(ArgText ?? '').match(/(?:^|\s)(?:\d{1,2}[.)]{1,2}|[•▪◦●]|[a-z][.)])(?=\s)/gi) || [];
+  // enumerators (`1.)`, `2.`, `a)`), bullet glyphs, and the plain `- item` / `* item` bullets a
+  // multi-line message keeps after its newlines are collapsed. One ` - ` is a dash in prose; two
+  // or more markers of any kind on one line is a list.
+  const Markers = String(ArgText ?? '').match(/(?:^|\s)(?:\d{1,2}[.)]{1,2}|[•▪◦●]|[a-z][.)]|[-*–])(?=\s)/gi) || [];
   return Markers.length >= 2;
 }
 
@@ -331,9 +362,11 @@ function ValidateReminderTitle(ArgText, ArgOptions = {}) {
   if(!Text) return { ok: false, reasons: ['empty'] };
 
   if(typeof ArgOptions.MaxSourceChars === 'number' && Text.length > ArgOptions.MaxSourceChars) Reasons.push('oversized');
+  // a quoted task name is opaque: `Review "Please Handle Me"` carries no courtesy word of its own.
+  const Unquoted = Text.replace(QUOTED_SPAN_PATTERN, ' "" ');
   if(/^(?:<@|<!|@[\w])/.test(Text)) Reasons.push('leading-mention');
-  if(/\b(?:please|pls|plz|kindly)\b/i.test(Text)) Reasons.push('courtesy');
-  if(/https?:\/\/|<https?:|\bwww\.[^\s]+\.[^\s]+/i.test(Text)) Reasons.push('raw-url');
+  if(/\b(?:please|pls|plz|kindly)\b/i.test(Unquoted)) Reasons.push('courtesy');
+  if(/https?:\/\/|<https?:|\bwww\.[^\s]+\.[^\s]+/i.test(Unquoted)) Reasons.push('raw-url');
   if(/\?$/.test(Text) || INTERROGATIVE_START_PATTERN.test(Text)) Reasons.push('question');
   if(STATUS_REMARK_PATTERN.test(Text)) Reasons.push('status-remark');
   if(DETERMINER_START_PATTERN.test(Text)) Reasons.push('not-imperative');
@@ -408,8 +441,9 @@ function FitTitleToBudget(ArgText, ArgMaxChars = TITLE_MAX_CHARS, ArgMaxWords = 
  * that knows the wire format.
  * @param {string[]} ArgSourceLines Candidate subject lines, most relevant first (the live reply,
  * then any earlier context lines).
- * @returns {{ text: string, subjectFrom: number|null }} `subjectFrom` is the index of the line the
- * subject came from, or null when the generic title was used.
+ * @returns {{ text: string, subjectFrom: number|null, shortened: boolean, unshortened: string }}
+ * `subjectFrom` is the index of the line the subject came from, or null when the generic title was
+ * used; `unshortened` is the full title before the cut when `shortened`, else `''`.
  */
 function BuildFallbackTitle(ArgSourceLines) {
   const Lines = Array.isArray(ArgSourceLines) ? ArgSourceLines : [];
@@ -423,21 +457,49 @@ function BuildFallbackTitle(ArgSourceLines) {
       // would otherwise lose its comma to the courtesy strip and run the two clauses together.
       const [FirstClause = ''] = Sentence.split(/[,;]\s|\s[—–-]\s/);
       const Normalized = NormalizeReminderTitle(FirstClause);
-      const Validation = ValidateReminderTitle(Normalized.text);
+      // the same single-line rules as a candidate: a list the candidate checks just refused must
+      // not come back as the subject.
+      const Validation = ValidateReminderTitle(Normalized.text, { RequireSingleSentence: true });
       // a subject may be commentary (`the invoice is overdue`) — the prefix frames it — but it must
       // name something and must not be a question.
-      const Blocking = Validation.reasons.filter(ArgReason =>
-        ArgReason !== 'status-remark' && ArgReason !== 'not-imperative');
+      const Blocking = SubjectBlockingReasons(Validation.reasons);
       if(Blocking.length > 0) continue;
       Subjects.push({ index: Index, text: Normalized.text, reasons: Validation.reasons });
     }
   }
   // a sentence that reads as a task (`raise the shipping fee`) beats commentary that precedes it
   // (`heads up everyone`); among equals, the earliest wins.
-  const Best = Subjects.find(ArgSubject => ArgSubject.reasons.length === 0) || Subjects[0];
-  if(!Best) return { text: GENERIC_FALLBACK_TITLE, subjectFrom: null };
-  const Subject = FitTitleToBudget(Best.text, TITLE_MAX_CHARS - FALLBACK_TITLE_PREFIX.length).text;
-  return { text: `${FALLBACK_TITLE_PREFIX}${Subject}`, subjectFrom: Best.index };
+  const Ordered = [
+    ...Subjects.filter(ArgSubject => ArgSubject.reasons.length === 0),
+    ...Subjects.filter(ArgSubject => ArgSubject.reasons.length > 0),
+  ];
+  // the prefix spends two of the title's words and eleven of its characters.
+  const SubjectWordBudget = TITLE_MAX_WORDS - CountTitleWords(FALLBACK_TITLE_PREFIX);
+  const SubjectCharBudget = TITLE_MAX_CHARS - FALLBACK_TITLE_PREFIX.length;
+  for(const Subject of Ordered) {
+    const Fitted = FitTitleToBudget(Subject.text, SubjectCharBudget, SubjectWordBudget);
+    // shortening may have cut the subject down to its verb; a subject that no longer names
+    // anything is no subject.
+    if(Fitted.shortened && SubjectBlockingReasons(ValidateReminderTitle(Fitted.text.replace(/…$/, '')).reasons).length > 0)
+      continue;
+    return {
+      text: `${FALLBACK_TITLE_PREFIX}${Fitted.text}`,
+      subjectFrom: Subject.index,
+      shortened: Fitted.shortened,
+      unshortened: Fitted.shortened ? `${FALLBACK_TITLE_PREFIX}${Subject.text}` : '',
+    };
+  }
+  return { text: GENERIC_FALLBACK_TITLE, subjectFrom: null, shortened: false, unshortened: '' };
+}
+
+/**
+ * The validation reasons that disqualify a fallback SUBJECT. Commentary is allowed there (the
+ * `Follow up:` prefix frames it); everything else is not.
+ * @param {string[]} ArgReasons
+ * @returns {string[]}
+ */
+function SubjectBlockingReasons(ArgReasons) {
+  return ArgReasons.filter(ArgReason => ArgReason !== 'status-remark' && ArgReason !== 'not-imperative');
 }
 
 module.exports = {

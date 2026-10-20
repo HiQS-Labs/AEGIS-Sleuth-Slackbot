@@ -349,11 +349,12 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
   // GH-250: capped. A record holding a whole pasted list rendered as a title plus ten sub-bullets;
   // the delivered message shows at most MAX_DISPLAYED_SUBTASKS of them and points at the source
   // for the rest. The metadata still carries the whole record, so one ✅ completes every task.
+  // Without a permalink there is nowhere to point, so every task stays visible.
   let ExtraTaskLines = '';
   if(ArgOptions?.IncludeAllKeyTasks) {
     const ClientName = ResolveClientNameForReminder(ArgReminder, ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME);
     const ExtraTasks = ExtractKeyTaskSummaries(ArgReminder.ReminderMessageText).slice(1);
-    const Shown = ExtraTasks.slice(0, TitleContract.MAX_DISPLAYED_SUBTASKS);
+    const Shown = PermaLink ? ExtraTasks.slice(0, TitleContract.MAX_DISPLAYED_SUBTASKS) : ExtraTasks;
     const Hidden = ExtraTasks.length - Shown.length;
     ExtraTaskLines = Shown
       .map(ArgTask => `\n   • ${ApplyClientPrefix(ArgTask, ClientName)}`)

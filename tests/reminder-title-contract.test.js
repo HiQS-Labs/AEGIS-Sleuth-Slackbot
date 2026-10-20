@@ -33,6 +33,8 @@ describe('NormalizeReminderTitle', () => {
     ['trailing thanks and softener', 'review the PR if you get a chance, thanks!', 'Review the PR'],
     ['capitalizes only an all-lowercase first word', 'iOS build is red', 'iOS build is red'],
     ['already in shape', 'Review PR 697', 'Review PR 697'],
+    ['a quoted name is opaque to the courtesy strip', 'Please review "The Kindly Migration" tomorrow', 'Review "The Kindly Migration" tomorrow'],
+    ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\' by Friday'],
   ])('%s', (_Label, ArgInput, ArgExpected) => {
     expect(TitleContract.NormalizeReminderTitle(ArgInput).text).toBe(ArgExpected);
   });
@@ -67,6 +69,7 @@ describe('ValidateReminderTitle', () => {
     ['a pointer idiom', 'Close the loop on that', ['bare-pointer']],
     ['all of the above', 'Do all of the above tomorrow', ['bare-pointer']],
     ['one word', 'Deploy', ['too-short', 'bare-pointer']],
+    ['a pointer idiom with a pointer object', 'Continue there', ['bare-pointer']],
     ['a pre-cut title', 'Clarify work allocation: author takes #205 gate idempotency and #123…', ['truncated']],
     ['empty', '', ['empty']],
   ])('%s is refused with the rule that refused it', (_Label, ArgInput, ArgReasons) => {
@@ -84,6 +87,8 @@ describe('ValidateReminderTitle', () => {
     'Have the logs ready by 5',
     'Update on-call rota',
     'Do the migration',
+    'Continue migration',
+    'Review "Please Handle Me" doc',
   ])('%s satisfies the contract', ArgInput => {
     expect(TitleContract.ValidateReminderTitle(ArgInput)).toEqual({ ok: true, reasons: [] });
   });
@@ -94,6 +99,14 @@ describe('ValidateReminderTitle', () => {
     expect(TitleContract.ValidateReminderTitle('Review the items 1. deploy 2. test 3. ship', Opts).reasons).toEqual(['list']);
     expect(TitleContract.ValidateReminderTitle('Bump to the v1.2 release', Opts).ok).toBe(true);
     expect(TitleContract.ValidateReminderTitle('Review PR 1. and the follow-up', Opts).ok).toBe(true);
+    // a sentence ending after a NUMBER is a boundary when a capitalized sentence follows...
+    expect(TitleContract.ValidateReminderTitle('Review PR 123. Deploy the release tomorrow', Opts).reasons).toEqual(['multi-sentence']);
+    // ...while an enumerator keeps its bracket or lowercase item and is the list rule's business.
+    expect(TitleContract.ValidateReminderTitle('WEEK items: 1.) Client C 2.) QueryGuard logs', Opts).reasons).toEqual(['list']);
+    // plain hyphen and asterisk bullets, as a multi-line message reads once collapsed.
+    expect(TitleContract.ValidateReminderTitle('- Review invoices - Send receipts tomorrow', Opts).reasons).toEqual(['list']);
+    expect(TitleContract.ValidateReminderTitle('* Review invoices * Send receipts', Opts).reasons).toEqual(['list']);
+    expect(TitleContract.ValidateReminderTitle('HiQS - Clarify work allocation with the author', Opts).ok).toBe(true);
   });
 
   test('MaxSourceChars refuses anything over the GH-243 bound outright', () => {
@@ -152,7 +165,7 @@ describe('FitTitleToBudget', () => {
 describe('BuildFallbackTitle', () => {
   test('takes the first line that names something, normalized, as the subject', () => {
     expect(TitleContract.BuildFallbackTitle(['ask him', '<@U1> the invoice from Acme is overdue, please chase it']))
-      .toEqual({ text: 'Follow up: The invoice from Acme is overdue', subjectFrom: 1 });
+      .toEqual({ text: 'Follow up: The invoice from Acme is overdue', subjectFrom: 1, shortened: false, unshortened: '' });
   });
 
   test('prefers a sentence that reads as a task over the commentary before it', () => {
@@ -161,10 +174,22 @@ describe('BuildFallbackTitle', () => {
     ]).text).toBe('Follow up: Raise Ground Advantage shipping to six dollars');
   });
 
+  test('a rejected list does not come back as the subject', () => {
+    expect(TitleContract.BuildFallbackTitle(['Review • invoices • receipts tomorrow']).text).toBe('Follow up on the original message');
+  });
+
+  test('the subject honours the word budget including the prefix, and is re-checked after the cut', () => {
+    const Long = `the ${Array.from({ length: 20 }, (_, ArgI) => `w${ArgI}`).join(' ')} are broken`;
+    const Result = TitleContract.BuildFallbackTitle([Long]);
+    expect(TitleContract.CountTitleWords(Result.text)).toBeLessThanOrEqual(TitleContract.TITLE_MAX_WORDS);
+    expect(Result.text.length).toBeLessThanOrEqual(TitleContract.TITLE_MAX_CHARS);
+    expect(Result.text.startsWith('Follow up: The w0')).toBe(true);
+  });
+
   test('never a pointer, never a question, and the generic title when nothing names anything', () => {
     expect(TitleContract.BuildFallbackTitle(['can you do this by tomorrow morning?', 'ask him']))
-      .toEqual({ text: 'Follow up on the original message', subjectFrom: null });
-    expect(TitleContract.BuildFallbackTitle([])).toEqual({ text: 'Follow up on the original message', subjectFrom: null });
+      .toMatchObject({ text: 'Follow up on the original message', subjectFrom: null });
+    expect(TitleContract.BuildFallbackTitle([])).toMatchObject({ text: 'Follow up on the original message', subjectFrom: null });
   });
 
   test('the subject is within the title budget', () => {
@@ -207,7 +232,9 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
   });
 
   test('100% within the length limits, 0 mid-word truncations, 0 addressee/please titles, 0 bare pointers', () => {
-    const Violations = ReminderTitleContractViolations(Results.map(ArgR => ArgR.selection.text));
+    const Violations = ReminderTitleContractViolations(
+      Results.map(ArgR => ArgR.selection.text), Results.map(ArgR => ArgR.selection.contract),
+    );
     expect(Violations).toEqual([]);
     for(const { selection: Selection } of Results) {
       expect(Selection.text.length).toBeLessThanOrEqual(TitleContract.TITLE_MAX_CHARS);
@@ -216,6 +243,15 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
       expect(Selection.text).not.toMatch(/\bplease\b/i);
       expect(Selection.text).not.toMatch(/\?$/);
     }
+  });
+
+  test('the shared invariant check catches the reported mid-word cut, and a cut it cannot verify', () => {
+    // the defect from the issue, as a multi-word title: only the source text can prove the cut.
+    const Broken = 'Test the pixel tester on my en…';
+    const Source = 'Test the pixel tester on my end before I can say anything';
+    expect(ReminderTitleContractViolations([Broken], [{ unshortened: Source }]).join(' ')).toMatch(/mid-word truncation/);
+    expect(ReminderTitleContractViolations(['Test the pixel tester on my…'], [{ unshortened: Source }])).toEqual([]);
+    expect(ReminderTitleContractViolations([Broken], [])).toEqual([expect.stringMatching(/cannot be verified/)]);
   });
 
   test('every rendered title is grounded in what the analyzer saw — GH-43/68 unchanged', () => {
@@ -236,7 +272,7 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
       .sort((ArgA, ArgB) => ArgA - ArgB);
     const Q1 = Words[Math.floor(Words.length * 0.25)];
     const Q3 = Words[Math.floor(Words.length * 0.75)];
-    expect(Q1).toBeGreaterThanOrEqual(TitleContract.TITLE_MIN_WORDS);
+    expect(Q1).toBeGreaterThanOrEqual(TitleContract.TITLE_TARGET_WORDS.min);
     expect(Q3).toBeLessThanOrEqual(TitleContract.TITLE_TARGET_WORDS.max);
   });
 });

@@ -1962,16 +1962,10 @@ class RemindersModule {
     const RenderedCandidates = AnalysisResult.reminders.map((/** @type {any} */ ArgCandidate) => ({
       candidate: ArgCandidate,
       text: this.#SelectReminderTaskText(ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText),
+      // GH-250: the candidate's own words, for the pointer check. The displayed text may be the
+      // contract's fallback for a pointer title, which would hide the echo this filter exists to drop.
+      rawText: ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
     }));
-    // GH-250 telemetry: one line per candidate, no text. `source` is which path the displayed title
-    // came from, `rejected` names every candidate the output contract refused first and why, so the
-    // verbatim/fallback share and the title-length distribution can be read from the logs.
-    for(const Rendered of RenderedCandidates) {
-      const Selection = ReminderDisplaySelection.SelectTaskText(
-        Rendered.candidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
-      );
-      ArgSlackApp.Logger.info(RemindersModule.DescribeTitleContract(Selection, StructuralPath));
-    }
     const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
       RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
       ArgLiveReplyText || '',
@@ -2204,6 +2198,16 @@ class RemindersModule {
       try {
         await this.#QueueReminderAsync(NewReminderInfo);
         SuccessfullyScheduledReminders.set(NewReminderInfo, CurrentReminders);
+
+        // GH-250 telemetry: one line per candidate of a QUEUED reminder, no text. Logged here rather
+        // than at render time so an ignored message, a dropped pointer, a dedup or a failed queue
+        // never counts toward the verbatim/fallback share or the title-length distribution.
+        for(const Candidate of CurrentReminders) {
+          const Selection = ReminderDisplaySelection.SelectTaskText(
+            Candidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
+          );
+          ArgSlackApp.Logger.info(RemindersModule.DescribeTitleContract(Selection, StructuralPath));
+        }
 
         if(Array.isArray(NewReminderInfo.GitHubUrls) && NewReminderInfo.GitHubUrls.length > 0) {
           ArgSlackApp.Logger.info(

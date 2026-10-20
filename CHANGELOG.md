@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## 2026-10-20 — GH-250 one shape for every reminder title
+## 1.4.346 - 2026-10-20
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,
 with the source link, the owner, a labelled due date and a labelled age. I no longer repeat your
 raw wording with the `@mention` and "please" left in, I never cut a title off mid-word, I refuse
@@ -73,6 +73,18 @@ through the context line it still controls and the contract through the refusal 
 Documented limit: a title that names a generic object (`Complete the alignment`) passes the
 deterministic rules — resolving it is the prompt's job. Not done: the one constrained LLM
 re-synthesis on refusal (idea 4) and the production telemetry week (AC 5), which needs a deploy.
+Review round on PR #252 (Greptile, CodeRabbit, and the author's ground-truth review), all
+reproduced before fixing: quoted task names are opaque to the normalizer and the normalized text is
+re-grounded before acceptance (`"The Kindly Migration"` no longer loses its `Kindly`); a pointer
+idiom that opens a title no longer swallows the object (`Continue migration`); a sentence ending
+after a number counts (`Review PR 123. Deploy the release`), and `- item` / `* item` bullets count
+as a list; a title the budget cut reduces to its verb is refused and the next candidate tried; the
+fallback subject gets the same list check, a word budget that includes `Follow up:`, and a re-check
+after fitting; the pointer-echo filter reads the candidate's own words (not the templated display)
+with both sides normalized, so `can you do all of the above` is dropped beside its expansions; a
+delivered record with no permalink shows all of its tasks; the replay contract invariant runs for
+scenarios without `expected` and verifies a cut against the recorded `unshortened` text; title
+telemetry is logged only for queued reminders.
 
 ## 2026-10-12 — GH-243 verification and PR
 Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.

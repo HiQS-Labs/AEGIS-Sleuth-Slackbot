@@ -33,6 +33,7 @@
         "rejected": [],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 3
       }
     ],
@@ -83,6 +84,7 @@
         "rejected": [],
         "shortened": false,
         "source": "verbatim",
+        "unshortened": "",
         "words": 5
       }
     ],
@@ -144,6 +146,7 @@
         ],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 4
       }
     ],
@@ -183,6 +186,7 @@
         "rejected": [],
         "shortened": false,
         "source": "verbatim",
+        "unshortened": "",
         "words": 6
       }
     ],
@@ -221,6 +225,7 @@
         "rejected": [],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 5
       }
     ],
@@ -259,6 +264,7 @@
         "rejected": [],
         "shortened": false,
         "source": "verbatim",
+        "unshortened": "",
         "words": 5
       }
     ],
@@ -297,6 +303,7 @@
         "rejected": [],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 7
       }
     ],
@@ -360,6 +367,7 @@
         "rejected": [],
         "shortened": false,
         "source": "verbatim",
+        "unshortened": "",
         "words": 9
       }
     ],
@@ -398,6 +406,7 @@
         "rejected": [],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 7
       }
     ],
@@ -436,6 +445,7 @@
         "rejected": [],
         "shortened": false,
         "source": "verbatim",
+        "unshortened": "",
         "words": 13
       }
     ],
@@ -525,6 +535,7 @@
         "rejected": [],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 6
       }
     ],
@@ -577,6 +588,7 @@
         ],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 4
       }
     ],
@@ -620,6 +632,7 @@
         ],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 4
       }
     ],
@@ -660,6 +673,7 @@
         ],
         "shortened": false,
         "source": "span",
+        "unshortened": "",
         "words": 3
       }
     ],
@@ -698,6 +712,7 @@
         "rejected": [],
         "shortened": false,
         "source": "verbatim",
+        "unshortened": "",
         "words": 6
       }
     ],
@@ -738,6 +753,7 @@
         ],
         "shortened": false,
         "source": "title",
+        "unshortened": "",
         "words": 4
       }
     ],
@@ -778,6 +794,7 @@
         ],
         "shortened": false,
         "source": "span",
+        "unshortened": "",
         "words": 4
       }
     ],

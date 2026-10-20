@@ -364,6 +364,12 @@ describe('CheckExpectations', () => {
     expect(Reasons).toHaveLength(3);
   });
 
+  test('GH-250: the title contract is checked even when a scenario declares no expectations', () => {
+    const Reasons = CheckExpectations({}, { decision: 'reminder-analysis', displayedTasks: ['Deploy'] });
+    expect(Reasons.join(' ')).toMatch(/TITLE CONTRACT/);
+    expect(CheckExpectations({}, { decision: 'reminder-analysis', displayedTasks: ['Deploy the hotfix'] })).toEqual([]);
+  });
+
   test('a scenario with no expectations is vacuously satisfied', () => {
     expect(CheckExpectations({}, { recommendation: 'anything' })).toEqual([]);
   });

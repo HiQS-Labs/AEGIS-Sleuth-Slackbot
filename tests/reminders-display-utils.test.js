@@ -372,3 +372,44 @@ describe('multi-task delivery — a trigger group is one record with N Key tasks
     expect(ExtractCompactSummary(ReminderMessageText)).toBe('Review LTVera 485');
   });
 });
+describe('GH-250 — delivery caps extra Key tasks, except when there is no permalink to point at', () => {
+  const Tasks = ['Review LTVera 485', 'Review LTVera 483', 'Review LTVera 481', 'Review LTVera 479', 'Review LTVera 477', 'Review LTVera 475'];
+  const ReminderMessageText = [
+    '<@U_NOEL> - please follow up on <https://x.slack.com/archives/C1/p1|this>:',
+    '>a pasted list',
+    '',
+    'Key task(s):',
+    ...Tasks.map(ArgTask => `• ${ArgTask}`),
+  ].join('\n');
+  /** @param {string|null} ArgPermaLink @returns {any} */
+  const MakeSlackApp = ArgPermaLink => ({
+    BotUserID: 'U_BOT',
+    WorkspaceInfo: { MAIN_TIMEZONE: 'UTC' },
+    Logger: { info() {}, warn() {}, error() {} },
+    GetPermaLinkAsync: jest.fn().mockResolvedValue(ArgPermaLink),
+  });
+  /** @returns {any} */
+  const MakeReminder = () => ({
+    ReminderID: 'R_CAP', ReminderMessageText, OriginalChannelID: 'C1', OriginalMessageID: '123.456',
+    CreatedOn: new Date(Date.UTC(2026, 8, 10)), ShouldPostOn: new Date(Date.UTC(2026, 8, 11)),
+    AssigneeIDs: ['U_JOSE'], OriginalSenderID: 'U_NOEL',
+  });
+
+  test('with a permalink: the first task on the line, 3 more as bullets, and "+N more" linking to the source', async () => {
+    const Line = await BuildCompactTextForReminder(
+      MakeSlackApp('https://x.slack.com/archives/C1/p1'), MakeReminder(), 'A', undefined, { IncludeAllKeyTasks: true },
+    );
+    const Lines = Line.split('\n');
+    expect(Lines).toHaveLength(5);
+    expect(Lines.slice(1, 4)).toEqual(Tasks.slice(1, 4).map(ArgTask => `   • ${ArgTask}`));
+    expect(Lines[4]).toBe('   • +2 more <https://x.slack.com/archives/C1/p1|↗︎>');
+  });
+
+  test('without a permalink every task stays visible — there is nothing to point "+N more" at', async () => {
+    const Line = await BuildCompactTextForReminder(MakeSlackApp(null), MakeReminder(), 'A', undefined, { IncludeAllKeyTasks: true });
+    const Lines = Line.split('\n');
+    expect(Lines).toHaveLength(6);
+    expect(Line).not.toContain('more');
+    expect(Lines[5]).toBe('   • Review LTVera 475');
+  });
+});

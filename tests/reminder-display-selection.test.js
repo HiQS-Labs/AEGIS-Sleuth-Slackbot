@@ -1,6 +1,7 @@
 'use strict';
 
-const { SelectTaskText, SelectContextLine } = require('../src/reminder-display-selection');
+const { SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates } = require('../src/reminder-display-selection');
+const { NeedsEarlierContext } = require('../src/reminder-context-resolution');
 
 // GH-43, extracted after agy's branch relay (r1). Before this module the selection rule lived
 // inline in a private method AND was reimplemented in scripts/decision-replay.js, so the harness
@@ -63,6 +64,41 @@ describe('SelectTaskText — verbatim path', () => {
       { reminder_message: 'Ask him', actionable_language: 'ask him' },
       'ask him tomorrow', true, Analyzed,
     )).toMatchObject({ text: 'Follow up: The invoice from Acme is overdue', source: 'fallback' });
+  });
+});
+
+describe('GH-250 — the pointer-echo filter still sees the pointer behind the template', () => {
+  const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> let\'s take the car.\n2. <@U_BETA> please bring the cooler.\n[the message to act on]\n<@U_BETA> can you do all of the above tomorrow?';
+  const Live = '<@U_BETA> can you do all of the above tomorrow?';
+  const Candidates = [
+    { reminder_message: 'Take the car', actionable_language: 'let\'s take the car' },
+    { reminder_message: 'Bring the cooler', actionable_language: 'please bring the cooler' },
+    { reminder_message: 'Do all of the above', actionable_language: 'can you do all of the above' },
+  ];
+  const Rendered = Candidates.map(ArgCandidate => ({
+    candidate: ArgCandidate,
+    text: SelectTaskText(ArgCandidate, 'can you do all of the above tomorrow?', true, Analyzed).text,
+    rawText: ArgCandidate.reminder_message,
+  }));
+
+  test('the pointer renders as the template, which on its own no longer reads as an echo', () => {
+    expect(Rendered[2].text).toBe('Follow up: Take the car');
+    expect(NeedsEarlierContext(Rendered[2].text)).toBe(false);
+  });
+
+  test('judged on the candidate\'s own words the echo is dropped beside its expansions', () => {
+    const Result = DropUnresolvedReferenceCandidates(Rendered, true, NeedsEarlierContext, Live);
+    expect(Result.droppedCount).toBe(1);
+    expect(Result.kept.map(ArgCandidate => ArgCandidate.reminder_message)).toEqual(['Take the car', 'Bring the cooler']);
+  });
+
+  test('a distinct pronoun-bearing task is still kept (the GH-143 over-drop)', () => {
+    const Reply = 'I\'ll file a GH issue about it tomorrow and discuss it with the team Friday';
+    const Entries = [
+      { candidate: { reminder_message: 'File a GH issue about the cache bug' }, text: 'File a GH issue about the cache bug', rawText: 'File a GH issue about the cache bug' },
+      { candidate: { reminder_message: 'Discuss it with the team' }, text: 'Discuss it with the team', rawText: 'Discuss it with the team' },
+    ];
+    expect(DropUnresolvedReferenceCandidates(Entries, true, NeedsEarlierContext, Reply).droppedCount).toBe(0);
   });
 });
 
