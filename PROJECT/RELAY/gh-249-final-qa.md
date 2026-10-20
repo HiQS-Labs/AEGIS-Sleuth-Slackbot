@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 1 / 3
 
@@ -92,5 +92,32 @@ ROUND: 1 / 3
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1 · codex
+
+Block — one bounded installer correction required.
+
+swept file: yes
+
+Read all five implementation files, both smoke scripts, the full GH-249 plan/receipt and prior plan-QA record, the full architecture and server guide, and the scoped top CHANGELOG entry. No additional Blocker/Should defects found, including in unchanged portions of those reviewed files. Generated ledger files excluded as instructed. Graph Verify orientation found only another checkout (`aegis-sleuth-slack-bot`, generation `2026-10-13T00:42:44Z`); coverage excludes deploy/docs/changelog and lacks the new GH-249 files. Current seeded source reads are the evidence. `temp/SOP.md` is absent: all production outcomes below are attributed to the supplied receipt, not independently asserted live state. No Git, suites, executable fixtures or production operations ran; only shell syntax checks and a scratch-only permission primitive probe. Only this relay file was edited.
+
+- **[Should] S1 — Enforce the promised config mode on existing files.** `deploy/git-pulse-mirror/install.sh:19-26` sets `umask 077` only when an argument is supplied and truncates the existing config with `>`; neither truncation nor the no-argument path changes its mode. This violates the mode-600 contract in the plan at `PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md:107-109` and README line 26, potentially making the private repo name readable to other local users. Cheapest correction: explicitly `chmod 600 "$CONFIG"` on both successful config paths, before enabling/running the service. Keep no-arg config contents unchanged; no new suite needed.
+  Observed input: a pre-existing mode-644 config rewritten with the installer's exact `printf`/redirection primitive stays 644. Command (with `TMPDIR="$PWD/.relay-scratch/tmp"`): `bash -c 'CONFIG="$TMPDIR/mode-existing"; printf old > "$CONFIG"; chmod 644 "$CONFIG"; umask 077; printf "SLEUTH_GIT_PULSE_REPO=%s\nSLEUTH_GIT_PULSE_DIR=%s\n" example/mirror /root/git-pulse-sync > "$CONFIG"; ls -l "$CONFIG"'`. Exit 0; decisive output `-rw-r--r--@ ... 79 ... .relay-scratch/tmp/mode-existing`. A separate new-file control printed `new_config_mode=0o600`, versus `existing_config_mode=0o644` for overwrite.
+  Affected scope: existing config files with permissions other than 600, on argument-supplied reinstalls and no-argument updates; fresh files already get 600.
+  Falsifier: in the producer's disposable clone, seed a 644 config, perform each installer path, and require mode 600 afterward, with no-arg contents unchanged; a fresh install and an already-600 rerun must still succeed. If overwrite alone changes the original 644 file to 600, the hypothesis is disproved. Full installer exercise: **[Unverified — needs clone run]**.
+
+- **[Pass] Sync implementation follows the approved contract.** `sync-git-pulse-mirror.sh:11-28` has required repo, lazy HOME fallback (the installer writes an absolute directory at line 21), empty WorkingDirectory rejection, readable-file and nonempty-token guards, literal last-match parsing and CR removal. Lines 31-40 put credential configuration before the Git subcommand, clear inherited helpers, keep the URL credential-free, and implement clone versus fetch/reset. There is no value expansion into helper argv or persistent clone configuration in those lines. No PAT-bearing error message is constructed in lines 11, 20, 23 or 27. This is source inspection, not certification of every possible external Git environment.
+- **[Pass] Units and evidence cover the acceptance checklist at the stated level.** Service lines 7-12 use oneshot, mandatory EnvironmentFile and 300-second timeout; timer lines 7-10 specify boot, hourly, five-minute delay and persistence. The receipt at `PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md:173-187` records red controls, clean main/full authenticated SHA comparison, valid JSON, enabled timer/next elapse, real reader, byte-identical no-arg rerun, tracked-content reset, positive leak control and scanned surfaces. These correspond to `smoke.sh:23-32,35-61` and `leak-check.sh:5-19`. No issue acceptance criterion lacks a corresponding receipt entry or source/doc evidence; the additional promised existing-file mode guarantee lacks evidence and fails S1. Syntax-only command `bash -n deploy/git-pulse-mirror/install.sh deploy/git-pulse-mirror/sync-git-pulse-mirror.sh PROJECT/2-WORKING/GH-249-smoke/smoke.sh PROJECT/2-WORKING/GH-249-smoke/leak-check.sh` exited 0. Runtime reruns remain **[Unverified — needs clone run]** in this reviewer turn.
+- **[Pass] Scope, privacy and rating are proportionate in the supplied artifacts.** The new files contain placeholders rather than a private repo name, host/IP or operator credential-file path; config is server-only (`install.sh:16,21`). Consumer path, explicit override and separate freshness clocks are documented at README lines 69-80, architecture line 243 and server-guide lines 185-190. The precedent publishes through the contents API (`deploy/reminders-export/publish-reminders-export.mjs:53-84`); the new puller reads, so it is not a competing publisher or parallel app subsystem. No shared framework or lock layer is warranted. Rating `60/20/50/85` remains reasonable under the rationale at plan lines 157-161 and the supplied receipt; generated ledger rows were not independently audited.
+- **[Nit] Qualify the leak scanner's evidence.** `leak-check.sh:8,12-19` maps any non-match/error to PASS, does not check collection success, and counts lines containing `git` rather than proving a specific authentication process was observed. The positive control validates matching, but not successful collection of every surface; 0.1-second sampling cannot exclude shorter-lived argv. The receipt is useful observational evidence, not exhaustive proof. For future runs, distinguish collection/grep errors from clean scans and record that the intended fetch was observed; do not add a scanner subsystem or suite for this.
+- **[Nit] Tighten two README claims without adding cleanup machinery.** Lines 21-22 say “anything written” is discarded, but `reset --hard` at sync-script line 40 generally preserves unrelated untracked files; say tracked edits instead. Line 14's “±5 min” should be “up to 5 min after” the hourly boundary, matching timer line 9.
+- **[Nit] Pre-existing architecture inventory drift surfaced by the full sweep.** `ARCHITECTURE.md:236-237` describes `activeOnly:true` and no completed history, while the current publisher defaults `ACTIVE_ONLY` to `false` and publishes a bounded completions export (`deploy/reminders-export/publish-reminders-export.mjs:28-38` and its final publish block). Reconcile that older inventory separately against the actual export contract; the new mirror does not create this discrepancy, and no live export configuration is inferred here.
+
+Root cause: the installer treats a creation-only umask as an ongoing file-permission guarantee; Fix site: the installer after config creation/reuse; Why not upstream/downstream: the installer owns this server-only config and can establish its promised mode directly.
+
+VERDICT: FAIL
+Basis: S1 remains open. Core sync, scope and the acceptance-to-receipt mapping are sound; approval awaits the small permission correction and bounded clone evidence.
+
+Handing off to Producer claude-a — disposition S1 and the nits, apply the bounded correction and provide clone evidence; go to the Producer window and say 'take your turn'.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
