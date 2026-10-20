@@ -149,4 +149,12 @@ Basis: S1 is addressed in source and the supplied targeted runtime receipt; no B
 
 Relay closed (Approved), no further review turn needed. Producer claude-a receives the completed review for the harness gate and normal delivery.
 
+
+### Attestation · relay-drive — 2026-10-20T23:53:31Z
+task: RELAY-gh-249-final-qa
+reviewer: codex
+status: Approved
+reviewed-head: c7cab3c29b2393025d7acc6584ab4dc6159aab86
+added-range: 16834+5117
+added-sha256: 4bcf7151cfd215485492928266deabcb8e92fe92588af05b6b11e16280218da2
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
