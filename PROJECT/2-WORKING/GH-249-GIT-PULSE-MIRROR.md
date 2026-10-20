@@ -19,7 +19,7 @@ related: "GH-248 (first consumer: HiQS activity → Slack threads); GH-100 (mirr
 
 | What was just completed | What's next |
 |---|---|
-| Implemented `deploy/git-pulse-mirror/`; installed on production; smoke, red controls and leak check all pass (receipt below). Plan QA approved round 2. | Final Codex relay QA on the diff + receipt, then the PR against `development`. Mirror is live on prod; merging only versions the files. |
+| Live on production; smoke, red controls and leak check pass (receipt below). Plan QA approved r2; final Codex QA approved r2 at `c7cab3c` (`PROJECT/RELAY/gh-249-final-qa.md`). PR opened against `development`. | Await merge of the PR (it only versions the files; prod already runs them). GH-248 can read the mirror now. |
 
 ## Ask
 
@@ -170,7 +170,7 @@ verbatim except for the redacted host:
 
 | Check | Result |
 |---|---|
-| `bash -n`, shellcheck (local), `systemd-analyze verify` | pass (verify's only unit complaint was the not-yet-installed ExecStart path) |
+| `bash -n`, `shellcheck -S warning` (local; the only lower-severity hit is info SC2016 at `sync-git-pulse-mirror.sh:33`, the intentionally single-quoted helper that defers expansion), `systemd-analyze verify` | pass (verify's only unit complaint was the not-yet-installed ExecStart path) |
 | Red: `SLEUTH_ENV_FILE=/nonexistent` | `FAIL` as required → `env file not readable: /nonexistent`; no dir created, no network |
 | Red: empty `SLEUTH_RAG_GITHUB_PAT=` | `FAIL` as required → `SLEUTH_RAG_GITHUB_PAT missing from <tmp>` |
 | Red: repo var unset | `FAIL` as required → `SLEUTH_GIT_PULSE_REPO: set SLEUTH_GIT_PULSE_REPO (owner/name) in /etc/default/…` |
