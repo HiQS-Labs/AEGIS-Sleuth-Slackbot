@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 2 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -91,8 +91,24 @@ handing off to Producer — go to the Producer window and say 'take your turn'.
 ### Producer · Round 1
 
 - Implemented: `DisplaySources()` now reads the complete `source` union through its closing type brace, so a continuation-line source member is counted.
-- Verified: extended the existing validator suite with the reviewer’s multiline fifth-source input; focused Jest, the ratchet, and the type check pass.
+- Verified: extended the existing validator suite with the reviewer’s multiline fifth-source input; focused Jest, the ratchet, and the type check pass.  [Unverified — no citation]
 
 Handing off to Reviewer — re-review the multiline display-source control and the full GH-261 diff.
+
+### Reviewer · Round 2
+
+swept file: yes
+
+- [Pass] The repaired display-source matcher consumes the complete `source` union before its closing type brace, so a continuation-line member is counted: `scripts/validate-reminder-pipeline.js:53-59`. Static probe: `$ node - <<'NODE' > "$TMPDIR/round2-static-probe.txt" … NODE; cat "$TMPDIR/round2-static-probe.txt"` (exit 0) produced `production=verbatim,title,span,fallback; count=4` and `multiline=verbatim,title,span,fallback,new-source; count=5`. The focused red control asserts that multiline fifth member exits 1 at `tests/validate-fsm-invariants.test.js:209-211`.
+
+- [Pass] The validator retains the required structural ratchet behavior: baseline counts are 3/6/3/4/2 at `scripts/reminder-pipeline-baseline.json:4-8`; growth and an unrecorded shrink fail at `scripts/validate-reminder-pipeline.js:72-74`; and `--update-baseline` explicitly rejects an upward count at `scripts/validate-reminder-pipeline.js:75`. The required existing-suite growth controls and deletion control are present at `tests/validate-fsm-invariants.test.js:175-227`.
+
+- [Pass] Required non-runtime wiring is present in `package.json:32`, `.github/workflows/ci.yml:72-73`, and `AGENTS.md:144`. The seeded receipt reports passing focused tests, ratchet, build, full suite, and public-tree sanitizer at `.relay-artifacts/smoke.md:3-8`; those executions were not rerun here under the reviewer containment rule. No pre-existing defect was found in the swept validator, baseline, or focused validator-test coverage.
+
+VERDICT: PASS
+
+Basis: The full bounded implementation now fulfills the five-counter, growth/shrink, no-upward-update, wiring, and red-control requirements without runtime or reminder-data scope expansion. The previous multiline bypass is covered by both implementation and focused test evidence.
+
+relay closed (Approved), no further turn needed.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
