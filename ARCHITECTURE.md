@@ -64,9 +64,10 @@ The process startup pipeline in `src/app.js` is:
 - Start `ListsModule`.
 - Start `NotionModule`.
 8. Post startup notifications when the workspace config enables them. When `GITHUB_ACTIONS_REPO` is configured, `src/app.js` posts the normal startup message immediately and then schedules a short delayed follow-up from `src/github-actions-startup-summary.js` so the latest workflow run summary appears as its own Slack message.
-9. Start GitHub sync after all reminder modules are ready.
-10. Start the Web API server.
-11. On shutdown, stop modules gracefully and persist final state before process exit.
+9. Start per-workspace snapshot / HiQS digest / GitHub issue stream relays (each env-gated, default off).
+10. Start GitHub sync after all reminder modules are ready.
+11. Start the Web API server.
+12. On shutdown, stop relays and modules gracefully and persist final state before process exit.
 
 This ordering matters. In particular:
 
@@ -75,6 +76,18 @@ This ordering matters. In particular:
 - `ChatModule` must start before `SlackApp` so per-channel model overrides and thread context memory are loaded before live events arrive.
 - `SlackApp` must own Slack handler registration.
 - `RemindersModule` must start before `ListsModule` so the in-memory reminder queue is loaded before list population reads it.
+
+## GitHub Issue Stream
+
+`src/github-issue-stream-module.js` (extends `BaseModule`) polls allowlisted GitHub repos on a 15-minute timer and posts newly filed issues into a configured Slack channel. Follow-up activity — comments, PRs that reference the issue, and close/reopen — is posted as thread replies under the parent message.
+
+- **Default off.** Enabled only when the workspace is listed in `GITHUB_ISSUE_STREAM_WORKSPACES` and `GITHUB_ISSUE_STREAM_CHANNEL_ID` is set. Missing channel → stay disabled and warn (same rule as `HIQS_DIGEST_CHANNEL_ID`).
+- **Allowlist.** `GITHUB_ISSUE_STREAM_REPOS` overrides everything. Otherwise Sleuth unions `rows` from fresh `sync/repos/*.json` files in the private git-pulse repo (published by RebalanceOS's daily sync). Optional `GITHUB_ISSUE_STREAM_ORG_FILTER` narrows by owner.
+- **Idempotency.** Durable JSON state under `data/runtime/github-issue-stream/<workspace>_github-issue-stream.json` stores per-repo cursors and an issue→`thread_ts` map with posted event keys. An event key is recorded only after Slack confirms the post; a repo cursor advances only when every planned action for that repo was delivered.
+- **DND.** Reads this workspace's `RemindersDndSettings` (injected from `RemindersModule.GetDndSettings()`). Workspace or channel DND holds the cycle without advancing cursors.
+- **No Slack handlers.** The module registers no message/reaction handlers, so the reminder / comment-relay chain is unchanged. Pure planning logic lives in `src/github-issue-stream-planner.js`.
+
+Checklist and env inventory: `PROJECT/2-WORKING/GH-248-GITHUB-ISSUE-STREAM.md`. Upstream tracking: git-pulse#5 (private repo).
 
 ## Slack Event Pipeline
 
@@ -277,6 +290,8 @@ SSH tunnel, no Web API auth, no clone needed for local tooling to read the curre
 - **Provenance:** `source.type: "sleuth-reminders-file"` ← AEGIS's own authoritative `data/runtime/reminders/neochrome_reminders.json`.
 
 This is the fast, zero-network read path for any **local** "talk to my reminders" tooling / skill: read the file, synthesize. Do not treat the mirror as a write surface or a source of truth — `data/runtime/` in the running service remains authoritative.
+
+**Server-side mirror (GH-249).** On the production server, a read-only clone of the same repo lives at `${SLEUTH_GIT_PULSE_DIR:-/root/git-pulse-sync}`, refreshed hourly by `sleuth-git-pulse-mirror.timer` (fetch + hard reset; never committed to). Server-side scripts read git-pulse files from there. The existing reader's default `SLEUTH_MIRROR_DIR` is a literal `'$HOME/…'` string, so set it explicitly (`/root/git-pulse-sync/sync/sleuth`). Last fetch time = mtime of `.git/FETCH_HEAD`; data freshness = the payload's own stamp. See [`deploy/git-pulse-mirror/README.md`](deploy/git-pulse-mirror/README.md).
 <!-- ============================================================================
      END MANUAL SECTION: local-reminder-export-mirror
      ============================================================================ -->

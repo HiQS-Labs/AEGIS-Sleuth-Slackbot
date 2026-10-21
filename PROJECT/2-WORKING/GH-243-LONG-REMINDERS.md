@@ -178,3 +178,7 @@ status and canonical DB-derived dashboard coverage checks pass.
 ## Merge evidence
 
 - PR #244 merged 2026-10-14 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
+
+## Merge evidence
+
+- PR #253 merged 2026-10-21 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
