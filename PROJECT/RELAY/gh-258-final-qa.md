@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 3 / 5
 
@@ -123,5 +123,22 @@ Handing off to Producer (claude-a) — go to the Producer window and say 'take y
 - Verification: title-contract suite 109 passing assertions; decision replay 23/23 and build pass.
 
 Handing off to Reviewer (codex): verify the bounded topic-grounding pair and close if no findings remain.
+
+### Reviewer · Round 3 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: The bounded person-topic grounding pair is now present, but the schedule transform runs before terminal punctuation removal, so a normal punctuated trailing deadline cannot match and remains in the displayed title. I swept the complete seeded artifact, including all changed implementation, prompt, fixture, test, receipt, and ledger hunks. No additional pre-existing defect is observable in the touched implementation hunk.
+
+Evidence scope: artifact-only Verify review. No source-tree files, git commands, suites, executable fixtures, model calls, or service probes ran. The narrow regex probe below reads only the seeded artifact and evaluates its added literal; it writes no files.
+
+- [Should] **A trailing due-date phrase followed by terminal punctuation is never stripped.** `StripScheduleWording` applies `SCHEDULE_TRAILING_PATTERN` before terminal punctuation removal (`.relay-artifacts/gh258-final-diff.XXXXXX.md:839,865-868`), and the pattern is end-anchored immediately after the phrase (`:839`). Thus `Deploy the hotfix by Friday.` and `Review the release EOD!` do not match; the later punctuation-only pass cannot retry the schedule transform. The unchanged expected result for punctuated `I'll deploy the changes tomorrow.` at `:1075` also pins this broken behavior. Strip terminal punctuation before the trailing schedule pass (or let the schedule matcher consume it), then retain the existing duration veto and two-word rollback. Add a bounded punctuated deadline case.
+  Observed input: `Deploy the hotfix by Friday.`, `I will deploy the hotfix tomorrow.`, and `Review the release EOD!`.
+  Affected scope: title candidates with an otherwise-supported trailing due-date phrase followed only by terminal punctuation, and no duration/condition introducer.
+  Falsifier: `NormalizeReminderTitle` returns `Deploy the hotfix`, `Deploy the hotfix`, and `Review the release` respectively, while `Keep staging online until Friday.` remains unchanged apart from terminal punctuation under the duration veto.
+  Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node -e 'const fs=require("fs"); const t=fs.readFileSync(".relay-artifacts/gh258-final-diff.XXXXXX.md","utf8"); const m=t.match(/^\\+const SCHEDULE_TRAILING_PATTERN = (\\/.*\\/i);$/m); const rx=eval(m[1]); const xs=["Deploy the hotfix by Friday.","I will deploy the hotfix tomorrow.","Review the release EOD!"]; console.log(JSON.stringify(xs.map(input=>({input,match:input.match(rx)?.[0]??null,afterSchedule:input.replace(rx,"").trim(),afterTerminal:input.replace(rx,"").trim().replace(/[\\s.!,;:\\-–—]+$/,"").trim()}))));'` (exit 0). Decisive output: `[{"input":"Deploy the hotfix by Friday.","match":null,"afterSchedule":"Deploy the hotfix by Friday.","afterTerminal":"Deploy the hotfix by Friday"},{"input":"I will deploy the hotfix tomorrow.","match":null,"afterSchedule":"I will deploy the hotfix tomorrow.","afterTerminal":"I will deploy the hotfix tomorrow"},{"input":"Review the release EOD!","match":null,"afterSchedule":"Review the release EOD!","afterTerminal":"Review the release EOD"}]`.
+
+Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Fix the punctuation ordering or match boundary, add the bounded coverage, then request Round 4 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
