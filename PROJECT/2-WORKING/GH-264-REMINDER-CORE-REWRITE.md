@@ -21,7 +21,7 @@ goal: Replace tangled reminder planning and legacy-content internals behind unch
 
 | What was just completed | What's next |
 | --- | --- |
-| Separable planning and content replacements implemented; focused checks, deterministic replay and real-model replay pass. | Final independent code QA, exact-revision full gate, then PR against development. |
+| Final Codex QA Approved at fe929bf; build and full gate passed (2,806 Jest +116 Node tests). | Publish reviewed PR against development; await merge decision. |
 
 ## Quad Concepts
 
@@ -205,7 +205,7 @@ consolidation remain separate. No merge, deployment or production probe is part 
 | 1 | `PrepareReminderCandidates` owns selection, normalized render identity, unresolved-reference filtering and groups. `PlanTriggerOwnership` resolves each group at its original place in the effect sequence. Scheduling and triage share these functions, without a second gateway. Inputs remain unmodified. |
 | 2 | `SlackFormatUtils.ParseLegacyReminderContent` owns section, quote, bullets, lines and source views. Existing format/display/project-title functions remain callable; distinct consumer semantics are preserved. No durable schema/API changes. |
 | 3 | Main/adjacent runtime paths exercised through real handlers with fake Slack transport. Six reference/candidate cases compare raw stored bodies, posted text/metadata, property presence, ordered events, effects and retry outcomes. Only generated UUIDs and creation/event clocks normalized. All match. Deterministic replay23/23; real-model replay9/9. Final independent QA and full gate pending below. |
-| 4 | Superseded orchestration and parser fragments removed. Private dedup facade and exported project title retained solely for function compatibility; no independent policy. Net production source185 additions/195 deletions (10 fewer lines). No baseline ratchet in50fa08c; no new extraction door/header/writer. |
+| 4 | Superseded orchestration and parser fragments removed. Private dedup facade and exported project title retained solely for function compatibility; no independent policy. Net production source186 additions/196 deletions (10 fewer lines). No baseline ratchet in50fa08c; no new extraction door/header/writer. |
 
 Separable commits:58e8d92 characterization; f33e1a5 planning;5b4e002 legacy content. Failure semantics
 remain deliberately unchanged: save rejection can leave memory changed; List rejection follows disk
@@ -244,3 +244,45 @@ missing receiver falls back to SlackFormatUtils. The detached no-section call no
 call instead of throwing. This is the sole intentional behavior improvement, confined to helper
 callability; normal scheduling/storage/wire bytes are unchanged. Regression extended in the same
 existing test. Round3 reviews this specific acceptance and final implementation.
+
+
+## Final verification / PR handoff
+
+- Final code:fe929bfb998f282de7757bf63ae98ee90d43db6c. Codex round3 Approved; supervisor exit0,
+  canonical attestation validated. Broad round1 sweep plus bounded re-reviews; disposition and
+  portable transcript in `PROJECT/RELAY/gh264-final-qa.md`.
+- Exact-code disposable full gate: `npm run build` and `npm test` exit0. Jest145 suites/2,802 tests
+  pass initially; the ledger suite skipped because the gate clone lacked ignored .xyz. Restored the
+  existing vendored CLI and ran that suite alone:4/4 pass. Combined146 suites/2,806 Jest tests pass,
+  plus Node116 pass, zero unresolved failures/skips.
+  Before/after repository root/origin/branch/HEAD match and tracked tree stays clean. Known Jest
+  config-comment warning remains baseline noise, not a failed test.
+- Frozen-clock/UUID/provider six-case differential: raw records, disk, posted messages/reactions,
+  effect order and event transcript match50fa08c exactly, without normalization (candidate6c0a4e0).
+  Finalfe929bf only adds the explicitly documented detached fallback improvement; normal receiver
+  behavior also verified by format tests and independent custom/subclass probes.
+- Manual startup: `npm run dev` with empty isolated runtime and temporary local port; missing-workspace
+  reminder GET retains HTTP200 `{success:false,data:"Error: Workspace not found."}`. Own process
+  group stopped and temporary runtime removed. Main/adjacent scheduling smoke is the real-handler
+  success/ignore/duplicate/retry differential and nine real-model scenarios, with fake Slack only.
+- Function manifest:144 pre-existing named members and223 positional parameters preserved across
+  five touched legacy files; new optional private feedback argument leaves prior call shapes valid.
+  Web API/MCP route/tool source files unchanged. This is syntax/shape evidence, complemented by
+  behavioral tests, not a claim of universal external-client testing.
+- Proposed #262 scanner atde0524c was evaluated read-only against this branch: counts3 extraction
+  specs /6 header sites /3 routing thresholds /4 display sources /2 context markers, all unchanged.
+  It is not yet in the base and no scanner/baseline was vendored here. Unchanged header-site count
+  reflects multiple necessary literal boundaries in the shared reader plus retained general clean
+  formatting and raw-source assignee extraction; consolidating display/title/quote interpretation
+  does not retire those distinct compatibility operations. No claimed wholesale parser retirement.
+- PDDA global checks retain baseline debt:13 frontmatter,9 status-table,5 hardcoded-path findings,
+  all on unrelated existing documents; no GH264 document findings. Ledger check clean0 failures,
+  six pre-existing migration warnings. Changelog tone and AI/FSM/isolation/render checks pass.
+- Production source186 additions/196 deletions (10 fewer lines), including the pure planner.
+  Scheduling-module policy duplication is reduced; public/private names and effect authority stay
+  intact. GH250 phases3/4/5 remain separate; phase3 is coordinated behind this published seam.
+
+This is PR-ready implementation, not a merge, release or deployment. Keep issue open until landing.
+The original source-pinned plan/checklists above remain historical; this execution table records
+what was actually verified and the limits of those checks. No new provider, persistent schema,
+projection authority, runner, CI lane or production write was introduced.
