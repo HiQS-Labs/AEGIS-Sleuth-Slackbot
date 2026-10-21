@@ -1,4 +1,7 @@
+
 # GH264 plan QA — CommandCode / GLM 5.3 max
+
+Scope: the 183-line plan snapshot at 2dcef40a89d503e666a6580773af79ff7eaa40b9 only. The swept-file summary below describes that revision; later implementation and final-verification sections were outside this plan review.
 
 Supervisor exit0; attested Approved at2dcef40a89d503e666a6580773af79ff7eaa40b9. Profile zai-org/glm-5.3, effort max passed explicitly. Review text canonical digest c5ad950b3566a877ee94ab6487d423ab4cc420dbe1e4a827e437a65fd4cecc89.
 
@@ -29,3 +32,4 @@ reviewed-head: 2dcef40a89d503e666a6580773af79ff7eaa40b9
 added-range: 5622+8576
 added-sha256: c5ad950b3566a877ee94ab6487d423ab4cc420dbe1e4a827e437a65fd4cecc89
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
+

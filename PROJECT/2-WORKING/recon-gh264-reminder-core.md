@@ -1,3 +1,4 @@
+
 ---
 gh_issue: 264
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264
@@ -77,3 +78,4 @@ RemindersAIPipeline constructor and SetDecisionCapture/LoadInstructionsAndSchema
 
 ## Radius
 Slack handlers, reminder orchestration + AI helpers, durable queue/indexes, Lists round-trip, canonical rendering/delivery/reactions, completion/event mirror, HTTP/admin/MCP/local export consumers. Production deployment and cross-repo rewrites are outside this planning task.
+

@@ -44,7 +44,11 @@ views in SlackFormatUtils behind existing helper names. Factory/FSM, persistence
 provider calls, API endpoints and stored formats retain their existing owners and contracts.
 Characterization covers save, List-sync and feedback failures and their retry outcomes. Rollback is
 an ordinary code revert: no migration or new durable fields. Structured storage and extraction-door
-simplification remain coordinated separately under GH-250.
+simplification remain coordinated separately under GH-250. Review follow-up removes the unused private
+dedup facade, fails before persistence if a prepared task view is missing, and asserts event/save
+ordering outside error-catching mock callbacks. Ungrounded-title warnings now emit once per
+prepared candidate rather than once per repeated selection call. Compact summaries reuse one parsed
+legacy-content result across task, quote and fallback formatting.
 
 ## 1.4.346 - 2026-10-20
 

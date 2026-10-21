@@ -1,8 +1,9 @@
+
 ---
 title: "GH-264: compatibility-preserving reminder core rewrite"
 status: Working (2-WORKING)
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 owner: noel
 doc_type: project
 gh_issue: 264
@@ -286,3 +287,33 @@ This is PR-ready implementation, not a merge, release or deployment. Keep issue 
 The original source-pinned plan/checklists above remain historical; this execution table records
 what was actually verified and the limits of those checks. No new provider, persistent schema,
 projection authority, runner, CI lane or production write was introduced.
+
+
+## PR265 review follow-up — 2026-10-21
+
+Scope: resume the existing PR, fix verified review findings, preserve public API/functions, no merge,
+deploy, force-push or GH250 phase3/4 implementation. The operator-delegated request explicitly
+includes deleting the dead private dedupe facade; that supersedes the earlier private-name freeze
+for this unreachable method only. Current source at7cb57e1 is authoritative; graph generation
+October13 is stale for this branch and excludes tests, so current source was read directly.
+
+| Finding | Disposition and falsification |
+| --- | --- |
+| Unused private dedup facade | Removed definition/comment/default routing branch. Exact source search showed no callers. Public entrypoints and the two active shared planning callers remain unchanged. |
+| Missing prepared task view writes undefined | Removed optional access on the required view, so invariant failure throws before factory/queue/save. Same injected missing-view case at7cb57e1 passed and left1 queued reminder; fixed code fails with0 queued. No synthesis fallback or extra AI call added. |
+| Swallowed ledger assertions | Capture event types and pending count in dedup callback; assert after dispatcher returns. An intentionally wrong captured event type now fails; equivalent original inline assertion incorrectly passed. Original reminderId predicate retained. |
+| Swallowed save-before-List assertion | Capture persisted observations in Lists callback; assert exact expected array outside handler, including list-failure and retry. A false observation now fails the list-failure case; original inline assertion incorrectly passed. |
+| Repeated compact-summary parsing | Parse once and share bullet/quote/line views through private formatting helpers. Existing exported signatures unchanged; non-string quote behavior retained. |
+| File boundaries | Follow docs/coding-conventions.md on the four flagged files. Blank EOF lines are required by that convention even though git diff --check flags them. |
+| Plan QA receipt scope | Clarified the183-line snapshot at2dcef40; later implementation/final-verification text was not part of plan QA. Historical reviewer text/digest preserved. |
+| Ungrounded warning counts | Changelog now explicitly records once per prepared candidate instead of once per repeated selector call. |
+| Generated preview sync age | Confirmed upstream vendored export_timeline.py compares UTC operation date with local-day input. Left generated output/tooling unchanged: AGENTS §15 forbids local vendor fixes; upstream change/revendor is outside this PR follow-up. |
+| Ledger merge-order warning | Still applicable when landing; no rebase/merge performed here, no ledger changes in this follow-up. Regenerate through CLI if a later landing needs reconciliation. |
+
+Root cause: dead private compatibility machinery and optional map access hid a required planning
+invariant; callback-local assertions could be swallowed as expected handler failures. Fix site:
+unused method removal, required-view dereference before effects, and assertions outside error-catching
+boundaries. No upstream policy or downstream storage fallback is necessary. No permanent test runner
+or new suite was added; temporary fault injection stayed in the disposable full gate clone.
+
+Focused checks / final follow-up QA and gate receipts are recorded below when complete.

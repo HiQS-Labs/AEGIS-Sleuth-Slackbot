@@ -2018,7 +2018,7 @@ class RemindersModule {
       // append bulleted list of key tasks to the reminder message. NOTE: the reminder messages shown here were
       // extracted by the GPT model and are not the same as the message text sent by the user.
       NewReminderMessageText = CurrentReminders.reduce((ArgAccumulatedText, ArgCurrentReminder) => {
-        const TaskLine = `\n• ${Plan.Views.get(ArgCurrentReminder)?.Text}`;
+        const TaskLine = `\n• ${Plan.Views.get(ArgCurrentReminder).Text}`;
         // GH-43 Phase 3: context renders SUBORDINATELY on its own indented italic line, never inline
         // in the bullet. Fusing the two is the second defect from the report — the root-cause
         // paragraph and the commitment sharing one string. Long originals remain at the source link;
@@ -2497,23 +2497,6 @@ class RemindersModule {
         `absent from the source message. Falling back to the quoted actionable span.`
       );
     }
-  }
-
-  /**
-   * Compatibility facade for render-identity deduplication; planning owns the rule.
-   * @param {GptReminderInfo[]} ArgCandidates
-   * @param {string} ArgNormalizedOriginalText
-   * @param {boolean} ArgSynthesisOn
-   * @returns {GptReminderInfo[]}
-   */
-  #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText = '') {
-    const Plan = ReminderSchedulingPlan.PrepareReminderCandidates({
-      Candidates: ArgCandidates, OriginalText: (ArgNormalizedOriginalText || '').trim(),
-      AnalyzedText: ArgAnalyzedSourceText,
-      SynthesisOn: typeof ArgSynthesisOn === 'boolean' ? ArgSynthesisOn : RemindersAIPipeline.IsTaskSynthesisEnabledForText(ArgNormalizedOriginalText),
-    });
-    for(const View of Plan.Views.values()) this.#ReportTaskSelection(View.Selection);
-    return Plan.Candidates;
   }
 
   /**

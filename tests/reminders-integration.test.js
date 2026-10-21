@@ -3475,9 +3475,10 @@ describe('GH-264 scheduling effect and failure contracts', () => {
         try { return JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8')); }
         catch(error) { if(error.code === 'ENOENT') return []; throw error; }
       };
+      const ListSawPersisted = [];
       const Lists = { IsListsAvailable: true, AddReminderToListAsync: jest.fn(async ArgReminder => {
         Effects.push('list');
-        expect((await ReadDisk()).some(r => r.ReminderID === ArgReminder.ReminderID)).toBe(true);
+        ListSawPersisted.push((await ReadDisk()).some(r => r.ReminderID === ArgReminder.ReminderID));
         if(ArgCase === 'list-failure') throw new Error('characterized list failure');
       }) };
       let RenameSpy;
@@ -3517,6 +3518,7 @@ describe('GH-264 scheduling effect and failure contracts', () => {
           'feedback-failure': ['analysis', 'date', 'dedup', 'save', 'list', 'feedback'],
         };
         expect(Effects).toEqual(ExpectedEffects[ArgCase]);
+        expect(ListSawPersisted).toEqual(ExpectedEffects[ArgCase].filter(e => e === 'list').map(() => true));
         const Created = !['ignore', 'duplicate'].includes(ArgCase);
         expect(Reminders.GetPendingReminders()).toHaveLength(Created ? 1 : 0);
         expect(await ReadDisk()).toHaveLength(Created && ArgCase !== 'save-failure' ? 1 : 0);
@@ -3534,6 +3536,7 @@ describe('GH-264 scheduling effect and failure contracts', () => {
         if(ArgCase === 'save-failure') {
           expect(await Handler(SlackApp, { ...Event, ts: '1800000000.000002' })).toBe(true);
           expect(await ReadDisk()).toHaveLength(2);
+          expect(ListSawPersisted).toEqual([true]);
         }
         if(ArgCase === 'feedback-failure') {
           expect(await SlackApp.SimulateMessageAsync(Event)).toBe(false);
