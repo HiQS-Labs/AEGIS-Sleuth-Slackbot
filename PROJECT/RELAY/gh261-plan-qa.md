@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 1 / 5
 
@@ -67,5 +67,29 @@ ROUND: 1 / 5
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1
+
+swept file: yes
+
+- [Blocker] The plan does not make the `Key task(s)` inventory mechanically reproducible. It claims five consumer/parser surfaces, but phase 1 only says `Key task` parsing sites and supplies neither an exact pattern nor an allowlist for the writer/comments/other consumers. Probe: `$ rg -n -F 'Key task(s):' src` (exit 0) returned the writer at `src/reminders-module.js:2060` plus 12 other hits, including `src/reminders-display-utils.js:160`, `src/slack-format-utils.js:238`, and `src/chat-commands/show-me-projects-command.js:203`. Concrete fix: name the exact search/match rule and the expected counted `file:line` set in the plan/baseline contract, explicitly categorizing excluded writer and comment-only matches.
+  Observed input: the 13 literal `Key task(s):` matches returned by the quoted probe, versus the plan's quoted “five consumer/parser surfaces” claim at `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:35`.
+  Affected scope: every `src/**/*.js` occurrence eligible for the planned Key-task inventory.
+  Falsifier: the documented matcher returns exactly the documented five counted consumer/parser locations and excludes every remaining probe hit with its stated reason.
+
+- [Blocker] “Context marker wire-format declarations” is too underspecified to prevent a real wire-format expansion. The plan's verification only adds “an added context header,” but current formatting also relies on two headers and marker/numbering regular expressions. Probe: `$ nl -ba src/reminder-context-resolution.js | sed -n '125,158p'; nl -ba src/reminder-display-selection.js | sed -n '301,315p'` (exit 0) shows headers at `reminder-context-resolution.js:132-133`, normalization at `:156-158`, and display stripping/numbering rules at `reminder-display-selection.js:302,314`. Concrete fix: enumerate which literals/regex declarations and counts form this ratchet, then add a red case for each governed category (or explicitly explain why it is excluded).
+  Observed input: `CONTEXT_BLOCK_HEADER`, `LIVE_MESSAGE_HEADER`, `MarkerShape`, `MarkerLine`, and the numbering-strip regex in the cited source lines.
+  Affected scope: context block construction, marker neutralization, and display-side marker/number removal.
+  Falsifier: a proposed extra marker/numbering format outside the documented governed set is intentionally allowed and the plan states why it cannot affect the wire protocol.
+
+- [Should] Fill the relay's Definition of Done placeholder so a later reviewer has the agreed pass criteria, rather than inferring them from the plan. Observed input: `Definition of Done: _<fill in the acceptance criteria the Reviewer grades against>_` at `PROJECT/RELAY/gh261-plan-qa.md:59`.
+
+- [Pass] The plan correctly keeps the guard non-runtime and includes explicit growth/shrink handling and post-change verification; see `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:39,43-55`.
+
+VERDICT: FAIL
+
+Basis: the intended ratchet can be implemented, but its two highest-risk inventories lack defined match sets and therefore cannot reliably distinguish an intentional source change from a missed pattern or an accidental baseline choice. No other pre-existing defect was found in the reviewed artifact.
+
+Handing off to Producer — go to the Producer window and say “take your turn”.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
