@@ -77,7 +77,7 @@ const QUOTED_SPAN_PATTERN = /["“][^"”]+["”]|(?<![\p{L}\p{N}])['‘][^'’]
 const PROTECTED_SPAN_PATTERN = /\u0001(\d+)\u0001/g;
 
 /** Courtesy words that carry no task content, anywhere in the title. */
-const COURTESY_WORD_PATTERN = /(?:^|\s|,)\s*\b(?:please|pls|plz|kindly)\b[,]?/gi;
+const COURTESY_WORD_PATTERN = /(?:^|\s|,)\s*\b(?:please|pleae|plese|plase|pelase|plaese|pleaes|pleasee|pls+|plz+|kindly)\b[,]?/gi;
 /** Trailing thanks and sign-offs. */
 const TRAILING_THANKS_PATTERN = /[\s,;!.-]*\b(?:thanks|thank you|thx|ty|cheers|much appreciated|appreciated)\b[\s!.,]*$/i;
 /** Trailing softeners that defer the work without naming it. */
@@ -102,6 +102,18 @@ const REQUEST_FRAMING_PATTERNS = [
   /^to\s+(?=[a-z])/i,
 ];
 
+const SCHEDULE_LEADING_PATTERN = /^(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|next\s+(?:week|month)|eod|eow|asap)[,\s:!-]*/i;
+const SCHEDULE_TRAILING_PATTERN = /\s+(?:(?:by|before|on|at|due)\s+)?(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|next\s+(?:week|month)|eod|eow|asap|\d{1,2}(?::\d{2})?\s*(?:am|pm))$/i;
+const DURATION_CONDITION_PATTERN = /\b(?:until|till|thru|through|for|over|during|within|since|from|between|after)\b/i;
+
+/** @param {string} ArgText @param {string[]} ArgChanges @param {RegExp} ArgPattern @returns {string} */
+function StripScheduleWording(ArgText, ArgChanges, ArgPattern) {
+  if(DURATION_CONDITION_PATTERN.test(ArgText)) return ArgText;
+  const Stripped = Collapse(ArgText.replace(ArgPattern, ''));
+  if(Stripped === ArgText || CountTitleWords(Stripped) < TITLE_MIN_WORDS) return ArgText;
+  ArgChanges.push('schedule');
+  return Stripped;
+}
 /** A question the normalizer could not turn into a request: interrogative or still ends with `?`. */
 const INTERROGATIVE_START_PATTERN = /^(?:what|when|where|who|whom|whose|why|how|which)\b/i;
 /**
@@ -261,6 +273,7 @@ function NormalizeReminderTitle(ArgText) {
   ).replace(/^[,;:\s]+/, '');
   if(WithoutCourtesy !== Text) { Changes.push('courtesy'); Text = WithoutCourtesy; }
 
+  Text = StripScheduleWording(Text, Changes, SCHEDULE_LEADING_PATTERN);
   // 4. request and commitment framing → imperative. A converted request drops its `?`; a question
   // that no pattern recognized keeps it, and the validator rejects it as a question.
   let Framed = false;
@@ -275,6 +288,7 @@ function NormalizeReminderTitle(ArgText) {
     Text = Text.replace(/[\s?]+$/, '');
   }
 
+  Text = StripScheduleWording(Text, Changes, SCHEDULE_TRAILING_PATTERN);
   // 5. trailing terminal punctuation, except a `?` that still marks a question.
   const WithoutTrailing = Text.replace(/[\s.!,;:\-–—]+$/, '').trim();
   if(WithoutTrailing !== Text) { Changes.push('trailing-punctuation'); Text = WithoutTrailing; }

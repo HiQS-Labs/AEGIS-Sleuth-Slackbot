@@ -161,7 +161,7 @@
       ""
     ],
     "displayedTasks": [
-      "Test the new release tomorrow morning"
+      "Test the new release"
     ],
     "ownership": {
       "assignees": [
@@ -187,7 +187,7 @@
         "shortened": false,
         "source": "verbatim",
         "unshortened": "",
-        "words": 6
+        "words": 4
       }
     ],
     "triggers": [
@@ -421,7 +421,7 @@
       ""
     ],
     "displayedTasks": [
-      "Review the Development branch and if it's safe push to Production this morning"
+      "Review the Development branch and if it's safe push to Production"
     ],
     "ownership": {
       "assignees": [
@@ -446,7 +446,7 @@
         "shortened": false,
         "source": "verbatim",
         "unshortened": "",
-        "words": 13
+        "words": 11
       }
     ],
     "triggers": [
@@ -688,7 +688,7 @@
       ""
     ],
     "displayedTasks": [
-      "Rotate the staging certs tomorrow morning"
+      "Rotate the staging certs"
     ],
     "ownership": {
       "assignees": [
@@ -713,7 +713,7 @@
         "shortened": false,
         "source": "verbatim",
         "unshortened": "",
-        "words": 6
+        "words": 4
       }
     ],
     "triggers": [

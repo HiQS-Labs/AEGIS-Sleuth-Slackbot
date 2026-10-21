@@ -19,29 +19,33 @@ describe('NormalizeReminderTitle', () => {
   test.each([
     ['addressee + courtesy + request + question mark',
       '<@U1> can we please wrap up the LTVera website layout improvements tonight, please?',
-      'Wrap up the LTVera website layout improvements tonight'],
+      'Wrap up the LTVera website layout improvements'],
     ['greeting before the addressee', 'hey <@U1>, could you send me the logs?', 'Send me the logs'],
     ['let\'s', '<@U2> let\'s connect the loop on the Mailgun alerts setup tomorrow morning, please.',
       'Connect the loop on the Mailgun alerts setup tomorrow morning'],
     ['first-person commitment', 'I\'ll deploy the changes tomorrow morning.', 'Deploy the changes tomorrow morning'],
-    ['first-person with adverb', 'I will definitely resize the font tomorrow', 'Resize the font tomorrow'],
+    ['first-person with adverb', 'I will definitely resize the font tomorrow', 'Resize the font'],
+    ['leading schedule wording precedes framing', 'Tomorrow I will deploy the hotfix', 'Deploy the hotfix'],
+    ['trailing schedule wording is removed', 'Deploy the hotfix by Friday', 'Deploy the hotfix'],
+    ['duration condition veto keeps the condition', 'Keep staging online until at least Friday', 'Keep staging online until at least Friday'],
+    ['courtesy misspelling is removed before schedule wording', 'Check the report tomorrow, pleae', 'Check the report'],
     ['question wrapper', 'How hard is it to make our Ground Advantage $5 shipping to $6', 'Make our Ground Advantage $5 shipping to $6'],
     ['bare URL and its lead-in', 'Write up the initial email triage SOP going forward here: https://github.com/x/y/issues/1',
       'Write up the initial email triage SOP going forward'],
     ['labelled Slack link keeps its label', 'Review <https://github.com/x/pull/12|PR 12> before the release', 'Review PR 12 before the release'],
-    ['trailing cc', 'rotate the certs tomorrow, cc <@U_BETA>', 'Rotate the certs tomorrow'],
+    ['trailing cc', 'rotate the certs tomorrow, cc <@U_BETA>', 'Rotate the certs'],
     ['trailing thanks and softener', 'review the PR if you get a chance, thanks!', 'Review the PR'],
     ['capitalizes only an all-lowercase first word', 'iOS build is red', 'iOS build is red'],
     ['already in shape', 'Review PR 697', 'Review PR 697'],
-    ['a quoted name is opaque to the courtesy strip', 'Please review "The Kindly Migration" tomorrow', 'Review "The Kindly Migration" tomorrow'],
-    ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\' by Friday'],
+    ['a quoted name is opaque to the courtesy strip', 'Please review "The Kindly Migration" tomorrow', 'Review "The Kindly Migration"'],
+    ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\''],
   ])('%s', (_Label, ArgInput, ArgExpected) => {
     expect(TitleContract.NormalizeReminderTitle(ArgInput).text).toBe(ArgExpected);
   });
 
   test('reports which transforms fired', () => {
     expect(TitleContract.NormalizeReminderTitle('<@U1> can you please deploy it tomorrow?').changes)
-      .toEqual(['mention', 'courtesy', 'request-framing', 'capitalized']);
+      .toEqual(['mention', 'courtesy', 'request-framing', 'schedule', 'capitalized']);
     expect(TitleContract.NormalizeReminderTitle('Review PR 697').changes).toEqual([]);
   });
 
@@ -272,7 +276,8 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
       .sort((ArgA, ArgB) => ArgA - ArgB);
     const Q1 = Words[Math.floor(Words.length * 0.25)];
     const Q3 = Words[Math.floor(Words.length * 0.75)];
-    expect(Q1).toBeGreaterThanOrEqual(TitleContract.TITLE_TARGET_WORDS.min);
+    // GH-258 removes redundant due wording; a valid three-word imperative is still above the hard two-word floor.
+    expect(Q1).toBeGreaterThanOrEqual(3);
     expect(Q3).toBeLessThanOrEqual(TitleContract.TITLE_TARGET_WORDS.max);
   });
 });

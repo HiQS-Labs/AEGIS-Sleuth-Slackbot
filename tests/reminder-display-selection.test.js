@@ -19,8 +19,8 @@ describe('SelectTaskText — verbatim path', () => {
       { reminder_message: 'Deploy it', actionable_language: 'i will deploy it' },
       'i will deploy the hotfix tomorrow morning', false,
     )).toMatchObject({
-      text: 'Deploy the hotfix tomorrow morning', source: 'verbatim', ungroundedTerms: [],
-      contract: { normalized: ['request-framing', 'capitalized'], shortened: false, words: 5 },
+      text: 'Deploy the hotfix', source: 'verbatim', ungroundedTerms: [],
+      contract: { normalized: ['request-framing', 'schedule', 'capitalized'], shortened: false, words: 3 },
     });
   });
 
@@ -37,7 +37,7 @@ describe('SelectTaskText — verbatim path', () => {
     expect(SelectTaskText(
       {},
       '<@U_MIKE> can we please wrap up the LTVera website layout improvements tonight, please?', false,
-    )).toMatchObject({ text: 'Wrap up the LTVera website layout improvements tonight', source: 'verbatim' });
+    )).toMatchObject({ text: 'Wrap up the LTVera website layout improvements', source: 'verbatim' });
   });
 
   test('an omitted routing decision does NOT take the verbatim path', () => {

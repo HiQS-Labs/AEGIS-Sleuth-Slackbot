@@ -84,7 +84,7 @@ describe('GH-68: grounding source includes the analyzed thread context', () => {
       Candidate, 'can you demo the thread review by tomorrow morning?', false, AnalyzedSource,
     );
     expect(Selection.source).toBe('verbatim');
-    expect(Selection.text).toBe('Demo the thread review by tomorrow morning');
+    expect(Selection.text).toBe('Demo the thread review');
   });
 
   test('EVERY render path must ground identically — the digest/triage agreement invariant', () => {
