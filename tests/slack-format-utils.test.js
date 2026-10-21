@@ -616,3 +616,13 @@ describe('GH-264 legacy reader distinctions', () => {
     expect(SlackFormatUtils.ExtractQuotedOriginalMessage(text)).toBe(quote);
   });
 });
+
+
+test('legacy content helpers retain unbound function-call compatibility', () => {
+  const { ExtractKeyTasks, ExtractQuotedOriginalMessage, ReplaceReminderSummary } = SlackFormatUtils;
+  const Text = 'Header:\n>source\n\nKey task(s):\n• Review notes';
+  expect(ExtractKeyTasks(Text)).toBe('Review notes');
+  expect(ExtractQuotedOriginalMessage(Text)).toBe('source');
+  expect(ReplaceReminderSummary(Text, 'Publish notes')).toBe('Header:\n>source\n\nKey task(s):\n• Publish notes');
+  expect(ReplaceReminderSummary('Authored row', 'Publish notes')).toBe('Publish notes');
+});

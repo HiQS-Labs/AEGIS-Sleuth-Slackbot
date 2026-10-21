@@ -283,7 +283,7 @@ class SlackFormatUtils {
    */
   static ExtractReminderTitle(ArgText) {
     const Text = typeof ArgText === 'string' ? ArgText : '';
-    const Title = this.ParseLegacyReminderContent(Text).TaskTitle;
+    const Title = SlackFormatUtils.ParseLegacyReminderContent(Text).TaskTitle;
     if(Title) return Title;
     const Stripped = Text.replace(/^.*?please follow up on <[^>]*>:?\s*/is, '').replace(/^>\s*/, '');
     const FirstLine = Stripped.split('\n').map(ArgLine => ArgLine.trim()).find(ArgLine => ArgLine.length > 0) || Text.trim();
@@ -309,7 +309,7 @@ class SlackFormatUtils {
     }
 
     // Look for "Key task(s):" section
-    const TaskBlock = this.ParseLegacyReminderContent(ArgMrkdwn).TaskBlock;
+    const TaskBlock = SlackFormatUtils.ParseLegacyReminderContent(ArgMrkdwn).TaskBlock;
     if(TaskBlock) {
       let Tasks = TaskBlock
         // Remove bullet points
@@ -357,7 +357,7 @@ class SlackFormatUtils {
     }
 
     const Marker = '\n\nKey task(s):';
-    const MarkerIndex = this.ParseLegacyReminderContent(ArgReminderMessageText).WriterMarkerIndex;
+    const MarkerIndex = SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).WriterMarkerIndex;
     if(MarkerIndex === -1) {
       return NewSummary;
     }
@@ -436,7 +436,7 @@ class SlackFormatUtils {
       return null;
     }
 
-    return this.ParseLegacyReminderContent(ArgReminderMessageText).Quoted;
+    return SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).Quoted;
   }
 
   /**

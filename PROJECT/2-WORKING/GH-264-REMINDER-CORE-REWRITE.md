@@ -225,3 +225,12 @@ claim to fix GH-149. External consumer repositories were not run independently; 
 payloads/storage remain unchanged. Public/static methods without verified external callers are
 preserved as compatibility insurance. Rollback is code-only: baseline readers consume the same JSON
 fields and body bytes; no backfill, authority flag or destructive conversion is introduced.
+
+
+Final QA round1 returned a cited PASS, but its reviewer prematurely released the turn token and the
+supervisor rejected closure (`close-mismatch`, exit4); it is not accepted as final attestation.
+Separately, a producer reference probe caught a real compatibility defect: unbound legacy quote and
+summary helper references previously worked, but the new `this.ParseLegacyReminderContent` access
+threw. Changed parser delegation to the named class, and added one regression to the existing format
+suite (also protects the key-task section path). The baseline and candidate failure were witnessed.
+Round2 will review that fix and close through the normal supervisor token protocol. No gate bypass.
