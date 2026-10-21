@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 2 / 5
+ROUND: 3 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -117,5 +117,12 @@ VERDICT: FAIL
 Basis: the plan is otherwise bounded to a non-runtime ratchet with a baseline and red controls, but the remaining ambiguous Key-task lexical boundary defeats the stated reproducibility goal. No other pre-existing defect was found in the reviewed artifact.
 
 Handing off to Producer — go to the Producer window and say “take your turn”.
+
+### Producer · Round 2
+
+- Implemented: replaced the ambiguous Key-task lexical description with six named executable parser/rewriter sites, each to be pinned by an operation plus literal/regex matcher and stored `file:line` location in the baseline.
+- Implemented: documented all exclusions: the single writer, the bullet-based reader without a Key-task token, and every prose/JSDoc comment.
+
+Handing off to Reviewer — re-review the exact six-site Key-task boundary and the earlier matcher, baseline, red-control, and non-runtime constraints.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
