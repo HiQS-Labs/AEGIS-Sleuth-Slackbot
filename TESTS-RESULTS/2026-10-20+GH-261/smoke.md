@@ -1,6 +1,6 @@
 # GH-261 smoke receipt
 
-- `npx jest --runInBand tests/validate-fsm-invariants.test.js` — PASS (8 tests, including DecisionSpec, Key task parser, threshold, context-header, and deletion red controls).
+- `npx jest --runInBand tests/validate-fsm-invariants.test.js` — PASS (8 tests, including DecisionSpec, Key task parser, threshold, context-header, multiline display-source, and deletion red controls).
 - `npm run validate:reminder-pipeline` — PASS (`3/6/3/4/2`).
 - `npm run build` — PASS.
 

@@ -51,9 +51,10 @@ function KeyTaskReparseSites() {
 
 function DisplaySources() {
   const File = 'src/reminder-display-selection.js';
-  const Index = Lines(File).findIndex(Line => Line.includes("source: 'verbatim'"));
+  const FileLines = Lines(File);
+  const Index = FileLines.findIndex(Line => Line.includes("source: 'verbatim'"));
   if(Index < 0) return [];
-  const SourceDefinition = Lines(File)[Index].match(/source:\s*([^,}]+)/)?.[1] || '';
+  const SourceDefinition = FileLines.slice(Index).join('\n').match(/source:\s*([^}]+)/s)?.[1] || '';
   return [...SourceDefinition.matchAll(/'([^']+)'/g)].map(Match => `${File}:${Index + 1}:${Match[1]}`);
 }
 

@@ -202,6 +202,9 @@ describe('validate-reminder-pipeline', () => {
     expect(RunPipelineValidatorAgainst({
       'src/reminder-context-resolution.js': "const CONTEXT_BLOCK_HEADER = 'a';\nconst LIVE_MESSAGE_HEADER = 'b';\nconst EXTRA_HEADER = 'c';\n",
     }).status).toBe(1);
+    expect(RunPipelineValidatorAgainst({
+      'src/reminder-display-selection.js': "/** @returns {{source: 'verbatim'|'title'|'span'|'fallback'\n * |'new-source'}} */\n",
+    }).status).toBe(1);
   });
 
   test('requires an explicit baseline update after an approved deletion', () => {
