@@ -53,7 +53,7 @@ ROUND: 3 / 5
 
 ## Setup
 - Artifact under review: **.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md** — the read-only path that
-  `relay-drive.sh --artifact-file /Users/noelsaw/Documents/GH Repos/AEGIS-Sleuth-Slackbot-gh261-reminder-pipeline-ratchet-2026-10-20/PROJECT/2-WORKING/GH-261-REMINDER-PIPELINE-RATCHET.md` seeds into the isolated worktree (read it there; do NOT edit it).
+  `relay-drive.sh --artifact-file <task-clone>/PROJECT/2-WORKING/GH-261-REMINDER-PIPELINE-RATCHET.md` seeds into the isolated worktree (read it there; do NOT edit it).
 - Reviewer: codex   ·   Producer: owner
 - Started: 2026-10-20
 - Definition of Done: Verify the plan is grounded in the current #261 issue and target sources; stays limited to one structural ratchet, JSON baseline, npm/CI wiring, AGENTS rule, existing-suite coverage and smoke receipts; measures all five named counters from `origin/development`; fails on growth and unrecorded shrink; includes the three required red controls; does not change reminder runtime behavior or add a parallel pipeline. Grade commensurate complexity only.

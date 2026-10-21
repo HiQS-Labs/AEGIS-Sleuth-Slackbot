@@ -4,4 +4,5 @@
 - `npm run validate:reminder-pipeline` — PASS (`3/6/3/4/2`).
 - `npm run build` — PASS.
 
-The full repository suite, public-tree sanitization, and CI receipt are recorded before publication.
+- `npm test` — PASS (145 suites, 2,787 tests; 1 suite / 4 tests intentionally skipped).
+- `./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt` — PASS (773 tracked files; no findings).
