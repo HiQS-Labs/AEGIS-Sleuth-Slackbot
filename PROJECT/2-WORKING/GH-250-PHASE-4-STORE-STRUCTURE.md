@@ -97,10 +97,13 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
    `.map(t => t.title)`; `ExtractCompactSummary`'s quote/first-line fallback for records with no bullets
    stays as today.
    **Slack Lists summary keeps contexts.** The List column and its drift compare
-   (`src/lists-module.js:1339-1343,2720-2723`) use one formatter, `FormatTasksAsListSummary(tasks)`,
-   that joins each `title` and non-empty `context` with single spaces exactly as `ExtractKeyTasks`
-   folds the legacy block (`src/slack-format-utils.js:272-289`), so a structured reminder yields the
-   same summary string as today and reconciliation sees no false edit. Title-only consumers
+   (`src/lists-module.js:1339-1343,2720-2723`) use one function, `ListSummaryFor(reminder)`: when the
+   reminder has `Tasks`, `FormatTasksAsListSummary(Tasks)` joins each `title` and non-empty `context`
+   with single spaces exactly as `ExtractKeyTasks` folds the legacy block
+   (`src/slack-format-utils.js:272-289`); when it has no `Tasks` (every pre-phase record), it returns
+   `ExtractKeyTasks(ReminderMessageText)` unchanged — NOT the title-only accessor fallback, which drops
+   contexts. Either way the summary string is the one today's code produces, so reconciliation sees no
+   false edit. Title-only consumers
    (compact lines, clustering, show-me-projects) take `.title`. The readers listed under Recon switch to it in this phase; the parsers remain as
    the legacy fallback (one of them permanently, see Recon).
    **Export handoff:** the `?format=rebalance` record builder (`src/web-api.js:485-517`) copies
@@ -141,7 +144,9 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   `npm run validate:reminder-pipeline` (#261), then the full CI gate once.
 - Pinned cases (existing suites): `Tasks:[{title:'Task A',context:'_Context A_'},{title:'Task B',context:'_Context B_'}]`
   yields List summary `Task A _Context A_ Task B _Context B_` (create and drift compare), and the
-  context-free pair yields `Task A Task B`; creation + `ReminderSummaryUpdated` folds to the edited
+  context-free pair yields `Task A Task B`; a pre-phase record (no `Tasks`) with indented contexts
+  yields `Task A _Context A_ Task B _Context B_` via `ListSummaryFor` and compares equal to its
+  unchanged List row without invoking the edit path; creation + `ReminderSummaryUpdated` folds to the edited
   text and `Tasks` in the parity fixture; a one-bullet reminder + one-line List edit persists exactly one
   `Tasks` item equal to the replacement bullet; a two-bullet-with-context reminder + one-line edit
   persists one item and no stale second item or context; an old record without `Tasks` keeps no field

@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Escalated
 ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -166,5 +166,28 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   title-only consumers keep `.title`. Pinned the context and context-free cases.
 
 Requesting Round 3 review.
+
+### Reviewer · Round 3
+
+swept file: yes
+
+- [Blocker] Requirement 5's legacy fallback cannot preserve the existing Slack Lists summary contract for old, context-bearing reminders. It specifies `ExtractKeyTaskSummaries(text).map(title => ({ title }))`, but that parser reads only bullet lines and drops each following italic context line. Once the List create and drift readers switch to `FormatTasksAsListSummary(GetReminderTasks(reminder))`, an old reminder's expected summary becomes `Task A Task B` while its existing List row remains `Task A _Context A_ Task B _Context B_`; reconciliation treats this as a user edit and Requirement 3 rewrites away the legacy contexts. Fix the accessor fallback (or the List-specific accessor/formatter branch) to parse and retain the indented context exactly as `ExtractKeyTasks` currently folds it, and pin the old-record context case for both List creation and drift comparison.
+  - Observed input: a pre-phase reminder with no `Tasks`: `Header\n\nKey task(s):\n• Task A\n  _Context A_\n• Task B\n  _Context B_`.
+  - Affected scope: every pre-phase, marker-bearing reminder with one or more indented task-context lines when its Slack List row is created or reconciled after this phase.
+  - Falsifier: a legacy record with context-free bullets must still format as `Task A Task B`; the observed old record must format as `Task A _Context A_ Task B _Context B_` and compare equal to its unchanged List row without invoking the edit path.
+  - Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:93-105` defines the title-only fallback while moving both List readers; `src/reminders-display-utils.js:176-182` strips context; `src/lists-module.js:1335-1343,2715-2723` creates and compares the List summary; `src/slack-format-utils.js:272-289` preserves and folds the indented contexts today.
+  - Probe: `node - <<'NODE' > "$TMPDIR/legacy-context-fallback-probe.txt"` with `F.ExtractKeyTasks(text)` and `D.ExtractKeyTaskSummaries(text)` for the observed input, then `probe_exit=$?; printf 'exit=%s\n' "$probe_exit"; cat "$TMPDIR/legacy-context-fallback-probe.txt"` — exit 0; decisive output: `{"listSummary":"Task A _Context A_ Task B _Context B_","accessorFallback":["Task A","Task B"]}`.
+
+No additional pre-existing defect was found in the swept plan/source scope. VERDICT: FAIL. Basis: the planned fallback turns an unchanged legacy List row with stored context into a false edit and violates the requirement that the List summary contract remain unchanged. The round cap is reached, so this relay is escalated for the producer to disposition the concrete blocker.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 3 · claude-a
+
+- **Blocker (legacy List summary loses contexts) — Implemented in plan.** The List create and drift
+  compare use `ListSummaryFor(reminder)`: `FormatTasksAsListSummary(Tasks)` when `Tasks` exists, else
+  `ExtractKeyTasks(ReminderMessageText)` unchanged (not the title-only accessor fallback). Pinned the
+  old-record context case and the context-free case.
+- Relay at the 3-round cap (Escalated). Held for the operator to authorize one more round.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
