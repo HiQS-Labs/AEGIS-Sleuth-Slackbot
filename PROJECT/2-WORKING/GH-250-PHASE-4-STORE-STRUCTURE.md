@@ -117,8 +117,9 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
    - show-me-projects / clustering (`show-me-projects-command.js:209-215`, `reminder-clustering.js:181`):
      `Tasks[0].title`, else `ExtractReminderTitle(text)`.
    - Admin dashboard, active reminders (`src/web-api.js:1080-1085`, `#BuildDashboardReminderExportAsync`):
-     `Tasks[0].title` when the record built by `#BuildRebalanceReminderRecord` carries `tasks`, else
-     `ExtractCompactSummary(reminderMessageText)`. The completion-history row (`:1117-1139`) stays on
+     decided from the SOURCE reminder, not the exported record: `HasStructuredTasks(reminder) ?
+     reminder.Tasks[0].title : ExtractCompactSummary(reminder.ReminderMessageText)`. The lowercase
+     `tasks` key exists only on the public export; no internal reader branches on it. The completion-history row (`:1117-1139`) stays on
      its current text-only parser: completion records never receive `Tasks`.
    - One helper, `HasStructuredTasks(reminder)` (`Array.isArray(reminder.Tasks) && reminder.Tasks.length
      > 0`), is the only branch condition.
@@ -171,8 +172,8 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   `payload.tasks` and folds back to the identical `Tasks`; compacting an old reminder omits both; a
   baseline-import of a structured record carries `tasks`; a `ReminderCreated` without `tasks` followed by
   a same-id `BaselineReminderImported` with `tasks` folds to that `Tasks` (late-baseline merge).
-- Pinned dashboard cases: active `{Tasks:[{title:'Ship'}], ReminderMessageText:'legacy text'}` shows
-  `Ship`; active `{ReminderMessageText:'Review release notes'}` keeps its text-derived title; a completion
+- Pinned dashboard cases: active source reminder `{Tasks:[{title:'Ship'}], ReminderMessageText:'legacy
+  text'}` shows `Ship` (and its exported record carries `tasks:[{title:'Ship'}]`); active `{ReminderMessageText:'Review release notes'}` keeps its text-derived title; a completion
   row `{summary:'Finished task'}` still uses its legacy parser.
 - Pinned legacy-shape cases: a pre-phase List-row reminder `{ReminderMessageText:'Review release
   notes'}` (no `Tasks`, no marker) renders `Review release notes` in compact lines, show-me-projects and

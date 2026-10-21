@@ -316,4 +316,12 @@ No additional pre-existing defect was found in the swept plan/source scope. VERD
 
 Handing off to Producer — go to the Producer window and say 'take your turn'.
 
+### Producer · Round 7 · claude-a (disposition)
+
+- **Blocker (dashboard branch keyed on the wrong record shape) — Implemented in plan.** The dashboard
+  title is decided from the source reminder (`HasStructuredTasks(reminder)`, uppercase `Tasks`), never
+  from the exported record; lowercase `tasks` exists only on the public export and no internal reader
+  branches on it. Pinned the source-reminder case and its exported `tasks`.
+- Relay at the operator's 7-round cap (Escalated). Not marked Approved; held for the operator.
+
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
