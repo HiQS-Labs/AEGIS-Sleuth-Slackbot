@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Escalated
 ROUND: 5 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -200,5 +200,45 @@ Handing off to Producer (claude-a) — go to the Producer window and say 'take y
   suite: 113 passing assertions; build passes.
 
 Handing off to Reviewer (codex): final permitted QA review; approve only if no in-scope finding remains.
+
+### Reviewer · Round 5 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: Block approval pending two remaining requirement failures: repeated trailing schedules are only partly removed, and the validator was not widened with the courtesy normalizer. Reviewed the seeded artifact and swept the complete current title-contract implementation, both prompt assets, and the existing title-contract test file, including pre-existing code. No additional pre-existing implementation defect requiring a Blocker/Should was found beyond the validator gap below. Setup still has a placeholder Definition of Done, so the artifact's Requirements and prior findings supply the acceptance criteria. The fifth and final round is exhausted; STATUS is Escalated.
+
+Evidence scope: Verify with direct-source fallback. Completed graph project pagination; this isolated checkout has no graph project. The nearest project's generation is 2026-10-13T00:42:44Z at a different checkout; coverage for `src/reminder-title-contract.js` reports `freshness:not_tracked` and recommends source reading. Material claims therefore use the seeded diff and current source, not graph absence. The probe evaluates only the inspected pure, I/O-free contract in a VM; no suites, executable fixtures, git commands, model calls, or service probes ran. Full-suite and real-model outcomes remain **[Unverified — needs clone run]**; the receipt's insensitive prompt control is not causal evidence.
+
+- [Pass] **Round 4's repairs handle the observed inputs.** The leading regex now requires `(?=$|[\s,:!.-])`, and both weekday expressions include an optional part of day (`src/reminder-title-contract.js:105-106`; bounded cases in the seeded artifact's final test hunk). The probe below returns `Tomorrowland release checklist` unchanged, `Tomorrow, review the logs` → `Review the logs`, and both leading/trailing next-Friday-morning examples → `Deploy the hotfix`. The duration control remains intact. Retain these controls.
+
+- [Should] **Remove the whole supported trailing schedule sequence.** Requirement 2 specifies “one or more” supported trailing phrases (`.relay-artifacts/gh258-final-diff.XXXXXX.md:76-79`), but `StripScheduleWording` performs one replacement and the trailing pass runs once (`src/reminder-title-contract.js:110-115,291`). For `Deploy the hotfix tomorrow at 2pm`, only `at 2pm` disappears; `tomorrow` remains and passes validation. The analogous `tomorrow by EOD` input fails identically. Consume consecutive supported trailing phrases in the existing step, retaining the duration veto and minimum-word rollback; pin one composite deadline in the existing suite. No date parser is needed.
+  Observed input: `Deploy the hotfix tomorrow at 2pm` and `Deploy the hotfix tomorrow by EOD`; both normalize to `Deploy the hotfix tomorrow`, with `validation:{"ok":true,"reasons":[]}`.
+  Affected scope: adjacent supported due-date phrases at the trailing title boundary, with no duration/condition introducer.
+  Falsifier: both inputs normalize to `Deploy the hotfix`, while `Keep staging online until next Friday morning` stays intact and the existing minimum-word rollback still holds.
+
+- [Should] **Widen the validator's courtesy check as required.** Requirement 3 explicitly names both the normalizer and validator (`.relay-artifacts/gh258-final-diff.XXXXXX.md:93-94`), but the validator still checks only `please|pls|plz|kindly` (`src/reminder-title-contract.js:382`). Parenthesized courtesy survives the normalizer's separator restriction: `Review (please) the logs` is correctly rejected, whereas the newly supported spelling in `Review (pleae) the logs` survives and is accepted. Extend the existing validator vocabulary to the same planned spellings, keeping its quoted-span masking; add one bounded validator rejection case to the existing suite.
+  Observed input: `Review (pleae) the logs` normalizes unchanged and validates with `{"ok":true,"reasons":[]}`; the otherwise-identical `please` control yields `{"ok":false,"reasons":["courtesy"]}`.
+  Affected scope: unquoted planned courtesy misspellings that survive normalization and reach title validation.
+  Falsifier: validation rejects the unquoted `pleae` example with `courtesy`, while `Review "pleae" logs` remains accepted because quoted task names are opaque.
+
+Probe command (exit 0; writes no probe files):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE'
+const fs=require('fs'),vm=require('vm'),box={module:{exports:{}}};
+vm.runInNewContext(fs.readFileSync('src/reminder-title-contract.js','utf8'),box);
+const {NormalizeReminderTitle:N,ValidateReminderTitle:V}=box.module.exports;
+for(const input of ['Tomorrowland release checklist','Tomorrow, review the logs','Next Friday morning I will deploy the hotfix','Deploy the hotfix next Friday morning','Keep staging online until next Friday morning','Deploy the hotfix tomorrow at 2pm','Deploy the hotfix tomorrow by EOD','Review (please) the logs','Review (pleae) the logs','Review "pleae" logs']){
+const n=N(input);console.log(JSON.stringify({input,text:n.text,validation:V(n.text)}));
+}
+NODE
+```
+Decisive output is quoted in the findings above; this measures normalization/validation, not the full selector.
+
+Root causes: a single suffix replacement cannot remove a sequence, and the validator retains its pre-change vocabulary. Fix sites: the existing schedule step and courtesy validation check. Why not upstream/downstream: both are deterministic title-contract responsibilities; prompts cannot guarantee cleanup, and shape/grounding checks accept the observed leftovers.
+
+Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Disposition these two findings through the escalated relay decision; this turn authorizes no extra round. Only this relay file was edited; the harness owns its commit.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
