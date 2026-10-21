@@ -52,6 +52,9 @@ ROUND: 5 / 5
    was merely waiting looked stalled. A turn that ends without this line is not finished.
 
 ## Setup
+- Scope note (2026-10-20): operator directed that Requirement 4's thread-topic header/context-root
+  addition be dropped from GH-258 and deferred to #250 phase 5. This preserves the approved
+  Requirements 1–3, 5, and 6; no context-resolution or fallback-selection code is in scope here.
 - Artifact under review: `PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md` (the plan). Source paths
   it relies on, read them: `src/reminder-title-contract.js` (whole file; `NormalizeReminderTitle`,
   `COURTESY_WORD_PATTERN`, `NON_CONTENT_WORDS`), `src/reminder-display-selection.js`
