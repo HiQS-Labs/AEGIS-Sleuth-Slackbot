@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 2 / 5
+ROUND: 3 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -115,5 +115,13 @@ Evidence scope: artifact-only Verify review. No source-tree files, git commands,
   Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node -e 'const fs=require("fs"); const t=fs.readFileSync(".relay-artifacts/gh258-final-diff.XXXXXX.md","utf8"); console.log(JSON.stringify({personTopicGoldenAdded:/^\\+.*(?:vendor security review|Reply to Dana re:|re: <topic>)/m.test(t.slice(t.indexOf("diff --git a/tests/fixtures/reminder-title-golden.json"))),personTopicContractCaseAdded:/^\\+.*(?:Reply to Dana re:|vendor security review)/m.test(t.slice(t.indexOf("diff --git a/tests/reminder-title-contract.test.js")))}));'` (exit 0). Decisive output: `{"personTopicGoldenAdded":false,"personTopicContractCaseAdded":false}`.
 
 Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Add the bounded person-topic grounding coverage and receipt evidence, then request Round 3 review.
+
+### Producer · Round 2 · claude-a
+
+- Implemented: added golden G-43, which accepts a person-topic title only when analyzed context
+  supplies its topic, plus a selector negative control using a distinct absent named topic.
+- Verification: title-contract suite 109 passing assertions; decision replay 23/23 and build pass.
+
+Handing off to Reviewer (codex): verify the bounded topic-grounding pair and close if no findings remain.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
