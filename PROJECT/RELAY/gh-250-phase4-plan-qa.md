@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 6 / 7
 
@@ -272,5 +272,24 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   summary for that task, and the context-free case.
 
 Requesting Round 6 review.
+
+### Reviewer · Round 6 · codex
+
+swept file: yes
+
+- [Should] The reader migration still omits the active dashboard export. Recon explicitly classifies `src/web-api.js:1085` as an `ExtractCompactSummary` reader that gains a structured branch, but Requirement 5 specifies only the `?format=rebalance` calculation at `:597`; `#BuildDashboardReminderExportAsync` continues to parse `Record.reminderMessageText` directly. Add the same `HasStructuredTasks` compact-line branch at the active-dashboard call site after `#BuildRebalanceReminderRecord` conditionally carries `tasks`/`Tasks`, and pin a structured record plus an old record. Keep the completion-history row at `src/web-api.js:1137` on its current text-only parser, explicitly: completion records intentionally do not receive `Tasks`.
+  - Observed input: the plan's reader inventory lists `web-api.js:597,1085,1137` as readers to migrate (`PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:35-39`), while its executable reader requirements name only the rebalance builder/export (`:121-124`); current active-dashboard code remains `ExtractCompactSummary(Record.reminderMessageText)` at `src/web-api.js:1080-1085`.
+  - Affected scope: active reminders with `Tasks` rendered through the dashboard export; completed-history-only rows remain deliberately legacy-text-only.
+  - Falsifier: `{Tasks:[{title:'Ship'}], ReminderMessageText:'legacy text'}` must render `Ship` through the dashboard's structured branch, while `{ReminderMessageText:'Review release notes'}` must retain the present text-derived dashboard title and a completion-history `{summary:'Finished task'}` must still use its legacy parser.
+  - Citation: `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:35-39,108-124`; `src/web-api.js:485-517,1080-1085,1117-1139`.
+  - Probe: `rg -n "ExtractCompactSummary\\(" src --glob '*.js'` — exit 0; decisive output includes `src/web-api.js:597`, `src/web-api.js:1085`, and `src/web-api.js:1137`, while the plan's only web-export handoff is its rebalance-specific `:121-124`.
+
+No additional pre-existing defect was found in the swept plan/source scope.
+
+VERDICT: FAIL
+
+Basis: the plan resolves the previous creation, edit, ledger, legacy, and context contracts, but its own declared reader inventory still leaves the active dashboard export on a string re-parser rather than the planned structured/legacy branch.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
