@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 5 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -286,5 +286,29 @@ Handing off to Producer (claude-a) — go to the Producer window and say 'take y
   with the existing `until at least Friday` case and the `by Friday` control.
 - The operator pre-authorized a fifth round (2026-10-20, "Go up to round 5 if needed"). Requesting
   Round 5 review.
+
+### Reviewer · Round 5 · codex
+
+swept file: yes
+
+VERDICT: PASS
+Basis: the remaining R1 is addressed at plan level. Read the entire 148-line plan, the whole title-contract module and its test/golden set, and the supporting selector, resolver, prompt, grounding, replay-invariant and compact-render paths. No additional pre-existing plan defects requiring a Blocker/Should found. Approval covers the plan; implementation and real-model outcomes remain **[Unverified — needs clone run]**.
+
+Evidence scope: Verify tier with direct seeded-source fallback. Tool discovery returned no callable graph project/status/search/coverage tools, so no graph completeness claim. No git commands, suites, executable fixtures, model calls or service probes ran. The narrow non-mutating probe below reads the plan's closed introducer list and evaluates only its admission predicate; it does not implement or verify the schedule matcher.
+
+- [Pass] **R1 closed — the duration veto now dominates every match.** `PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md:53-60` explicitly says “NO schedule phrase is stripped from it at either end, with or without a lead-in.” This removes the OR bypass measured in Round 4. The nested handoff case is pinned at plan lines 89–91, with the deadline control at lines 82–83. Retain these cases when implementing the shared normalizer.
+  Probe command (exit 0), after `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"`:
+  ```sh
+  node -e 'const p=require("fs").readFileSync("PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md","utf8");const w=p.match(/introducer anywhere \(`([^`]+)`\)/)[1].trim().split(/\s+/);const v=new RegExp("\\b(?:"+w.join("|")+")\\b","i");for(const s of ["Keep staging online until the handoff at 2pm","Keep staging online until the meeting on Friday","Keep staging online until at least Friday","Keep staging online through Friday","Deploy the hotfix by Friday","Deploy the release Friday"])console.log(JSON.stringify({input:s,stripPermitted:!v.test(s)}))'
+  ```
+  Decisive output: the handoff, meeting, `until at least Friday` and `through Friday` inputs each return `"stripPermitted":false`; both `Deploy the hotfix by Friday` and `Deploy the release Friday` return `"stripPermitted":true`. These results establish the stated admission distinction only; output normalization and selector results still need the clone gate.
+
+- [Pass] **Prior R2–R4 commitments remain in the full plan.** Leading removal precedes framing (plan lines 46–48), quotes stay opaque (line 62), topic context stays available for grounding while excluded from fallback subjects (lines 77–80), and selector-level checks pin that separation (lines 91–95). Separate prompt-only and context-only controls remain at lines 142–146, with both assets, positive/absent/competing inputs and receipt destination at lines 132–148. These are implementation acceptance commitments, not executed passes. The existing selector still grounds before and after normalization (`src/reminder-display-selection.js:107-111,163-170`); retain that order.
+
+- [Nit] **Two descriptions still name the retired connector-revert guard.** Plan lines 85 and 117 refer to it, while requirement 2 now uses a whole-title duration veto plus a two-word minimum (lines 53–62). When updating the plan's status, replace those references with “duration veto” so the implementer does not reintroduce the superseded guard. This does not change the required behavior or block approval.
+
+Root cause: schedule deletion admitted a nested endpoint because its deadline lead-in bypassed the duration boundary; Fix site: requirement 2's shared-normalizer admission rule; Why not upstream/downstream: the remove-only owner must prevent the deletion, since later shape and grounding checks cannot restore removed meaning. The revised rule closes that measured bypass without a parser or parallel path.
+
+Relay closed (Approved), no further review turn needed. Producer (claude-a) owns implementation and the disposable-clone verification next. Only this relay file was edited; the harness owns its commit.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
