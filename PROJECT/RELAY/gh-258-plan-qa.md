@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 1 / 3
 
@@ -94,5 +94,38 @@ ROUND: 1 / 3
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: the existing owner and remove-only approach fit the task, but the schedule-step ordering and condition guard need correction, and the prompt change needs a falsifiable check. Reviewed the entire 82-line plan, the whole title-contract module and title-contract test, both prompt contracts, golden samples G-01–G-42, and the selector/grounding/render/replay paths named in Setup. No additional pre-existing defects found in the plan beyond the findings below.
+
+Evidence scope: Verify tier with direct seeded-source fallback. Graph project `aegis-sleuth-slack-bot` is a different checkout, generation `2026-10-13T00:42:44Z`; coverage reported changed/untracked source and excluded prompts/scripts/fixtures, so graph absence was not used as evidence. No suites, executable fixtures, git commands, or live-service probes ran. All probe files are under `.relay-scratch/tmp/`.
+
+- [Should] **R1 — preserve temporal conditions, not just dangling words.** `PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md:40-43` permits removing `until Friday`; neither stated revert predicate protects `Keep staging online until Friday`. The prescribed result `Keep staging online` has three words and no dangling connector, but loses the duration of the task. The blanket prompt rule at lines 36–37 needs the same distinction. Cheapest fix: conservatively keep condition/duration clauses (including `until`), limit stripping to clear scheduling adjuncts, and pin this example alongside a deadline that should disappear. No general language parser is requested.
+  Observed input: `Keep staging online until Friday`; applying the plan's explicit deletion yields `Keep staging online` and passes its two revert predicates.
+  Affected scope: leading/trailing temporal wording that expresses an operational condition or duration rather than the reminder's due slot.
+  Falsifier: an existing-suite case keeps `Keep staging online until Friday` and `Hold the release until after today's deploy` intact, while `Deploy the hotfix by Friday` becomes `Deploy the hotfix`.
+  Probe: `node "$TMPDIR/gh258-probe.js"` (exit 0), using `CountTitleWords(deleted)<2`, the plan's exact dangling-connector set, and `ValidateReminderTitle(deleted)`. Decisive output: `{"prescribedDeletion":"Keep staging online","fewerThanTwoWords":false,"danglingConnector":false,"validation":{"ok":true,"reasons":[]}}`. This measures the proposed predicates, not an implemented schedule matcher.
+
+- [Should] **R2 — a leading schedule strip must expose framing to the existing framing pass.** The plan places `schedule` *after* request framing (`...TOPIC.md:39-41`), but the framing patterns are start-anchored (`src/reminder-title-contract.js:92-103`, applied at 264–279). For `Tomorrow I'll deploy the hotfix`, that pass cannot see `I'll`; stripping `Tomorrow` afterward leaves `I'll deploy the hotfix`, rejected as a status remark (`:112`, `:371`). With only the source/span available, this can degrade a clear task into a fallback. Cheapest fix: remove the leading schedule before the existing framing pass, or reapply that same framing logic after the leading removal; keep trailing stripping after it. Pin the final selector output, not merely a removed prefix.
+  Observed input: `Tomorrow I'll deploy the hotfix`; existing normalization preserves it, and the prescribed leading deletion exposes `I'll deploy the hotfix`.
+  Affected scope: a leading schedule phrase preceding request/commitment framing, including titles sourced from verbatim/span/fallback.
+  Falsifier: with empty model candidate and that source, the existing selector test returns `Deploy the hotfix`, without `Tomorrow`, `I'll`, or a `Follow up:` fallback; `Tomorrow, can you review the logs?` likewise becomes `Review the logs`.
+  Probe: `node "$TMPDIR/gh258-probe.js"` (exit 0). Decisive output after the explicit leading deletion: `{"prescribedDeletion":"I'll deploy the hotfix","fewerThanTwoWords":false,"danglingConnector":false,"validation":{"ok":false,"reasons":["status-remark"]}}`. The schedule implementation does not exist yet; this is a sequencing counterexample to the plan.
+
+- [Should] **R3 — make the prompt acceptance evidence independent of hand-authored candidate titles.** The plan's golden samples (`...TOPIC.md:47-50`) feed supplied candidates into the selector (`tests/reminder-title-contract.test.js:204-214`), and decision replay supplies a recorded model response (`scripts/decision-replay.js:13-16`). Both can stay green if the new prompt line is removed. The smoke at plan lines 81–82 names no fixed positive topic input or expected result. Also, the verifier intentionally checks entities rather than every word (`src/task-grounding.js:19-29`): an invented lowercase topic can pass. Cheapest fix: name fixed topic-present and topic-absent inputs and concrete assertions for the planned A/B preview or the existing real-model reminder replay, exercise both edited prompt assets, and record the red control with the new prompt rule removed. Add the required `npm run validate:ai` to verification (`AGENTS.md:203-205`). Keep the current grounding algorithm; no new suite or lexical verifier is needed.
+  Observed input: source `Please reply to <@U1> tomorrow`, candidate `Reply to <@U1> re: invoice approval`, with no earlier context: `UngroundedTerms` returns `[]` despite the absent topic. A golden candidate alone cannot establish that the prompt refrains from inventing it.
+  Affected scope: evidence for the new person-topic prompt rule and its no-topic exception in automatic and manual extraction.
+  Falsifier: a fixed earlier thread `The invoice approval is blocked` plus that live reply yields a title naming `invoice approval`; the same live reply without topic-bearing context yields no `re:`. Removing the prompt addition must break the positive prompt check. Selector cases separately prove a thread-only topic survives grounding and an invented entity topic is rejected.
+  Probe: `node "$TMPDIR/gh258-probe.js"` (exit 0). Decisive outputs: invented `re: invoice approval` has `ungrounded:[]`; invented `re: billing-sync` has `ungrounded:["billing-sync"]`; supplying the earlier invoice context selects `Reply to <@U1> re: invoice approval` with `source:"title"`. Prompt/model outcomes remain **[Unverified — needs clone run]**.
+
+- [Pass] **The baseline claims and ownership are grounded.** Schedule-bearing expectations are pinned at `tests/reminder-title-contract.test.js:21-27,36-37`; courtesy is exact-only at `src/reminder-title-contract.js:80`; the compact renderer explicitly emits `· due ${SlackDateFormat}` at `src/reminders-display-utils.js:267`. The pure probe above (exit 0) returns `Reply to <@U1>` with `validation:{"ok":true,"reasons":[]}`, supporting the person-object diagnosis without claiming the prompt explicitly calls a person concrete. Grounding uses full analyzed context at `src/reminder-display-selection.js:107-111`, then rechecks normalized text at `:163-170`; quoted names are protected at `src/reminder-title-contract.js:223-230`. Retain those paths. `NON_CONTENT_WORDS` already excludes weekdays/relative dates (`:129-148`), and fallback subjects reuse normalization/validation (`:459-466`); the cleaned `Check again on this` should therefore fall through as a pointer rather than being forced to survive as a title.
+
+- [Nit] The `55/25/40/80` rating at plan line 5 has only a qualitative small-change rationale; confidence 80 is an estimate, not measured evidence. Label it provisional until the preview/clone results exist; no new scoring machinery is warranted.
+
+Handing off to Producer (claude-a): disposition R1–R3 and the rating note, revise only the plan in the Producer turn, then request Round 2 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
