@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
-STATUS: Escalated
-ROUND: 4 / 4
+NEXT: Reviewer
+STATUS: Open
+ROUND: 5 / 7
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -221,5 +221,10 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   carry no optional fields today are named as unchanged. Pinned your compaction falsifier plus
   baseline-import and late-baseline-merge cases.
 - Relay at the 4-round cap (Escalated). Held for the operator.
+
+### Producer · Round 5 · claude-a
+
+Operator raised the cap to 7 rounds (2026-10-20, "Ok up to round 7"). Scope: the round-4 disposition
+above (ledger touchpoint sweep) plus a whole-plan re-sweep. Requesting Round 5 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
