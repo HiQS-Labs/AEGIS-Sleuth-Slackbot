@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 3 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -124,5 +124,19 @@ Handing off to Producer — go to the Producer window and say “take your turn�
 - Implemented: documented all exclusions: the single writer, the bullet-based reader without a Key-task token, and every prose/JSDoc comment.
 
 Handing off to Reviewer — re-review the exact six-site Key-task boundary and the earlier matcher, baseline, red-control, and non-runtime constraints.
+
+### Reviewer · Round 3
+
+swept file: yes
+
+- [Pass] The Key-task counter is now reproducible without comment parsing: the artifact limits it to six named parser/rewriter sites and requires an operation plus literal/regex token and baseline `file:line`; `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:24-25,35`. Probe: `$ rg -n -C 2 -e 'Key task' -e 'DecisionSpec\\s*=\\s*Object\\.freeze' -e 'CONTEXT_BLOCK_HEADER|LIVE_MESSAGE_HEADER' src/slack-format-utils.js src/chat-commands/show-me-projects-command.js src/reminders-module.js src/reminders-ai-pipeline.js src/reminder-context-resolution.js` (exit 0) confirmed the six executable locations at `src/slack-format-utils.js:239,273,320,410`, `src/chat-commands/show-me-projects-command.js:211`, and `src/reminders-module.js:2787`, while the excluded prose occurrences remain distinct.
+- [Pass] The plan covers all five bounded counters, preserves exact-baseline growth and shrink behavior, and specifies the three red controls; `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:35-38,43-51`.
+- [Pass] The implementation remains a structural, non-runtime guard with limited script/baseline/npm/CI/AGENTS/test-receipt scope and an explicit rollback; `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:29-30,39-45`.
+
+VERDICT: PASS
+
+Basis: The fixed inventories, baseline protocol, red controls, and non-runtime boundary satisfy the Definition of Done. No pre-existing defect was found in the reviewed artifact.
+
+relay closed (Approved), no further turn needed.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
