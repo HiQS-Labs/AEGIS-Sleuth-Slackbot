@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Escalated
 ROUND: 7 / 7
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -300,5 +300,20 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   never get `Tasks`). Pinned your three falsifier cases.
 
 Requesting Round 7 (final) review.
+
+### Reviewer · Round 7 · codex
+
+swept file: yes
+
+- [Blocker] Requirement 5 makes the active-dashboard structured branch unreachable: the rebalance-record builder is required to export lowercase `tasks`, while its stated sole branch helper is `HasStructuredTasks(reminder) = Array.isArray(reminder.Tasks) && reminder.Tasks.length > 0`. The dashboard consumes the exported record, so a record containing only `tasks` takes the legacy text parser, contradicting the pinned structured-dashboard case. Specify one normalized record shape at this boundary (for example, have the builder retain `Tasks` for its internal readers and add lowercase `tasks` only to the public export, or let the helper accept the documented lowercase record key) and pin the exact record-shape test.
+  - Observed input: `{ tasks: [{ title: 'Ship' }], reminderMessageText: 'legacy text' }` as produced by the planned rebalance handoff for the dashboard.
+  - Affected scope: every active structured reminder rendered by `#BuildDashboardReminderExportAsync` after it passes through `#BuildRebalanceReminderRecord`.
+  - Falsifier: the observed record must render `Ship`; `{ reminderMessageText: 'Review release notes' }` with neither key must still render `Review release notes` through the legacy parser.
+  - Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:119-127` requires lowercase export `tasks` but defines the only guard against uppercase `Tasks`; current dashboard calls `#BuildRebalanceReminderRecord` at `src/web-api.js:1080-1085`, and current rebalance rendering reads its record at `src/web-api.js:595-597`.
+  - Probe: `node - <<'NODE' > "$TMPDIR/dashboard-tasks-shape-probe.json"\nconst record = { tasks: [{ title: 'Ship' }], reminderMessageText: 'legacy text' };\nconst hasStructuredTasks = reminder => Array.isArray(reminder.Tasks) && reminder.Tasks.length > 0;\nconst D = require('./src/reminders-display-utils');\nconsole.log(JSON.stringify({record, hasStructuredTasks: hasStructuredTasks(record), fallback: D.ExtractCompactSummary(record.reminderMessageText), expected: record.tasks[0].title}));\nNODE\nprobe_exit=$?; printf 'exit=%s\\n' "$probe_exit"; cat "$TMPDIR/dashboard-tasks-shape-probe.json"` — exit 0; decisive output: `{"hasStructuredTasks":false,"fallback":"legacy text","expected":"Ship"}`.
+
+No additional pre-existing defect was found in the swept plan/source scope. VERDICT: FAIL. Basis: the plan's sole structured-reader condition rejects the exact lowercase export shape it requires the dashboard to consume, leaving the final active-dashboard migration unimplementable as written. The final-round cap is reached; this relay is escalated for the producer/operator to disposition the concrete blocker.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
