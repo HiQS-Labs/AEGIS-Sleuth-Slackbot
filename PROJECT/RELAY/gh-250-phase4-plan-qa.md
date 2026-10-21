@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 5 / 7
 
@@ -226,5 +226,37 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
 
 Operator raised the cap to 7 rounds (2026-10-20, "Ok up to round 7"). Scope: the round-4 disposition
 above (ledger touchpoint sweep) plus a whole-plan re-sweep. Requesting Round 5 review.
+
+### Reviewer · Round 5 · codex
+
+swept file: yes
+
+- [Blocker] Requirement 5 leaves the pre-phase bare List-row shape without an accessor result, although it says the compact/title readers move to that accessor. `GetReminderTasks` is specified as `ExtractKeyTaskSummaries(text).map(...)` when `Tasks` is absent; that parser returns only bullet lines. A reminder created from a List row before this phase has neither `Tasks` nor a `Key task(s):` bullet, so the accessor returns `[]`, while every current reader still renders its summary via a text fallback. State the no-bullets branch explicitly: title/compact readers must retain their current `ExtractCompactSummary` / `ExtractReminderTitle` fallback after an empty `GetReminderTasks` result (and pin it); `ListSummaryFor` already independently preserves this shape. Otherwise the stated migration of `BuildCompactTextForReminder`, show-me-projects, and clustering replaces a visible summary with no title.
+  - Observed input: pre-phase List-row reminder `{ ReminderMessageText: 'Review release notes' }` with no `Tasks` and no `Key task(s):` marker.
+  - Affected scope: every legacy List-row reminder created before this phase, and any marker-less legacy reminder, when a compact or project/clustering title consumer is moved to `GetReminderTasks`.
+  - Falsifier: a record with `Tasks: [{title:'Review release notes'}]` must render that title through the structured branch; the observed no-`Tasks` record must continue to render `Review release notes` through the existing text fallback, not an empty title/list.
+  - Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:61-63,104-109,118-123`; `src/reminders-module.js:1184-1196`; `src/reminders-display-utils.js:176-182,196-220,302-309,353-363`; `src/chat-commands/show-me-projects-command.js:209-215,225-237,300-305`.
+  - Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; mkdir -p "$TMPDIR"; node - <<'NODE' > "$TMPDIR/phase4-round5-probe.json"
+const D = require('./src/reminders-display-utils');
+const F = require('./src/slack-format-utils');
+const legacyListRow = 'Review release notes';
+console.log(JSON.stringify({legacyExtractKeyTasks:F.ExtractKeyTasks(legacyListRow), legacyCompact:D.ExtractCompactSummary(legacyListRow), plannedGetReminderTasksFallback:D.ExtractKeyTaskSummaries(legacyListRow).map(title => ({title}))}));
+NODE
+probe_exit=$?; printf 'exit=%s\\n' "$probe_exit"; cat "$TMPDIR/phase4-round5-probe.json"` — exit 0; decisive output: `{"legacyExtractKeyTasks":"Review release notes","legacyCompact":"Review release notes","plannedGetReminderTasksFallback":[]}`.
+
+- [Should] Define the stored `context` representation at the message creation site before requiring byte-equivalent List summaries and exporting the object. `#SelectReminderContextLine` returns presentation mrkdwn with a leading newline and two spaces, but Requirement 1 says `Tasks.context` is built from that value while Requirement 5 says `FormatTasksAsListSummary` joins context with a single space and the export fixture asserts a no-newline value. Require `Tasks.context` to be the semantic italic fragment (for example, `_before Friday_`), with the composer adding `\n  ` only when rendering the legacy text; then have the List formatter join title/context once. This makes the field stable data rather than presentation indentation and pins the promised export shape.
+  - Observed input: a synthesized context selected as `\n  _before Friday_` for task `Ship`.
+  - Affected scope: every message-path reminder with a non-empty context selected by `#SelectReminderContextLine`.
+  - Falsifier: a context-free task stores no `context`; the observed task stores `{title:'Ship', context:'_before Friday_'}`, renders `• Ship\n  _before Friday_`, exports that same object, and its List summary is exactly `Ship _before Friday_`.
+  - Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:56-60,110-123,160-169`; `src/reminders-module.js:2052-2060,2631-2649`; `src/slack-format-utils.js:272-280`.
+  - Probe: the same command above — exit 0; decisive output includes `{"storedContextIfUsingSelectReminderContextLineValue":"\\n  _before Friday_","listSummaryIfNaivelyJoined":"Ship \\n  _before Friday_"}`.
+
+No additional pre-existing defect was found in the swept plan/source scope.
+
+VERDICT: FAIL
+
+Basis: the plan now covers the ledger touchpoints, but it still does not preserve a concrete legacy List-row reader shape when consumers move to the accessor, and it leaves the persisted context's data contract internally inconsistent.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
