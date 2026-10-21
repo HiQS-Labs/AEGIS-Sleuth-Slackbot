@@ -9,8 +9,8 @@
 | Step | State |
 |---|---|
 | Capture + plan | done |
-| Plan QA (Codex relay) | pending |
-| Implementation | pending |
+| Plan QA (Codex relay) | Approved r5 (`PROJECT/RELAY/gh-258-plan-qa.md`, attest 3dfaa68) |
+| Implementation | in progress |
 | Tests / replay | pending |
 | Final QA + PR | pending |
 
@@ -82,7 +82,7 @@ A read-only re-extraction of open production reminders through the GH-250 path (
    (`tests/reminder-title-contract.test.js:21-37`); add cases: `Deploy the hotfix by Friday` ->
    `Deploy the hotfix`; `Keep staging online until Friday` and `Hold the release until after
    today's deploy` unchanged; `Let rate limiting run over the weekend` unchanged; `Ship it after
-   Friday` unchanged (connector revert); the two leading cases above through the real selector
+   Friday` unchanged (duration veto); the two leading cases above through the real selector
    with an empty model candidate; `pleae` removed. Context: update the unreferenced-lookback test
    to expect the topic header with the root (mentions neutralized) while middle siblings stay out;
    a referenced reply gets no topic header; a root already in the lookback is not duplicated.
@@ -114,7 +114,7 @@ A read-only re-extraction of open production reminders through the GH-250 path (
 ## Risks
 
 - Over-stripping a phrase that is part of the object (`Plan the Friday standup`). Mitigated: only
-  trailing/leading positions, connector-revert guard, golden set.
+  trailing/leading positions, whole-title duration veto, golden set.
 - `re:` lengthens titles past budget — `FitTitleToBudget` already shortens at clause boundaries;
   prompt asks for a short topic (2–5 words).
 - Model ignores the new prompt line — measured by the real-model check with a red control.
