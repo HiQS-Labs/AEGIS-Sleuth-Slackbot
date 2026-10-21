@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 4 / 5
 
@@ -149,5 +149,47 @@ Handing off to Producer (claude-a) — go to the Producer window and say 'take y
   Focused title-contract suite: 110 passing assertions; build passes.
 
 Handing off to Reviewer (codex): recheck the punctuation boundary and approve if no in-scope finding remains.
+
+### Reviewer · Round 4 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: The Round 3 punctuation correction works, but two bounded schedule-matcher defects remain: a leading date can match inside a longer word, and the planned weekday-plus-part-of-day form is incomplete. Reviewed the seeded artifact, the complete current `src/reminder-title-contract.js`, and the changed prompt, fixture, test, receipt and ledger material. No additional pre-existing implementation defect requiring a Blocker/Should was found. Because Setup still has a placeholder Definition of Done, this review uses the artifact's Requirements and the prior findings as acceptance criteria.
+
+Evidence scope: direct-source Verify fallback; graph project/status/coverage tools are not callable in this turn, so no graph completeness claim. No git commands, suites, executable fixtures, model calls or service probes ran. Full-suite and real-model results remain **[Unverified — needs clone run]**; the receipt's insensitive prompt control is not causal evidence. The probe below reads only added regex literals from the seeded artifact and measures their matching/deletion, not the whole selector.
+
+- [Pass] **Round 3 punctuation repair is present.** The trailing matcher now ends in `[\s.!,;:\-–—]*$` (`.relay-artifacts/gh258-final-diff.XXXXXX.md:865`), and the punctuated contract case is added at `:1126`. Probe exit 0: `Deploy the hotfix by Friday.` becomes `Deploy the hotfix`, and `Review the release EOD!` becomes `Review the release`. `Keep staging online until Friday.` has `veto:true` and is untouched by schedule deletion. Retain the veto and two-word rollback.
+
+- [Should] **Require a complete leading schedule token before deleting it.** The leading regex has no word boundary and permits zero separator characters after the date (`.relay-artifacts/gh258-final-diff.XXXXXX.md:864`). It therefore matches `Tomorrow` inside `Tomorrowland release checklist`, producing `land release checklist`; the two-word guard admits this three-word result. Capitalization cannot restore the damaged name. Require a token/separator boundary after the entire leading schedule expression and add a bounded existing-suite preservation case. Keep the valid `Tomorrow, review the logs` control working.
+  Observed input: `Tomorrowland release checklist`; `leading:"Tomorrow"`, `veto:false`, `afterSchedule:"land release checklist"` (probe exit 0).
+  Affected scope: leading non-date words whose prefixes coincide with a supported schedule alternative, including unquoted names/identifiers; do not broaden schedule parsing.
+  Falsifier: the normalizer preserves `Tomorrowland release checklist` exactly while `Tomorrow, review the logs` still becomes `Review the logs`.
+
+- [Should] **Consume the supported weekday's part of day as one phrase at both ends.** Requirement 2 expressly lists `[this|next|coming] <weekday> [part of day]` (`.relay-artifacts/gh258-final-diff.XXXXXX.md:78`), but neither weekday arm includes the optional part of day (`:864-865`). `Next Friday morning I will deploy the hotfix` loses only `Next Friday `, leaving `morning I will deploy the hotfix`, so the start-anchored framing pass cannot reach `I will` (`:883-891`). The trailing counterpart is untouched. Extend the existing weekday alternatives with the bounded optional part-of-day suffix, and pin these two shapes in the existing suite; retain the duration veto.
+  Observed input: `Next Friday morning I will deploy the hotfix` and `Deploy the hotfix next Friday morning`; probe exit 0 reports leading match `Next Friday ` for the first and no trailing match for the second.
+  Affected scope: the explicitly planned weekday-plus-part-of-day schedule phrases at title boundaries, in titles without a duration/condition introducer.
+  Falsifier: both inputs normalize to `Deploy the hotfix`; `Keep staging online until next Friday morning` remains intact under the duration veto.
+
+Probe command (exit 0; no probe files written):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE'
+const fs=require('fs');
+const t=fs.readFileSync('.relay-artifacts/gh258-final-diff.XXXXXX.md','utf8');
+const names=['SCHEDULE_LEADING_PATTERN','SCHEDULE_TRAILING_PATTERN','DURATION_CONDITION_PATTERN'];
+const r=Object.fromEntries(names.map(n=>[n,eval(t.match(new RegExp('^\\+const '+n+' = (/.*/i);$','m'))[1])]));
+for(const input of ['Tomorrowland release checklist','Tomorrow, review the logs','Next Friday morning I will deploy the hotfix','Deploy the hotfix next Friday morning','Deploy the hotfix by Friday.','Review the release EOD!','Keep staging online until Friday.']) {
+ const veto=r.DURATION_CONDITION_PATTERN.test(input);
+ console.log(JSON.stringify({input,veto,leading:input.match(r.SCHEDULE_LEADING_PATTERN)?.[0]??null,trailing:input.match(r.SCHEDULE_TRAILING_PATTERN)?.[0]??null,afterSchedule:veto?input:input.replace(r.SCHEDULE_LEADING_PATTERN,'').replace(r.SCHEDULE_TRAILING_PATTERN,'').trim()}));
+}
+NODE
+```
+Decisive output is quoted in each finding above. These match-level results do not claim suite execution.
+
+Root cause: the shared schedule expressions omit a token boundary and a specified weekday suffix; Fix site: the existing leading/trailing regexes and bounded cases in the existing title-contract suite; Why not upstream/downstream: the normalizer owns deletion, and later framing/validation cannot reconstruct lost name characters or rerun framing after an unconsumed `morning`.
+
+Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Address the two bounded matcher findings, then request Round 5 review. Only this relay file was edited; the harness owns its commit.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
