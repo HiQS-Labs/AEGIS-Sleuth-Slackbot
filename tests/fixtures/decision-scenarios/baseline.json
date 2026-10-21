@@ -60,7 +60,7 @@
       ""
     ],
     "displayedTasks": [
-      "Deploy the changes tomorrow morning"
+      "Deploy the changes"
     ],
     "ownership": {
       "assignees": [
@@ -85,7 +85,7 @@
         "shortened": false,
         "source": "verbatim",
         "unshortened": "",
-        "words": 5
+        "words": 3
       }
     ],
     "triggers": [
@@ -240,7 +240,7 @@
       ""
     ],
     "displayedTasks": [
-      "Deploy the hotfix tomorrow morning"
+      "Deploy the hotfix"
     ],
     "ownership": {
       "assignees": [
@@ -265,7 +265,7 @@
         "shortened": false,
         "source": "verbatim",
         "unshortened": "",
-        "words": 5
+        "words": 3
       }
     ],
     "triggers": [
@@ -343,7 +343,7 @@
       ""
     ],
     "displayedTasks": [
-      "Work on \"On-going Project: Yard Photo Backfill\" tomorrow morning"
+      "Work on \"On-going Project: Yard Photo Backfill\""
     ],
     "ownership": {
       "assignees": [
@@ -368,7 +368,7 @@
         "shortened": false,
         "source": "verbatim",
         "unshortened": "",
-        "words": 9
+        "words": 7
       }
     ],
     "triggers": [

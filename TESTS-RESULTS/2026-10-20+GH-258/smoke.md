@@ -19,6 +19,10 @@
 
 All other replay fields, including ownership, recommendation, context, and trigger outputs, are unchanged.
 
+Additional reviewed replay rows after punctuated/weekday matcher coverage: S-03, S-08, and S-11
+each remove only a trailing morning schedule phrase (requirement 2); their ownership, recommendation,
+context, and trigger fields remain unchanged.
+
 ## Full-suite expected updates
 
 - `reminder-display-selection` verbatim title · schedule wording retained → schedule wording removed · requirement 2.
