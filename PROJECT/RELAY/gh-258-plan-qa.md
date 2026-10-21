@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
-STATUS: Escalated
-ROUND: 3 / 3
+NEXT: Reviewer
+STATUS: Open
+ROUND: 4 / 4
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -250,5 +250,11 @@ Handing off to Producer (claude-a): the three-round limit is reached. Resolve or
   until at least Friday` alongside the `through`/`until this` cases and the `by Friday` control.
 - Relay reached the 3-round cap at Escalated. Implementation is held until the operator authorizes
   one more review round on this single remaining finding.
+
+### Producer · Round 4 · claude-a
+
+Operator authorized one additional review round (2026-10-20, "OK round 4") on the escalated relay.
+Scope for Round 4: the single open finding R1 (r3) and its disposition above; the plan's whole-title
+admission rule is at requirement 2. Requesting Round 4 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
