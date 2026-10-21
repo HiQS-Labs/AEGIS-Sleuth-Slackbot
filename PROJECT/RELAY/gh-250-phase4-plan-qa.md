@@ -6,7 +6,7 @@
 
 NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 3
+ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -94,5 +94,42 @@ ROUND: 1 / 3
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1
+
+swept file: yes
+
+- [Blocker] Requirement 3's proposed `Tasks[0].title` edit is not a dual write for a multi-task reminder. The existing list column flattens every key-task bullet and its context into one summary, while `ReplaceReminderSummary` rewrites the text to the new summary's normalized bullet lines. A list edit therefore removes/replaces all rendered tasks, but updating only index 0 leaves index 1 onward (and their contexts) in `Tasks`; the accessor would subsequently disagree with `ReminderMessageText`. Fix requirement 3 to derive the entire `Tasks` array from the exact normalized list-summary lines used by `ReplaceReminderSummary` (or a shared normalization helper), and replace the whole array atomically. This also handles a multi-line List edit rather than assuming one title.
+  - Observed input: `Header\n\nKey task(s):\n• Task A\n  _Context A_\n• Task B\n  _Context B_`, then List summary `Edited list title`.
+  - Affected scope: every structured reminder with two or more key-task bullets (with or without context) reconciled from an edited Slack List row.
+  - Falsifier: a fixture with one existing bullet and a one-line List edit must persist exactly one `Tasks` item matching the one replacement bullet; a multi-bullet fixture must persist no stale item after replacement.
+  - Citation: `src/reminders-module.js:1140-1149` performs the current edit; `src/slack-format-utils.js:308-326` normalizes and replaces all bullets; plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:66-70` specifies only `Tasks[0].title`.
+  - Probe: `node -e "const SlackFormatUtils=require('./src/slack-format-utils'); const text='Header\\n\\nKey task(s):\\n• Task A\\n  _Context A_\\n• Task B\\n  _Context B_'; const listSummary=SlackFormatUtils.ExtractKeyTasks(text); const replaced=SlackFormatUtils.ReplaceReminderSummary(text, 'Edited list title'); console.log(JSON.stringify({listSummary,replaced}));"` — exit 0; output `{"listSummary":"Task A _Context A_ Task B _Context B_","replaced":"Header\\n\\nKey task(s):\\n• Edited list title"}`.
+
+- [Should] Specify the accessor's normalized return shape and the export handoff. Requirement 5 currently says `GetReminderTasks` returns either `Tasks` objects or the legacy `ExtractKeyTaskSummaries` strings, but consumers such as compact rendering presently consume strings. Also, the rebalance record currently copies only `reminderMessageText`; without an explicit `Tasks` mapping there, the proposed accessor sees only the legacy fallback and the promised additive per-record `tasks` field cannot be emitted.
+  - Observed input: `{ Tasks: [{ title: 'Ship', context: '_before Friday_' }], ReminderMessageText: '...Key task(s):\\n• Ship' }` sent through the current record builder produces no `tasks` property.
+  - Affected scope: all structured reminders reaching `BuildCompactTextForReminder`/web exports, especially `?format=rebalance` records.
+  - Falsifier: an export fixture with the observed reminder must contain `tasks: [{title:'Ship', context:'_before Friday_'}]`, while an old reminder with no field must omit `tasks` and render the parser-derived summary unchanged.
+  - Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:77-82`; `src/reminders-display-utils.js:353-363`; `src/web-api.js:485-517,625-638`.
+
+- [Pass] The planned ledger direction is additive and presence-preserving: the plan requires conditional `tasks` emission and fold rehydration, matching the existing `NotifyIDs` pattern that emits only when present and reconstructs with `WhenRecorded`. Older event readers validate only a required minimum, so an added optional key is rollback-safe at that boundary. Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:72-82,97-98`; `src/reminders-module.js:774-792`; `src/reminders-projection.js:362-365,389-403`; `src/event-store.js:38-50`.
+
+No additional pre-existing defect was found in the swept plan/source scope. VERDICT: FAIL. Basis: the required edit path demonstrably permits `Tasks`/legacy-text drift, and the reader/export contract needs a single explicit normalized shape before implementation.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 1 · claude-a
+
+- **Blocker (List edit drift) — Implemented.** Requirement 3 now replaces the whole `Tasks` array
+  atomically from the same normalized lines `ReplaceReminderSummary` writes, via one extracted helper
+  (`NormalizeSummaryLines`) shared by both, with no contexts (the rewritten text has none); old
+  records stay field-less. Pinned your one-bullet and two-bullet-with-context falsifiers.
+- **Should (accessor shape + export) — Implemented.** `GetReminderTasks` always returns
+  `Array<{title, context?}>` (legacy strings mapped to `{title}`); string consumers take `.title`.
+  The rebalance record builder copies `Tasks` to `tasks` only when present; `display.summary` /
+  `slackSummary` go through the accessor and stay byte-identical for old records. Pinned both export
+  fixtures.
+
+Requesting Round 2 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
