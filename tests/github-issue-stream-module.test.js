@@ -347,3 +347,205 @@ describe('GitHubIssueStreamModule — posting and idempotency', () => {
     await ModB.StopAsync();
   });
 });
+
+// GH-257: synthetic failure-path coverage in the existing module suite.
+describe('GH-257 review regressions', () => {
+  let TempDir, StatePath, EnvRepos;
+  const Repo = 'hiqs-labs/demo';
+  const Stamp = '2026-10-20T12:05:00.000Z';
+  const Result = (Items = [], Extra = {}) => ({ Items, RateLimit: { Remaining: 5000 }, Status: 200, ...Extra });
+  const Issue = (number = 1) => ({ number, title: `Task ${number}`, state: 'open', html_url: `https://github.com/${Repo}/issues/${number}`, created_at: Stamp, updated_at: Stamp, user: { login: 'alice' } });
+  const Comment = (id = 1) => ({ id, body: 'Update', html_url: `https://github.com/${Repo}/issues/1#issuecomment-${id}`, issue_url: `https://api.github.com/repos/${Repo}/issues/1`, created_at: Stamp, updated_at: Stamp, user: { login: 'alice' } });
+  const ReadState = async () => JSON.parse(await fs.readFile(StatePath, 'utf8'));
+  async function Seed(Thread = false) {
+    const State = { SchemaVersion: 1, AllowlistCache: [Repo], Repos: { [Repo]: { Cursor: '2026-10-20T12:00:00.000Z', SeededAt: '2026-10-20T12:00:00.000Z' } }, Issues: {} };
+    if(Thread) State.Issues[`${Repo}#1`] = { ChannelID: 'C_OLD', ThreadTs: 'old-ts', PostedKeys: [`parent:${Repo}#1`], Closed: false, LastActivityAt: Stamp };
+    await fs.writeFile(StatePath, JSON.stringify(State));
+  }
+  beforeEach(async () => {
+    TempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gis-gh257-'));
+    StatePath = path.join(TempDir, 'state.json');
+    EnvRepos = process.env.GITHUB_ISSUE_STREAM_REPOS;
+    process.env.GITHUB_ISSUE_STREAM_REPOS = Repo;
+  });
+  afterEach(async () => {
+    jest.restoreAllMocks();
+    if(EnvRepos === undefined) delete process.env.GITHUB_ISSUE_STREAM_REPOS;
+    else process.env.GITHUB_ISSUE_STREAM_REPOS = EnvRepos;
+    await fs.rm(TempDir, { recursive: true, force: true });
+  });
+
+  test.each(['issues', 'comments'])('incomplete %s bounds shared cursor despite newer other endpoint', async (Endpoint) => {
+    await Seed(true);
+    const { Module, GithubClient } = MakeModule({ statePath: StatePath });
+    const Earlier = { ...Issue(), updated_at: Stamp };
+    const Later = '2026-10-20T18:00:00.000Z';
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([{ ...Earlier, updated_at: Endpoint === 'issues' ? Stamp : Later }], { Complete: Endpoint !== 'issues' }));
+    GithubClient.ListIssueCommentsSinceAsync.mockResolvedValue(Result([{ ...Comment(), updated_at: Endpoint === 'comments' ? Stamp : Later }], { Complete: Endpoint !== 'comments' }));
+    await Module.StartAsync();
+    try {
+      await Module.RunOnceAsync();
+      expect((await ReadState()).Repos[Repo].Cursor).toBe('2026-10-20T12:04:00.000Z');
+      // the next bounded batch can progress after the unread range is fetched.
+      GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([{ ...Earlier, updated_at: Later }], { Complete: true }));
+      GithubClient.ListIssueCommentsSinceAsync.mockResolvedValue(Result([{ ...Comment(), updated_at: Later }], { Complete: true }));
+      await Module.RunOnceAsync();
+      expect((await ReadState()).Repos[Repo].Cursor).toBe('2026-10-20T17:59:00.000Z');
+    } finally { await Module.StopAsync(); }
+  });
+
+  test.each(['comment', 'pr'])('incomplete issues hold unresolved %s parent without discarding its replay', async (Kind) => {
+    await Seed();
+    const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath });
+    const Old = Array.from({ length: 500 }, (_, N) => ({ ...Issue(N + 10), created_at: '2026-10-19T00:00:00.000Z', updated_at: '2026-10-20T12:20:00.000Z' }));
+    const Pr = { ...Issue(900), title: 'Fix #501', body: '', pull_request: {}, updated_at: '2026-10-20T12:10:00.000Z' };
+    const Reply = { ...Comment(9), issue_url: `https://api.github.com/repos/${Repo}/issues/501`, updated_at: '2026-10-20T12:10:00.000Z' };
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result(Kind === 'pr' ? [...Old.slice(0, 499), Pr] : Old, { Complete: false }));
+    GithubClient.ListIssueCommentsSinceAsync.mockResolvedValue(Result(Kind === 'comment' ? [Reply] : []));
+    await Module.StartAsync();
+    try {
+      await Module.RunOnceAsync();
+      expect((await ReadState()).Repos[Repo].Cursor).toBe('2026-10-20T12:00:00.000Z');
+      expect(SlackApp.Logger.WarnMessages.some((M) => M.includes('parent'))).toBe(true);
+      const Parent = { ...Issue(501), updated_at: '2026-10-20T13:00:00.000Z' };
+      GithubClient.ListIssuesSinceAsync.mockImplementation(async (_Repo, Since) => Result([Parent, ...(Kind === 'pr' ? [Pr] : [])].filter((Item) => Item.updated_at >= Since), { Complete: true }));
+      GithubClient.ListIssueCommentsSinceAsync.mockImplementation(async (_Repo, Since) => Result(Kind === 'comment' && Reply.updated_at >= Since ? [Reply] : []));
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(2);
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(2);
+    } finally { await Module.StopAsync(); }
+  });
+
+  test('default client reports a five-page boundary without unbounded fetch', async () => {
+    await Seed();
+    const Fetch = jest.spyOn(global, 'fetch').mockImplementation(async (Url) => {
+      const IsComments = String(Url).includes('/comments?');
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => IsComments ? [{ ...Comment(), updated_at: '2026-10-20T18:00:00.000Z' }] : Array.from({ length: 100 }, (_, I) => ({ ...Issue(I + 1), user: { type: 'Bot' } })) };
+    });
+    const App = MakeMockSlackApp();
+    const Module = new GitHubIssueStreamModule(App, MakeDnd(), { enabled: true, channelId: 'C_TEST', pat: 'test', statePath: StatePath, pollIntervalMs: 999999, postGapMs: 0 });
+    await Module.StartAsync();
+    try {
+      await Module.RunOnceAsync();
+      expect(Fetch).toHaveBeenCalledTimes(6);
+      expect((await ReadState()).Repos[Repo].Cursor).toBe('2026-10-20T12:04:00.000Z');
+    } finally { await Module.StopAsync(); }
+  });
+
+  test('channel change keeps replies paired with saved parent and respects old-channel DND', async () => {
+    await Seed(true);
+    const Dnd = MakeDnd(false, ['C_OLD']);
+    const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath, channelId: 'C_NEW', dnd: Dnd });
+    GithubClient.ListIssueCommentsSinceAsync.mockResolvedValue(Result([Comment()]));
+    await Module.StartAsync();
+    try {
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+      expect((await ReadState()).Repos[Repo].Cursor).toBe('2026-10-20T12:00:00.000Z');
+      Dnd.IsChannelDnd.mockReturnValue(false);
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledWith('C_OLD', 'old-ts', expect.any(String), undefined, expect.any(Object));
+    } finally { await Module.StopAsync(); }
+  });
+
+  test('DND enabled by first post holds remaining batch and resumes without repeating it', async () => {
+    await Seed();
+    const { Module, GithubClient, SlackApp, Dnd } = MakeModule({ statePath: StatePath });
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue(1), Issue(2)]));
+    SlackApp.PostMessageTextAsync.mockImplementationOnce(async () => { Dnd.IsWorkspaceDnd.mockReturnValue(true); return 'first'; });
+    await Module.StartAsync();
+    try {
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+      expect((await ReadState()).Repos[Repo].Cursor).toBe('2026-10-20T12:00:00.000Z');
+      Dnd.IsWorkspaceDnd.mockReturnValue(false);
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(2);
+    } finally { await Module.StopAsync(); }
+  });
+
+  test.each(['empty', 'stale', 'transport', 'file-transport'])('dynamic %s never reuses legacy allowlist cache', async (Mode) => {
+    await Seed();
+    delete process.env.GITHUB_ISSUE_STREAM_REPOS;
+    const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath });
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue()]));
+    if(Mode === 'transport') GithubClient.ListAllowlistFilesAsync.mockRejectedValue(new Error('pulse down'));
+    if(Mode === 'stale' || Mode === 'file-transport') {
+      GithubClient.ListAllowlistFilesAsync.mockResolvedValue([{ name: 'mac.json' }]);
+      GithubClient.GetAllowlistFileAsync.mockResolvedValue(JSON.stringify({ schema_version: 1, source: 'repos', generated_at: '2026-10-01T00:00:00.000Z', rows: [Repo] }));
+      if(Mode === 'file-transport') GithubClient.GetAllowlistFileAsync.mockRejectedValue(new Error('file down'));
+    }
+    await Module.StartAsync();
+    try {
+      await Module.RunOnceAsync();
+      expect(GithubClient.ListIssuesSinceAsync).not.toHaveBeenCalled();
+      expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+      if(Mode.includes('transport')) expect((await ReadState()).Repos[Repo]).toBeDefined();
+      else expect((await ReadState()).Repos[Repo]).toBeUndefined();
+    } finally { await Module.StopAsync(); }
+  });
+
+  test('save failure after Slack acceptance stops batch; recovery flushes pending keys before restart', async () => {
+    await Seed();
+    const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath });
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue(1), Issue(2)]));
+    const Mkdir = fs.mkdir.bind(fs);
+    let Fail = false;
+    jest.spyOn(fs, 'mkdir').mockImplementation(async (...Args) => { if(Fail) throw new Error('disk full'); return Mkdir(...Args); });
+    SlackApp.PostMessageTextAsync.mockImplementationOnce(async () => { Fail = true; return 'accepted'; });
+    await Module.StartAsync();
+    try {
+      await expect(Module.RunOnceAsync()).rejects.toThrow('disk full');
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+      await expect(Module.RunOnceAsync()).rejects.toThrow('disk full');
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+      Fail = false;
+      await Module.RunOnceAsync();
+      expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(2);
+    } finally { Fail = false; await Module.StopAsync(); }
+    const Restart = MakeModule({ statePath: StatePath });
+    Restart.GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue(1), Issue(2)]));
+    await Restart.Module.StartAsync();
+    try { await Restart.Module.RunOnceAsync(); expect(Restart.SlackApp.PostMessageTextAsync).not.toHaveBeenCalled(); }
+    finally { await Restart.Module.StopAsync(); }
+  });
+
+  test('unwritable state before delivery prevents all Slack writes', async () => {
+    await Seed();
+    const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath });
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue()]));
+    await Module.StartAsync();
+    const Mkdir = jest.spyOn(fs, 'mkdir').mockRejectedValue(new Error('unwritable'));
+    try { await expect(Module.RunOnceAsync()).rejects.toThrow('unwritable'); expect(SlackApp.PostMessageTextAsync).not.toHaveBeenCalled(); }
+    finally { Mkdir.mockRestore(); await Module.StopAsync(); }
+  });
+
+  test('shutdown waits for in-flight accepted post, saves it, cancels rest, and prevents restart repeats', async () => {
+    await Seed();
+    const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath });
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue(1), Issue(2)]));
+    let Accept;
+    let Entered;
+    const InPost = new Promise((Resolve) => { Entered = Resolve; });
+    SlackApp.PostMessageTextAsync.mockImplementationOnce(() => { Entered(); return new Promise((Resolve) => { Accept = Resolve; }); });
+    await Module.StartAsync();
+    const Cycle = Module.RunOnceAsync();
+    await InPost;
+    let Stopped = false;
+    const Stop = Module.StopAsync().then(() => { Stopped = true; });
+    try {
+      await Promise.resolve();
+      expect(Stopped).toBe(false);
+    } finally { Accept('accepted-before-stop'); await Cycle; await Stop; }
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+    expect((await ReadState()).Issues[`${Repo}#1`].ThreadTs).toBe('accepted-before-stop');
+    await Module.RunOnceAsync();
+    expect(SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+    const Restart = MakeModule({ statePath: StatePath });
+    Restart.GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue(1), Issue(2)]));
+    await Restart.Module.StartAsync();
+    try { await Restart.Module.RunOnceAsync(); expect(Restart.SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1); expect(Restart.SlackApp.PostMessageTextAsync.mock.calls[0][2]).toContain('Task 2'); }
+    finally { await Restart.Module.StopAsync(); }
+  });
+});

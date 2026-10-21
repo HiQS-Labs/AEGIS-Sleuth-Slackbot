@@ -312,7 +312,7 @@ describe('NextCursor', () => {
 });
 
 describe('PruneState', () => {
-  test('drops closed threads older than 14 days and inactive older than 30', () => {
+  test('preserves old thread identity and keys while pruning removed repo cursors', () => {
     const Now = new Date('2026-10-20T12:00:00.000Z');
     const State = EmptyState();
     State.Issues['a/b#1'] = {
@@ -340,6 +340,8 @@ describe('PruneState', () => {
     State.Repos['keep/repo'] = { Cursor: Now.toISOString(), SeededAt: Now.toISOString() };
     PruneState(State, Now, ['keep/repo']);
     expect(State.Issues).toEqual({
+      'a/b#1': expect.objectContaining({ ThreadTs: '1' }),
+      'a/b#2': expect.objectContaining({ ThreadTs: '2' }),
       'a/b#3': expect.objectContaining({ ThreadTs: '3' }),
     });
     expect(State.Repos).toEqual({
