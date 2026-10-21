@@ -2,9 +2,9 @@
 gh_issue: 249
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249
 title: "Prod: hourly read-only mirror of the private git-pulse export repo for Sleuth scripts"
-status: Working (2-WORKING)
+status: Complete
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 owner: noel
 goal: "Hourly, read-only, token-safe clone of the private git-pulse repo on production for Sleuth scripts"
 doc_type: feature

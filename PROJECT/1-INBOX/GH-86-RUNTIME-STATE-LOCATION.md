@@ -113,3 +113,7 @@ Phases 2-4 are independent of GH-88 entirely.
   precisely to avoid requiring a coordinated config change, but confirm the DeployHQ job before
   shipping.
 - Phase 3 changes shutdown behaviour; confirm no other state depends on that call ordering.
+
+## Merge evidence
+
+- PR #253 merged 2026-10-21 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
