@@ -33,6 +33,60 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.346 - 2026-10-20
+
+Every reminder I post now reads the same way: a short imperative line that names the thing to do,
+with the source link, the owner, a labelled due date and a labelled age. I no longer repeat your
+raw wording with the `@mention` and "please" left in, I never cut a title off mid-word, I refuse
+to show a question, a status remark or a bare pointer like "Ask him" as a task (falling back to
+"Follow up: <what the thread was about>" instead), and a reminder holding a pasted list shows at
+most three sub-items plus "+N more". The model is asked for the same shape, so most titles need no
+cleanup at all.
+
+**Technical:** GH-250, remediation ideas 2–7 (the structured-output schema and storage migration
+of ideas 1/4–6 are deliberately not in this change; the stored `Key task(s):` form is unchanged).
+New pure module `src/reminder-title-contract.js` (`NormalizeReminderTitle`, `ValidateReminderTitle`,
+`FitTitleToBudget`, `BuildFallbackTitle`; budget 14 words / 90 chars, `MAX_DISPLAYED_SUBTASKS = 3`).
+`SelectTaskTextRaw` in `src/reminder-display-selection.js` runs every candidate (verbatim, title,
+span) through normalize → validate → fit, in routing order, and returns `contract` facts
+(`rejected[{source, reasons}]`, `normalized`, `shortened`, `words`, `chars`); the template fallback
+replaces both `'Task not specified'` and the raw-text fallback. Grounding (GH-43/68) runs first and
+the contract only removes text, so the guarantee is unchanged; long-source safety (GH-243) keeps
+its 280-char bound and never offers the verbatim text. `RemindersModule` logs one
+`reminder title contract:` line per candidate (no text) and `:wrench:` triage shows `↳ title:`.
+Renderer (`src/reminders-display-utils.js`): `TruncateCompactSummary` cuts at a clause/word boundary
+via the same fit (the `…the pixel tester on my en…` defect); `BuildCompactReminderLine` is now
+`A.) <link|summary> · <@owner> · due <date> · N days old` (`created today` / `1 day old`, never
+omitted); delivery caps extra Key tasks at 3 plus `+N more ↗︎`. Prompt assets
+(`reminders-instructions.md`/`-schema.json`, `manual-reminder-task-*`) state the contract (4–14
+words, ≤90 chars, no mentions/please/URLs, no questions/status remarks, no `…`, resolve pointers).
+Golden set `tests/fixtures/reminder-title-golden.json` (42 samples: the issue's reminders plus one
+per rule) run through the real selector by `tests/reminder-title-contract.test.js`, asserting the
+acceptance criteria (budget, no mid-word cut, no addressee/please, no bare pointer, grounded).
+`scripts/decision-replay.js` enforces the same invariants on every scenario
+(`ReminderTitleContractViolations`) and records `titleSources` per row; baseline re-recorded
+(`--update-baseline`) — every changed row is a casing/framing cleanup (`I'll deploy the changes
+tomorrow morning.` → `Deploy the changes tomorrow morning`, `<@U_ALPHA> <@U_BETA> can you both test
+the new release tomorrow morning?` → `Test the new release tomorrow morning`), no recommendation,
+ownership or context change. The GH-43 routing-perturbation test is rewritten: the verbatim dump
+can no longer appear (the contract refuses it on every path), so routing is proven load bearing
+through the context line it still controls and the contract through the refusal it records.
+Documented limit: a title that names a generic object (`Complete the alignment`) passes the
+deterministic rules — resolving it is the prompt's job. Not done: the one constrained LLM
+re-synthesis on refusal (idea 4) and the production telemetry week (AC 5), which needs a deploy.
+Review round on PR #252 (Greptile, CodeRabbit, and the author's ground-truth review), all
+reproduced before fixing: quoted task names are opaque to the normalizer and the normalized text is
+re-grounded before acceptance (`"The Kindly Migration"` no longer loses its `Kindly`); a pointer
+idiom that opens a title no longer swallows the object (`Continue migration`); a sentence ending
+after a number counts (`Review PR 123. Deploy the release`), and `- item` / `* item` bullets count
+as a list; a title the budget cut reduces to its verb is refused and the next candidate tried; the
+fallback subject gets the same list check, a word budget that includes `Follow up:`, and a re-check
+after fitting; the pointer-echo filter reads the candidate's own words (not the templated display)
+with both sides normalized, so `can you do all of the above` is dropped beside its expansions; a
+delivered record with no permalink shows all of its tasks; the replay contract invariant runs for
+scenarios without `expected` and verifies a cut against the recorded `unshortened` text; title
+telemetry is logged only for queued reminders.
+
 ## 2026-10-20 — GitHub issue stream (git-pulse#5 / GH-248)
 I can now post newly filed GitHub issues into a Slack channel every 15 minutes and keep the
 thread updated with comments, linked PRs, and close/reopen — without duplicating anything after a

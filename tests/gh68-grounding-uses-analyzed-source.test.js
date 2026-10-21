@@ -67,12 +67,24 @@ describe('GH-68: grounding source includes the analyzed thread context', () => {
     expect(Selection.text).not.toBe(Invented.reminder_message);
   });
 
-  test('the verbatim path is untouched — synthesis off still shows the user wording', () => {
+  test('GH-250: with synthesis off, a pointer reply still loses to the grounded title', () => {
+    // the pre-GH-250 verbatim path would have shown `can you do this by tomorrow morning?` here —
+    // the exact raw-wording reminder the output contract exists to remove. The user wording is
+    // still tried first under the flag; it is refused because it names nothing.
     const Selection = ReminderDisplaySelection.SelectTaskText(
       Candidate, LiveReply, false, AnalyzedSource,
     );
+    expect(Selection.source).toBe('title');
+    expect(Selection.text).toBe(Candidate.reminder_message);
+    expect(Selection.contract.rejected).toEqual([{ source: 'verbatim', reasons: ['bare-pointer'] }]);
+  });
+
+  test('with synthesis off, a reply that names its object is shown in the user wording', () => {
+    const Selection = ReminderDisplaySelection.SelectTaskText(
+      Candidate, 'can you demo the thread review by tomorrow morning?', false, AnalyzedSource,
+    );
     expect(Selection.source).toBe('verbatim');
-    expect(Selection.text).toBe(LiveReply);
+    expect(Selection.text).toBe('Demo the thread review by tomorrow morning');
   });
 
   test('EVERY render path must ground identically — the digest/triage agreement invariant', () => {

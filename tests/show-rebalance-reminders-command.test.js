@@ -505,8 +505,8 @@ describe('BuildDisplayReminderLines (export v1.4.184+ display fields)', () => {
     expect(Body).toBe([
       'Pending reminders (1 total):',
       '*📆 Due after today*',
-      'A.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> (3 days old) - <@U_TARGET> - ' +
-        '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT>',
+      'A.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> · <@U_TARGET> · due ' +
+        '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT> · 3 days old',
     ].join('\n'));
   });
 
@@ -525,7 +525,8 @@ describe('BuildDisplayReminderLines (export v1.4.184+ display fields)', () => {
     const Lines = Body.split('\n');
     expect(Lines[1]).toBe('*📅 Due Today*');
     expect(Lines[2]).toMatch(/^A\.\)/);
-    expect(Lines[2]).not.toContain('99 days old'); // recomputed from createdOn (same day → no suffix)
+    expect(Lines[2]).not.toContain('99 days old'); // recomputed from createdOn (same day → "created today")
+    expect(Lines[2].endsWith(' · created today')).toBe(true);
     expect(Lines[3]).toBe('*📆 Due after today*');
     expect(Lines[4]).toMatch(/^B\.\)/);
   });

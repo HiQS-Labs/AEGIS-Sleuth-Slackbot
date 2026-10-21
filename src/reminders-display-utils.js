@@ -3,6 +3,7 @@
 const DateUtils = require('./date-utils');
 const SlackFormatUtils = require('./slack-format-utils');
 const { ResolveClientNameForReminder, ApplyClientPrefix } = require('./client-mapping');
+const TitleContract = require('./reminder-title-contract');
 
 /**
  * Maximum length of the one-line summary shown per reminder in compact digests. Synthesized task
@@ -23,19 +24,18 @@ const REDUNDANT_EDGE_LINE_PATTERN = /^(?:<@[^>]+>(?:\s*[,:-]\s*)?)?(?:hi|hey|hel
 
 /**
  * Truncate a one-line summary to MAX_COMPACT_SUMMARY_LENGTH, appending an ellipsis when shortened.
- * Trims trailing whitespace before the ellipsis so we never emit "word …".
+ *
+ * GH-250: the cut lands on a clause or word boundary, never inside a word. The old hard
+ * `slice(0, 140)` is where digest lines such as `…the pixel tester on my en…` came from. Titles
+ * written since GH-250 are already within the title budget, so this mostly guards records stored
+ * before it (and the odd long client prefix). Slack tokens are still never severed.
  * @param {string} ArgSummary Summary text (already single-line).
  * @returns {string}
  */
 function TruncateCompactSummary(ArgSummary) {
-  if(ArgSummary.length <= MAX_COMPACT_SUMMARY_LENGTH) return ArgSummary;
-  let Cut = ArgSummary.slice(0, MAX_COMPACT_SUMMARY_LENGTH);
-  // avoid severing a Slack token like <@U123> or <url|label>: if the cut left an unclosed '<'
-  // (a '<' with no following '>'), drop back to just before that opening bracket.
-  const LastOpen = Cut.lastIndexOf('<');
-  if(LastOpen !== -1 && Cut.indexOf('>', LastOpen) === -1)
-    Cut = Cut.slice(0, LastOpen);
-  return `${Cut.trimEnd()}…`;
+  const Summary = String(ArgSummary ?? '');
+  if(Summary.length <= MAX_COMPACT_SUMMARY_LENGTH) return Summary;
+  return TitleContract.FitTitleToBudget(Summary, MAX_COMPACT_SUMMARY_LENGTH, Number.POSITIVE_INFINITY).text;
 }
 
 /**
@@ -221,8 +221,26 @@ function ExtractCompactSummary(ArgReminderMessageText) {
 }
 
 /**
+ * Human label for a reminder's age, always present so the age can never be mistaken for the due
+ * date (GH-250: a reader took `(26 days old)` for a deadline, and a same-day reminder carried no
+ * age at all, so two lines in one digest showed different metadata).
+ * @param {number} ArgAgeDays Whole days since the reminder was created.
+ * @returns {string}
+ */
+function FormatReminderAge(ArgAgeDays) {
+  if(!(ArgAgeDays > 0)) return 'created today';
+  return ArgAgeDays === 1 ? '1 day old' : `${ArgAgeDays} days old`;
+}
+
+/**
  * Assemble the canonical compact reminder line from precomputed parts:
- * `A.) <permalink|summary> (N days old) - <@user> - <!date…>`.
+ * `A.) <permalink|summary> · <@user> · due <!date…> · N days old`.
+ *
+ * ONE render format for every list surface (GH-250). The fields are separated by middle dots and
+ * the due date and the age are each labelled, so neither can be read as the other. The source
+ * permalink is always attached: wrapping the summary when it carries no Slack token, else as a
+ * trailing `↗︎` link.
+ *
  * Pure — shared by the live show-reminders path and consumers re-rendering reminders from
  * the published rebalance export, so the wording stays identical everywhere.
  * @param {{ Label: string, Summary: string, PermaLink: string|null, AgeDays: number,
@@ -244,9 +262,9 @@ function BuildCompactReminderLine(ArgParts) {
     SummaryLink = ArgParts.Summary;
   }
 
-  const AgeInfo = ArgParts.AgeDays > 0 ? ` (${ArgParts.AgeDays} days old)` : '';
+  const Owner = ArgParts.TaggedUserMention || 'unassigned';
 
-  return `${ArgParts.Label}.) ${SummaryLink}${AgeInfo} - ${ArgParts.TaggedUserMention} - ${SlackDateFormat}`;
+  return `${ArgParts.Label}.) ${SummaryLink} · ${Owner} · due ${SlackDateFormat} · ${FormatReminderAge(ArgParts.AgeDays)}`;
 }
 
 /**
@@ -327,13 +345,22 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
   // tasks 2..N of this record. `summary` above already rendered task 1 (with the client prefix), so
   // these are the ones the old `find('•')` read dropped on the floor. Same ApplyClientPrefix
   // treatment, so a two-task reminder does not label one bullet and leave the other bare.
+  //
+  // GH-250: capped. A record holding a whole pasted list rendered as a title plus ten sub-bullets;
+  // the delivered message shows at most MAX_DISPLAYED_SUBTASKS of them and points at the source
+  // for the rest. The metadata still carries the whole record, so one ✅ completes every task.
+  // Without a permalink there is nowhere to point, so every task stays visible.
   let ExtraTaskLines = '';
   if(ArgOptions?.IncludeAllKeyTasks) {
     const ClientName = ResolveClientNameForReminder(ArgReminder, ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME);
-    ExtraTaskLines = ExtractKeyTaskSummaries(ArgReminder.ReminderMessageText)
-      .slice(1)
+    const ExtraTasks = ExtractKeyTaskSummaries(ArgReminder.ReminderMessageText).slice(1);
+    const Shown = PermaLink ? ExtraTasks.slice(0, TitleContract.MAX_DISPLAYED_SUBTASKS) : ExtraTasks;
+    const Hidden = ExtraTasks.length - Shown.length;
+    ExtraTaskLines = Shown
       .map(ArgTask => `\n   • ${ApplyClientPrefix(ArgTask, ClientName)}`)
       .join('');
+    if(Hidden > 0)
+      ExtraTaskLines += `\n   • +${Hidden} more${PermaLink ? ` <${PermaLink}|↗︎>` : ''}`;
   }
 
   const Annotation = ArgAnnotationsByReminderId?.[ArgReminder.ReminderID];
@@ -513,6 +540,7 @@ async function PostBucketedReminderSectionsAsync(
 module.exports = {
   GetAlphabeticalLabel,
   TruncateCompactSummary,
+  FormatReminderAge,
   MAX_COMPACT_SUMMARY_LENGTH,
   REMINDER_DUE_SECTIONS,
   ExtractCompactSummary,

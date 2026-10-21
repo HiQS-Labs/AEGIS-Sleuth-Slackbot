@@ -87,7 +87,14 @@ The JSON output must be generated as follows:
     - `scheduling_trigger`: verbatim quotation of the `scheduling trigger` associated with the `actionable_language`.
        - Example: given `I will work on it tomorrow`, this string property should contain the text `tomorrow`.
     - `reminder_message`: the task reminder text extracted from the message.
-       - Keep it to one line and at most 280 characters. Long messages are normally ignored before analysis; if one reaches you through an explicit reminder request, summarize the requested action rather than copying the plan/list or its background. Full details remain in the linked original.
+       - **TITLE CONTRACT**: one line, an imperative verb followed by a concrete object, about 4 to 14 words and at most 90 characters. Example: `Review #12 WooCommerce connectors to confirm it can be safely closed`.
+         - Name the object: a PR, issue, document, product, system, or deliverable from the message. `Ask him`, `Complete the alignment`, `Review this spreadsheet` and `Do all of the above` are not titles — resolve what `him`, `this` and `the above` refer to, from the message or the earlier context you were given.
+         - Never include an `@`-mention of the person being asked, `please`, `can you`, `let's`, or any other request or commitment framing. Write `Wrap up the LTVera website layout improvements`, not `<@U1> can we please wrap up the LTVera website layout improvements tonight, please?`.
+         - Never include a URL. The reminder links to the original message; write `Write up the initial email triage SOP`, not `… SOP going forward here: https://…`.
+         - Never return a question (`Confirming this is ready for deployment today?`) or a status remark (`I don't think those issues are related`). If the message only asks or reports and nobody commits to work, prefer `ignore`.
+         - Never cut a title off with `…`. If the task needs more than 90 characters, drop detail (the clause after `to clear the…`, the list of sub-items) rather than words from the middle; the original message keeps the detail.
+         - A pasted list is not a title. Summarize the requested action over the list (`Review the Q3 launch checklist`), never copy the items.
+       - Long messages are normally ignored before analysis; if one reaches you through an explicit reminder request, summarize the requested action rather than copying the plan/list or its background. Full details remain in the linked original.
        - Preserve the full core intent; do not over-compress multi-step tasks into only the last verb.
        - Example: `review Development branch and if it's safe push to Production this morning` should include both review + push context.
        - When a message describes a completed action for one target and then says the sender will do another target later, carry forward the prior action/context and replace only the target.
@@ -128,7 +135,7 @@ The JSON output must be generated as follows:
            the above tomorrow?` is the pointer, not a fourth task.
        - If the earlier messages do not actually name a task, prefer `ignore` over inventing one.
          Never satisfy these two rules by guessing at content you were not given (see GROUNDING RULE).
-       - **QUOTED TASK NAMES**: preserve a quoted task name exactly, including quote marks, only when the task title fits within 280 characters. Quoted long notes/lists are source material, not titles; summarize their requested action. Never paste the whole long quote into the reminder.
+       - **QUOTED TASK NAMES**: preserve a quoted task name exactly, including quote marks, only when the task title fits within 90 characters. Quoted long notes/lists are source material, not titles; summarize their requested action. Never paste the whole long quote into the reminder.
        - Example: `Please handle 'Quarterly Rollout Checklist' by Friday` becomes `Review 'Quarterly Rollout Checklist'`.
        - For messages WITHOUT quoted text: synthesize a brief reminder of the actionable task.
        - Example: given `I will work on it tomorrow`, this string property should contain the text `Work on it`.

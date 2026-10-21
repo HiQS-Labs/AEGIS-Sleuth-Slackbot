@@ -10,7 +10,7 @@
       },
       "reminder_message": {
         "type": "string",
-        "description": "One-line imperative reminder title, at most 280 characters, summarizing requested work rather than repeating a long list or background."
+        "description": "One-line imperative reminder title: a verb plus a concrete object, about 4 to 14 words and at most 90 characters, summarizing requested work rather than repeating a long list or background. No @-mentions, no URLs, no 'please', never a question, never cut off with '…'."
       }
     },
     "required": [

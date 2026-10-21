@@ -34,6 +34,7 @@ const ReminderOwnership = require('../src/reminder-ownership');
 // the harness hold its own copy of the display rule and report a bullet production would not render.
 // Everything display-related goes through reminder-display-selection, which production also calls.
 const ReminderDisplaySelection = require('../src/reminder-display-selection');
+const TitleContract = require('../src/reminder-title-contract');
 
 const DefaultScenariosPath = path.join(
   __dirname, '..', 'tests', 'fixtures', 'decision-scenarios', 'reminder-extraction-battery.json',
@@ -243,8 +244,18 @@ async function RunScenarioAsync(ArgScenario) {
     // `RemindersModule#SelectReminderTaskText`. Only Slack mrkdwn normalization and the warn line
     // stay behind in the module, neither of which changes what text is chosen.
     const NormalizedOriginal = RemindersAIPipeline.NormalizeOriginalReminderText(MessageText);
-    const DisplayedTasks = Analysis.reminders.map((/** @type {any} */ ArgR) =>
-      ReminderDisplaySelection.SelectTaskText(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
+    const TaskSelections = Analysis.reminders.map((/** @type {any} */ ArgR) =>
+      ReminderDisplaySelection.SelectTaskText(ArgR, NormalizedOriginal, Routing.synthesisOn));
+    const DisplayedTasks = TaskSelections.map(ArgSelection => ArgSelection.text);
+    // GH-250: which path each displayed title came from, and what the output contract refused
+    // before it. Recorded in the baseline so a change in the verbatim/fallback share is drift.
+    const TitleSources = TaskSelections.map(ArgSelection => ({
+      source: ArgSelection.source,
+      words: ArgSelection.contract.words,
+      shortened: ArgSelection.contract.shortened,
+      unshortened: ArgSelection.contract.unshortened,
+      rejected: ArgSelection.contract.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`),
+    }));
     const DisplayedContext = Analysis.reminders.map((/** @type {any} */ ArgR) =>
       ReminderDisplaySelection.SelectContextLine(ArgR, NormalizedOriginal, Routing.synthesisOn).text);
 
@@ -257,6 +268,7 @@ async function RunScenarioAsync(ArgScenario) {
         candidateCount: Analysis.reminders.length,
         displayedTasks: DisplayedTasks,
         displayedContext: DisplayedContext,
+        titleSources: TitleSources,
         triggers: Analysis.reminders.map((/** @type {any} */ ArgR) => ArgR.scheduling_trigger),
         ownership: {
           assignees: AssigneeIDs,
@@ -292,11 +304,23 @@ async function RunScenarioAsync(ArgScenario) {
  * @returns {string[]} human-readable failure reasons; empty means satisfied.
  */
 function CheckExpectations(ArgScenario, ArgObserved) {
-  const Expected = ArgScenario && ArgScenario.expected;
-  if(!Expected || !ArgObserved) return [];
-
+  if(!ArgObserved) return [];
   const Reasons = [];
   const Tasks = ArgObserved.displayedTasks || [];
+
+  // GH-250 — the output contract holds for EVERY scenario, declared or not. These are the
+  // acceptance criteria of the issue as invariants: a scenario that renders a title outside the
+  // budget, cut mid-word, addressed to someone, asking a question, or pointing at nothing goes red
+  // here even if its author never wrote an expectation for it — so this runs BEFORE the
+  // no-expectations early return below.
+  if(ArgObserved.decision === 'reminder-analysis') {
+    for(const Reason of ReminderTitleContractViolations(Tasks, ArgObserved.titleSources || []))
+      Reasons.push(`TITLE CONTRACT: ${Reason}`);
+  }
+
+  const Expected = ArgScenario && ArgScenario.expected;
+  if(!Expected) return Reasons;
+
   const Joined = Tasks.join(' | ');
 
   if(Expected.recommendation && ArgObserved.recommendation !== Expected.recommendation)
@@ -372,6 +396,46 @@ function CheckExpectations(ArgScenario, ArgObserved) {
   }
 
   return Reasons;
+}
+
+/**
+ * The GH-250 acceptance criteria, checked on rendered task text. Shared by the harness and the
+ * golden-set test so the two cannot disagree about what a finished reminder must look like.
+ * @param {string[]} ArgTasks Displayed task titles.
+ * @param {Array<{unshortened?: string}>} [ArgTitleSources] Per-title contract facts, index-aligned
+ * with `ArgTasks`. A shortened title is checked against its own `unshortened` text: the kept part
+ * must be a prefix of it that ends at a separator. Without that text a cut cannot be verified and
+ * is reported as such — silence is not a pass.
+ * @returns {string[]} human-readable violations; empty when every title satisfies the contract.
+ */
+function ReminderTitleContractViolations(ArgTasks, ArgTitleSources = []) {
+  const Violations = [];
+  (ArgTasks || []).forEach((ArgTask, ArgIndex) => {
+    const Text = String(ArgTask ?? '');
+    const Words = TitleContract.CountTitleWords(Text);
+    if(Text.length > TitleContract.TITLE_MAX_CHARS)
+      Violations.push(`${Text.length} chars > ${TitleContract.TITLE_MAX_CHARS} in ${JSON.stringify(Text)}`);
+    if(Words > TitleContract.TITLE_MAX_WORDS)
+      Violations.push(`${Words} words > ${TitleContract.TITLE_MAX_WORDS} in ${JSON.stringify(Text)}`);
+    if(Words < TitleContract.TITLE_MIN_WORDS)
+      Violations.push(`${Words} word(s) < ${TitleContract.TITLE_MIN_WORDS} in ${JSON.stringify(Text)}`);
+    if(Text.endsWith('…')) {
+      const Kept = Text.slice(0, -1);
+      const Unshortened = String((ArgTitleSources[ArgIndex] && ArgTitleSources[ArgIndex].unshortened) || '');
+      if(!Unshortened)
+        Violations.push(`ellipsis with no recorded unshortened text, cut cannot be verified: ${JSON.stringify(Text)}`);
+      else if(!Unshortened.startsWith(Kept) || !/^[\s,;:\-–—(]|^$/.test(Unshortened.slice(Kept.length, Kept.length + 1)))
+        Violations.push(`mid-word truncation in ${JSON.stringify(Text)} (from ${JSON.stringify(Unshortened)})`);
+    }
+    if(/^(?:<@|<!|@[\w])/.test(Text)) Violations.push(`addressee mention in ${JSON.stringify(Text)}`);
+    if(/\b(?:please|pls)\b/i.test(Text)) Violations.push(`courtesy word in ${JSON.stringify(Text)}`);
+    if(/https?:\/\//i.test(Text)) Violations.push(`raw URL in ${JSON.stringify(Text)}`);
+    if(/\?$/.test(Text)) Violations.push(`question as title ${JSON.stringify(Text)}`);
+    if(!TitleContract.HasConcreteObject(Text) && !Text.startsWith(TitleContract.FALLBACK_TITLE_PREFIX)
+       && Text !== TitleContract.GENERIC_FALLBACK_TITLE)
+      Violations.push(`bare pointer ${JSON.stringify(Text)}`);
+  });
+  return Violations;
 }
 
 /**
@@ -498,7 +562,7 @@ async function MainAsync(ArgArgv) {
 
 module.exports = {
   ParseArgs, Canonicalize, SerializeCanonical, RunScenarioAsync, RunAllAsync,
-  DiffAgainstBaseline, CheckExpectations, MainAsync,
+  DiffAgainstBaseline, CheckExpectations, ReminderTitleContractViolations, MainAsync,
 };
 
 if(require.main === module) {
