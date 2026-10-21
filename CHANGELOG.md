@@ -33,6 +33,30 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 2026-10-20 — GH-257 issue stream review follow-up
+
+I keep GitHub replies with their original Slack thread when the destination changes, and pause
+remaining posts when DND or a state-save failure interrupts a batch. I wait for an active batch
+and its saved progress during shutdown.
+
+**Technical:** Follow-up to PR #256's review. The bounded GitHub client reports incomplete
+traversals; shared cursor advancement respects each unread boundary and unresolved parent
+references. An optional `ParentScanAt` in the existing repo state preserves cross-repo reference
+replay until the target is evaluated. Age cleanup retains thread identities and event keys;
+state grows with delivered activity. Dynamic allowlists no longer reuse stale cache authority:
+empty/stale-only success revokes the list, while transport failures hold it without pruning.
+Static repo configuration is unchanged; no production incident is inferred for dynamic discovery.
+Durable-write errors stop further delivery, pending in-memory state is saved before retry, and
+shutdown awaits the cycle. Slack acceptance and JSON persistence are separate operations: a
+process crash in between can still duplicate a post. Dense capped timestamp bursts and unresolved
+parents beyond the cap conservatively hold/warn and require separately authorized catch-up.
+Existing stream suites cover synthetic pagination, channel/config changes, DND, save failure,
+restart and shutdown. Independent plan QA approved round 3 after correcting missing-parent and
+cross-repo replay gaps; final QA/results are recorded with GH-257. The single-quote title finding
+remains with the separate PR #252 takeover; no title code was copied or changed. Mirror receipt
+links now point to the existing completed document. #lessonslearned: an absent parent is not an
+intentional exclusion until its source has been evaluated.
+
 ## 1.4.346 - 2026-10-20
 
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,
@@ -126,7 +150,7 @@ file, empty PAT, unset repo, missing unit config) each fail with a named error. 
 matched authenticated `ls-remote` main; the real reminder reader loaded from the mirror; the
 installer rerun was byte-identical; a dirty tracked file was reset; the token leak scan (config,
 remote, journal, sampled argv; positive control fired) was clean. Receipt:
-[PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md](PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md).
+[PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md](PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md).
 
 ## 2026-10-12 — GH-243 verification and PR
 Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.

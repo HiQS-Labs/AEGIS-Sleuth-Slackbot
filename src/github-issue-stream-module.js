@@ -9,6 +9,7 @@ const { BaseModule } = require('./base-module');
 const {
   PlanRepoActions,
   NextCursor,
+  HasUnmappedParents,
   PruneState,
   EmptyState,
 } = require('./github-issue-stream-planner');
@@ -36,6 +37,7 @@ const AUDIT_TAG = 'github-issue-stream';
  * @property {RateLimitInfo} RateLimit
  * @property {number} [Status]
  * @property {string} [Error]
+ * @property {boolean} [Complete] False when the bounded traversal may have unread results.
  */
 
 /**
@@ -121,6 +123,7 @@ function BuildDefaultGithubClient(ArgConfig) {
     const Items = [];
     /** @type {RateLimitInfo} */
     let RateLimit = {};
+    let Complete = false;
     for(let Page = 1; Page <= DEFAULT_MAX_PAGES; Page++) {
       const Separator = ArgBaseUrl.includes('?') ? '&' : '?';
       const Url = `${ArgBaseUrl}${Separator}per_page=100&page=${Page}`;
@@ -131,9 +134,12 @@ function BuildDefaultGithubClient(ArgConfig) {
       if(Result.Status === 404)
         return { Items: [], RateLimit, Status: 404, Error: Result.Error };
       Items.push(...Result.Items);
-      if(Result.Items.length < 100) break;
+      if(Result.Items.length < 100) {
+        Complete = true;
+        break;
+      }
     }
-    return { Items, RateLimit, Status: 200 };
+    return { Items, RateLimit, Status: 200, Complete };
   }
 
   return {
@@ -226,11 +232,11 @@ function BuildDefaultGithubClient(ArgConfig) {
  * Lifecycle:
  *  1. StartAsync() loads state; on first run seeds every repo cursor to now (no backlog), then starts the timer.
  *  2. RunOnceAsync() runs one poll cycle (see #RunCycleAsync); safe to call directly from tests.
- *  3. StopAsync() clears the timer and is idempotent.
+ *  3. StopAsync() stops new delivery, awaits the active cycle and flushes pending state.
  *
  * Delivery guarantee: an event key is persisted only after Slack confirms the post, and a repo cursor
- * advances only when every planned action for that repo was delivered, so restarts never duplicate posts
- * and failures never skip them.
+ * advances only through fetched ranges after delivery. A crash between Slack acceptance and a successful
+ * local save can still repeat that post: Slack and the JSON state are not one transaction.
  *
  * Enabled only when this workspace is in GITHUB_ISSUE_STREAM_WORKSPACES, GITHUB_ISSUE_STREAM_CHANNEL_ID
  * is set, and WorkspaceInfo.GITHUB_PAT exists (default OFF).
@@ -268,7 +274,13 @@ class GitHubIssueStreamModule extends BaseModule {
   #Active = false;
 
   /** @type {boolean} */
-  #CycleRunning = false;
+  #Stopping = false;
+
+  /** @type {Promise<void>|null} */
+  #CyclePromise = null;
+
+  /** @type {boolean} */
+  #StateSaveFailed = false;
 
   /** @type {number} */
   #BackoffUntil = 0;
@@ -377,6 +389,7 @@ class GitHubIssueStreamModule extends BaseModule {
       return;
     }
 
+    this.#Stopping = false;
     this.#Active = true;
     const HadPersistedState = await this.#LoadStateAsync();
     if(!HadPersistedState) {
@@ -396,9 +409,14 @@ class GitHubIssueStreamModule extends BaseModule {
    * @returns {Promise<void>}
    */
   async RunOnceAsync() {
-    if(!this.#Active && !this.#Config.Enabled) return;
-    if(!this.#Config.Enabled) return;
-    await this.#RunCycleAsync();
+    if(!this.#Config.Enabled || this.#Stopping) return;
+    if(this.#CyclePromise) return this.#CyclePromise;
+    this.#CyclePromise = this.#RunCycleAsync();
+    try {
+      await this.#CyclePromise;
+    } finally {
+      this.#CyclePromise = null;
+    }
   }
 
   /**
@@ -411,6 +429,13 @@ class GitHubIssueStreamModule extends BaseModule {
       this.#TimerID = null;
     }
     this.#Active = false;
+    this.#Stopping = true;
+    try {
+      await this.#CyclePromise;
+    } finally {
+      if(this.#StateSaveFailed)
+        await this.#SaveStateAsync();
+    }
   }
 
   /**
@@ -418,30 +443,36 @@ class GitHubIssueStreamModule extends BaseModule {
    * @returns {Promise<void>}
    */
   async #RunCycleAsync() {
-    if(this.#CycleRunning) return;
-    this.#CycleRunning = true;
     const Started = Date.now();
     let Posted = 0;
     let Held = 0;
     let Skipped = 0;
 
     try {
+      // flush pending accepted posts before any more delivery, including after a failed save.
+      await this.#SaveStateAsync();
       if(Date.now() < this.#BackoffUntil) {
         this.Logger.info(`${AUDIT_TAG}: backing off until ${new Date(this.#BackoffUntil).toISOString()}`);
         return;
       }
 
-      if(this.#DndSettings?.IsWorkspaceDnd?.() || this.#DndSettings?.IsChannelDnd?.(this.#Config.ChannelID)) {
+      if(this.#DndSettings?.IsWorkspaceDnd?.()) {
         this.Logger.info(`${AUDIT_TAG}: held for DND`);
         Held = 1;
         return;
       }
 
-      const Allowlist = await this.#ResolveAllowlistAsync();
+      let Allowlist;
+      try {
+        Allowlist = await this.#ResolveAllowlistAsync();
+      } catch(error) {
+        this.Logger.warn(`${AUDIT_TAG}: allowlist unavailable — holding cycle:`, error instanceof Error ? error.message : String(error));
+        return;
+      }
       let RemainingBudget = this.#Config.PostBudget;
 
       for(const Repo of Allowlist) {
-        if(RemainingBudget <= 0) break;
+        if(RemainingBudget <= 0 || this.#Stopping) break;
 
         if(!this.#State.Repos[Repo]) {
           const NowIso = this.#Config.Now().toISOString();
@@ -452,6 +483,7 @@ class GitHubIssueStreamModule extends BaseModule {
         }
 
         const Cursor = this.#State.Repos[Repo].Cursor;
+        const ParentScanStartedAt = this.#Config.Now().toISOString();
         let IssuesResult;
         let CommentsResult;
         try {
@@ -477,6 +509,11 @@ class GitHubIssueStreamModule extends BaseModule {
             this.Logger.warn(`${AUDIT_TAG}: GitHub ${CommentsResult.Status} on comments for ${Repo} — stopping cycle`);
             break;
           }
+          if(CommentsResult.Status === 404) {
+            this.Logger.warn(`${AUDIT_TAG}: comments not found or inaccessible: ${Repo}`);
+            Skipped += 1;
+            continue;
+          }
           if(this.#RateLimitExhausted(CommentsResult.RateLimit)) {
             this.Logger.warn(`${AUDIT_TAG}: rate-limit floor hit — stopping cycle`);
             break;
@@ -498,23 +535,35 @@ class GitHubIssueStreamModule extends BaseModule {
           { IgnoreAuthors: this.#Config.IgnoreAuthors }
         );
 
+        const UnmappedParents = HasUnmappedParents(
+          this.#State, Repo, IssuesResult.Items, CommentsResult.Items, this.#Config.IgnoreAuthors,
+          IssuesResult.Complete !== false, Allowlist
+        );
+        if(UnmappedParents)
+          this.Logger.warn(`${AUDIT_TAG}: unresolved parent dependencies for ${Repo} — holding cursor; catch-up required`);
+
         let DeliveredAll = true;
         for(const Action of Actions) {
-          if(RemainingBudget <= 0) {
+          if(RemainingBudget <= 0 || this.#Stopping) {
             DeliveredAll = false;
             break;
           }
           try {
-            const ThreadTs = Action.Kind === 'parent'
-              ? null
-              : this.#State.Issues[Action.IssueKey]?.ThreadTs ?? null;
+            const Thread = this.#State.Issues[Action.IssueKey];
+            const ThreadTs = Action.Kind === 'parent' ? null : Thread?.ThreadTs ?? null;
+            const ChannelID = Action.Kind === 'parent' ? this.#Config.ChannelID : Thread?.ChannelID;
+            if(!ChannelID || this.#DndSettings?.IsWorkspaceDnd?.() || this.#DndSettings?.IsChannelDnd?.(ChannelID)) {
+              Held += 1;
+              DeliveredAll = false;
+              break;
+            }
             if(Action.Kind === 'reply' && !ThreadTs) {
               // parent not yet persisted (should not happen: parents precede replies in planner output).
               DeliveredAll = false;
               break;
             }
             const PostedTs = await this.SlackApp.PostMessageTextAsync(
-              this.#Config.ChannelID,
+              ChannelID,
               ThreadTs,
               Action.Text,
               undefined,
@@ -531,6 +580,7 @@ class GitHubIssueStreamModule extends BaseModule {
             if(RemainingBudget > 0 && this.#Config.PostGapMs > 0)
               await this.#Config.SleepAsync(this.#Config.PostGapMs);
           } catch(error) {
+            if(this.#StateSaveFailed) throw error;
             this.Logger.error(
               `${AUDIT_TAG}: Slack post failed for ${Action.IssueKey} ${Action.EventKey}:`,
               error instanceof Error ? error.message : String(error)
@@ -540,14 +590,21 @@ class GitHubIssueStreamModule extends BaseModule {
           }
         }
 
-        if(DeliveredAll) {
-          this.#State.Repos[Repo].Cursor = NextCursor(
+        if(DeliveredAll && IssuesResult.Complete !== false)
+          this.#State.Repos[Repo].ParentScanAt = ParentScanStartedAt;
+
+        if(DeliveredAll && !UnmappedParents) {
+          const UpdatedCursor = NextCursor(
             IssuesResult.Items,
             CommentsResult.Items,
-            Cursor
+            Cursor,
+            { Issues: IssuesResult.Complete, Comments: CommentsResult.Complete }
           );
+          if(UpdatedCursor === Cursor && (IssuesResult.Complete === false || CommentsResult.Complete === false))
+            this.Logger.warn(`${AUDIT_TAG}: page cap with no safe cursor progress for ${Repo} — holding; catch-up required`);
+          this.#State.Repos[Repo].Cursor = UpdatedCursor;
           await this.#SaveStateAsync();
-        } else {
+        } else if(!DeliveredAll) {
           // leave cursor unchanged so undelivered events retry; PostedKeys prevent duplicates.
           break;
         }
@@ -556,7 +613,6 @@ class GitHubIssueStreamModule extends BaseModule {
       PruneState(this.#State, this.#Config.Now(), Allowlist);
       await this.#SaveStateAsync();
     } finally {
-      this.#CycleRunning = false;
       this.Logger.info(
         `${AUDIT_TAG}: ws=${this.WorkspaceName} repos=${Object.keys(this.#State.Repos).length} ` +
         `posted=${Posted} held=${Held} skipped=${Skipped} ms=${Date.now() - Started}`
@@ -623,19 +679,9 @@ class GitHubIssueStreamModule extends BaseModule {
     if(this.#Config.ExplicitRepos) {
       Repos = this.#Config.ExplicitRepos;
     } else {
-      try {
-        Repos = await this.#LoadAllowlistFromPulseAsync();
-        if(Repos.length > 0)
-          this.#State.AllowlistCache = Repos;
-      } catch(error) {
-        this.Logger.warn(
-          `${AUDIT_TAG}: allowlist fetch failed, using cache:`,
-          error instanceof Error ? error.message : String(error)
-        );
-        Repos = this.#State.AllowlistCache || [];
-      }
-      if(Repos.length === 0)
-        Repos = this.#State.AllowlistCache || [];
+      // successful empties revoke the list; errors hold the cycle rather than reuse stale authority.
+      Repos = await this.#LoadAllowlistFromPulseAsync();
+      this.#State.AllowlistCache = Repos;
     }
 
     return this.#NormalizeAllowlist(Repos);
@@ -667,12 +713,7 @@ class GitHubIssueStreamModule extends BaseModule {
     const NowMs = this.#Config.Now().getTime();
     for(const File of Files) {
       if(File.name === 'latest.json') continue;
-      let Raw;
-      try {
-        Raw = await this.#Config.GithubClient.GetAllowlistFileAsync(File.name);
-      } catch {
-        continue;
-      }
+      const Raw = await this.#Config.GithubClient.GetAllowlistFileAsync(File.name);
       let Payload;
       try {
         Payload = JSON.parse(Raw);
@@ -748,12 +789,15 @@ class GitHubIssueStreamModule extends BaseModule {
   async #SaveStateAsync() {
     try {
       await fs.mkdir(path.dirname(this.#Config.StatePath), { recursive: true });
-      await WriteFileDurableAsync(this.#Config.StatePath, JSON.stringify(this.#State, null, 2));
+      await WriteFileDurableAsync(this.#Config.StatePath, JSON.stringify(this.#State, null, 2), { Logger: { warn: (...ArgArgs) => this.Logger.warn(...ArgArgs) } });
+      this.#StateSaveFailed = false;
     } catch(error) {
+      this.#StateSaveFailed = true;
       this.Logger.warn(
-        `${AUDIT_TAG}: failed to save state (non-fatal):`,
+        `${AUDIT_TAG}: failed to save state — delivery stopped:`,
         error instanceof Error ? error.message : String(error)
       );
+      throw error;
     }
   }
 

@@ -1,6 +1,6 @@
 ---
 title: GH-257 — Issue stream review follow-up
-status: Planning
+status: In Progress
 created: 2026-10-20
 updated: 2026-10-20
 owner: Codex
@@ -16,7 +16,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Fresh full clone; review and current source traced at development 50fa08c | Independent plan QA, existing-suite red controls, implementation, final QA and draft PR |
+| Independent plan QA approved round 3; scoped implementation and focused synthetic tests | Finish regression evidence, independent final QA and draft PR |
 
 ## Scope and recon
 
@@ -61,3 +61,5 @@ Reviewer: read whole module/planner and existing tests plus this plan. Are the s
 Round 1 independent Codex review ran and returned FAIL with a reproducible unseen-parent loss case. R1 accepted: hold/warn on unresolved parent dependencies during incomplete issue traversal, with a since-filtered multi-cycle red control. R2 accepted: Setup now names the tracked plan directly. R3 accepted: restart guarantee explicitly follows a successful save. Harness exit 6 came from producer test edits during the review; it backed up and reverted those edits, which were restored. Do not mutate the working tree while subsequent reviews run. No harness modification or containment bypass.
 
 Round 2 dispositions: R4 accepted, one optional ParentScanAt field disambiguates unvisited target repositories from evaluated exclusions; no queues/API. Cover both repo orders with since-filtered mocked responses and pre-seed/non-allowlisted targets. R5 accepted: initial 500 records exclude #501 and preserve ascending update order. Only three plan rounds are configured; no force/cap bypass.
+
+Round 3 plan QA: PASS, attested at 7dea9c6268662dca2c3a461bbf89a315f6e103a8. Implementation follows the approved source/state boundaries. Dense-boundary and blocked-save shutdown cases were added to the existing module suite.

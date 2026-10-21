@@ -7,8 +7,6 @@ const {
   PruneState,
   EmptyState,
   EscapeMrkdwn,
-  CLOSED_RETENTION_MS,
-  INACTIVE_RETENTION_MS,
 } = require('../src/github-issue-stream-planner');
 
 /**
@@ -320,14 +318,14 @@ describe('PruneState', () => {
       ThreadTs: '1',
       PostedKeys: [],
       Closed: true,
-      LastActivityAt: new Date(Now.getTime() - CLOSED_RETENTION_MS - 1000).toISOString(),
+      LastActivityAt: new Date(Now.getTime() - 14 * 24 * 60 * 60 * 1000 - 1000).toISOString(),
     };
     State.Issues['a/b#2'] = {
       ChannelID: 'C1',
       ThreadTs: '2',
       PostedKeys: [],
       Closed: false,
-      LastActivityAt: new Date(Now.getTime() - INACTIVE_RETENTION_MS - 1000).toISOString(),
+      LastActivityAt: new Date(Now.getTime() - 30 * 24 * 60 * 60 * 1000 - 1000).toISOString(),
     };
     State.Issues['a/b#3'] = {
       ChannelID: 'C1',
