@@ -103,14 +103,19 @@ const REQUEST_FRAMING_PATTERNS = [
 ];
 
 const SCHEDULE_LEADING_PATTERN = /^(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|next\s+(?:week|month)|eod|eow|asap)(?=$|[\s,:!.-])[\s,:!.-]*/i;
-const SCHEDULE_TRAILING_PATTERN = /\s+(?:(?:by|before|on|at|due|no later than)\s+)?(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|next\s+(?:week|month)|end of (?:the )?(?:day|week)|eod|eow|asap|\d{1,2}(?::\d{2})?\s*(?:am|pm))[\s.!,;:\-–—]*$/i;
+// a bare weekday abbreviation (`sun`, `mon`, `sat`, `wed`) is an ordinary word too, so it is only
+// schedule wording behind a deadline lead-in (`on Wed`); full weekday names may stand alone.
+const SCHEDULE_TRAILING_PATTERN = /\s+(?:(?:by|before|on|at|due|no later than)\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:\s+(?:morning|afternoon|evening|night))?|(?:(?:by|before|on|at|due|no later than)\s+)?(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening|night))?|next\s+(?:week|month)|end of (?:the )?(?:day|week)|eod|eow|asap|\d{1,2}(?::\d{2})?\s*(?:am|pm)))[\s.!,;:\-–—]*$/i;
 const DURATION_CONDITION_PATTERN = /\b(?:until|till|thru|through|for|over|during|within|since|from|between|after)\b/i;
+/** A strip that leaves the title ending on one of these removed its object (`Move the demo to`). */
+const DANGLING_END_PATTERN = /\b(?:to|into|in|of|with|the|a|an|than)$/i;
 
 /** @param {string} ArgText @param {string[]} ArgChanges @param {RegExp} ArgPattern @returns {string} */
 function StripScheduleWording(ArgText, ArgChanges, ArgPattern) {
   if(DURATION_CONDITION_PATTERN.test(ArgText)) return ArgText;
   const Stripped = Collapse(ArgText.replace(ArgPattern, ''));
   if(Stripped === ArgText || CountTitleWords(Stripped) < TITLE_MIN_WORDS) return ArgText;
+  if(DANGLING_END_PATTERN.test(Stripped.replace(/[\s.!,;:\-–—]+$/, ''))) return ArgText;
   ArgChanges.push('schedule');
   return Stripped;
 }

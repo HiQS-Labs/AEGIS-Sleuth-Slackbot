@@ -43,7 +43,9 @@ are handled with the same deterministic cleanup.
 the thread-topic header is explicitly deferred to GH-250 phase 5. The schedule transform runs after
 courtesy cleanup and before/after request framing, and refuses to remove a title containing a
 duration or condition clause. Golden and decision-replay baselines record only the intended title
-shortening; ownership, recommendations, and grounding remain unchanged.
+shortening; ownership, recommendations, and grounding remain unchanged. A bare weekday abbreviation
+(`in the sun`) is only removed behind a deadline lead-in (`on Wed`), and a removal that would leave
+the title ending on its preposition or article (`Move the demo to`) is refused.
 
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,
 with the source link, the owner, a labelled due date and a labelled age. I no longer repeat your
