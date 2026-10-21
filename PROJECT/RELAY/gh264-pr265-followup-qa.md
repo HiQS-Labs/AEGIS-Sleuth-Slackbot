@@ -6,12 +6,20 @@ Attested2026-10-21T15:15:00Z; canonical digest931a2634c57a4c3b3e070f14f3d20f32fb
 Harness attestation loader verified reviewer, repository, original review bytes and trailer. Machine-specific paths in the portable transcript below are redacted; the canonical digest refers to the retained original.
 This is the newly authorized post-publication review-fix batch, not a replacement of prior receipts.
 
-### Reviewer · Round N`, `### Round N · Reviewer · <agent>`, `### Reviewer (<agent>)` (optionally followed by `— rN`), or `### Reviewer — Round N` (optionally followed by `(<agent>)`); follow the heading with a non-empty review body.
-5. **Update the header:** flip `NEXT`; set `STATUS` (`Approved` closes — Reviewer only; else `Open`);
+Accepted reviewer-heading forms:
+
+- `### Reviewer · Round N`
+- `### Round N · Reviewer · <agent>`
+- `### Reviewer (<agent>)` (optionally followed by `— rN`)
+- `### Reviewer — Round N` (optionally followed by `(<agent>)`)
+
+Follow the heading with a non-empty review body.
+
+1. **Update the header:** flip `NEXT`; set `STATUS` (`Approved` closes — Reviewer only; else `Open`);
    the Producer bumps `ROUND` when opening a new cycle. If the max `ROUND` ends without `Approved`,
    set `STATUS: Escalated`.
-6. **Commit only the relay file** (`relay(gh264-pr265-review-follow-up): <role> r<N>`); no push. **Stop** and report one line.
-7. **Hand off explicitly — EVERY turn, not just the first** (GH-268). End your turn by naming who acts
+2. **Commit only the relay file** (`relay(gh264-pr265-review-follow-up): <role> r<N>`); no push. **Stop** and report one line.
+3. **Hand off explicitly — EVERY turn, not just the first** (GH-268). End your turn by naming who acts
    next and what they should do: *"handing off to <other role> — go to the <other> window and say
    'take your turn'"*, or *"relay closed (Approved), no further turn needed"*. The beta report singled
    this out: the Reviewer turn never told the user to return to the Producer window, so a relay that
