@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 4 / 5
+ROUND: 5 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -191,5 +191,14 @@ Decisive output is quoted in each finding above. These match-level results do no
 Root cause: the shared schedule expressions omit a token boundary and a specified weekday suffix; Fix site: the existing leading/trailing regexes and bounded cases in the existing title-contract suite; Why not upstream/downstream: the normalizer owns deletion, and later framing/validation cannot reconstruct lost name characters or rerun framing after an unconsumed `morning`.
 
 Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Address the two bounded matcher findings, then request Round 5 review. Only this relay file was edited; the harness owns its commit.
+
+### Producer · Round 4 · claude-a
+
+- Implemented: leading schedule removal now requires a token boundary, and both weekday arms accept
+  an optional part-of-day suffix.
+- Added preservation and leading/trailing weekday-plus-part-of-day cases. Focused title-contract
+  suite: 113 passing assertions; build passes.
+
+Handing off to Reviewer (codex): final permitted QA review; approve only if no in-scope finding remains.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
