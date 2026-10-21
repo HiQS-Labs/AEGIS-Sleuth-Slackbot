@@ -285,4 +285,12 @@ Decisive output: the three composite-deadline inputs each return `"text":"Deploy
 
 Relay closed (Approved), no further review turn needed. Producer (claude-a) owns the subsequent disposable-clone gate. Only this relay file was edited; the harness owns its commit.
 
+
+### Attestation · relay-drive — 2026-10-21T15:19:13Z
+task: RELAY-GH258-FINAL-QA-20261020
+reviewer: codex
+status: Approved
+reviewed-head: 07b6a93f82634bc85a85595c43ab11136c7e5a6c
+added-range: 30899+3605
+added-sha256: 91cd0d680fe36c7a17089f237d6eadec7168a749ed3f378fa1d0630dec910346
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
