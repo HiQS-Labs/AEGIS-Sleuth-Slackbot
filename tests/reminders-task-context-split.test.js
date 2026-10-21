@@ -149,8 +149,10 @@ describe('GH-43 Phase 3 — task and context are separate fields', () => {
 
     const Text = stored[0].ReminderMessageText;
     expect(Text).not.toContain('Snowflake');
-    // it falls back to the quoted evidence span rather than dropping the reminder
-    expect(Text).toContain('• i am going to deploy the changes');
+    // it falls back to the quoted evidence span rather than dropping the reminder — shown in the
+    // one shape every path shares (GH-250), so the first-person preamble is gone
+    expect(Text).toContain('• Deploy the changes');
+    expect(Text).not.toContain('• i am going to deploy the changes');
     // and the ungrounded context is suppressed rather than shown
     expect(Text).not.toContain('warehouse was starved');
   });

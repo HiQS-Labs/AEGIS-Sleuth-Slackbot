@@ -28,8 +28,21 @@ describe('TruncateCompactSummary', () => {
     const Long = `${'word '.repeat(60)}end`; // well over the limit
     const Result = TruncateCompactSummary(Long);
     expect(Result.endsWith('…')).toBe(true);
-    expect(Result.length).toBeLessThanOrEqual(MAX_COMPACT_SUMMARY_LENGTH + 1);
+    expect(Result.length).toBeLessThanOrEqual(MAX_COMPACT_SUMMARY_LENGTH);
     expect(Result).not.toMatch(/ …$/); // trailing space trimmed before ellipsis
+  });
+
+  test('GH-250: the cut lands on a word boundary, never mid-word', () => {
+    // the reported digest line: `…the pixel tester on my en…`
+    const Long = 'I don\'t think those issues are related to Meettie implementation. I still have to test the pixel tester on my end before I can say anything else about it';
+    const Result = TruncateCompactSummary(Long);
+    expect(Result.endsWith('…')).toBe(true);
+    expect(Result.length).toBeLessThanOrEqual(MAX_COMPACT_SUMMARY_LENGTH);
+    const Kept = Result.slice(0, -1);
+    expect(Long.startsWith(Kept)).toBe(true);
+    // the character after the kept text in the original is a separator: the cut did not split a word.
+    expect(Long.charAt(Kept.length)).toMatch(/[\s,;:]/);
+    expect(Result).not.toMatch(/\ben…$/);
   });
 
   test('does not sever a Slack token (<@mention> / <url|label>) mid-bracket', () => {
@@ -205,8 +218,8 @@ describe('BuildCompactReminderLine', () => {
   test('builds the canonical line with permalink-wrapped summary', () => {
     const Line = BuildCompactReminderLine(BaseParts);
     expect(Line).toBe(
-      'A.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> (3 days old) - <@U_TARGET> - ' +
-      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT>'
+      'A.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> · <@U_TARGET> · due ' +
+      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT> · 3 days old'
     );
   });
 
@@ -215,11 +228,18 @@ describe('BuildCompactReminderLine', () => {
     expect(Line).toContain('Ping <@U_OTHER> about it <https://x.slack.com/archives/C1/p123|↗︎>');
   });
 
-  test('omits the age suffix for same-day reminders and the link for missing permalinks', () => {
+  test('GH-250: a same-day reminder still carries a labelled age, and the link is omitted without a permalink', () => {
     const Line = BuildCompactReminderLine({ ...BaseParts, PermaLink: null, AgeDays: 0 });
-    expect(Line).toContain('A.) Ship the hotfix - <@U_TARGET> - ');
-    expect(Line).not.toContain('days old');
+    expect(Line).toContain('A.) Ship the hotfix · <@U_TARGET> · due ');
+    expect(Line.endsWith(' · created today')).toBe(true);
     expect(Line).not.toContain('|↗︎>');
+    expect(BuildCompactReminderLine({ ...BaseParts, AgeDays: 1 }).endsWith(' · 1 day old')).toBe(true);
+  });
+
+  test('GH-250: the due date is labelled and the age is a separate trailing field, so neither reads as the other', () => {
+    const Line = BuildCompactReminderLine(BaseParts);
+    expect(Line).toMatch(/ · due <!date\^\d+\^\{date_short\} \{time\}\|[^>]+> · 3 days old$/);
+    expect(Line).not.toContain('(3 days old)');
   });
 });
 
@@ -259,8 +279,8 @@ describe('BuildCompactTextForReminder (parity with the shared line builder)', ()
     const Line = await BuildCompactTextForReminder(SlackApp, Reminder, 'B');
 
     expect(Line).toBe(
-      'B.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> (3 days old) - <@U_TARGET> - ' +
-      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT>'
+      'B.) <https://x.slack.com/archives/C1/p123|Ship the hotfix> · <@U_TARGET> · due ' +
+      '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT> · 3 days old'
     );
     expect(SlackApp.GetPermaLinkAsync).toHaveBeenCalledWith('C1', '123.456');
   });
@@ -350,5 +370,46 @@ describe('multi-task delivery — a trigger group is one record with N Key tasks
 
   test('ExtractCompactSummary is unchanged — still the FIRST task only', () => {
     expect(ExtractCompactSummary(ReminderMessageText)).toBe('Review LTVera 485');
+  });
+});
+describe('GH-250 — delivery caps extra Key tasks, except when there is no permalink to point at', () => {
+  const Tasks = ['Review LTVera 485', 'Review LTVera 483', 'Review LTVera 481', 'Review LTVera 479', 'Review LTVera 477', 'Review LTVera 475'];
+  const ReminderMessageText = [
+    '<@U_NOEL> - please follow up on <https://x.slack.com/archives/C1/p1|this>:',
+    '>a pasted list',
+    '',
+    'Key task(s):',
+    ...Tasks.map(ArgTask => `• ${ArgTask}`),
+  ].join('\n');
+  /** @param {string|null} ArgPermaLink @returns {any} */
+  const MakeSlackApp = ArgPermaLink => ({
+    BotUserID: 'U_BOT',
+    WorkspaceInfo: { MAIN_TIMEZONE: 'UTC' },
+    Logger: { info() {}, warn() {}, error() {} },
+    GetPermaLinkAsync: jest.fn().mockResolvedValue(ArgPermaLink),
+  });
+  /** @returns {any} */
+  const MakeReminder = () => ({
+    ReminderID: 'R_CAP', ReminderMessageText, OriginalChannelID: 'C1', OriginalMessageID: '123.456',
+    CreatedOn: new Date(Date.UTC(2026, 8, 10)), ShouldPostOn: new Date(Date.UTC(2026, 8, 11)),
+    AssigneeIDs: ['U_JOSE'], OriginalSenderID: 'U_NOEL',
+  });
+
+  test('with a permalink: the first task on the line, 3 more as bullets, and "+N more" linking to the source', async () => {
+    const Line = await BuildCompactTextForReminder(
+      MakeSlackApp('https://x.slack.com/archives/C1/p1'), MakeReminder(), 'A', undefined, { IncludeAllKeyTasks: true },
+    );
+    const Lines = Line.split('\n');
+    expect(Lines).toHaveLength(5);
+    expect(Lines.slice(1, 4)).toEqual(Tasks.slice(1, 4).map(ArgTask => `   • ${ArgTask}`));
+    expect(Lines[4]).toBe('   • +2 more <https://x.slack.com/archives/C1/p1|↗︎>');
+  });
+
+  test('without a permalink every task stays visible — there is nothing to point "+N more" at', async () => {
+    const Line = await BuildCompactTextForReminder(MakeSlackApp(null), MakeReminder(), 'A', undefined, { IncludeAllKeyTasks: true });
+    const Lines = Line.split('\n');
+    expect(Lines).toHaveLength(6);
+    expect(Line).not.toContain('more');
+    expect(Lines[5]).toBe('   • Review LTVera 475');
   });
 });

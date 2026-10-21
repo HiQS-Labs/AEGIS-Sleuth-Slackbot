@@ -6,7 +6,7 @@
       "the scan only ever saw a small fixed batch of photos"
     ],
     "displayedTasks": [
-      "deploy the changes"
+      "Deploy the changes"
     ],
     "ownership": {
       "assignees": [
@@ -28,6 +28,15 @@
       "sentenceCount": 5,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 3
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -51,7 +60,7 @@
       ""
     ],
     "displayedTasks": [
-      "I'll deploy the changes tomorrow morning."
+      "Deploy the changes tomorrow morning"
     ],
     "ownership": {
       "assignees": [
@@ -70,6 +79,15 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "verbatim",
+        "unshortened": "",
+        "words": 5
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -100,7 +118,7 @@
       ""
     ],
     "displayedTasks": [
-      "<@U_ALPHA> found the root cause in the cron job. I'll patch it tomorrow morning."
+      "Patch the cron job"
     ],
     "ownership": {
       "assignees": [
@@ -121,6 +139,17 @@
       "sentenceCount": 2,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [
+          "verbatim:multi-sentence"
+        ],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 4
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -132,7 +161,7 @@
       ""
     ],
     "displayedTasks": [
-      "<@U_ALPHA> <@U_BETA> can you both test the new release tomorrow morning?"
+      "Test the new release tomorrow morning"
     ],
     "ownership": {
       "assignees": [
@@ -152,6 +181,15 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "verbatim",
+        "unshortened": "",
+        "words": 6
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -182,6 +220,15 @@
       "sentenceCount": 2,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 5
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -193,7 +240,7 @@
       ""
     ],
     "displayedTasks": [
-      "Deploy the hotfix tomorrow morning."
+      "Deploy the hotfix tomorrow morning"
     ],
     "ownership": {
       "assignees": [
@@ -212,6 +259,15 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "verbatim",
+        "unshortened": "",
+        "words": 5
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -242,6 +298,15 @@
       "sentenceCount": 5,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 7
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -268,6 +333,7 @@
       "sentenceCount": 5,
       "synthesisOn": true
     },
+    "titleSources": [],
     "triggers": []
   },
   "S-11": {
@@ -277,7 +343,7 @@
       ""
     ],
     "displayedTasks": [
-      "I need to work on \"On-going Project: Yard Photo Backfill\" tomorrow morning."
+      "Work on \"On-going Project: Yard Photo Backfill\" tomorrow morning"
     ],
     "ownership": {
       "assignees": [
@@ -296,6 +362,15 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "verbatim",
+        "unshortened": "",
+        "words": 9
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -326,6 +401,15 @@
       "sentenceCount": 3,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 7
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -337,7 +421,7 @@
       ""
     ],
     "displayedTasks": [
-      "Can you please review the Development branch and if it's safe push to Production this morning?"
+      "Review the Development branch and if it's safe push to Production this morning"
     ],
     "ownership": {
       "assignees": [
@@ -356,6 +440,15 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "verbatim",
+        "unshortened": "",
+        "words": 13
+      }
+    ],
     "triggers": [
       "this morning"
     ]
@@ -383,6 +476,7 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [],
     "triggers": []
   },
   "S-15": {
@@ -407,6 +501,7 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [],
     "triggers": []
   },
   "S-16": {
@@ -435,6 +530,15 @@
       "sentenceCount": 5,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 6
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -458,7 +562,7 @@
       ""
     ],
     "displayedTasks": [
-      "<@U_ALPHA> the staging cert rotation is tomorrow morning"
+      "Rotate the staging certs"
     ],
     "ownership": {
       "assignees": [
@@ -477,6 +581,17 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [
+          "verbatim:not-imperative"
+        ],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 4
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -488,7 +603,7 @@
       ""
     ],
     "displayedTasks": [
-      "<@U_ALPHA> <@U_BETA> the connection-pool patch goes out tomorrow morning"
+      "Ship the connection-pool patch"
     ],
     "ownership": {
       "assignees": [
@@ -510,6 +625,17 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [
+          "verbatim:not-imperative"
+        ],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 4
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -521,7 +647,7 @@
       ""
     ],
     "displayedTasks": [
-      "i will push that fix"
+      "Push that fix"
     ],
     "ownership": {
       "assignees": [
@@ -540,6 +666,17 @@
       "sentenceCount": 3,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [
+          "title:ungrounded"
+        ],
+        "shortened": false,
+        "source": "span",
+        "unshortened": "",
+        "words": 3
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -551,7 +688,7 @@
       ""
     ],
     "displayedTasks": [
-      "<@U_BOT> <@U_ALPHA> can you rotate the staging certs tomorrow morning?"
+      "Rotate the staging certs tomorrow morning"
     ],
     "ownership": {
       "assignees": [
@@ -570,6 +707,15 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [],
+        "shortened": false,
+        "source": "verbatim",
+        "unshortened": "",
+        "words": 6
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -581,7 +727,7 @@
       ""
     ],
     "displayedTasks": [
-      "I asked <@U_ALPHA> to rotate the staging certs tomorrow morning"
+      "Rotate the staging certs"
     ],
     "ownership": {
       "assignees": [
@@ -600,6 +746,17 @@
       "sentenceCount": 1,
       "synthesisOn": false
     },
+    "titleSources": [
+      {
+        "rejected": [
+          "verbatim:status-remark"
+        ],
+        "shortened": false,
+        "source": "title",
+        "unshortened": "",
+        "words": 4
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]
@@ -611,7 +768,7 @@
       ""
     ],
     "displayedTasks": [
-      "i will push the config fix"
+      "Push the config fix"
     ],
     "ownership": {
       "assignees": [
@@ -630,6 +787,17 @@
       "sentenceCount": 2,
       "synthesisOn": true
     },
+    "titleSources": [
+      {
+        "rejected": [
+          "title:ungrounded"
+        ],
+        "shortened": false,
+        "source": "span",
+        "unshortened": "",
+        "words": 4
+      }
+    ],
     "triggers": [
       "tomorrow morning"
     ]

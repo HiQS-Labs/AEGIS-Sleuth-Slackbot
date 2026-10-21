@@ -84,6 +84,23 @@ export GIT_USER_EMAIL="your.email@domain.com"
 # export DEPLOY_METHOD=deployhq
 ```
 
+#### Optional: GitHub issue stream (default off)
+
+Posts newly filed issues from HiQS-watched repos into a Slack channel every 15 minutes, with
+follow-up activity threaded under each parent. See `ARCHITECTURE.md` → "GitHub Issue Stream" and
+`PROJECT/2-WORKING/GH-248-GITHUB-ISSUE-STREAM.md`.
+
+Add to `/root/sleuth-app/.env.runtime` only when ready to enable (never commit a real channel ID):
+
+```bash
+# GITHUB_ISSUE_STREAM_WORKSPACES=neochrome
+# GITHUB_ISSUE_STREAM_CHANNEL_ID=<channel-id>
+# GITHUB_ISSUE_STREAM_INTERVAL_MS=900000
+# GITHUB_ISSUE_STREAM_REPOS=              # optional; overrides git-pulse sync/repos allowlist
+# GITHUB_ISSUE_STREAM_ORG_FILTER=        # optional; e.g. HiQS-Labs
+# GITHUB_ISSUE_STREAM_IGNORE_AUTHORS=    # optional; extra logins to skip
+```
+
 ### Step 4: Run the Installation
 
 ```bash
@@ -181,6 +198,13 @@ systemctl restart sleuth-app
 
 If `WEB_API_BEARER_TOKEN` is omitted, AEGIS falls back to the legacy development token `test`. Do not rely on that
 fallback for production integrations.
+
+### Optional: Read-Only git-pulse Mirror For Server-Side Scripts
+
+To give server-side scripts a local copy of the private git-pulse repo (refreshed hourly, never committed to), run
+`bash deploy/git-pulse-mirror/install.sh <owner/name>` from the live app tree. It reuses `SLEUTH_RAG_GITHUB_PAT` from
+the live `.env.runtime` and keeps the repo name in a server-only file. Path, freshness check and rollback:
+[`deploy/git-pulse-mirror/README.md`](../deploy/git-pulse-mirror/README.md) (GH-249).
 
 ## Routine Deployments
 

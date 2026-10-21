@@ -1962,6 +1962,9 @@ class RemindersModule {
     const RenderedCandidates = AnalysisResult.reminders.map((/** @type {any} */ ArgCandidate) => ({
       candidate: ArgCandidate,
       text: this.#SelectReminderTaskText(ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText),
+      // GH-250: the candidate's own words, for the pointer check. The displayed text may be the
+      // contract's fallback for a pointer title, which would hide the echo this filter exists to drop.
+      rawText: ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
     }));
     const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
       RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
@@ -2196,6 +2199,16 @@ class RemindersModule {
         await this.#QueueReminderAsync(NewReminderInfo);
         SuccessfullyScheduledReminders.set(NewReminderInfo, CurrentReminders);
 
+        // GH-250 telemetry: one line per candidate of a QUEUED reminder, no text. Logged here rather
+        // than at render time so an ignored message, a dropped pointer, a dedup or a failed queue
+        // never counts toward the verbatim/fallback share or the title-length distribution.
+        for(const Candidate of CurrentReminders) {
+          const Selection = ReminderDisplaySelection.SelectTaskText(
+            Candidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText,
+          );
+          ArgSlackApp.Logger.info(RemindersModule.DescribeTitleContract(Selection, StructuralPath));
+        }
+
         if(Array.isArray(NewReminderInfo.GitHubUrls) && NewReminderInfo.GitHubUrls.length > 0) {
           ArgSlackApp.Logger.info(
             `[github-sync] tagged reminder ${NewReminderInfo.ReminderID} with ${NewReminderInfo.GitHubUrls.length} GitHub URL(s): ${NewReminderInfo.GitHubUrls.join(', ')}`
@@ -2416,6 +2429,9 @@ class RemindersModule {
         text: this.#SelectReminderTaskText(
           ArgCandidate, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
         ),
+        // GH-250: the same raw words scheduling hands the filter, or triage keeps a pointer that
+        // scheduling drops and explains a candidate set production never had.
+        rawText: ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
       })),
       TriageContext.enriched, ContextResolution.NeedsEarlierContext, TriageContext.liveReplyText,
     ).kept;
@@ -2497,6 +2513,18 @@ class RemindersModule {
         );
         FeedbackLines.push(
           `• Candidate ${ReminderIndex + 1}: trigger="${SanitizedTrigger}", task="${SanitizedTask}"`
+        );
+        // GH-250: why the task text looks the way it does — which path it came from, and what the
+        // output contract refused before it. The same facts the scheduling path logs.
+        const TitleSelection = ReminderDisplaySelection.SelectTaskText(
+          Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, TriageContext.text,
+        );
+        FeedbackLines.push(
+          `  ↳ title: source=${TitleSelection.source} words=${TitleSelection.contract.words}` +
+          ` chars=${TitleSelection.contract.chars}${TitleSelection.contract.shortened ? ' (shortened at a boundary)' : ''}` +
+          (TitleSelection.contract.rejected.length > 0
+            ? ` refused=${TitleSelection.contract.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`).join(', ')}`
+            : '')
         );
 
         if(!DateResult.success) {
@@ -2700,6 +2728,23 @@ class RemindersModule {
 
     // return the composed feedback message.
     return FeedbackMessage;
+  }
+
+  /**
+   * One structured log line describing how a reminder title was chosen (GH-250). No message text
+   * is logged — only the path, the counts, and the rule slugs — so this is safe at info level.
+   * @param {ReturnType<typeof ReminderDisplaySelection.SelectTaskText>} ArgSelection
+   * @param {string} ArgPath Structural path label for the message, as the other display log lines use.
+   * @returns {string}
+   */
+  static DescribeTitleContract(ArgSelection, ArgPath) {
+    const Facts = ArgSelection.contract;
+    const Rejected = Facts.rejected.length > 0
+      ? Facts.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`).join(',')
+      : 'none';
+    return `reminder title contract: path=${ArgPath} source=${ArgSelection.source}` +
+      ` words=${Facts.words} chars=${Facts.chars} shortened=${Facts.shortened ? 'yes' : 'no'}` +
+      ` normalized=${Facts.normalized.length > 0 ? Facts.normalized.join(',') : 'none'} rejected=${Rejected}`;
   }
 
   /**

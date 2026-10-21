@@ -21,6 +21,7 @@ const GitHubSyncModule = require('./github-sync-module');
 const SettingsModule = require('./settings-module');
 const SnapshotRelayModule = require('./snapshot-relay-module');
 const CodeTaskRelayModule = require('./code-task-relay-module');
+const GitHubIssueStreamModule = require('./github-issue-stream-module');
 const CombinedLogger = require('./combined-logger');
 const AdminAuth = require('./admin-auth');
 const AdminMailer = require('./admin-mailer');
@@ -261,6 +262,7 @@ async function RunAppAsync() {
   const NotionModules = /** @type {NotionModule[]} */ ([]);
   const SnapshotRelayModules = /** @type {SnapshotRelayModule[]} */ ([]);
   const CodeTaskRelayModules = /** @type {CodeTaskRelayModule[]} */ ([]);
+  const GitHubIssueStreamModules = /** @type {GitHubIssueStreamModule[]} */ ([]);
   const PluginLoaders = /** @type {PluginLoader[]} */ ([]);
   /** @type {GitHubSyncModule|null} */
   let GitHubSyncModuleInstance = null;
@@ -411,6 +413,17 @@ async function RunAppAsync() {
       await HiqsDigestRelayInstance.StartAsync();
       SnapshotRelayModules.push(HiqsDigestRelayInstance);
 
+      // github issue stream (git-pulse#5, ex AEGIS #248): posts new issues from HiQS-watched
+      // repos and threads follow-up activity. Env-gated and default off; see
+      // GitHubIssueStreamModule for the contract. DND settings are injected from this
+      // workspace's RemindersModule — never resolved from a global (#384).
+      const GitHubIssueStreamInstance = new GitHubIssueStreamModule(
+        SlackAppInstance,
+        RemindersModuleInstance.GetDndSettings()
+      );
+      await GitHubIssueStreamInstance.StartAsync();
+      GitHubIssueStreamModules.push(GitHubIssueStreamInstance);
+
       // store instances for later cleanup only after the workspace fully started.
       SlackApps.push(SlackAppInstance);
       StatsModules.push(StatsModuleInstance);
@@ -509,6 +522,9 @@ async function RunAppAsync() {
       }
       for (const relay of CodeTaskRelayModules) {
         try { await relay.StopAsync(); } catch(error) { logger.error('error stopping code task relay:', error.message); }
+      }
+      for (const Stream of GitHubIssueStreamModules) {
+        try { await Stream.StopAsync(); } catch(error) { logger.error('error stopping github issue stream:', error.message); }
       }
 
       // stop all workspace instances in reverse order of dependencies.

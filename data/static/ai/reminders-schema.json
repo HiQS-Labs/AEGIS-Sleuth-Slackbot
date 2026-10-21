@@ -28,7 +28,7 @@
             },
             "reminder_message": {
               "type": "string",
-              "description": "One-line actionable task summary, at most 280 characters. Preserve safely short quoted task names; summarize long lists/notes instead of copying them. The original message is linked for details."
+              "description": "One-line task title: an imperative verb plus a concrete object, about 4 to 14 words and at most 90 characters. No @-mentions, no 'please' or request framing, no URLs, never a question or a status remark, never cut off with '…'. Resolve pointers like 'it', 'him' and 'the above' to the thing they refer to. Preserve safely short quoted task names; summarize long lists/notes instead of copying them. The original message is linked for details."
             },
             "context": {
               "type": "string",
