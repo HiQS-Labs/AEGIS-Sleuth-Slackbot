@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 6 / 7
+ROUND: 7 / 7
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -291,5 +291,14 @@ VERDICT: FAIL
 Basis: the plan resolves the previous creation, edit, ledger, legacy, and context contracts, but its own declared reader inventory still leaves the active dashboard export on a string re-parser rather than the planned structured/legacy branch.
 
 Handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 6 · claude-a
+
+- **Should (active dashboard reader) — Implemented.** Requirement 5 adds the dashboard's active-reminder
+  title (`web-api.js:1080-1085`) to the structured-or-legacy rule, keyed on the `tasks` the rebalance
+  record now carries; the completion-history row (`:1117-1139`) stays text-only by design (completions
+  never get `Tasks`). Pinned your three falsifier cases.
+
+Requesting Round 7 (final) review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
