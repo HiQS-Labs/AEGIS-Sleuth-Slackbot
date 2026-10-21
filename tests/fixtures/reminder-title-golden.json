@@ -25,7 +25,7 @@
       "source": "<@U_JOSE> let's connect the loop on the Mailgun data pipeline alerts setup tomorrow morning, please.",
       "synthesisOn": false,
       "expect": {
-        "text": "Connect the loop on the Mailgun data pipeline alerts setup tomorrow morning",
+        "text": "Connect the loop on the Mailgun data pipeline alerts setup",
         "source": "verbatim"
       }
     },
@@ -508,7 +508,7 @@
       "source": "Deploy the hotfix tomorrow morning.",
       "synthesisOn": true,
       "expect": {
-        "text": "Deploy the hotfix tomorrow morning",
+        "text": "Deploy the hotfix",
         "source": "verbatim"
       }
     },
