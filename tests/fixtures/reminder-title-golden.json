@@ -634,6 +634,21 @@
           "Follow up: The one two"
         ]
       }
+    },
+    {
+      "id": "G-43",
+      "note": "GH-258: a person title keeps a supplied topic only when the analyzed context names it",
+      "candidate": {
+        "reminder_message": "Reply to Person One re: Atlas compliance review",
+        "actionable_language": "reply to Person One"
+      },
+      "source": "Please reply to Person One tomorrow.",
+      "analyzedSource": "[earlier messages in this thread, for reference]\\n1. Atlas compliance review needs a response from Person One.\\n[the message to act on]\\nPlease reply to Person One tomorrow.",
+      "synthesisOn": true,
+      "expect": {
+        "text": "Reply to Person One re: Atlas compliance review",
+        "source": "title"
+      }
     }
   ]
 }

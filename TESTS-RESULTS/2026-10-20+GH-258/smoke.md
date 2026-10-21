@@ -30,6 +30,8 @@ All other replay fields, including ownership, recommendation, context, and trigg
 - Final relay round 1 found two planned trailing deadline forms that were not yet matched. Added the
   long-form end-of-period and multiword-deadline contract cases; duration/condition veto remains
   unchanged.
+- Final relay round 2 added the planned deterministic topic-grounding pair: supplied context accepts
+  the person-topic title, while an absent topic is rejected before display.
 
 ## Commands
 

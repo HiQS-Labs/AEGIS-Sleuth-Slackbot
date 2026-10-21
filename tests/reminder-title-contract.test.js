@@ -237,6 +237,16 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
     }
   });
 
+  test('GH-258: an invented person-topic title is rejected by grounding', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Reply to Person One re: Zephyr audit', actionable_language: 'reply to Person One' },
+      'Please reply to Person One tomorrow.', true,
+      '[earlier messages] Atlas compliance review needs a response from Person One.',
+    );
+    expect(Selection.contract.rejected).toContainEqual({ source: 'title', reasons: ['ungrounded'] });
+    expect(Selection.text).not.toContain('Zephyr audit');
+  });
+
   test('100% within the length limits, 0 mid-word truncations, 0 addressee/please titles, 0 bare pointers', () => {
     const Violations = ReminderTitleContractViolations(
       Results.map(ArgR => ArgR.selection.text), Results.map(ArgR => ArgR.selection.contract),
