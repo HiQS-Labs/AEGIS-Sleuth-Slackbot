@@ -52,3 +52,16 @@ No old review thread is resolved by this follow-up. No exactly-once claim: ackno
 - Corrected code: 46 focused cases PASS; build PASS. Uses existing suite and mocked scheduled callbacks, fetch and disk errors. No new test files/suites or individual new-suite approval assumed.
 - Export artifact check: TZ=UTC existing exporter regenerates the snapshot, lastSyncDisplay stays 2026-10-21T02:46 and lastSyncAgoDisplay becomes today. Vendored exporter code and ledger are unchanged.
 - Fresh independent QA, relevant regression qualification and exact-head CI for this follow-up are pending at this checkpoint. Initial approved/green receipts above remain historical, not substitute evidence.
+
+Fresh follow-up code QA is now attested Approved for c2eefe22e6d85a76b52191c525081d6de662b0ea, with the full report in followup-review-approved.md. The first PASS report was not accepted by the workflow (close-mismatch); a bounded completion turn obtained the actual attestation. Post-review artifact regeneration uses the repository-native exporter, preserving release IDs/sync data; source/tests are unchanged. Full regression/CI completion is recorded in the final follow-up checkpoint.
+
+## Final follow-up checkpoint
+
+- Fresh independent review: attested Approved at code head `c2eefe22e6d85a76b52191c525081d6de662b0ea`; see followup-review-approved.md. No open source findings. Protocol close-mismatch in the first PASS attempt was corrected by the reviewer in one bounded completion turn, not bypassed.
+- Disposable full regression: same c2eefe2 HEAD before/after, clean tracked status. **145 Jest suites / 2,810 tests PASS**, existing 1 suite / 4 tests skipped; **116 Node tests PASS**. Build PASS. Full regression ran once after accepted fresh QA.
+- Existing FSM, workspace isolation, reminder render, changelog tone and sanitizer: PASS.
+- Previous-head mutation: **3 FAIL / 43 PASS**, assertion exit 1; restored candidate 46/46 PASS. No real app, Slack or GitHub-stream messages.
+- Final preview uses the repository-native read-only exporter under TZ=UTC. Release IDs and sync data match the previous snapshot; lastSyncDisplay remains `2026-10-21T02:46`, label `today`. Runtime source/tests unchanged after QA; later changes are receipts and generated preview only.
+- Publication-head hosted CI is linked on PR #259 with its exact SHA and run. This receipt does not reuse the historical 40b45a9 run to qualify the follow-up.
+
+Later-review dispositions: r4332602488/r4332634640 startup and r4332602492 directory404 confirmed and fixed; r4332634629 status wording and r4332634634 date label corrected; r4332634644 full-state serialization growth accepted as documented tradeoff, indexed-store migration deferred outside this bounded task. No keys compacted/dropped, no new store, no title/ratchet changes.

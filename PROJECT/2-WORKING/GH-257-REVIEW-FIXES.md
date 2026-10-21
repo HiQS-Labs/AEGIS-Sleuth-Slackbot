@@ -17,7 +17,7 @@ roadmap_exempt: true
 
 | What was just completed | What's next |
 |---|---|
-| PR #259 published; initial head 40b45a9 CI passed; new review defects reproduced and fixed locally | Fresh independent QA and exact-head CI for startup/404 follow-up; PR is draft |
+| Startup/404 follow-up fixed; fresh QA attested for c2eefe2; 46 focused and full regression passed | User review of PR #259; latest published-head CI status is linked on that PR |
 
 ## Scope and recon
 
@@ -82,3 +82,9 @@ Three new cases in the existing module suite failed against 40b45a9 (43 prior ca
 CodeRabbit r4332634629 accepted: the status table and receipt distinguish the passing initial head from pending follow-up head; final exact-head evidence will be posted to the same PR. r4332634634 accepted: the preview had generatedAt/lastOp 2026-10-21 but a local-date calculation saying “in 1 day”. Re-run the existing read-only exporter under TZ=UTC, with no vendored edits or ledger mutation; lastSyncDisplay is preserved and label becomes “today”.
 
 Full-state write finding assessed, not expanded into a store migration: retention and exact keys remain required for held/overlap replay suppression. JSON serialize/write cost grows with complete delivery history; the existing bound is at most 40 post saves + 200 repo saves + entry/exit saves per cycle. This is a coarse upper bound, not a measured latency claim. There is no observed workload/latency failure or approved retention contract that would justify an indexed-store rewrite here. Keep the documented growth tradeoff; any measured scalability/store work is separate scope. No keys compacted/deleted.
+
+Follow-up QA: reviewer reported PASS in round 1 but workflow refused close-mismatch (token released instead of completed), so that run had no attestation. One bounded completion turn on unchanged code succeeded: attested Approved at c2eefe22e6d85a76b52191c525081d6de662b0ea. No impersonation, manual attestation, harness edit or bypass. Full regression and exact published-head CI still require new evidence.
+
+Preview exporter selection: final artifact uses repository-native utils/timeline/export_timeline.py (the ledger writer’s configured exporter) under TZ=UTC. This preserves the existing release IDs and sync data; using the newer vendored-harness exporter would add unrelated generated metadata changes. Both yield the corrected today label and unchanged sync timestamp; no exporter source changed.
+
+Final follow-up local qualification: disposable clone HEAD before/after c2eefe22e6d85a76b52191c525081d6de662b0ea, clean tracked state. npm test PASS (145 Jest suites / 2,810 tests, existing 1 suite / 4 tests skipped; 116 Node tests PASS), build PASS, FSM/isolation/render/tone validators and sanitizer PASS. Previous-head mutation: exactly 3 new failures / 43 passes, exit 1. Runtime source/tests are unchanged after fresh QA. Exact publication-head CI is recorded on PR #259 rather than treating the initial 40b45a9 run as current evidence.
