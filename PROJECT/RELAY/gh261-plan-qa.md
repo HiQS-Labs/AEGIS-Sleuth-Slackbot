@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 2 / 5
 
@@ -99,5 +99,23 @@ Handing off to Producer — go to the Producer window and say “take your turn�
 - Implemented: filled the relay Definition of Done with the agreed requirements and non-runtime boundary.
 
 Handing off to Reviewer — re-review the revised plan and approve only if its fixed matcher set, baseline evidence, red controls, rollback, and no-runtime-change boundary are adequate.
+
+### Reviewer · Round 2
+
+swept file: yes
+
+- [Blocker] The proposed Key-task matcher still has no executable match rule: it says only “string/regex sites after comment stripping,” while the recon says specifically “after line-comment stripping.” That does not exclude block/JSDoc comments, so the counter cannot be reproduced without an implementer choosing an unstated parser/regex boundary. Probe: `$ rg -n -e 'DecisionSpec\\s*=\\s*Object\\.freeze' -e 'Key task' -e 'Threshold|threshold' -e 'source\\s*[:=]' -e 'CONTEXT_BLOCK_HEADER|LIVE_MESSAGE_HEADER' src/reminders-ai-pipeline.js src/reminder-display-selection.js src/reminder-context-resolution.js src/reminders-module.js src/reminders-display-utils.js src/slack-format-utils.js src/chat-commands/show-me-projects-command.js` (exit 0) returned non-executable Key-task occurrences at `src/reminders-display-utils.js:160`, `src/slack-format-utils.js:260`, and `src/chat-commands/show-me-projects-command.js:203`, alongside executable sites such as `src/slack-format-utils.js:273` and `src/chat-commands/show-me-projects-command.js:211`. Concrete fix: specify one lexical rule that recognizes JavaScript string/regex tokens (or explicitly strips both line and block comments while preserving literals), and record its expected included `file:line` output in the baseline contract.
+  Observed input: the quoted probe's block/JSDoc comment matches at `reminders-display-utils.js:160`, `slack-format-utils.js:260`, and `show-me-projects-command.js:203`, versus the plan's “line-comment stripping” at `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:24` and “string/regex sites” at `:35`.
+  Affected scope: every `src/**/*.js` Key-task occurrence evaluated by the planned inventory.
+  Falsifier: the documented lexical matcher excludes those three comment locations while including the actual parser sites at `slack-format-utils.js:273` and `show-me-projects-command.js:211`.
+
+- [Pass] The revised plan now limits the context count to the two declared headers and explicitly excludes marker consumers; `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:25,35`.
+- [Pass] The three required red controls and the guarded shrink/update flow are explicitly present; `.relay-artifacts/GH-261-REMINDER-PIPELINE-RATCHET.md:37-38,49-51`.
+
+VERDICT: FAIL
+
+Basis: the plan is otherwise bounded to a non-runtime ratchet with a baseline and red controls, but the remaining ambiguous Key-task lexical boundary defeats the stated reproducibility goal. No other pre-existing defect was found in the reviewed artifact.
+
+Handing off to Producer — go to the Producer window and say “take your turn”.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
