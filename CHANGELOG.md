@@ -33,6 +33,19 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.347 - 2026-10-20
+
+I've simplified how I prepare reminders and read older reminder text, so scheduling and its
+explanations share the same rules. Your reminder commands, links and saved reminders work as before.
+
+**Technical:** GH-264 shares pure candidate selection/grouping and ownership preparation between
+scheduling and triage, reuses the prepared task in confirmations, and consolidates legacy content
+views in SlackFormatUtils behind existing helper names. Factory/FSM, persistence, snooze/DND,
+provider calls, API endpoints and stored formats retain their existing owners and contracts.
+Characterization covers save, List-sync and feedback failures and their retry outcomes. Rollback is
+an ordinary code revert: no migration or new durable fields. Structured storage and extraction-door
+simplification remain coordinated separately under GH-250.
+
 ## 1.4.346 - 2026-10-20
 
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,

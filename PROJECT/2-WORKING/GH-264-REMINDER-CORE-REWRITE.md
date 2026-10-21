@@ -21,7 +21,7 @@ goal: Replace tangled reminder planning and legacy-content internals behind unch
 
 | What was just completed | What's next |
 | --- | --- |
-| Plan QA Approved by CommandCode / GLM 5.3 max at2dcef40; six baseline suites267 tests pass. | Characterize failure/effect boundaries, then implement separable planning and legacy-content commits. |
+| Separable planning and content replacements implemented; focused checks, deterministic replay and real-model replay pass. | Final independent code QA, exact-revision full gate, then PR against development. |
 
 ## Quad Concepts
 
@@ -36,7 +36,7 @@ goal: Replace tangled reminder planning and legacy-content internals behind unch
 - Related open #263 is GH250 phase4 plan-only. This issue makes no durable task-schema/reader-authority change and does not cherry-pick that plan/code implicitly. Preserve GH250's normalization contract.
 - Ratings65/45/50/35 persisted through canonical CLI: priority65 (explicit operator work, not outage); severity45 (maintenance risk, not a fresh reproduced data-loss incident); appeal50 neutral; cheapness35 (subsystem compatibility work). Recurrence trend unknown: GH243/250/149 are related historical reports, not counted as new incidents. Two14-day windows were not exhaustively audited; no acceleration claim.
 - Test scope: extend existing integration/format/display/API suites only where a concrete gap is shown; no new runner/framework/CI lane. Existing full gate once on final reviewed code; pure probe and focused checks during iteration. Runtime/mutation-heavy tests use disposable gate clone.
-- Independent source consistency pass on the filed plan found no blocking contradiction. Required model plan QA is still pending.
+- Independent source consistency pass on the filed plan found no blocking contradiction. Required model plan QA subsequently passed; receipt below.
 
 ## Published plan under review
 
@@ -189,3 +189,39 @@ Write commands, baseline/candidate revisions, outcomes and witnessed red control
 - Phase0 baseline: six existing integration/event/format/display/projects/clustering suites267 tests passed in disposable full gate clone, with repository-standard `--forceExit`. Initial direct Jest invocation omitted that standard flag and lingered after assertions passed; it was stopped and rerun with the normal exit mode.
 - Smallest replacement bet: central pure preparation of candidate/render-identity/reference/group/ownership data shared by scheduling and triage, while existing module keeps per-group I/O ordering. No model/prompt/date algorithm changes. One legacy-content owner in SlackFormatUtils; keep distinct legacy views and exact casing/newline/fallback quirks.
 - Separable commits: characterization; planning/triage internals; legacy-content adapters; final verified docs/receipts. They have no dependency on GH250/263 structured storage.
+
+
+## Implementation and compatibility evidence
+
+The execution authorization supersedes the source-pinned issue's original plan-only wording. The
+operator reiterated that completing GH-264 is the primary task; AgentChorus coordination is secondary.
+This implementation replaces none of GH-250 phases 3/4/5 wholesale. It provides their shared planning
+and legacy-reader seam; intent/synthesis policy changes, structured durable tasks and extraction-door
+consolidation remain separate. No merge, deployment or production probe is part of this delivery.
+
+| Phase | Delivered result / evidence |
+| --- | --- |
+| 0 | Baseline50fa08c; existing six suites267 tests; existing ingress/API/MCP/List/FSM contracts traced in recon. Added six effect/failure characterizations, duplicate event and legacy edge cases; existing suites retain auto/mention/alarm/enrichment/List/long/multi-tenant/snooze coverage. |
+| 1 | `PrepareReminderCandidates` owns selection, normalized render identity, unresolved-reference filtering and groups. `PlanTriggerOwnership` resolves each group at its original place in the effect sequence. Scheduling and triage share these functions, without a second gateway. Inputs remain unmodified. |
+| 2 | `SlackFormatUtils.ParseLegacyReminderContent` owns section, quote, bullets, lines and source views. Existing format/display/project-title functions remain callable; distinct consumer semantics are preserved. No durable schema/API changes. |
+| 3 | Main/adjacent runtime paths exercised through real handlers with fake Slack transport. Six reference/candidate cases compare raw stored bodies, posted text/metadata, property presence, ordered events, effects and retry outcomes. Only generated UUIDs and creation/event clocks normalized. All match. Deterministic replay23/23; real-model replay9/9. Final independent QA and full gate pending below. |
+| 4 | Superseded orchestration and parser fragments removed. Private dedup facade and exported project title retained solely for function compatibility; no independent policy. Net production source185 additions/195 deletions (10 fewer lines). No baseline ratchet in50fa08c; no new extraction door/header/writer. |
+
+Separable commits:58e8d92 characterization; f33e1a5 planning;5b4e002 legacy content. Failure semantics
+remain deliberately unchanged: save rejection can leave memory changed; List rejection follows disk
+commit; feedback rejection can follow persistence; factory events precede semantic duplicate checks.
+The existing module retains factory/FSM, dates, semantic dedup, saves, List sync, posting and snooze/DND.
+
+Focused checks: planning five suites120 passed; content six suites293 passed; build passed. AI, FSM,
+workspace-isolation and reminder-render validators pass. Legacy parity:167 adversarial inputs ×8
+consumer comparisons =1,336 exact matches against reference modules, including export names/arity.
+Positive scheduling fails under both witnessed red controls (always-ignore and no-op queue).
+
+Evidence stays in the disposable gate clone's ignored `temp/gh264/`: baseline/focused logs,
+`scheduling-parity.json`, `legacy-parity.log`, `red-controls.json`, `decision-replay.log` and
+`real-model-replay.log`. Reference implementation and temporary instrumentation are not shipped.
+No live Slack messages were sent. Live replay is a quality sample, not exact stochastic parity or a
+claim to fix GH-149. External consumer repositories were not run independently; their published
+payloads/storage remain unchanged. Public/static methods without verified external callers are
+preserved as compatibility insurance. Rollback is code-only: baseline readers consume the same JSON
+fields and body bytes; no backfill, authority flag or destructive conversion is introduced.

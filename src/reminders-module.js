@@ -2500,23 +2500,11 @@ class RemindersModule {
   }
 
   /**
-   * Collapse candidates that render to the same bullet under the same trigger.
-   *
-   * The analyzer can emit several candidates for one scheduling trigger (e.g. one per numbered item).
-   * With synthesis OFF every one of them displays the identical normalized original, so they would
-   * otherwise produce N byte-for-byte identical bullets even though only ONE reminder is queued per
-   * trigger group. A no-op when synthesis is ON and the candidates carry distinct titles.
-   *
-   * **Shared with the `:wrench:` triage** (GH-43, Codex branch relay r10). Scheduling deduped and
-   * triage did not, so for two same-trigger candidates that render identically — speaker
-   * `I will deploy the patch` and mentioned `please review it` — production kept the first and
-   * resolved `U_SENDER`, while triage kept both, resolved `U_ALPHA`, and printed a limitation warning
-   * for a collapse that had already happened upstream. Fourth instance on this branch of the same
-   * shape: one rule, two copies, drifting.
-   * @param {GptReminderInfo[]} ArgCandidates Analyzer candidates.
-   * @param {string} ArgNormalizedOriginalText Normalized original message text.
-   * @param {boolean} ArgSynthesisOn The routing decision for this message.
-   * @returns {GptReminderInfo[]} candidates with render-duplicates removed, first occurrence kept.
+   * Compatibility facade for render-identity deduplication; planning owns the rule.
+   * @param {GptReminderInfo[]} ArgCandidates
+   * @param {string} ArgNormalizedOriginalText
+   * @param {boolean} ArgSynthesisOn
+   * @returns {GptReminderInfo[]}
    */
   #DedupeCandidatesByRenderIdentity(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText = '') {
     const Plan = ReminderSchedulingPlan.PrepareReminderCandidates({
