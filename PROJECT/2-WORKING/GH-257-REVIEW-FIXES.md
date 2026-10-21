@@ -10,13 +10,14 @@ effort: 3
 complexity: 3
 risk: 2
 phases: 1
+roadmap_exempt: true
 ---
 
 ## Status
 
 | What was just completed | What's next |
 |---|---|
-| Independent plan QA approved round 3; scoped implementation and focused synthetic tests | Finish regression evidence, independent final QA and draft PR |
+| Independent plan QA approved round 3; scoped implementation and focused synthetic tests | Publish draft PR and verify exact-head hosted CI; retain separate title/catch-up decisions |
 
 ## Scope and recon
 
@@ -63,3 +64,9 @@ Round 1 independent Codex review ran and returned FAIL with a reproducible unsee
 Round 2 dispositions: R4 accepted, one optional ParentScanAt field disambiguates unvisited target repositories from evaluated exclusions; no queues/API. Cover both repo orders with since-filtered mocked responses and pre-seed/non-allowlisted targets. R5 accepted: initial 500 records exclude #501 and preserve ascending update order. Only three plan rounds are configured; no force/cap bypass.
 
 Round 3 plan QA: PASS, attested at 7dea9c6268662dca2c3a461bbf89a315f6e103a8. Implementation follows the approved source/state boundaries. Dense-boundary and blocked-save shutdown cases were added to the existing module suite.
+
+## Verification checkpoint
+
+Independent final code QA PASS, attested for c19b227a9c0535f2a8afa78190a6125455e70a19; no source findings. Disposable original-source mutation: 20 failures / 23 passes (43 total), exit 1; restored candidate 43/43 pass and git diff clean. Full qualification PASS: 145 Jest suites / 2,807 tests plus 116 Node tests; build/FSM/sanitizer PASS. Existing skips: one suite/four tests. Exact-head CI pending publication.
+
+`roadmap_exempt: true` applies to the stale legacy ROADMAP.md coverage check only: ROUTER.md records that the roadmap ledger is releases.db and the checker still reads frozen Markdown. This task remains registered/rated in that canonical DB and linked in regenerated ROADMAP-DASHBOARD.md. Exact-base deterministic PDDA baseline has 41 errors (13 frontmatter, 9 status-table, 5 paths, 14 legacy coverage); those unrelated errors are not changed here.
