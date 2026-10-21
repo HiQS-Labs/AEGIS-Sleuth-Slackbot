@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Escalated
 ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -215,5 +215,30 @@ Dispositions (plan revised; no code yet):
   unchanged.
 
 Requesting Round 3 review.
+
+### Reviewer · Round 3 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: R2, R3 and R4 are addressed at plan level; R1 still permits deleting a date from inside a duration clause. Swept the entire 145-line plan, the whole title-contract module and title-contract test/golden set, and the selector, resolver, prompt, grounding, replay and rendering paths named in Setup. No additional pre-existing plan defects found beyond R1 below. This is plan QA, not implementation approval; the max round is reached, so STATUS is Escalated.
+
+Evidence scope: Verify with direct seeded-source fallback. `list_projects` pagination completed (84 projects); the nearest graph is a different checkout, `aegis-sleuth-slack-bot`, generation `2026-10-13T00:42:44Z`. Targeted symbol search completed without further pages, and `check_index_coverage` covered all twelve evidence paths; it reports missing/untracked/changed paths and excluded tests/prompts/scripts/fixtures. Consequently material claims below use the seeded files, not graph absence. No git commands, suites, executable fixtures, model calls or service probes ran.
+
+- [Should] **R1 remains open — the preceding-word test is still not a whole-clause boundary.** `PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md:53-59` permits stripping a bare weekday whenever its immediately preceding word is absent from the closed list. For `Keep staging online until at least Friday`, that word is `least`, so the rule permits `Keep staging online until at least`. The two-word minimum and existing validator both accept this damaged result. This is the same partial-duration deletion as Round 2, with an intervening modifier; another last-word list entry would only patch this instance. Cheapest fix: conservatively keep an ambiguous temporal clause when a duration/condition introducer governs the matched date, including intervening modifiers; explicitly decline stripping such cases rather than building a general date parser. Pin this case in the existing contract suite alongside the deadline control.
+  Observed input: `Keep staging online until at least Friday`; proposed suffix `Friday`, preceding word `least`, absent from the plan's closed list.
+  Affected scope: leading/trailing schedule deletion that matches only the date inside a condition/duration with intervening modifiers.
+  Falsifier: the existing normalizer test preserves `Keep staging online until at least Friday` and `Keep staging online through Friday` intact, while `Deploy the hotfix by Friday` becomes `Deploy the hotfix`.
+  Probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node "$TMPDIR/gh258-r3-probe.js"` (exit 0). The scratch probe extracts the closed list from the plan, evaluates the proposed boundary/minimum-word predicates for an explicit Friday suffix, and calls the existing pure contract. Decisive output: `{"input":"Keep staging online until at least Friday","precedingWord":"least","stripPermitted":true,"proposedOutput":"Keep staging online until at least","validation":{"ok":true,"reasons":[]},"baseline":"Keep staging online until at least Friday"}`. Controls: `through Friday` has `stripPermitted:false` and stays intact; `by Friday` has `stripPermitted:true` and yields `Deploy the hotfix`. This measures the specified predicates, not an implemented schedule matcher.
+
+- [Pass] **R4 now defines the required deterministic boundary.** Plan lines 75–78 exclude the entire topic block from fallback-subject candidates while retaining it for grounding; lines 88–90 pin both the rejected-pointer/generic-fallback case and a grounded topic-bearing title. This directly addresses the fallback consumer at `src/reminder-display-selection.js:202-205,228-232` and the imperative preference at `src/reminder-title-contract.js:470-475`. Both prompt assets receive the topic-only rule (plan lines 71–74), and the competing-task check asserts task and owner (lines 136–138). Retain these commitments; runtime sufficiency remains **[Unverified — needs clone run]**.
+
+- [Pass] **R3 separates the two contributions and does not overclaim sensitivity.** Plan lines 139–143 remove only the prompt instruction on identical enriched input, per asset, and disable only the topic block in a separate control. An insensitive prompt control is explicitly reported as such. Fixed positive/absent/competing inputs and the receipt destination are specified at lines 132–145; `validate:ai` is named at line 127. This is appropriate planned evidence beyond the recorded-response replay (`scripts/decision-replay.js:15-17`); model outcomes remain **[Unverified — needs clone run]**.
+
+- [Pass] **The existing owner and R2 sequencing remain appropriate.** Plan lines 44–48 put leading schedule removal before the anchored framing loop (`src/reminder-title-contract.js:264-275`), with selector-level cases at plan lines 83–84. Opaque quoted names remain required (plan line 60; contract lines 223–230), and the selector grounds both before and after normalization (`src/reminder-display-selection.js:107-111,163-170`). The compact renderer separately emits `· due ${SlackDateFormat}` at `src/reminders-display-utils.js:267`; no new rendering path is required.
+
+Root cause: treating one immediately preceding token as a complete temporal-clause boundary; Fix site: requirement 2's stripping admission rule and its existing-suite cases; Why not upstream/downstream: the shared remove-only normalizer must avoid damaging valid source text, and neither a prompt nor the downstream shape/grounding checks can restore deleted duration content.
+
+Handing off to Producer (claude-a): the three-round limit is reached. Resolve or explicitly disposition the remaining R1 through the escalated relay decision before implementation; return to the Producer window and say 'take your turn'. No artifact or source file was edited in this reviewer turn.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
