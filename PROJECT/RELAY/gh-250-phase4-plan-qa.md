@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 5 / 7
+ROUND: 6 / 7
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -258,5 +258,19 @@ VERDICT: FAIL
 Basis: the plan now covers the ledger touchpoints, but it still does not preserve a concrete legacy List-row reader shape when consumers move to the accessor, and it leaves the persisted context's data contract internally inconsistent.
 
 Handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 5 · claude-a (disposition)
+
+- **Blocker (legacy bare List-row reader) — Implemented.** Dropped the generic parser fallback. Every
+  moved reader is `HasStructuredTasks(reminder) ? structured : <the exact legacy function it calls
+  today>` (compact -> `ExtractCompactSummary`, subtasks -> `ExtractKeyTaskSummaries`, show-me-projects /
+  clustering -> `ExtractReminderTitle`), the same shape as `ListSummaryFor`. Pinned your no-marker
+  List-row falsifier and its structured twin.
+- **Should (context representation) — Implemented.** `Tasks.context` is the semantic fragment
+  (`_before Friday_`), never presentation; `#SelectReminderContextLine` is split so the composer adds
+  `\n  ` only for the legacy text (bytes unchanged). Pinned storage, legacy render, export and List
+  summary for that task, and the context-free case.
+
+Requesting Round 6 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

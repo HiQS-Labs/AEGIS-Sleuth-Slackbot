@@ -58,6 +58,10 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
    - Message path (`src/reminders-module.js:2045-2058` -> `#MakeScheduledReminder` at :2126): built in
      the same reduce that composes the `Key task(s):` block, from the same `#SelectReminderTaskText` /
      `#SelectReminderContextLine` values, so the field and the text cannot disagree at birth.
+   - **`context` is data, not presentation:** the semantic italic fragment with no leading newline or
+     indentation (e.g. `_before Friday_`), omitted when empty. `#SelectReminderContextLine`
+     (:2631-2649) is split so it returns the fragment and the composer adds `\n  ` only when writing
+     the legacy text — the legacy bytes stay identical.
    - Slack List row path (`CreateReminderFromListRowAsync`, :1184-1196): `[{ title: Summary }]` (that
      path stores the bare summary as `ReminderMessageText`, with no `Key task(s):` block).
    Absent on records that predate the change (no backfill required).
@@ -101,12 +105,23 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
      and keep using the byte-identical JSON text on rollback.
    - Parity fixtures: creation + update folds to exactly the edited text and `Tasks`; an unedited
      creation needs no update event and stays byte-identical.
-5. **Readers prefer the field, fall back to the parser — one return shape.** One accessor,
-   `GetReminderTasks(reminder) -> Array<{ title: string, context?: string }>` in
-   `src/reminders-display-utils.js`: `reminder.Tasks` when present, else
-   `ExtractKeyTaskSummaries(text).map(title => ({ title }))`. Consumers that need strings take
-   `.map(t => t.title)`; `ExtractCompactSummary`'s quote/first-line fallback for records with no bullets
-   stays as today.
+5. **Readers: structured when present, otherwise exactly today's code.** Every moved reader takes the
+   same shape as `ListSummaryFor`: `reminder.Tasks ? <structured value> : <the legacy function it
+   calls today, unchanged>`. There is no generic parser fallback, so every legacy shape — bulleted,
+   unquoted long, and the bare List-row summary with no marker (`src/reminders-module.js:1184-1196`) —
+   renders exactly as now.
+   - Compact/digest lines (`reminders-display-utils.js:302-309`): `Tasks[0].title`, else
+     `ExtractCompactSummary(text)`.
+   - Delivery extra subtasks (`:353-363`): `Tasks.slice(1).map(t => t.title)`, else
+     `ExtractKeyTaskSummaries(text).slice(1)`.
+   - show-me-projects / clustering (`show-me-projects-command.js:209-215`, `reminder-clustering.js:181`):
+     `Tasks[0].title`, else `ExtractReminderTitle(text)`.
+   - One helper, `HasStructuredTasks(reminder)` (`Array.isArray(reminder.Tasks) && reminder.Tasks.length
+     > 0`), is the only branch condition.
+   **Export handoff:** the `?format=rebalance` record builder (`src/web-api.js:485-517`) copies
+   `Tasks` to a `tasks` property only when present (omitted for old records); `display.summary` /
+   `display.slackSummary` (`:597`, `:625-638`) use the compact-line rule above, so they are
+   byte-identical for old records.
    **Slack Lists summary keeps contexts.** The List column and its drift compare
    (`src/lists-module.js:1339-1343,2720-2723`) use one function, `ListSummaryFor(reminder)`: when the
    reminder has `Tasks`, `FormatTasksAsListSummary(Tasks)` joins each `title` and non-empty `context`
@@ -157,6 +172,12 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   `payload.tasks` and folds back to the identical `Tasks`; compacting an old reminder omits both; a
   baseline-import of a structured record carries `tasks`; a `ReminderCreated` without `tasks` followed by
   a same-id `BaselineReminderImported` with `tasks` folds to that `Tasks` (late-baseline merge).
+- Pinned legacy-shape cases: a pre-phase List-row reminder `{ReminderMessageText:'Review release
+  notes'}` (no `Tasks`, no marker) renders `Review release notes` in compact lines, show-me-projects and
+  the List summary; `{Tasks:[{title:'Review release notes'}]}` renders the same through the structured
+  branch. A context-bearing task stores `{title:'Ship', context:'_before Friday_'}`, writes the legacy
+  bullet `• Ship\n  _before Friday_`, exports the same object, and its List summary is `Ship _before
+  Friday_`; a context-free task stores no `context`.
 - Pinned cases (existing suites): `Tasks:[{title:'Task A',context:'_Context A_'},{title:'Task B',context:'_Context B_'}]`
   yields List summary `Task A _Context A_ Task B _Context B_` (create and drift compare), and the
   context-free pair yields `Task A Task B`; a pre-phase record (no `Tasks`) with indented contexts
