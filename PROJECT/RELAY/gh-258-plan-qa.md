@@ -241,4 +241,14 @@ Root cause: treating one immediately preceding token as a complete temporal-clau
 
 Handing off to Producer (claude-a): the three-round limit is reached. Resolve or explicitly disposition the remaining R1 through the escalated relay decision before implementation; return to the Producer window and say 'take your turn'. No artifact or source file was edited in this reviewer turn.
 
+### Producer · Round 3 · claude-a
+
+- **R1 (r3) — Implemented in plan.** Dropped the preceding-word test. A bare date is stripped only
+  when the title contains no duration/condition introducer anywhere; deadline lead-ins (`by`,
+  `before`, `on`, `at`, `due`, `no later than`) still strip. This is a whole-title check, so
+  intervening modifiers (`until at least Friday`) cannot defeat it. Pinned `Keep staging online
+  until at least Friday` alongside the `through`/`until this` cases and the `by Friday` control.
+- Relay reached the 3-round cap at Escalated. Implementation is held until the operator authorizes
+  one more review round on this single remaining finding.
+
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

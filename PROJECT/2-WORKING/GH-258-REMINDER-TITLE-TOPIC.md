@@ -50,12 +50,13 @@ A read-only re-extraction of open production reminders through the GH-250 path (
      `tomorrow [morning|afternoon|evening|night]`, `this morning|afternoon|evening|week`,
      `[this|next|coming] <weekday> [part of day]`, `next week|month`, `EOD`, `EOW`,
      `end of (the) day|week`, clock times (`2pm`, `10:30 am`), `ASAP`.
-   - **Whole-clause boundary (R1 r2):** a match is stripped only when EITHER it begins with a
-     deadline lead-in (`by|before|on|at|due|no later than`) OR the word immediately before it is not
-     a preposition or determiner from one closed English list (`until till thru through for over
-     after since from during between within of than to the this that next every each and or`).
-     Otherwise the whole clause is kept untouched, so `Keep staging online through Friday`,
-     `Keep staging online until this Friday`, `… until Friday`, `… over the weekend` survive intact.
+   - **Admission rule (R1 r3, conservative):** a match is stripped only when EITHER it begins with
+     a deadline lead-in (`by|before|on|at|due|no later than`) OR the title contains no
+     duration/condition introducer anywhere (`until till thru through for over during within since
+     from between after`). Any introducer in the title means bare dates are left alone, so
+     `Keep staging online until at least Friday`, `… through Friday`, `… until this Friday` and
+     `… over the weekend` survive intact whatever modifiers sit between; `Deploy the hotfix by
+     Friday` -> `Deploy the hotfix`; `Deploy the release Friday` -> `Deploy the release`.
    - Revert the strip if it leaves fewer than 2 words.
    - Quoted spans stay protected (step 0 already masks them).
 3. Courtesy: widen `COURTESY_WORD_PATTERN` and the validator's `courtesy` check to common
@@ -84,8 +85,8 @@ A read-only re-extraction of open production reminders through the GH-250 path (
    with an empty model candidate; `pleae` removed. Context: update the unreferenced-lookback test
    to expect the topic header with the root (mentions neutralized) while middle siblings stay out;
    a referenced reply gets no topic header; a root already in the lookback is not duplicated.
-   Schedule: `Keep staging online through Friday` and `Keep staging online until this Friday`
-   unchanged. Selector (R4): candidate `Ask him` with live `Ask him tomorrow`, antecedent `Ok`,
+   Schedule: `Keep staging online through Friday`, `Keep staging online until this Friday` and
+   `Keep staging online until at least Friday` unchanged. Selector (R4): candidate `Ask him` with live `Ask him tomorrow`, antecedent `Ok`,
    topic `@someone delete the backups tomorrow` -> the generic fallback, never `Delete the backups`;
    a grounded `Reply to Dana re: vendor security review` sourced from topic-only terms survives.
    Golden: add a thread-only topic sample (`re:` topic grounded via context) and an invented entity
