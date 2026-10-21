@@ -16,6 +16,23 @@ function Matches(ArgFile, ArgPattern) {
   return Lines(ArgFile).flatMap((Line, Index) => ArgPattern.test(Line) ? [`${ArgFile}:${Index + 1}`] : []);
 }
 
+function ExecutableMatches(ArgFile, ArgPattern) {
+  let InBlockComment = false;
+  return Lines(ArgFile).flatMap((Line, Index) => {
+    const Trimmed = Line.trim();
+    if(InBlockComment) {
+      if(Trimmed.includes('*/')) InBlockComment = false;
+      return [];
+    }
+    if(Trimmed.startsWith('/*')) {
+      if(!Trimmed.includes('*/')) InBlockComment = true;
+      return [];
+    }
+    if(Trimmed.startsWith('//') || Trimmed.startsWith('*')) return [];
+    return ArgPattern.test(Line) ? [`${ArgFile}:${Index + 1}`] : [];
+  });
+}
+
 function SourceFiles(ArgDirectory = 'src') {
   const AbsoluteDirectory = path.join(Root, ArgDirectory);
   return fs.readdirSync(AbsoluteDirectory, {withFileTypes: true}).flatMap(Entry => {
@@ -27,8 +44,8 @@ function SourceFiles(ArgDirectory = 'src') {
 
 function KeyTaskReparseSites() {
   return SourceFiles().flatMap(File => [
-    ...Matches(File, /\.(?:replace|match|indexOf)\((?:\/Key task|['"][^'"]*Key task)/),
-    ...Matches(File, /const \w+ = ['"][^'"]*Key task/),
+    ...ExecutableMatches(File, /\.(?:replace|match|indexOf)\((?:\/Key task|['"][^'"]*Key task)/),
+    ...ExecutableMatches(File, /const \w+ = ['"][^'"]*Key task/),
   ]);
 }
 
