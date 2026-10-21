@@ -75,17 +75,33 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
    `rg 'ReminderMessageText\s*='` finds only the creation compose (:2046-2052), the Lists edit
    (:1145) and the projection's rehydrate (`src/reminders-projection.js:321`), which requirement 4
    covers.
-4. **Ledger: additive, conditional payload key.** `ReminderCreated` carries `tasks` only when the
-   reminder has `Tasks` (the same conditional discipline as `notifyIds` / `enrichedFrom`,
-   `src/reminders-module.js:774-800`), and the projection fold rehydrates it
-   (`src/reminders-projection.js:320,385`), so `npm run projection:parity` stays green and absent
-   stays absent. No schema-version bump: `REQUIRED_PAYLOAD_KEYS` is a minimum.
+4. **Ledger: additive keys and one forward-ignorable update event.**
+   - `ReminderCreated` carries `tasks` only when the reminder has `Tasks` (the conditional discipline
+     of `notifyIds` / `enrichedFrom`, `src/reminders-module.js:774-800`); the fold rehydrates it
+     (`src/reminders-projection.js:320,385`). No schema-version bump: `REQUIRED_PAYLOAD_KEYS`
+     (`src/event-store.js:39`) is a minimum.
+   - **List edits are ledgered.** Today `UpdateReminderSummaryFromListAsync` rewrites the text and
+     only saves (`src/reminders-module.js:1145-1149`); no event reaches the fold, so the projection
+     already drifts from the store after any List edit (pre-existing). Add one event type,
+     `ReminderSummaryUpdated`, payload `{ text }` plus `tasks` only when present, registered in
+     `REQUIRED_PAYLOAD_KEYS` with `['text']`, emitted after the successful edit through the existing
+     `#EmitLifecycleEvent`, and folded by replacing `ReminderMessageText` and — only when the payload
+     has `tasks` — `Tasks` (absent stays absent). Older binaries skip unknown event types on read
+     and keep using the byte-identical JSON text on rollback.
+   - Parity fixtures: creation + update folds to exactly the edited text and `Tasks`; an unedited
+     creation needs no update event and stays byte-identical.
 5. **Readers prefer the field, fall back to the parser — one return shape.** One accessor,
    `GetReminderTasks(reminder) -> Array<{ title: string, context?: string }>` in
    `src/reminders-display-utils.js`: `reminder.Tasks` when present, else
    `ExtractKeyTaskSummaries(text).map(title => ({ title }))`. Consumers that need strings take
    `.map(t => t.title)`; `ExtractCompactSummary`'s quote/first-line fallback for records with no bullets
-   stays as today. The readers listed under Recon switch to it in this phase; the parsers remain as
+   stays as today.
+   **Slack Lists summary keeps contexts.** The List column and its drift compare
+   (`src/lists-module.js:1339-1343,2720-2723`) use one formatter, `FormatTasksAsListSummary(tasks)`,
+   that joins each `title` and non-empty `context` with single spaces exactly as `ExtractKeyTasks`
+   folds the legacy block (`src/slack-format-utils.js:272-289`), so a structured reminder yields the
+   same summary string as today and reconciliation sees no false edit. Title-only consumers
+   (compact lines, clustering, show-me-projects) take `.title`. The readers listed under Recon switch to it in this phase; the parsers remain as
    the legacy fallback (one of them permanently, see Recon).
    **Export handoff:** the `?format=rebalance` record builder (`src/web-api.js:485-517`) copies
    `Tasks` to a `tasks` property only when present (omitted for old records), and
@@ -101,8 +117,8 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
 ## Preflight bet
 
 - Outcome: the task text is read from data, not recovered from a rendered string.
-- Smallest bet: one optional field + one accessor + one ledger key, written at the one creation site
-  and the one edit site.
+- Smallest bet: one optional field + one accessor + one List formatter + one creation key + one
+  update event, written at the two creation sites and the one edit site.
 - Rejected: a full structured `ReminderView` object or a migration of stored records — both add a
   second source of truth or a one-way data change before the readers need it.
 - Rollback: older binaries ignore the extra field and payload key (both optional and additive);
@@ -123,7 +139,10 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   tests/lists-*.test.js` plus the display-utils suite.
 - `npm run projection:parity`, `npm run decision:replay`, `npm run validate:fsm`,
   `npm run validate:reminder-pipeline` (#261), then the full CI gate once.
-- Pinned cases (existing suites): a one-bullet reminder + one-line List edit persists exactly one
+- Pinned cases (existing suites): `Tasks:[{title:'Task A',context:'_Context A_'},{title:'Task B',context:'_Context B_'}]`
+  yields List summary `Task A _Context A_ Task B _Context B_` (create and drift compare), and the
+  context-free pair yields `Task A Task B`; creation + `ReminderSummaryUpdated` folds to the edited
+  text and `Tasks` in the parity fixture; a one-bullet reminder + one-line List edit persists exactly one
   `Tasks` item equal to the replacement bullet; a two-bullet-with-context reminder + one-line edit
   persists one item and no stale second item or context; an old record without `Tasks` keeps no field
   after an edit; an export of `{Tasks:[{title:'Ship', context:'_before Friday_'}]}` carries

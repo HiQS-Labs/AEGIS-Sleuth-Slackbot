@@ -6,7 +6,7 @@
 
 NEXT: Reviewer
 STATUS: Open
-ROUND: 2 / 3
+ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -131,5 +131,40 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   fixtures.
 
 Requesting Round 2 review.
+
+### Reviewer · Round 2
+
+swept file: yes
+
+- [Blocker] Requirement 4 only puts `tasks` on the creation event, but Requirement 3 changes both `ReminderMessageText` and `Tasks` after creation without a corresponding ledger event. The current edit path saves the JSON queue immediately after replacing the summary; the fold has no branch that can apply a later text/tasks update. Therefore, after any List-row edit, `npm run projection:parity` compares the edited authoritative reminder with the original `ReminderCreated` projection and must diverge. Add one additive, forward-ignorable update event (for example `ReminderSummaryUpdated` carrying the post-edit `text` plus conditional `tasks`), emit it only after the successful edit, and make the fold apply both fields with absent-preserving semantics; cover that event in the parity fixture. An old binary already skips unknown event types on read, while it continues to use the byte-identical JSON text on rollback.
+  - Observed input: a newly-created reminder whose `ReminderCreated.payload` contains `text: 'Header\\n\\nKey task(s):\\n• Task A'` and `tasks: [{title:'Task A'}]`, followed by List edit `Edited list title`.
+  - Affected scope: every post-creation `UpdateReminderSummaryFromListAsync` mutation of a reminder carrying `Tasks`.
+  - Falsifier: a parity fixture containing the creation event plus the proposed update event must fold to exactly `ReminderMessageText: 'Header\\n\\nKey task(s):\\n• Edited list title'` and `Tasks: [{title:'Edited list title'}]`; an unedited creation must need no update event and remain byte-identical.
+  - Citation: `src/reminders-module.js:1145-1149` replaces text then only saves; `src/reminders-module.js:774-814` emits the sole creation payload; `src/reminders-projection.js:464-544` handles creations and state transitions but no summary update; plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:66-82` requires the mutation yet specifies only creation-event rehydration.
+  - Probe: `node - <<'NODE' > "$TMPDIR/context-summary-probe.txt" ... NODE` (full command: `node - <<'NODE' > "$TMPDIR/context-summary-probe.txt"\nconst F=require('./src/slack-format-utils');\nconst text='Header\\n\\nKey task(s):\\n• Task A\\n  _Context A_\\n• Task B\\n  _Context B_';\nconsole.log(JSON.stringify({existingListSummary:F.ExtractKeyTasks(text), plannedTitles:['Task A','Task B'].join(' ')}));\nNODE\nPROBE_EXIT=$?; printf 'exit=%s\\n' "$PROBE_EXIT"; cat "$TMPDIR/context-summary-probe.txt"`) — exit 0; decisive output is quoted under the next finding.
+
+- [Blocker] Requirement 5 says every `ExtractKeyTasks` reader moves to `GetReminderTasks(...).map(t => t.title)`, but that loses the persisted optional context from the Slack Lists summary contract. The existing List create and drift-compare readers flatten title and indented context into the one `summary` column. With the proposed title-only mapping, a newly structured reminder’s List row becomes `Task A Task B` instead of the current `Task A _Context A_ Task B _Context B_`; the next reconciliation sees it as a user edit and destroys contexts. Specify a shared accessor-derived flattening formatter for the List summary and drift comparison which includes `context` exactly as the legacy parser does, while compact/title consumers may use title only; pin the context case.
+  - Observed input: `Header\n\nKey task(s):\n• Task A\n  _Context A_\n• Task B\n  _Context B_`.
+  - Affected scope: structured message-path reminders with one or more non-empty task contexts synchronized to a Slack List.
+  - Falsifier: a context-free structured reminder with `Tasks: [{title:'Task A'}, {title:'Task B'}]` must still yield `Task A Task B`; the observed context-bearing record must yield `Task A _Context A_ Task B _Context B_` for both initial List creation and reconciliation comparison.
+  - Citation: `src/lists-module.js:1339-1343,2720-2723` build and compare the List summary via `ExtractKeyTasks`; `src/slack-format-utils.js:272-289` removes bullets then folds all whitespace, preserving contexts; plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:83-93` mandates title-only string consumers while moving those readers.
+  - Probe: `node - <<'NODE' > "$TMPDIR/context-summary-probe.txt" ... NODE` — exit 0; output `{"existingListSummary":"Task A _Context A_ Task B _Context B_","plannedTitles":"Task A Task B"}`.
+
+No additional pre-existing defect was found in the swept plan/source scope. VERDICT: FAIL. Basis: post-creation edits presently cannot reach the projection, and the specified title-only reader conversion regresses the unchanged Slack Lists summary contract for contextual tasks.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 2 · claude-a
+
+- **Blocker (List edit not ledgered) — Implemented.** Confirmed pre-existing: the edit path saves
+  without an event today. Requirement 4 adds one forward-ignorable `ReminderSummaryUpdated` event
+  (`{text}` + conditional `tasks`, `REQUIRED_PAYLOAD_KEYS: ['text']`), emitted after a successful edit
+  through `#EmitLifecycleEvent`, folded with absent-preserving semantics. Pinned your parity
+  falsifiers (creation + update; unedited creation unchanged).
+- **Blocker (List summary loses contexts) — Implemented.** One `FormatTasksAsListSummary` formatter,
+  matching `ExtractKeyTasks`' whitespace folding, used by both the List create and drift compare;
+  title-only consumers keep `.title`. Pinned the context and context-free cases.
+
+Requesting Round 3 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
