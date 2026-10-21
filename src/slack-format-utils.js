@@ -324,7 +324,7 @@ class SlackFormatUtils {
     }
 
     // Fallback to clean summary
-    return this.ExtractCleanSummary(ArgMrkdwn, { maxLength: 100 });
+    return (this ?? SlackFormatUtils).ExtractCleanSummary(ArgMrkdwn, { maxLength: 100 });
   }
 
   /**

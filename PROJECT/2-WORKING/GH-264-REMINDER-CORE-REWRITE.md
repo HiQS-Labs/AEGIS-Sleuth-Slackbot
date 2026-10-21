@@ -234,3 +234,13 @@ summary helper references previously worked, but the new `this.ParseLegacyRemind
 threw. Changed parser delegation to the named class, and added one regression to the existing format
 suite (also protects the key-task section path). The baseline and candidate failure were witnessed.
 Round2 will review that fix and close through the normal supervisor token protocol. No gate bypass.
+
+
+Final QA round2 identified the detached key-task helper's plain-text fallback still depended on
+`this`. This was also true at baseline (not a refactor regression). Disposition: implement the small
+compatibility improvement explicitly, rather than claim unchanged exception behavior for this case.
+The existing receiver is retained when provided (including subclass/custom formatting); only a
+missing receiver falls back to SlackFormatUtils. The detached no-section call now matches the named
+call instead of throwing. This is the sole intentional behavior improvement, confined to helper
+callability; normal scheduling/storage/wire bytes are unchanged. Regression extended in the same
+existing test. Round3 reviews this specific acceptance and final implementation.
