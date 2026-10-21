@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Escalated
 ROUND: 4 / 4
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -256,5 +256,26 @@ Handing off to Producer (claude-a): the three-round limit is reached. Resolve or
 Operator authorized one additional review round (2026-10-20, "OK round 4") on the escalated relay.
 Scope for Round 4: the single open finding R1 (r3) and its disposition above; the plan's whole-title
 admission rule is at requirement 2. Requesting Round 4 review.
+
+### Reviewer · Round 4 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: R1's whole-title check closes the previous bare-date counterexample, but its deadline-lead-in exception still permits deleting part of a duration. Read the entire 146-line plan and swept the whole title-contract module, selector, contract test/golden set, and the resolver/prompt/replay/render paths named in Setup. No additional pre-existing plan defects found beyond this remaining R1 finding. The authorized fourth round is exhausted; STATUS is Escalated.
+
+Evidence scope: Verify tier, direct seeded-source fallback. Tool discovery returned no callable graph project/status/search/coverage tools; no graph completeness claim. No git commands, suites, executable fixtures, model calls or service probes ran. The narrow pure probe evaluates the plan's stated admission predicate and invokes the existing contract; it does not implement or test a schedule matcher. Implementation and real-model outcomes remain **[Unverified — needs clone run]**.
+
+- [Should] **R1 remains open — a deadline-shaped suffix can be inside a duration.** Plan lines 53–59 admit a match beginning with `at` or `on` even when `until` appears earlier. For `Keep staging online until the handoff at 2pm`, stripping the admitted `at 2pm` yields `Keep staging online until the handoff`; for `Keep staging online until the meeting on Friday`, stripping `on Friday` yields `Keep staging online until the meeting`. These qualifiers identify the duration endpoint, rather than the reminder's due slot. Both shortened results exceed two words and pass the existing validator (`src/reminder-title-contract.js:358-379`), so the downstream contract cannot restore the lost information. Cheapest fix: make the existing whole-title duration veto take precedence over the deadline-lead-in exception, conservatively retaining ambiguous titles; no parser or additional introducer list is needed. Pin one nested endpoint case in the existing contract suite with the deadline control.
+  Observed input: `Keep staging online until the handoff at 2pm`; suffix `at 2pm`, `hasDuration:true`, `deadlineLeadIn:true`.
+  Affected scope: leading/trailing schedule matches whose allowed lead-in qualifies an endpoint inside a title containing a duration/condition introducer.
+  Falsifier: the existing normalizer suite preserves that full input and `Keep staging online until at least Friday`, while `Deploy the hotfix by Friday` becomes `Deploy the hotfix`.
+  Probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node "$TMPDIR/gh258-r4-probe.js"` (exit 0). The probe extracts the introducer list from the plan, evaluates `deadlineLeadIn || !hasDuration`, and calls the pure contract. Decisive output: `{"input":"Keep staging online until the handoff at 2pm","suffix":"at 2pm","hasDuration":true,"deadlineLeadIn":true,"stripPermitted":true,"proposedOutput":"Keep staging online until the handoff","tooShort":false,"validation":{"ok":true,"reasons":[]}}`. The `on Friday` endpoint likewise has `stripPermitted:true` and valid shortened text. Controls: `until at least Friday` now has `stripPermitted:false` and stays intact; `Deploy the hotfix by Friday` has `stripPermitted:true` and yields `Deploy the hotfix`. This is a counterexample to the permitted deletion, not an observed implementation failure.
+
+- [Pass] **The previous bare-date failure is addressed at plan level.** Requirement 2 now says “Any introducer in the title means bare dates are left alone” (plan lines 55–59), and requirement 5 pins `until at least Friday` (lines 88–89); the probe's bare-date control is refused. Retain these checks and the separate prompt/context controls at plan lines 140–144.
+
+Root cause: the deadline-lead-in OR branch bypasses the duration boundary; Fix site: requirement 2's admission predicate and one existing-suite endpoint case; Why not upstream/downstream: the shared remove-only normalizer owns the deletion, while shape validation and grounding do not detect lost temporal meaning.
+
+Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Disposition R1 through the escalated decision before implementation; no further review round is authorized by this turn. Only this relay file was edited.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
