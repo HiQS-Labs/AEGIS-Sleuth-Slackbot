@@ -22,7 +22,7 @@ goal: Replace tangled reminder planning and legacy-content internals behind unch
 
 | What was just completed | What's next |
 | --- | --- |
-| Final Codex QA Approved at fe929bf; build and full gate passed (2,806 Jest +116 Node tests). | Publish reviewed PR against development; await merge decision. |
+| PR265 review fixes Approved at93274ac; build,146 Jest suites/2,806 tests and116 Node tests pass. | Await hosted checks and merge decision on the updated PR. |
 
 ## Quad Concepts
 
@@ -317,3 +317,13 @@ boundaries. No upstream policy or downstream storage fallback is necessary. No p
 or new suite was added; temporary fault injection stayed in the disposable full gate clone.
 
 Focused checks / final follow-up QA and gate receipts are recorded below when complete.
+
+Follow-up completion: Codex QA Approved round1 at93274ac07417566821f5524a2702e3d65e96fbf6,
+supervisor exit0; attestation verified. See `PROJECT/RELAY/gh264-pr265-followup-qa.md`.
+Exact-code full gate: build and npm test exit0;146 suites/2,806 Jest tests and116 Node tests pass,
+no skips. Root/origin/HEAD/branch and tracked files unchanged before/after. Focused235 tests,
+legacy1,336 comparisons, decision23/23, real-model9/9, and FSM/isolation/render/changelog validators
+pass. Three witnessed fault controls are summarized in the follow-up smoke receipt. No model or
+prompt change, production write, merge or deployment. PDDA retains the same unrelated13 frontmatter
+and9 status-table findings, none on this task. No generated ledger changes in the follow-up.
+
