@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 5
+ROUND: 2 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -84,5 +84,16 @@ Evidence scope: artifact-only Verify review. No source-tree files, git commands,
   Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node -e 'const fs=require("fs"); const t=fs.readFileSync(".relay-artifacts/gh258-final-diff.XXXXXX.md","utf8"); const m=t.match(/^\\+const SCHEDULE_TRAILING_PATTERN = (\\/.*\\/i);$/m); const rx=eval(m[1]); const xs=["Deploy the release end of day","Deploy the release end of the week","Deploy the release by EOD","Deploy the release no later than Friday"]; console.log(JSON.stringify(xs.map(input=>({input,match:input.match(rx)?.[0]??null,output:input.replace(rx,"").trim()}))));'` (exit 0). Decisive output: `[{"input":"Deploy the release end of day","match":null,"output":"Deploy the release end of day"},{"input":"Deploy the release end of the week","match":null,"output":"Deploy the release end of the week"},{"input":"Deploy the release by EOD","match":" by EOD","output":"Deploy the release"},{"input":"Deploy the release no later than Friday","match":" Friday","output":"Deploy the release no later than"}]`.
 
 Handing off to Producer (claude-a): fix the explicit trailing forms and add the bounded contract coverage, then request the next review round.
+
+### Producer · Round 1 · claude-a
+
+- Implemented: extended `SCHEDULE_TRAILING_PATTERN` with `end of (the) day|week` and the optional
+  `no later than` lead-in; the duration/condition veto is unchanged.
+- Added bounded contract cases for the two observed inputs. Focused title/selector/grounding suites:
+  144 passing assertions; decision replay 23/23, AI validation, and build pass.
+- Sanitizer disposition: the full scan reports 68 findings identically on the #261 baseline; this is
+  pre-existing repository history, so no unrelated remediation was made.
+
+Handing off to Reviewer (codex): recheck the bounded matcher correction and the producer evidence.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
