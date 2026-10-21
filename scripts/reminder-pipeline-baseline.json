@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "counters": {
+    "llm_extraction_specs": { "count": 3, "locations": ["src/reminders-ai-pipeline.js:13", "src/reminders-ai-pipeline.js:50", "src/reminders-ai-pipeline.js:95"], "reason": "#250 phase 5 target: one extraction spec.", "issues": ["#79", "#250"] },
+    "key_task_reparse_sites": { "count": 6, "locations": ["src/chat-commands/show-me-projects-command.js:211", "src/reminders-module.js:2787", "src/slack-format-utils.js:239", "src/slack-format-utils.js:273", "src/slack-format-utils.js:320", "src/slack-format-utils.js:410"], "reason": "Six named executable legacy parser/rewriter sites; the sole writer is excluded.", "issues": ["#250"] },
+    "routing_thresholds": { "count": 3, "locations": ["src/reminders-ai-pipeline.js:417", "src/reminders-ai-pipeline.js:430", "src/reminders-ai-pipeline.js:445"], "reason": "#250 phase 3 target: zero display-trust thresholds.", "issues": ["#79", "#250"] },
+    "display_sources": { "count": 4, "locations": ["src/reminder-display-selection.js:77:verbatim", "src/reminder-display-selection.js:77:title", "src/reminder-display-selection.js:77:span", "src/reminder-display-selection.js:77:fallback"], "reason": "#250 phase 3 removes the verbatim display source.", "issues": ["#250"] },
+    "context_markers": { "count": 2, "locations": ["src/reminder-context-resolution.js:132", "src/reminder-context-resolution.js:133"], "reason": "Only wire-format header declarations are governed by this counter.", "issues": ["#250"] }
+  }
+}
