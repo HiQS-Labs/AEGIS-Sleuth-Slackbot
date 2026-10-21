@@ -50,12 +50,13 @@ A read-only re-extraction of open production reminders through the GH-250 path (
      `tomorrow [morning|afternoon|evening|night]`, `this morning|afternoon|evening|week`,
      `[this|next|coming] <weekday> [part of day]`, `next week|month`, `EOD`, `EOW`,
      `end of (the) day|week`, clock times (`2pm`, `10:30 am`), `ASAP`.
-   - **Admission rule (R1 r3, conservative):** a match is stripped only when EITHER it begins with
-     a deadline lead-in (`by|before|on|at|due|no later than`) OR the title contains no
+   - **Admission rule (R1 r4, conservative; the duration veto wins):** if the title contains any
      duration/condition introducer anywhere (`until till thru through for over during within since
-     from between after`). Any introducer in the title means bare dates are left alone, so
-     `Keep staging online until at least Friday`, `… through Friday`, `… until this Friday` and
-     `… over the weekend` survive intact whatever modifiers sit between; `Deploy the hotfix by
+     from between after`), NO schedule phrase is stripped from it at either end, with or without a
+     lead-in — ambiguous titles are kept whole. Only in a title with no introducer is a match
+     stripped (with or without a deadline lead-in `by|before|on|at|due|no later than`). So
+     `Keep staging online until at least Friday`, `… until the handoff at 2pm`, `… until the meeting
+     on Friday`, `… through Friday` and `… over the weekend` survive intact; `Deploy the hotfix by
      Friday` -> `Deploy the hotfix`; `Deploy the release Friday` -> `Deploy the release`.
    - Revert the strip if it leaves fewer than 2 words.
    - Quoted spans stay protected (step 0 already masks them).
@@ -86,7 +87,8 @@ A read-only re-extraction of open production reminders through the GH-250 path (
    to expect the topic header with the root (mentions neutralized) while middle siblings stay out;
    a referenced reply gets no topic header; a root already in the lookback is not duplicated.
    Schedule: `Keep staging online through Friday`, `Keep staging online until this Friday` and
-   `Keep staging online until at least Friday` unchanged. Selector (R4): candidate `Ask him` with live `Ask him tomorrow`, antecedent `Ok`,
+   `Keep staging online until at least Friday` and `Keep staging online until the handoff at 2pm`
+   unchanged. Selector (R4): candidate `Ask him` with live `Ask him tomorrow`, antecedent `Ok`,
    topic `@someone delete the backups tomorrow` -> the generic fallback, never `Delete the backups`;
    a grounded `Reply to Dana re: vendor security review` sourced from topic-only terms survives.
    Golden: add a thread-only topic sample (`re:` topic grounded via context) and an invented entity

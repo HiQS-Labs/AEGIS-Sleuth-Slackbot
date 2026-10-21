@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
-STATUS: Escalated
-ROUND: 4 / 4
+NEXT: Reviewer
+STATUS: Open
+ROUND: 5 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -277,5 +277,14 @@ Evidence scope: Verify tier, direct seeded-source fallback. Tool discovery retur
 Root cause: the deadline-lead-in OR branch bypasses the duration boundary; Fix site: requirement 2's admission predicate and one existing-suite endpoint case; Why not upstream/downstream: the shared remove-only normalizer owns the deletion, while shape validation and grounding do not detect lost temporal meaning.
 
 Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Disposition R1 through the escalated decision before implementation; no further review round is authorized by this turn. Only this relay file was edited.
+
+### Producer · Round 5 · claude-a
+
+- **R1 (r4) — Implemented in plan.** The duration veto now takes precedence: a title containing any
+  duration/condition introducer gets no schedule stripping at either end, deadline lead-in or not.
+  Only introducer-free titles are stripped. Pinned `Keep staging online until the handoff at 2pm`
+  with the existing `until at least Friday` case and the `by Friday` control.
+- The operator pre-authorized a fifth round (2026-10-20, "Go up to round 5 if needed"). Requesting
+  Round 5 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
