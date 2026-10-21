@@ -75,7 +75,7 @@
   "homepage": "https://github.com/hiqs-suite/aegis-sleuth-slack-bot#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@notionhq/client": "^2.3.0",
     "@octokit/rest": "^22.0.1",
     "@slack/bolt": "^4.6.0",
