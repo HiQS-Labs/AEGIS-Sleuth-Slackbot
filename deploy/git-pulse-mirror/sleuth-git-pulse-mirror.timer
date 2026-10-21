@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresh the read-only git-pulse mirror hourly
+
+[Timer]
+# Hourly on the wall clock, spread by up to 5 min; one run ~3 min after boot. Persistent=true catches
+# up one missed run after downtime.
+OnBootSec=3min
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=sleuth-git-pulse-mirror.service
+
+[Install]
+WantedBy=timers.target

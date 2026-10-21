@@ -45,7 +45,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 16 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 17 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -65,6 +65,7 @@ Summary: 16 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | "Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362) | — | [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md) |
 | GH-149 · One owner for reminder intent judgement (GH-149 addendum) | — | [GH-149-REMINDER-JUDGEMENT.md](PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md) · [#149](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149) |
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
+| GH-249 · Prod: hourly read-only git-pulse mirror for Sleuth scripts | — | [GH-249-GIT-PULSE-MIRROR.md](PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md) · [#249](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249) |
 
 ## Completed
 

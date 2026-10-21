@@ -49,6 +49,31 @@ in `github-issue-stream-planner.js`; `ExtractIssueReferences` added to `github-u
 without changing `ExtractGitHubUrls`. Respects workspace/channel DND without advancing cursors.
 Default off; no Slack event handlers registered. Tests: `tests/github-issue-stream-*.test.js`.
 
+## 2026-10-20 — GH-249 read-only git-pulse mirror on the production server
+The production server now keeps its own copy of the private git-pulse data, refreshed every hour,
+so my server-side scripts can read it directly. The first one to use it will post GitHub activity
+into Slack threads (GH-248).
+
+**Technical:** New `deploy/git-pulse-mirror/`, following the `deploy/reminders-export/` pattern:
+`sync-git-pulse-mirror.sh` (clone, then `fetch` + `reset --hard FETCH_HEAD` — read-only by design),
+`sleuth-git-pulse-mirror.{service,timer}` (oneshot, `OnCalendar=hourly`, 5 min jitter,
+`Persistent=true`), an idempotent `install.sh <owner/name>` and a README. No app code or runtime
+change, so no version bump. It reuses `SLEUTH_RAG_GITHUB_PAT`, read literally (not sourced) from the
+live tree's `.env.runtime`. The live tree is derived from `systemctl show sleuth-app -p
+WorkingDirectory` (the GH-86 rule), avoiding GH-101's hardcoded `/root/sleuth-app` path. The unit's
+`EnvironmentFile` has no `-`, so a missing config fails loudly. The token reaches git only through a
+per-invocation inline credential helper, never `.git/config`, the URL or argv. The private repo name
+lives only in the server-side `/etc/default/sleuth-git-pulse-mirror`. The mirror path is
+`/root/git-pulse-sync`. `query-reminders.mjs`'s literal `'$HOME/…'` default is not expanded, so
+server consumers set `SLEUTH_MIRROR_DIR` explicitly, as documented in `ARCHITECTURE.md` and the
+server installation guide.
+**Validation:** Codex relay plan QA approved round 2. On production: red controls (missing env
+file, empty PAT, unset repo, missing unit config) each fail with a named error. The first clone
+matched authenticated `ls-remote` main; the real reminder reader loaded from the mirror; the
+installer rerun was byte-identical; a dirty tracked file was reset; the token leak scan (config,
+remote, journal, sampled argv; positive control fired) was clean. Receipt:
+[PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md](PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md).
+
 ## 2026-10-12 — GH-243 verification and PR
 Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.
 
