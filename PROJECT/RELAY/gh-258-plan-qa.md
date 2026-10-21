@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 2 / 3
 
@@ -160,5 +160,39 @@ grade this against the cap's documented incident (neighbour task + @mention -> w
 addition should split into its own issue.
 
 Requesting Round 2 review.
+
+### Reviewer · Round 2 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: R2 is addressed, but R1 still permits partial condition deletion, R3's red control changes two variables, and the new topic-only context needs a deterministic fallback boundary. Reviewed the whole revised 127-line plan, the whole title-contract module, selector, context resolver, title-contract test and golden set, both prompt assets, and the named replay/render paths. No additional pre-existing defects in the plan found beyond these findings.
+
+Evidence scope: direct seeded-source Verify fallback; no graph tools are callable in this turn (tool discovery returned no `list_projects`, `index_status`, `search_graph`, or `check_index_coverage`), so no graph completeness claim. No git, suites, executable fixtures, or service/model probes ran. Proposed behavior is distinguished below from implemented behavior. Probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node "$TMPDIR/gh258-r2-probe.js"` (exit 0); it imports only the pure contract/selector/resolver and models the plan's permitted deletion/header removal. Decisive outputs are preserved in the findings because scratch is disposable.
+
+- [Should] **R1 remains open — optional lead-ins still let bare suffixes match inside conditions.** Plan lines 47–54 say removing `until|for|over` from the lead-ins means conditions are never matched, but a bare `Friday` remains matchable. `Keep staging online through Friday` becomes `Keep staging online through`; `Keep staging online until this Friday` becomes `Keep staging online until this`. Neither result triggers the specified connector or minimum-word revert, and both pass the existing validator. Cheapest fix: conservatively refuse partial temporal-clause matches (including these duration forms); do not build a date parser or keep expanding a dangling-word list without checking the whole matched clause. Also make the manual prompt's existing blanket scheduling prohibition preserve conditions, consistent with requirement 1; plan line 41 currently limits that asset to the new `re:` line.
+  Observed input: `Keep staging online through Friday` and `Keep staging online until this Friday`; deleting the explicitly allowed bare weekday produces the strings above.
+  Affected scope: leading/trailing schedule removal when the date is embedded in a duration/condition rather than a standalone scheduling adjunct; the same distinction in both prompt assets.
+  Falsifier: existing-suite cases preserve both complete inputs while `Deploy the hotfix by Friday` becomes `Deploy the hotfix`; prompt evidence preserves duration wording through the manual path too.
+  Probe output: for each damaged string, `"tooShort":false,"connector":false,"validation":{"ok":true,"reasons":[]}`. The deadline control also passes. This is a counterexample to the planned predicates, not a claim that a schedule matcher has been implemented.
+
+- [Should] **R4 — a topic-only root must not become the fallback task.** Plan lines 62–69 add the opening message before ordinary context and teach `StripContextMarkers` the header, but the deterministic consumer uses every stripped context line as a fallback subject (`src/reminder-display-selection.js:202-205,228-232`). `BuildFallbackTitle` preferentially selects an imperative (`src/reminder-title-contract.js:470-475`). Neutralizing mentions and instructing the model cannot constrain this non-model path. Cheapest fix: retain the topic body for analyzer grounding, but exclude the whole topic-only block from fallback subject candidates; pin this in the existing selector suite. Make the manual prompt understand the same topic-only boundary, since plan line 41 currently adds only `re:` there. The bounded root addition can remain in this issue if these consumers honor its semantics; no separate relevance subsystem is requested.
+  Observed input: unreferenced live reply `Ask him tomorrow`, immediate antecedent `Ok`, opening task `<@U_OTHER> delete the backups tomorrow`; proposed mention-neutralized opening text is `@someone delete the backups tomorrow`. `DescribeReferenceShape('Ask him tomorrow')` returns `null`, so this is within the new path.
+  Affected scope: an unreferenced enriched reply whose model/span/verbatim candidates are refused and whose topic-only opening message names unrelated work.
+  Falsifier: the real selector with candidate `{reminder_message:'Ask him', actionable_language:'Ask him'}` and that enriched source returns the generic fallback, never `Delete the backups`; a valid grounded `Reply to Dana re: vendor security review` still survives using topic-only source terms. Include an unrelated opening task in the real-model check for both assets, asserting the live reply's task and owner, since plan lines 119–121 currently use a background statement rather than a competing imperative.
+  Probe output: without root, `"text":"Follow up on the original message","source":"fallback"`; after simulating removal of the new header while retaining its body, `"text":"Follow up: Delete the backups tomorrow","source":"fallback","ungroundedTerms":[]`. A future schedule strip merely removes `tomorrow`; it cannot repair the task substitution. This measures the current downstream consumer under the proposed wire-format change, not a completed resolver implementation.
+
+- [Should] **R3 remains open — separate the prompt and context red controls.** Plan lines 123–125 remove the prompt addition and disable the topic header in the same control. With the positive topic available only in the opening message (lines 119–121), disabling the header can make that control red even if deleting the prompt line alone changes nothing. That still does not establish sensitivity to the prompt requirement. Cheapest fix: explicitly keep the enriched input identical while removing only the `re:` instruction, for each edited asset; test root availability separately by disabling only the topic block. Keep receipts in the already named `TESTS-RESULTS/2026-10-20+GH-258/` destination. No new suite is needed.
+  Observed input: the plan's topic-present thread plus its combined mutation, `new prompt line removed (and with the topic header disabled)`.
+  Affected scope: the evidence claimed for the person-topic prompt rule and the new context addition, independently.
+  Falsifier: the fixed-input prompt-only mutation loses the required topic while the unchanged enriched source still contains it; the independent header-only mutation measures the resolver contribution. If prompt-only deletion stays green, report it as insensitive and revise the evidence rather than attributing the combined failure to the prompt.
+  Real-model results remain **[Unverified — needs clone run]**.
+
+- [Pass] **R2's ordering and selector-level checks are now explicit.** Plan lines 44–46 place leading removal before framing and lines 74–75 require the real selector with an empty model candidate; this addresses the anchored framing pass at `src/reminder-title-contract.js:264-279`. Plan lines 55 and 78–79 preserve opaque quotes and grounding cases; grounding still uses analyzed context and rechecks normalized output (`src/reminder-display-selection.js:107-111,163-170`).
+- [Pass] **The rating and existing verification surfaces are appropriately bounded.** Plan line 5 labels `55/30/45/75` provisional, and lines 113–127 name the existing suites, replay, AI validation, real-model check and receipt location. These are plan commitments, not executed passes. The due-date duplication claim remains supported by `src/reminders-display-utils.js:267`.
+
+Root cause: the revised plan treats a removable suffix and a removable marker as complete semantic boundaries; Fix site: requirements 2/4 and verification controls in the plan; Why not upstream/downstream: the established contract/selector/resolver can implement these distinctions without a parallel path or new machinery.
+
+Handing off to Producer (claude-a): disposition R1, R3 and R4, revise the plan, then request Round 3 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
