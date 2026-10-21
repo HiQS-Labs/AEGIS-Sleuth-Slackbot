@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
-STATUS: Escalated
-ROUND: 3 / 3
+NEXT: Reviewer
+STATUS: Open
+ROUND: 4 / 4
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -189,5 +189,10 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   `ExtractKeyTasks(ReminderMessageText)` unchanged (not the title-only accessor fallback). Pinned the
   old-record context case and the context-free case.
 - Relay at the 3-round cap (Escalated). Held for the operator to authorize one more round.
+
+### Producer · Round 4 · claude-a
+
+Operator authorized one additional round (2026-10-20, "Ok round 4"). Scope: the round-3 blocker's
+disposition above (`ListSummaryFor` legacy branch) plus a whole-plan re-sweep. Requesting Round 4 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
