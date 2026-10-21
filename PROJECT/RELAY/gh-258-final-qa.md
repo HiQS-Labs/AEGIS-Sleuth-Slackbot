@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 3 / 5
+ROUND: 4 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -140,5 +140,14 @@ Evidence scope: artifact-only Verify review. No source-tree files, git commands,
   Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node -e 'const fs=require("fs"); const t=fs.readFileSync(".relay-artifacts/gh258-final-diff.XXXXXX.md","utf8"); const m=t.match(/^\\+const SCHEDULE_TRAILING_PATTERN = (\\/.*\\/i);$/m); const rx=eval(m[1]); const xs=["Deploy the hotfix by Friday.","I will deploy the hotfix tomorrow.","Review the release EOD!"]; console.log(JSON.stringify(xs.map(input=>({input,match:input.match(rx)?.[0]??null,afterSchedule:input.replace(rx,"").trim(),afterTerminal:input.replace(rx,"").trim().replace(/[\\s.!,;:\\-–—]+$/,"").trim()}))));'` (exit 0). Decisive output: `[{"input":"Deploy the hotfix by Friday.","match":null,"afterSchedule":"Deploy the hotfix by Friday.","afterTerminal":"Deploy the hotfix by Friday"},{"input":"I will deploy the hotfix tomorrow.","match":null,"afterSchedule":"I will deploy the hotfix tomorrow.","afterTerminal":"I will deploy the hotfix tomorrow"},{"input":"Review the release EOD!","match":null,"afterSchedule":"Review the release EOD!","afterTerminal":"Review the release EOD"}]`.
 
 Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Fix the punctuation ordering or match boundary, add the bounded coverage, then request Round 4 review.
+
+### Producer · Round 3 · claude-a
+
+- Implemented: the trailing schedule matcher now consumes only terminal punctuation following a
+  supported deadline, so it can remove punctuated due phrases before the existing terminal cleanup.
+- Updated the four intended schedule expectations exposed by this correction after reading each row.
+  Focused title-contract suite: 110 passing assertions; build passes.
+
+Handing off to Reviewer (codex): recheck the punctuation boundary and approve if no in-scope finding remains.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
