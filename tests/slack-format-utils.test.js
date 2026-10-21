@@ -603,3 +603,16 @@ describe('SlackFormatUtils.TruncateToWords', () => {
     expect(SlackFormatUtils.TruncateToWords('   \n\n   ', 10)).toBe('   \n\n   ');
   });
 });
+
+
+describe('GH-264 legacy reader distinctions', () => {
+  test.each([
+    ['Header:\n>quote\n\nKey task(s):\n• Do alpha\n  _why alpha_\n• Do beta', 'Do alpha _why alpha_ Do beta', 'quote'],
+    ['Header:\n>quote\n\nKEY TASK(S):\n- Do alpha\n* Do beta', 'Do alpha Do beta', 'quote\n\nKEY TASK(S):\n- Do alpha\n* Do beta'],
+    ['Header:\r\n>quote\r\n\r\nKey task(s):\r\n• Do alpha', 'Do alpha', null],
+    ['Header:\n>quote\n\nKey task(s):', 'Header:', 'quote'],
+  ])('retains all-task and quote views for %s', (text, tasks, quote) => {
+    expect(SlackFormatUtils.ExtractKeyTasks(text)).toBe(tasks);
+    expect(SlackFormatUtils.ExtractQuotedOriginalMessage(text)).toBe(quote);
+  });
+});

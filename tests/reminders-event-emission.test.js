@@ -328,3 +328,31 @@ describe('P3 Phase 1 — non-authoritative event emission from the FSM', () => {
     }
   });
 });
+
+
+test('GH-264 factory events precede semantic duplicate rejection without queueing', async () => {
+  const WorkspaceInfo = { ...BaseWorkspaceInfo, WORKSPACE_NAME: 'IntegrationWorkspace_gh264_duplicate_events' };
+  const Workspace = WorkspaceInfo.WORKSPACE_NAME;
+  ConfigureMockWorkspaceAI(MockWorkspaceAI, { reminderMessage: 'Review release notes', actionableLanguage: 'review release notes', extractedDate: { year: 2030, month: 1, day: 2, hour: 9, minute: 0, second: 0 } });
+  const SlackApp = new MockSlackApp({ WorkspaceInfo });
+  const Reminders = new RemindersModule(SlackApp);
+  const Pipeline = require('../src/reminders-ai-pipeline');
+  const Dedup = jest.spyOn(Pipeline.prototype, 'CheckForDuplicateReminderAsync').mockImplementation(async ArgReminder => {
+    const Events = await ReadLedgerUntilAsync(Workspace, e => e.some(x => x.type === 'ReminderScheduled' && x.reminderId === ArgReminder.ReminderID));
+    expect(Events.filter(e => e.reminderId === ArgReminder.ReminderID).map(e => e.type)).toEqual(['ReminderCreated', 'ReminderScheduled']);
+    expect(Reminders.GetPendingReminders()).toHaveLength(0);
+    return { recommendation: 'ignore', rationale: 'semantic duplicate', matched_by: 'semantic' };
+  });
+  try {
+    await CleanupAsync(Workspace);
+    await Reminders.StartAsync(EmptyWorkspaceStats);
+    expect(await SlackApp.SimulateMessageAsync({ channel: 'D_SOURCE', channel_type: 'im', user: 'U_OWNER', text: "I'll review release notes tomorrow." })).toBe(false);
+    expect(Dedup).toHaveBeenCalledTimes(1);
+    expect(Reminders.GetPendingReminders()).toHaveLength(0);
+    expect(SlackApp.SentMessages).toHaveLength(0);
+  } finally {
+    Dedup.mockRestore();
+    await Reminders.StopAsync();
+    await CleanupAsync(Workspace);
+  }
+});

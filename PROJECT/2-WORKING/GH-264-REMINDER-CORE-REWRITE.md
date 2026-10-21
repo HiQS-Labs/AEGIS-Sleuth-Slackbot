@@ -21,7 +21,7 @@ goal: Replace tangled reminder planning and legacy-content internals behind unch
 
 | What was just completed | What's next |
 | --- | --- |
-| Fresh clone and issue intake registered; source recon and rating recorded. | CommandCode / GLM 5.3 max plan QA, then implement only the approved scope. |
+| Plan QA Approved by CommandCode / GLM 5.3 max at2dcef40; six baseline suites267 tests pass. | Characterize failure/effect boundaries, then implement separable planning and legacy-content commits. |
 
 ## Quad Concepts
 
@@ -181,3 +181,11 @@ Write commands, baseline/candidate revisions, outcomes and witnessed red control
 - Removing display thresholds/feature-flag semantics cannot simultaneously promise unchanged behavior for every flag combination. Preserve them here; coordinate any intentional retirement separately under #250. Never keep misleading diagnostic facts merely to preserve a field name.
 
 **Sizing:** effort4/5, complexity4/5, risk3/5, five phases including characterization. No implementation, merge, deployment, model benchmark or data migration is part of filing this issue.
+
+
+## Plan QA disposition and implementation seam
+
+- CommandCode / GLM5.3max PASS, round1, supervisor exit0 and canonical attestation verified. See `PROJECT/RELAY/gh264-plan-qa.md`. No blocking findings. Cosmetic spacing left in the source-pinned issue copy; no semantic replan. Mark statics lacking verified external consumers as preserved compatibility insurance, not candidates for opportunistic deletion.
+- Phase0 baseline: six existing integration/event/format/display/projects/clustering suites267 tests passed in disposable full gate clone, with repository-standard `--forceExit`. Initial direct Jest invocation omitted that standard flag and lingered after assertions passed; it was stopped and rerun with the normal exit mode.
+- Smallest replacement bet: central pure preparation of candidate/render-identity/reference/group/ownership data shared by scheduling and triage, while existing module keeps per-group I/O ordering. No model/prompt/date algorithm changes. One legacy-content owner in SlackFormatUtils; keep distinct legacy views and exact casing/newline/fallback quirks.
+- Separable commits: characterization; planning/triage internals; legacy-content adapters; final verified docs/receipts. They have no dependency on GH250/263 structured storage.
