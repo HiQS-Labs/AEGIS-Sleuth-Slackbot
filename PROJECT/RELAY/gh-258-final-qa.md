@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 6 / 7
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -253,5 +253,36 @@ Focused title-contract suite: 115 passing assertions; build and decision replay 
 
 Handing off to Reviewer (codex): review these two fixes only; use round 7 only for a concrete,
 material defect rather than a style or generalization concern.
+
+### Reviewer · Round 6 · codex
+
+swept file: yes
+
+VERDICT: PASS
+Basis: Both Round 5 findings are addressed. Read the seeded diff and swept the complete current 537-line title-contract implementation and its existing test file, including pre-existing code. No additional material pre-existing defect found in this bounded review. Approval covers the two requested corrections; the artifact's Requirements and prior findings remain the acceptance basis because Setup's Definition of Done is still a placeholder.
+
+Evidence scope: Verify with direct-source fallback. Project pagination completed; this isolated checkout is not indexed. The nearest graph is a different checkout, generation `2026-10-13T00:42:44Z`; coverage reports the implementation and test as `not_tracked`, so material claims use current source. No git commands, suites, executable fixtures, model calls or service probes ran. Suite/build/replay and real-model outcomes remain **[Unverified — needs clone run]**; the harness owns that gate.
+
+- [Pass] **Repeated trailing schedules are removed.** The loop at `src/reminder-title-contract.js:291-295` repeats the existing guarded transform until unchanged. Both `Deploy the hotfix tomorrow at 2pm` and `Deploy the hotfix tomorrow by EOD` now yield `Deploy the hotfix`; the punctuated variant does too. The duration veto and two-word rollback remain at `src/reminder-title-contract.js:111-113`: `Keep staging online until next Friday morning` stays intact, and `Deploy tomorrow at 2pm` stops at `Deploy tomorrow` rather than stripping to one word. Quoted `Review "tomorrow at 2pm"` remains intact. The bounded composite fixture is present at `tests/reminder-title-contract.test.js:34`. Retain these guards.
+
+- [Pass] **Courtesy validation now shares the planned vocabulary and protects quoted spans.** `src/reminder-title-contract.js:384-386` masks quotes before checking the widened spellings. `Review (pleae) the logs` is rejected with `reasons:["courtesy"]`, while `Review "pleae" logs` is accepted. The paired assertions are at `tests/reminder-title-contract.test.js:60-61`. Retain the masking.
+
+Probe command (exit 0; no probe files written):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE'
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('src/reminder-title-contract.js','utf8');
+const box={module:{exports:{}}};vm.runInNewContext(source,box);
+const {NormalizeReminderTitle:N,ValidateReminderTitle:V}=box.module.exports;
+for(const input of ['Deploy the hotfix tomorrow at 2pm','Deploy the hotfix tomorrow by EOD','Deploy the hotfix tomorrow at 2pm.','Keep staging online until next Friday morning','Deploy tomorrow at 2pm','Review "tomorrow at 2pm"','Review (pleae) the logs','Review "pleae" logs','Check the report tomorrow, pleae']){
+const n=N(input);console.log(JSON.stringify({input,text:n.text,validation:V(n.text)}));
+}
+NODE
+```
+Decisive output: the three composite-deadline inputs each return `"text":"Deploy the hotfix","validation":{"ok":true,"reasons":[]}`; duration and quoted inputs retain their exact text; the one-word rollback control returns `"text":"Deploy tomorrow"`; the unquoted misspelling returns `"validation":{"ok":false,"reasons":["courtesy"]}`, and its quoted counterpart returns `"validation":{"ok":true,"reasons":[]}`. These measure the pure normalizer/validator, not full selector execution.
+
+Relay closed (Approved), no further review turn needed. Producer (claude-a) owns the subsequent disposable-clone gate. Only this relay file was edited; the harness owns its commit.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
