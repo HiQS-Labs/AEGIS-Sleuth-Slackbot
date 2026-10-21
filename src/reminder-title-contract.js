@@ -288,7 +288,11 @@ function NormalizeReminderTitle(ArgText) {
     Text = Text.replace(/[\s?]+$/, '');
   }
 
-  Text = StripScheduleWording(Text, Changes, SCHEDULE_TRAILING_PATTERN);
+  let WithoutTrailingSchedule;
+  do {
+    WithoutTrailingSchedule = Text;
+    Text = StripScheduleWording(Text, Changes, SCHEDULE_TRAILING_PATTERN);
+  } while(Text !== WithoutTrailingSchedule);
   // 5. trailing terminal punctuation, except a `?` that still marks a question.
   const WithoutTrailing = Text.replace(/[\s.!,;:\-–—]+$/, '').trim();
   if(WithoutTrailing !== Text) { Changes.push('trailing-punctuation'); Text = WithoutTrailing; }
@@ -379,7 +383,7 @@ function ValidateReminderTitle(ArgText, ArgOptions = {}) {
   // a quoted task name is opaque: `Review "Please Handle Me"` carries no courtesy word of its own.
   const Unquoted = Text.replace(QUOTED_SPAN_PATTERN, ' "" ');
   if(/^(?:<@|<!|@[\w])/.test(Text)) Reasons.push('leading-mention');
-  if(/\b(?:please|pls|plz|kindly)\b/i.test(Unquoted)) Reasons.push('courtesy');
+  if(/\b(?:please|pleae|plese|plase|pelase|plaese|pleaes|pleasee|pls+|plz+|kindly)\b/i.test(Unquoted)) Reasons.push('courtesy');
   if(/https?:\/\/|<https?:|\bwww\.[^\s]+\.[^\s]+/i.test(Unquoted)) Reasons.push('raw-url');
   if(/\?$/.test(Text) || INTERROGATIVE_START_PATTERN.test(Text)) Reasons.push('question');
   if(STATUS_REMARK_PATTERN.test(Text)) Reasons.push('status-remark');

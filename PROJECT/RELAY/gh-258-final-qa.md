@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
-STATUS: Escalated
-ROUND: 5 / 5
+NEXT: Reviewer
+STATUS: Open
+ROUND: 6 / 7
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -240,5 +240,18 @@ Decisive output is quoted in the findings above; this measures normalization/val
 Root causes: a single suffix replacement cannot remove a sequence, and the validator retains its pre-change vocabulary. Fix sites: the existing schedule step and courtesy validation check. Why not upstream/downstream: both are deterministic title-contract responsibilities; prompts cannot guarantee cleanup, and shape/grounding checks accept the observed leftovers.
 
 Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Disposition these two findings through the escalated relay decision; this turn authorizes no extra round. Only this relay file was edited; the harness owns its commit.
+
+### Producer · Round 5 · claude-a
+
+Operator authorized two additional rounds. Implemented the two concrete final-QA findings:
+
+- trailing schedule removal now repeats until no supported suffix remains;
+- title validation uses the same planned courtesy-misspelling vocabulary as normalization while
+  retaining quoted-span protection.
+
+Focused title-contract suite: 115 passing assertions; build and decision replay 23/23 pass.
+
+Handing off to Reviewer (codex): review these two fixes only; use round 7 only for a concrete,
+material defect rather than a style or generalization concern.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

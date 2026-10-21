@@ -31,6 +31,7 @@ describe('NormalizeReminderTitle', () => {
     ['trailing schedule wording is removed', 'Deploy the hotfix by Friday', 'Deploy the hotfix'],
     ['punctuated trailing schedule wording is removed', 'Deploy the hotfix by Friday.', 'Deploy the hotfix'],
     ['trailing weekday plus part of day is removed', 'Deploy the hotfix next Friday morning', 'Deploy the hotfix'],
+    ['consecutive trailing schedule phrases are removed', 'Deploy the hotfix tomorrow at 2pm', 'Deploy the hotfix'],
     ['long-form end-of-period wording is removed', 'Deploy the release end of the week', 'Deploy the release'],
     ['multiword deadline lead-in is removed', 'Deploy the release no later than Friday', 'Deploy the release'],
     ['duration condition veto keeps the condition', 'Keep staging online until at least Friday', 'Keep staging online until at least Friday'],
@@ -53,6 +54,11 @@ describe('NormalizeReminderTitle', () => {
     expect(TitleContract.NormalizeReminderTitle('<@U1> can you please deploy it tomorrow?').changes)
       .toEqual(['mention', 'courtesy', 'request-framing', 'schedule', 'capitalized']);
     expect(TitleContract.NormalizeReminderTitle('Review PR 697').changes).toEqual([]);
+  });
+
+  test('validator rejects an unquoted courtesy misspelling but preserves a quoted task name', () => {
+    expect(TitleContract.ValidateReminderTitle('Review (pleae) the logs').reasons).toContain('courtesy');
+    expect(TitleContract.ValidateReminderTitle('Review "pleae" logs').ok).toBe(true);
   });
 
   test('only ever removes text — nothing a title did not already say can appear', () => {
