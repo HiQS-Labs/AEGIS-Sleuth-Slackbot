@@ -2,7 +2,7 @@
 
 - Issue: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258
 - Branch: `feat/AEGIS-Sleuth-Slackbot-gh258-reminder-title-topic-2026-10-20` off `origin/development` 50fa08c
-- Rating: rated 55/25/40/80 (value/risk/effort/confidence) — small prompt + remove-only text rule on the GH-250 contract; user-visible on every reminder title.
+- Rating: rated 55/30/45/75 (value/risk/effort/confidence), provisional until the clone run — prompt + remove-only text rule on the GH-250 contract plus one bounded context addition; user-visible on every reminder title.
 
 ## Status
 
@@ -31,24 +31,53 @@ A read-only re-extraction of open production reminders through the GH-250 path (
 
 ## Requirements
 
-1. Prompt: when the title's object is a person (reply to / ask / email / call / ping / follow up
-   with / tell / remind), append `re: <topic>` using words from the message or the earlier thread
-   context; never invent a topic; omit `re:` when no topic exists. Schedule wording (days, times,
-   `tomorrow`, `by Friday`) never goes in `reminder_message`; it belongs in `scheduling_trigger`.
-   Same lines in `manual-reminder-task-instructions.md` where it states the contract.
-2. Contract (`src/reminder-title-contract.js`, `NormalizeReminderTitle`): new remove-only step
-   `schedule` after request framing: strip one or more trailing schedule phrases (optional lead-in
-   `by|before|on|at|until|for|due|no later than|over|this|next`) and a leading one. Revert the strip
-   if it leaves fewer than 2 words or a dangling connector (`after`, `until`, `since`, `from`, `of`,
-   `than`, `and`, `or`, `the`, `to`), so conditions like `until after today's deploy` survive.
-   Quoted spans stay protected (already handled by step 0).
-3. Courtesy: widen to common misspellings (`pleae`, `plese`, `plase`, `pelase`, `plaese`, `pleaes`,
-   `pleasee`, `plz+`, `pls+`).
-4. Tests: update the pinned expectations that kept schedule wording; add cases for each new rule
-   incl. the condition-kept and dangling-connector reverts; extend the golden fixture with the
-   person-topic and schedule samples (selector path, grounding unchanged); re-record the replay
-   baseline only for intended diffs.
-5. CHANGELOG entry.
+1. Prompt (`reminders-instructions.md`, TITLE CONTRACT): when the title's object is a person (reply
+   to / ask / email / call / ping / follow up with / tell / remind), append `re: <topic>` using
+   words from the message or the earlier thread context; never invent a topic; omit `re:` when no
+   topic exists. Add the deadline rule the manual prompt already has
+   (`manual-reminder-task-instructions.md:18`): a due-date phrase (`tomorrow`, `by Friday`, `this
+   morning`) goes in `scheduling_trigger`, not the title — but a duration or condition (`until
+   Friday`, `until after the deploy`, `over the weekend`) is part of the task and stays. The manual
+   prompt gets only the `re: <topic>` line (it already has the deadline rule).
+2. Contract (`src/reminder-title-contract.js`, `NormalizeReminderTitle`), remove-only, step slug
+   `schedule`, two positions (R2):
+   - **Leading** due-date phrase stripped BEFORE the request-framing pass (step 4), so
+     `Tomorrow I'll deploy the hotfix` -> `Deploy the hotfix` and `Tomorrow, can you review the
+     logs?` -> `Review the logs`.
+   - **Trailing** due-date phrase stripped AFTER framing: one or more of `today`, `tonight`,
+     `tomorrow [morning|afternoon|evening|night]`, `this morning|afternoon|evening|week`,
+     `next week|month|<weekday>`, `<weekday> [part of day]`, `EOD`, `EOW`, `end of (the) day|week`,
+     clock times (`2pm`, `10:30 am`), `ASAP`, each with an optional deadline lead-in
+     `by|before|on|at|due|no later than` (R1: `until`, `for`, `over` are NOT lead-ins, so durations
+     and conditions are never matched).
+   - Revert the strip if it leaves fewer than 2 words or ends on a connector (`after`, `until`,
+     `since`, `from`, `of`, `than`, `and`, `or`, `the`, `to`, `for`, `over`).
+   - Quoted spans stay protected (step 0 already masks them).
+3. Courtesy: widen `COURTESY_WORD_PATTERN` and the validator's `courtesy` check to common
+   misspellings (`pleae`, `plese`, `plase`, `pelase`, `plaese`, `pleaes`, `pleasee`, `plz+`, `pls+`).
+4. Thread topic context (`src/reminder-context-resolution.js`): the motivating case
+   (preview, 2026-10-20) has its topic only in the thread's opening message, three messages above
+   the reply; the unreferenced lookback is 1 human message (`THREAD_LOOKBACK_MAX_UNREFERENCED`), so
+   no prompt can name it. For an IN-THREAD, UNREFERENCED message whose collected context does not
+   already include the thread's opening message, add that opening message (human only) under its
+   own header `[thread topic, for reference only]`, before the existing context block, with user
+   mentions neutralized (`<@U…>` -> `@someone`) so its addressee can never become an owner and its
+   task text is marked as topic-only. Referenced messages (`the above`, `it`) are unchanged — adding
+   the root there would add a referent to `all of the above`. `NeutralizeContextMarkers`,
+   `StripContextMarkers` and the prompt's CONTEXT MARKERS section learn the new header; the prompt
+   says the topic line may only supply a `re:` topic or resolve a name, never a task. The enrichment
+   `SourceTs`/`SourceUser` stay the immediate antecedent.
+5. Tests (existing suites only): update the pinned schedule-bearing expectations
+   (`tests/reminder-title-contract.test.js:21-37`); add cases: `Deploy the hotfix by Friday` ->
+   `Deploy the hotfix`; `Keep staging online until Friday` and `Hold the release until after
+   today's deploy` unchanged; `Let rate limiting run over the weekend` unchanged; `Ship it after
+   Friday` unchanged (connector revert); the two leading cases above through the real selector
+   with an empty model candidate; `pleae` removed. Context: update the unreferenced-lookback test
+   to expect the topic header with the root (mentions neutralized) while middle siblings stay out;
+   a referenced reply gets no topic header; a root already in the lookback is not duplicated.
+   Golden: add a thread-only topic sample (`re:` topic grounded via context) and an invented entity
+   topic rejected by grounding. Re-record the replay baseline only for intended diffs.
+6. CHANGELOG entry.
 
 ## Non-goals
 
@@ -60,7 +89,8 @@ A read-only re-extraction of open production reminders through the GH-250 path (
 ## Preflight bet
 
 - Outcome: a reminder line says what to do and about what, once, with the date only in the date slot.
-- Smallest bet: one prompt rule + one remove-only normalizer step + a regex widening.
+- Smallest bet: one prompt rule + one remove-only normalizer step + a regex widening + the thread's
+  opening message as a topic-only line for unreferenced thread replies.
 - Rejected alternative: a post-hoc LLM rewrite of titles — adds a model call and can invent terms,
   breaking the GH-43/68 grounding guarantee.
 - Rollback: revert the commit; no data or schema change. Existing stored titles are untouched.
@@ -71,12 +101,27 @@ A read-only re-extraction of open production reminders through the GH-250 path (
   trailing/leading positions, connector-revert guard, golden set.
 - `re:` lengthens titles past budget — `FitTitleToBudget` already shortens at clause boundaries;
   prompt asks for a short topic (2–5 words).
-- Model ignores the new prompt line — measured in the A/B preview; deterministic parts still apply.
+- Model ignores the new prompt line — measured by the real-model check with a red control.
+- Topic line leaks the opening message's task or owner (the incident behind the lookback cap of 1):
+  mentions are neutralized, the header and prompt mark it topic-only, referenced replies never get
+  it, and the context tests pin that siblings stay out. The 2026-10-20 preview showed one model
+  pulling tasks from context (#8), so the real-model check also asserts the topic-present case
+  yields one task, not the opening message's task.
 
 ## Verification
 
-- Focused: `npx jest tests/reminder-title-contract.test.js tests/reminder-display-selection*.test.js`.
-- `npm run decision:replay` (baseline diff reviewed).
+- Focused while iterating: `npx jest tests/reminder-title-contract.test.js tests/reminder-context-resolution.test.js tests/reminder-display-selection*.test.js`.
+- `npm run decision:replay` (baseline diff reviewed) and `npm run validate:ai` (both edited prompt assets).
 - Final gate once: `npm test`, `npm run build`, `npm run validate:fsm`, sanitize-scan (CI parity).
-- Smoke: read-only prod preview script on the open reminders (main path) + a thread-reply sample
-  with no topic (adjacent path: no invented `re:`); receipts under `TESTS-RESULTS/2026-10-20+GH-258/`.
+- **Real-model prompt check (R3)**, a throwaway driver (not committed) that runs the real
+  `ResolveContextAsync` on a stub thread + the real `RemindersAIPipeline` + selector, on the dev
+  server's real model, both prompt assets:
+  - Topic present: thread opening `The vendor security review checklist is blocked on Dana's answers`,
+    then `Ok`, then live `And please reply to Dana before our call. Thanks!` -> title contains
+    `Dana` and `vendor security review`.
+  - Topic absent: same live reply, opening `Morning all` -> title has no `re:`.
+  - Red control: rerun topic-present with the new prompt line removed (and with the topic header
+    disabled) and record that the topic is no longer named. Same two inputs through the manual
+    task prompt.
+- Smoke: the read-only prod preview on the open reminders (main path) + one thread-reply sample
+  with no topic (adjacent path). Receipts under `TESTS-RESULTS/2026-10-20+GH-258/`.

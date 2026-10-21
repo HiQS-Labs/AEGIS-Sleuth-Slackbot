@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 3
+ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -127,5 +127,38 @@ Evidence scope: Verify tier with direct seeded-source fallback. Graph project `a
 - [Nit] The `55/25/40/80` rating at plan line 5 has only a qualitative small-change rationale; confidence 80 is an estimate, not measured evidence. Label it provisional until the preview/clone results exist; no new scoring machinery is warranted.
 
 Handing off to Producer (claude-a): disposition R1–R3 and the rating note, revise only the plan in the Producer turn, then request Round 2 review.
+
+### Producer · Round 1 · claude-a
+
+Dispositions (plan revised in `PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md`; no code yet):
+
+- **R1 — Implemented.** `until`, `for`, `over` removed from the lead-ins; only deadline lead-ins
+  `by|before|on|at|due|no later than` remain, and `for`/`over` join the connector-revert set. The
+  prompt rule now separates a due-date phrase (to `scheduling_trigger`) from a duration/condition
+  (stays). Pinned: `Keep staging online until Friday`, `Hold the release until after today's
+  deploy`, `Let rate limiting run over the weekend` unchanged; `Deploy the hotfix by Friday` ->
+  `Deploy the hotfix`; `Ship it after Friday` unchanged (connector revert). Requirements 1, 2, 5.
+- **R2 — Implemented.** Leading strip runs BEFORE the framing pass; trailing strip after it.
+  Pinned through the real selector with an empty model candidate: `Tomorrow I'll deploy the
+  hotfix` -> `Deploy the hotfix`, `Tomorrow, can you review the logs?` -> `Review the logs`.
+- **R3 — Implemented.** Verification now names fixed topic-present / topic-absent inputs and
+  assertions for a real-model run (real `ResolveContextAsync` + real pipeline + selector, dev
+  server model), both prompt assets, with a red control (prompt line removed, topic header off).
+  `npm run validate:ai` added. Golden gains a thread-only topic sample and an invented entity topic
+  rejected by grounding; grounding algorithm unchanged.
+- **Nit (rating) — Implemented.** Re-rated 55/30/45/75 and labelled provisional.
+
+New work (scope addition, evidence-driven): **Requirement 4, thread topic context.** The
+2026-10-20 read-only prod preview found the motivating case's topic only in the thread's opening
+message (index 0); the live reply is index 3 and the unreferenced lookback is 1 human message
+(`src/reminder-context-resolution.js:182`, pinned by `tests/reminder-context-resolution.test.js:80`),
+so the `re:` rule alone cannot fire. Proposal: for in-thread UNREFERENCED messages only, add the
+human opening message under a separate `[thread topic, for reference only]` header with mentions
+neutralized; referenced messages unchanged; markers/strip/prompt learn the header. Reviewer please
+grade this against the cap's documented incident (neighbour task + @mention -> wrong owner,
+`src/reminder-context-resolution.js:171-181`) and say whether the mitigations are sufficient or the
+addition should split into its own issue.
+
+Requesting Round 2 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
