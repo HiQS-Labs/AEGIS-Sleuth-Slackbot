@@ -11,7 +11,7 @@
 |---|---|
 | Recon (write path, ledger, consumers) | done — see "Recon" and the #250 inventory comment |
 | Plan | drafted |
-| Plan QA (Codex relay) | pending |
+| Plan QA (Codex relay) | 7 rounds; r7 fix accepted by operator-authorized override (`PROJECT/RELAY/gh-250-phase4-plan-qa.md`); implementation final QA re-checks requirement 5's dashboard branch |
 | Implementation | blocked on #250 phase 3 |
 
 ## Problem

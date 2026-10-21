@@ -324,4 +324,20 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
   branches on it. Pinned the source-reminder case and its exported `tasks`.
 - Relay at the operator's 7-round cap (Escalated). Not marked Approved; held for the operator.
 
+### Operator override · 2026-10-20 · recorded by claude-a
+
+The operator authorized the producer to override the round-7 cap if the remaining finding was
+adequately resolved ("If you think round 7 is more than good enough, then I authorize you to override
+it, document the override and move to the next round").
+
+Producer judgement: accepted. Round 7's only finding was a field-name mismatch at one boundary (the
+dashboard branch keyed on `Tasks` while reading the exported `tasks` record). Its fix is mechanical and
+fully specified: the dashboard now decides from the source reminder, and only the public export carries
+lowercase `tasks`; the pinned cases name both shapes. Findings narrowed every round (r1–r4 data-loss and
+drift gaps, r5 two, r6 one Should, r7 this one) and r7 reported no other defect in the swept scope.
+
+Status: the round-7 fix itself did not get an independent review. The implementation PR's final Codex
+QA must re-check requirement 5's dashboard branch against `src/web-api.js:1080-1085`. This override
+covers the plan only; implementation still waits for #250 phase 3 and its own final QA.
+
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
