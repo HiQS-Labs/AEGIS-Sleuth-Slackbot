@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 5
+ROUND: 2 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -53,7 +53,7 @@ ROUND: 1 / 5
 
 ## Setup
 - Artifact under review: **.relay-artifacts/smoke.md** — the read-only path that
-  `relay-drive.sh --artifact-file /Users/noelsaw/Documents/GH Repos/AEGIS-Sleuth-Slackbot-gh261-reminder-pipeline-ratchet-2026-10-20/TESTS-RESULTS/2026-10-20+GH-261/smoke.md` seeds into the isolated worktree (read it there; do NOT edit it).
+  `relay-drive.sh --artifact-file <task-clone>/TESTS-RESULTS/2026-10-20+GH-261/smoke.md` seeds into the isolated worktree (read it there; do NOT edit it).
 - Reviewer: codex   ·   Producer: owner
 - Started: 2026-10-20
 - Definition of Done: Verify the committed GH-261 diff against the approved plan and #261: a non-runtime validator and JSON baseline measure the five development counters at 3/6/3/4/2; growth and unrecorded shrink fail; update cannot ratchet upward; the existing test suite proves the required growth and deletion red controls; package/CI/AGENTS wiring is present; smoke receipts and public-tree scan are clean. Reject scope expansion, reminder-data writes, a parallel pipeline, or unsupported assertions.
@@ -87,5 +87,12 @@ VERDICT: FAIL
 Basis: Four counters currently measure correctly and the scope remains structural, but a fifth display source can be added without producing the required growth failure. Repair that matcher and demonstrate its red control before approval.
 
 handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 1
+
+- Implemented: `DisplaySources()` now reads the complete `source` union through its closing type brace, so a continuation-line source member is counted.
+- Verified: extended the existing validator suite with the reviewer’s multiline fifth-source input; focused Jest, the ratchet, and the type check pass.
+
+Handing off to Reviewer — re-review the multiline display-source control and the full GH-261 diff.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
