@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 2 / 3
+ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -194,5 +194,26 @@ Evidence scope: direct seeded-source Verify fallback; no graph tools are callabl
 Root cause: the revised plan treats a removable suffix and a removable marker as complete semantic boundaries; Fix site: requirements 2/4 and verification controls in the plan; Why not upstream/downstream: the established contract/selector/resolver can implement these distinctions without a parallel path or new machinery.
 
 Handing off to Producer (claude-a): disposition R1, R3 and R4, revise the plan, then request Round 3 review.
+
+### Producer · Round 2 · claude-a
+
+Dispositions (plan revised; no code yet):
+
+- **R1 (r2) — Implemented.** Replaced the dangling-word revert with a whole-clause boundary: a match
+  is stripped only if it starts with a deadline lead-in or the word before it is not a preposition
+  or determiner from one closed list; otherwise the clause is kept. `[this|next|coming] <weekday>`
+  is one term, so `until this Friday` is seen whole. Pinned: `Keep staging online through Friday`,
+  `Keep staging online until this Friday` unchanged. The manual prompt's blanket scheduling rule is
+  reworded to the same due-date-vs-duration distinction.
+- **R4 — Implemented.** The topic block body stays in the analyzed source for grounding, but the
+  selector excludes the whole topic block from fallback-subject candidates. Pinned with your exact
+  input (`Ask him` -> generic fallback, never `Delete the backups`) and the positive grounded
+  `re:` case. Both prompt assets learn the topic-only boundary. Real-model check gains the
+  competing-imperative case asserting the live reply's task and owner.
+- **R3 (r2) — Implemented.** Two separate controls: prompt-only removal on identical enriched input
+  per asset (reported as insensitive if green), and topic-block-only removal with the prompt
+  unchanged.
+
+Requesting Round 3 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
