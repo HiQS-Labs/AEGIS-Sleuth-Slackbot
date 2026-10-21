@@ -10,9 +10,9 @@ Every 15 minutes, post newly filed GitHub issues from HiQS-watched repos into a 
 |---|---|
 | Polling, Slack posts, state, DND, kill switch | **this repo** (`src/github-issue-stream-module.js`, planner, url utils) |
 | Watched-repo allowlist export | **RebalanceOS** (`export_watched_repos` → `sync/repos/<device>.json`) |
-| Transport file only | `Hypercart-Dev-Tools/rebalance-git-pulse` (no code) |
+| Transport file only | the private git-pulse repo (no code) |
 
-Tracked as [Hypercart-Dev-Tools/rebalance-git-pulse#5](https://github.com/Hypercart-Dev-Tools/rebalance-git-pulse/issues/5) (moved from AEGIS-Sleuth-Slackbot#248).
+Tracked as git-pulse#5 in the private git-pulse repo (moved from AEGIS-Sleuth-Slackbot#248).
 
 ## Phase 0 spike results (2026-10-20)
 

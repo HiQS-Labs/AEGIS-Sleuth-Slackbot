@@ -94,7 +94,7 @@ Add to `/root/sleuth-app/.env.runtime` only when ready to enable (never commit a
 
 ```bash
 # GITHUB_ISSUE_STREAM_WORKSPACES=neochrome
-# GITHUB_ISSUE_STREAM_CHANNEL_ID=C0123456789
+# GITHUB_ISSUE_STREAM_CHANNEL_ID=<channel-id>
 # GITHUB_ISSUE_STREAM_INTERVAL_MS=900000
 # GITHUB_ISSUE_STREAM_REPOS=              # optional; overrides git-pulse sync/repos allowlist
 # GITHUB_ISSUE_STREAM_ORG_FILTER=        # optional; e.g. HiQS-Labs

@@ -87,7 +87,7 @@ This ordering matters. In particular:
 - **DND.** Reads this workspace's `RemindersDndSettings` (injected from `RemindersModule.GetDndSettings()`). Workspace or channel DND holds the cycle without advancing cursors.
 - **No Slack handlers.** The module registers no message/reaction handlers, so the reminder / comment-relay chain is unchanged. Pure planning logic lives in `src/github-issue-stream-planner.js`.
 
-Checklist and env inventory: `PROJECT/2-WORKING/GH-248-GITHUB-ISSUE-STREAM.md`. Upstream tracking: Hypercart-Dev-Tools/rebalance-git-pulse#5.
+Checklist and env inventory: `PROJECT/2-WORKING/GH-248-GITHUB-ISSUE-STREAM.md`. Upstream tracking: git-pulse#5 (private repo).
 
 ## Slack Event Pipeline
 
