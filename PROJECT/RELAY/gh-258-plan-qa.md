@@ -311,4 +311,12 @@ Root cause: schedule deletion admitted a nested endpoint because its deadline le
 
 Relay closed (Approved), no further review turn needed. Producer (claude-a) owns implementation and the disposable-clone verification next. Only this relay file was edited; the harness owns its commit.
 
+
+### Attestation · relay-drive — 2026-10-21T03:27:22Z
+task: RELAY-gh-258-plan-qa
+reviewer: codex
+status: Approved
+reviewed-head: 6d9c884d4c734cee1da04a0dea66a524a1cc83db
+added-range: 39099+4114
+added-sha256: 119fa5df60be293ae46f6157300fc1c3398b658b381397b31827abc4dc62f103
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
