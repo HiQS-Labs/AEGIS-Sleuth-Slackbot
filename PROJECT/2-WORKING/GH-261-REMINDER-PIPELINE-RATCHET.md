@@ -32,7 +32,7 @@ non_goals: [Implementing #250 deletions, AST-based complexity analysis, new test
 
 ## Recon and decision
 
-`src/reminders-ai-pipeline.js` has exactly three reminder-pipeline `*DecisionSpec = Object.freeze(` declarations (dedup, multi-task extraction, analysis) and the three named routing threshold declarations. `src/reminder-display-selection.js` declares the four current selector source values. `Key task(s):` occurs in the current writer and five consumer/parser surfaces under `src/`. Context headers are centralized in `src/reminder-context-resolution.js` and stripped by `src/reminder-display-selection.js`.
+`src/reminders-ai-pipeline.js` has exactly three reminder-pipeline `*DecisionSpec = Object.freeze(` declarations (dedup, multi-task extraction, analysis) and the three named routing threshold declarations. `src/reminder-display-selection.js` declares the four current selector source values. The raw `Key task` probe has 13 source hits, so the guard must not pretend that every textual mention is a parser: it will count only executable `Key task` literals/regexes after line-comment stripping, excluding the single `NewReminderMessageText + "\n\nKey task(s):"` writer at `src/reminders-module.js:2060`; the baseline records every included location. The two context-header declarations are `CONTEXT_BLOCK_HEADER` and `LIVE_MESSAGE_HEADER` in `src/reminder-context-resolution.js`; the neutralization and display-strip regular expressions are consumers of that already-declared format and are intentionally out of this header-only ratchet.
 
 Existing guard shape is a short Node script in `scripts/`, invoked through `package.json`, optionally covered by an existing validator test file, and called explicitly from CI. `validate:fsm` is the only sibling currently called directly by CI; the workspace-isolation and reminder-render guards are covered through Jest. #261 explicitly requires the new guard next to the former, so this plan adds a CI step and retains `npm test` coverage through an existing validator suite rather than adding a test file.
 
@@ -40,8 +40,8 @@ Outcome sought: make any increase to the explicitly-reviewed #250 inventory visi
 
 ## Phase 1 — ratchet
 
-1. Add `scripts/validate-reminder-pipeline.js`, modeled on the sibling scripts. It scans only `src/**/*.js`, maps every named match to `file:line`, and counts: extraction specs; `Key task` parsing sites (excluding the sole writer); routing-threshold definitions; selector source union values; and context marker wire-format declarations.
-2. Add `scripts/reminder-pipeline-baseline.json`, measured from this task's `origin/development` base. Store `count`, `reason`, and issue pointers so any intentional baseline raise is reviewable.
+1. Add `scripts/validate-reminder-pipeline.js`, modeled on the sibling scripts. It scans only `src/**/*.js`, maps every named match to `file:line`, and counts this fixed matcher set: (a) `const <name>DecisionSpec = Object.freeze(` in `reminders-ai-pipeline.js`; (b) executable `Key task` string/regex sites after comment stripping except the one identified writer; (c) the three exact `RemindersAIPipeline` routing-threshold declarations; (d) the four literal members of the selector `source` union in `reminder-display-selection.js`; and (e) the two exact `*_HEADER` declarations above. A new context wire-format helper or normalization regex is deliberately not governed unless it introduces a header declaration; that narrower scope is #261's stated “context header” red control, not a claim to inventory every marker consumer.
+2. Add `scripts/reminder-pipeline-baseline.json`, measured from this task's `origin/development` base. Store each count, matcher description, included `file:line` locations, reason, and #79/#250 pointers so an intentional baseline raise is reviewable.
 3. Require an exact baseline match by default: growth fails with the matching locations and #79/#250 pointer; shrink fails until `--update-baseline` rewrites only lower counts. Refuse baseline growth during update.
 4. Add `validate:reminder-pipeline` to `package.json`; call it next to `validate:fsm` in `.github/workflows/ci.yml`; add the #79-linked constraint to AGENTS.md.
 5. Extend an existing validator test file only if needed to exercise helper-level red controls. Do not create a test file. Record the mandated red controls and shrink flow in `TESTS-RESULTS/2026-10-20+GH-261/`.
@@ -50,6 +50,6 @@ Outcome sought: make any increase to the explicitly-reviewed #250 inventory visi
 ## Verification
 
 - Baseline passes on the unmodified tree.
-- A temporary source copy with a fourth DecisionSpec, an additional Key-task parser, and an added context header each fails with `file:line` plus the #79/#250 pointer.
+- A temporary source copy with a fourth DecisionSpec, an additional executable Key-task parser, and a third `*_HEADER` declaration each fails with `file:line` plus the #79/#250 pointer.
 - A temporary source copy with one routing-threshold declaration removed fails as an unrecorded shrink; `--update-baseline` lowers the generated baseline and passes on that copy. The committed baseline remains based on the real tree.
 - `npm test`, `npm run build`, `npm run validate:fsm`, `npm run validate:reminder-pipeline`, `./utils/sanitize-scan.sh`, and `utils/pdda/pdda.sh run` are run after the final implementation.

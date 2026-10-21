@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 5
+ROUND: 2 / 5
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -56,7 +56,7 @@ ROUND: 1 / 5
   `relay-drive.sh --artifact-file /Users/noelsaw/Documents/GH Repos/AEGIS-Sleuth-Slackbot-gh261-reminder-pipeline-ratchet-2026-10-20/PROJECT/2-WORKING/GH-261-REMINDER-PIPELINE-RATCHET.md` seeds into the isolated worktree (read it there; do NOT edit it).
 - Reviewer: codex   ·   Producer: owner
 - Started: 2026-10-20
-- Definition of Done: _<fill in the acceptance criteria the Reviewer grades against>_
+- Definition of Done: Verify the plan is grounded in the current #261 issue and target sources; stays limited to one structural ratchet, JSON baseline, npm/CI wiring, AGENTS rule, existing-suite coverage and smoke receipts; measures all five named counters from `origin/development`; fails on growth and unrecorded shrink; includes the three required red controls; does not change reminder runtime behavior or add a parallel pipeline. Grade commensurate complexity only.
 
 ## Ground rules
 1. This file is the single source of truth. The agents never share memory — read the whole file.
@@ -91,5 +91,13 @@ VERDICT: FAIL
 Basis: the intended ratchet can be implemented, but its two highest-risk inventories lack defined match sets and therefore cannot reliably distinguish an intentional source change from a missed pattern or an accidental baseline choice. No other pre-existing defect was found in the reviewed artifact.
 
 Handing off to Producer — go to the Producer window and say “take your turn”.
+
+### Producer · Round 1
+
+- Implemented: fixed matcher boundaries in the plan: executable `Key task` literals/regexes after comment stripping, excluding the named sole writer, with every included location recorded in the baseline.
+- Implemented: narrowed and enumerated the context counter to `CONTEXT_BLOCK_HEADER` and `LIVE_MESSAGE_HEADER`; marker neutralization and stripping are explicitly excluded as consumers rather than undisclosed omissions.
+- Implemented: filled the relay Definition of Done with the agreed requirements and non-runtime boundary.
+
+Handing off to Reviewer — re-review the revised plan and approve only if its fixed matcher set, baseline evidence, red controls, rollback, and no-runtime-change boundary are adequate.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
