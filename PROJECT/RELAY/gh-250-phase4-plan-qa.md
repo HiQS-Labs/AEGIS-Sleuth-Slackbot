@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Escalated
 ROUND: 4 / 4
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -194,5 +194,32 @@ Handing off to Producer — go to the Producer window and say 'take your turn'.
 
 Operator authorized one additional round (2026-10-20, "Ok round 4"). Scope: the round-3 blocker's
 disposition above (`ListSummaryFor` legacy branch) plus a whole-plan re-sweep. Requesting Round 4 review.
+
+### Reviewer · Round 4
+
+swept file: yes
+
+- [Blocker] The plan omits the compaction writer from the `Tasks` ledger path, so compaction destroys the optional field and breaks projection parity. Requirement 4 only adds `tasks` to `ReminderCreated` and the new update event, yet compaction replaces the ledger with `BaselineReminderImported` records. Its payload currently copies `text` and the existing optional fields but never `Tasks`; the planned fold rehydration cannot recover an omitted key. Add conditional `tasks` emission to `BuildCompactedEvents` (and its folded-reminder typedef), preserving absent as absent, and retain the planned conditional fold rehydration for baseline records. Pin this compacted-baseline case alongside the creation/update parity cases.
+  - Observed input: one authoritative reminder with `Tasks: [{title:'Ship', context:'_today_'}]` and `ReminderMessageText: 'Header\\n\\nKey task(s):\\n• Ship\\n  _today_'` compacted through `BuildCompactedEvents`.
+  - Affected scope: every structured reminder when the event ledger reaches compaction and is replaced by `BaselineReminderImported` events.
+  - Falsifier: compacting a structured reminder must emit `payload.tasks` and fold it back to the identical `Tasks` array; compacting an old reminder without `Tasks` must omit both payload and projected field.
+  - Citation: plan `PROJECT/2-WORKING/GH-250-PHASE-4-STORE-STRUCTURE.md:78-92` defines the only planned ledger writes and omits compaction; `src/state-snapshot-writer.js:164-205` constructs replacement `BaselineReminderImported` payloads without `tasks`; `src/reminders-projection.js:464-484` folds those events through the same creation path.
+  - Probe: `node - <<'NODE' > "$TMPDIR/snapshot-tasks-probe.txt"\nconst { BuildCompactedEvents } = require('./src/state-snapshot-writer');\nconst { FoldReminderReadModels } = require('./src/reminders-projection');\nconst tasks = [{title: 'Ship', context: '_today_'}];\nconst source = [{ReminderID:'r1', CreatedOn:'2026-10-20T00:00:00.000Z', ShouldPostOn:'2026-10-21T00:00:00.000Z', TargetChannelID:'C1', OriginalChannelID:'C1', OriginalMessageID:'M1', OriginalSenderID:'U1', ReminderMessageText:'Header\\n\\nKey task(s):\\n• Ship\\n  _today_', AssigneeID:'U1', AssigneeIDs:['U1'], GitHubUrls:[], clientId:null, projectId:null, State:'scheduled', Tasks:tasks}];\nconst events = BuildCompactedEvents({workspace:'w', folded:{reminders:source, completed:[]}, authoritative:{reminders:source, completed:[]}});\nconst payload = events.find(e => e.type === 'BaselineReminderImported').payload;\nconst folded = FoldReminderReadModels(events, {strict:false}).reminders[0];\nconsole.log(JSON.stringify({payloadHasTasks:Object.hasOwn(payload,'tasks'), foldedHasTasks:Object.hasOwn(folded,'Tasks'), sourceHasTasks:Object.hasOwn(source[0],'Tasks')}));\nNODE\nprobe_exit=$?; printf 'exit=%s\\n' "$probe_exit"; cat "$TMPDIR/snapshot-tasks-probe.txt"` — exit 0; decisive output: `{"payloadHasTasks":false,"foldedHasTasks":false,"sourceHasTasks":true}`.
+
+No additional pre-existing defect was found in the swept plan/source scope. VERDICT: FAIL. Basis: a normal ledger-compaction path loses persisted task structure, so the stated projection-parity and rollback guarantees do not yet hold. The round cap is reached; this relay is escalated for the producer to disposition the concrete blocker.
+
+Handing off to Producer — go to the Producer window and say 'take your turn'.
+
+### Producer · Round 4 · claude-a (disposition)
+
+- **Blocker (compaction drops `Tasks`) — Implemented, and swept.** Instead of fixing only compaction,
+  requirement 4 now routes `tasks` through every ledger touchpoint the existing optional `NotifyIDs`
+  field uses, found by `rg "notifyIds|NotifyIDs|BaselineReminderImported" src scripts deploy`: creation
+  payload, compaction (`state-snapshot-writer.js:173-185` + typedef), baseline import
+  (`scripts/baseline-import.js:159-175`), fold `WhenRecorded` and the late-baseline merge
+  (`reminders-projection.js:333-336,392`), and the coverage-gate test. Two creation-event readers that
+  carry no optional fields today are named as unchanged. Pinned your compaction falsifier plus
+  baseline-import and late-baseline-merge cases.
+- Relay at the 4-round cap (Escalated). Held for the operator.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

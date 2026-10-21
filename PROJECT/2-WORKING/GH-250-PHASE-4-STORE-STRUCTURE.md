@@ -76,10 +76,21 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
    (:1145) and the projection's rehydrate (`src/reminders-projection.js:321`), which requirement 4
    covers.
 4. **Ledger: additive keys and one forward-ignorable update event.**
-   - `ReminderCreated` carries `tasks` only when the reminder has `Tasks` (the conditional discipline
-     of `notifyIds` / `enrichedFrom`, `src/reminders-module.js:774-800`); the fold rehydrates it
-     (`src/reminders-projection.js:320,385`). No schema-version bump: `REQUIRED_PAYLOAD_KEYS`
-     (`src/event-store.js:39`) is a minimum.
+   - **`tasks` follows the existing `NotifyIDs` path at every ledger touchpoint** (swept with
+     `rg "notifyIds|NotifyIDs|BaselineReminderImported" src scripts deploy`), each conditional so absent
+     stays absent:
+     1. creation payload — `src/reminders-module.js:786` (`ReminderCreated`);
+     2. compaction — `src/state-snapshot-writer.js:173-185` (`BuildCompactedEvents` ->
+        `BaselineReminderImported`), plus its folded-reminder typedef;
+     3. baseline import — `scripts/baseline-import.js:159-175` (`BaselineReminderImported`);
+     4. fold — `src/reminders-projection.js:392` (`WhenRecorded(Payload, 'tasks', 'Tasks', …)`) and
+        the late-baseline merge at `:333-336` (fill `Tasks` from a later same-id creation-shaped event
+        only when the reminder lacks it);
+     5. `tests/projection-coverage-gate.test.js` — register the new key and event so the gate covers them.
+     Not changed: `deploy/reminders-export/events-projection.js` and `src/entity-projection-inputs.js`
+     read creation events but carry no optional reminder fields today (no `notifyIds` either); the
+     export gets `tasks` from `?format=rebalance` (requirement 5). No schema-version bump:
+     `REQUIRED_PAYLOAD_KEYS` (`src/event-store.js:39,44`) is a minimum.
    - **List edits are ledgered.** Today `UpdateReminderSummaryFromListAsync` rewrites the text and
      only saves (`src/reminders-module.js:1145-1149`); no event reaches the fold, so the projection
      already drifts from the store after any List edit (pre-existing). Add one event type,
@@ -142,6 +153,10 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   tests/lists-*.test.js` plus the display-utils suite.
 - `npm run projection:parity`, `npm run decision:replay`, `npm run validate:fsm`,
   `npm run validate:reminder-pipeline` (#261), then the full CI gate once.
+- Pinned ledger cases: compacting a structured reminder through `BuildCompactedEvents` emits
+  `payload.tasks` and folds back to the identical `Tasks`; compacting an old reminder omits both; a
+  baseline-import of a structured record carries `tasks`; a `ReminderCreated` without `tasks` followed by
+  a same-id `BaselineReminderImported` with `tasks` folds to that `Tasks` (late-baseline merge).
 - Pinned cases (existing suites): `Tasks:[{title:'Task A',context:'_Context A_'},{title:'Task B',context:'_Context B_'}]`
   yields List summary `Task A _Context A_ Task B _Context B_` (create and drift compare), and the
   context-free pair yields `Task A Task B`; a pre-phase record (no `Tasks`) with indented contexts
