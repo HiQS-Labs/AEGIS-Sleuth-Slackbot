@@ -25,6 +25,12 @@ All other replay fields, including ownership, recommendation, context, and trigg
 - `reminder-display-selection` courtesy title · schedule wording retained → schedule wording removed · requirement 2.
 - `gh68-grounding-uses-analyzed-source` verbatim title · schedule wording retained → schedule wording removed · requirement 2.
 
+## Final QA correction
+
+- Final relay round 1 found two planned trailing deadline forms that were not yet matched. Added the
+  long-form end-of-period and multiword-deadline contract cases; duration/condition veto remains
+  unchanged.
+
 ## Commands
 
 - `npx jest --runInBand tests/reminder-title-contract.test.js`
@@ -42,3 +48,9 @@ All other replay fields, including ownership, recommendation, context, and trigg
   synthetic cases passing. The sample is therefore **insensitive** to that instruction; this is
   recorded as an observation, not evidence that the line caused the topic preservation.
 - The dev-only checkout, temporary driver, and transient credentials were removed after the run.
+
+## Sanitizer baseline
+
+`utils/sanitize-scan.sh` reports 68 existing repository findings; the same command reports the same
+68 findings on the #261 baseline. No finding is in this change, and no unrelated public-history file
+was modified.

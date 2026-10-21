@@ -27,6 +27,8 @@ describe('NormalizeReminderTitle', () => {
     ['first-person with adverb', 'I will definitely resize the font tomorrow', 'Resize the font'],
     ['leading schedule wording precedes framing', 'Tomorrow I will deploy the hotfix', 'Deploy the hotfix'],
     ['trailing schedule wording is removed', 'Deploy the hotfix by Friday', 'Deploy the hotfix'],
+    ['long-form end-of-period wording is removed', 'Deploy the release end of the week', 'Deploy the release'],
+    ['multiword deadline lead-in is removed', 'Deploy the release no later than Friday', 'Deploy the release'],
     ['duration condition veto keeps the condition', 'Keep staging online until at least Friday', 'Keep staging online until at least Friday'],
     ['courtesy misspelling is removed before schedule wording', 'Check the report tomorrow, pleae', 'Check the report'],
     ['question wrapper', 'How hard is it to make our Ground Advantage $5 shipping to $6', 'Make our Ground Advantage $5 shipping to $6'],
