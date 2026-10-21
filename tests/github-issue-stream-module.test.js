@@ -397,10 +397,10 @@ describe('GH-257 review regressions', () => {
   test.each(['comment', 'pr'])('incomplete issues hold unresolved %s parent without discarding its replay', async (Kind) => {
     await Seed();
     const { Module, GithubClient, SlackApp } = MakeModule({ statePath: StatePath });
-    const Old = Array.from({ length: 500 }, (_, N) => ({ ...Issue(N + 10), created_at: '2026-10-19T00:00:00.000Z', updated_at: '2026-10-20T12:20:00.000Z' }));
+    const Old = Array.from({ length: 500 }, (_, N) => ({ ...Issue(N + 1000), created_at: '2026-10-19T00:00:00.000Z', updated_at: '2026-10-20T12:20:00.000Z' }));
     const Pr = { ...Issue(900), title: 'Fix #501', body: '', pull_request: {}, updated_at: '2026-10-20T12:10:00.000Z' };
     const Reply = { ...Comment(9), issue_url: `https://api.github.com/repos/${Repo}/issues/501`, updated_at: '2026-10-20T12:10:00.000Z' };
-    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result(Kind === 'pr' ? [...Old.slice(0, 499), Pr] : Old, { Complete: false }));
+    GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result(Kind === 'pr' ? [Pr, ...Old.slice(0, 499)] : Old, { Complete: false }));
     GithubClient.ListIssueCommentsSinceAsync.mockResolvedValue(Result(Kind === 'comment' ? [Reply] : []));
     await Module.StartAsync();
     try {
