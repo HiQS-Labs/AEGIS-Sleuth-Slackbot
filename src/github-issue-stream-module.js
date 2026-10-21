@@ -182,7 +182,6 @@ function BuildDefaultGithubClient(ArgConfig) {
           Authorization: `Bearer ${PulsePat}`,
         },
       });
-      if(Response.status === 404) return [];
       if(!Response.ok) {
         const Body = await Response.text();
         throw new Error(`GitHub list allowlist ${Response.status}: ${Body.slice(0, 200)}`);
@@ -394,8 +393,13 @@ class GitHubIssueStreamModule extends BaseModule {
     const HadPersistedState = await this.#LoadStateAsync();
     if(!HadPersistedState) {
       this.Logger.info(`${AUDIT_TAG}: first run — seeding cursors to now, no backlog posts`);
-      await this.#SeedAllowlistAsync(true);
-      await this.#SaveStateAsync();
+      try {
+        await this.#SeedAllowlistAsync(true);
+        await this.#SaveStateAsync();
+      } catch(error) {
+        // stream dependencies must not disconnect the workspace; polling retries before delivery.
+        this.Logger.warn(`${AUDIT_TAG}: startup deferred — retrying on next poll:`, error instanceof Error ? error.message : String(error));
+      }
     } else {
       this.Logger.info(
         `${AUDIT_TAG}: resuming with ${Object.keys(this.#State.Issues).length} mapped issue(s)`

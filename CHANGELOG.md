@@ -39,6 +39,8 @@ I keep GitHub replies with their original Slack thread when the destination chan
 remaining posts when DND or a state-save failure interrupts a batch. I wait for an active batch
 and its saved progress during shutdown.
 
+**Technical:** PR #259 review follow-up additionally contains first-run seed/save errors inside the stream and retries through its existing poll timer, preserving workspace startup. Dynamic directory HTTP404 follows the hold path instead of revoking saved cursors. Synthetic first-run recovery and default-client 404 regressions extend the existing suite.
+
 **Technical:** Follow-up to PR #256's review. The bounded GitHub client reports incomplete
 traversals; shared cursor advancement respects each unread boundary and unresolved parent
 references. An optional `ParentScanAt` in the existing repo state preserves cross-repo reference

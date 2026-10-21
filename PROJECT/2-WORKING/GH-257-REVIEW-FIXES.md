@@ -17,7 +17,7 @@ roadmap_exempt: true
 
 | What was just completed | What's next |
 |---|---|
-| Independent plan QA approved round 3; scoped implementation and focused synthetic tests | Publish draft PR and verify exact-head hosted CI; retain separate title/catch-up decisions |
+| PR #259 published; initial head 40b45a9 CI passed; new review defects reproduced and fixed locally | Fresh independent QA and exact-head CI for startup/404 follow-up; PR is draft |
 
 ## Scope and recon
 
@@ -67,6 +67,18 @@ Round 3 plan QA: PASS, attested at 7dea9c6268662dca2c3a461bbf89a315f6e103a8. Imp
 
 ## Verification checkpoint
 
-Independent final code QA PASS, attested for c19b227a9c0535f2a8afa78190a6125455e70a19; no source findings. Disposable original-source mutation: 20 failures / 23 passes (43 total), exit 1; restored candidate 43/43 pass and git diff clean. Full qualification PASS: 145 Jest suites / 2,807 tests plus 116 Node tests; build/FSM/sanitizer PASS. Existing skips: one suite/four tests. Exact-head CI pending publication.
+Independent final code QA PASS, attested for c19b227a9c0535f2a8afa78190a6125455e70a19; no source findings. Disposable original-source mutation: 20 failures / 23 passes (43 total), exit 1; restored candidate 43/43 pass and git diff clean. Full qualification PASS: 145 Jest suites / 2,807 tests plus 116 Node tests; build/FSM/sanitizer PASS. Existing skips: one suite/four tests. Initial publication head 40b45a9b883a1417711bd99b95a5988816b5a808 passed hosted Run Tests 39535614818. New review remediation below supersedes that readiness verdict; current follow-up CI is pending publication.
 
 `roadmap_exempt: true` applies to the stale legacy ROADMAP.md coverage check only: ROUTER.md records that the roadmap ledger is releases.db and the checker still reads frozen Markdown. This task remains registered/rated in that canonical DB and linked in regenerated ROADMAP-DASHBOARD.md. Exact-base deterministic PDDA baseline has 41 errors (13 frontmatter, 9 status-table, 5 paths, 14 legacy coverage); those unrelated errors are not changed here.
+
+## PR #259 review follow-up
+
+PR remained OPEN at 40b45a9b883a1417711bd99b95a5988816b5a808 with no newer author changes; returned to draft before changes. Greptile r4332602488 and CodeRabbit r4332634640 reproduce first-run discovery/save failures escaping StartAsync before scheduling polling. app.js then executes its workspace startup catch and disconnects Slack. Greptile r4332602492 reproduces default discovery HTTP404 becoming an authoritative empty list and deleting saved cursors.
+
+Minimal correction: contain only initial seeding/save errors at the stream boundary, warn and retain the existing scheduled retry; cycle entry still requires a successful save before delivery. Initial discovery failure defers first seed until successful discovery; initial save failure retains its seeded in-memory cursor and retries it. Remove the directory 404-as-empty special case so the existing non-OK error path holds without pruning. No app.js changes, new state schema, new suites, or new abstractions. This is a small local extension of the approved failure-boundary design; fresh independent code QA is required.
+
+Three new cases in the existing module suite failed against 40b45a9 (43 prior cases passed). After correction: 46 focused cases pass; startup timer callback recovery is mocked (including repeated initial save failure), no live workspace/app startup is run. Existing startup caller source establishes the disconnected-workspace consequence.
+
+CodeRabbit r4332634629 accepted: the status table and receipt distinguish the passing initial head from pending follow-up head; final exact-head evidence will be posted to the same PR. r4332634634 accepted: the preview had generatedAt/lastOp 2026-10-21 but a local-date calculation saying “in 1 day”. Re-run the existing read-only exporter under TZ=UTC, with no vendored edits or ledger mutation; lastSyncDisplay is preserved and label becomes “today”.
+
+Full-state write finding assessed, not expanded into a store migration: retention and exact keys remain required for held/overlap replay suppression. JSON serialize/write cost grows with complete delivery history; the existing bound is at most 40 post saves + 200 repo saves + entry/exit saves per cycle. This is a coarse upper bound, not a measured latency claim. There is no observed workload/latency failure or approved retention contract that would justify an indexed-store rewrite here. Keep the documented growth tradeoff; any measured scalability/store work is separate scope. No keys compacted/deleted.

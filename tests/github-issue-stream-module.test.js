@@ -651,4 +651,83 @@ describe('GH-257 review regressions', () => {
     expect((await ReadState()).Issues[`${Repo}#1`].ThreadTs).toBe('saved-ts');
   });
 
+  test.each(['allowlist', 'save'])('first-run %s outage stays inside stream and scheduled polls recover', async (Failure) => {
+    let Now = '2026-10-20T12:00:00.000Z';
+    if(Failure === 'allowlist') delete process.env.GITHUB_ISSUE_STREAM_REPOS;
+    const Dynamic = MakeModule({ statePath: StatePath, now: () => new Date(Now) });
+    const Polls = [];
+    const SetTimeout = global.setTimeout;
+    jest.spyOn(global, 'setTimeout').mockImplementation((Handler, Delay, ...Args) => {
+      if(Delay === 999999) { Polls.push(Handler); return 0; }
+      return SetTimeout(Handler, Delay, ...Args);
+    });
+    const Mkdir = fs.mkdir.bind(fs);
+    let SaveFails = Failure === 'save';
+    jest.spyOn(fs, 'mkdir').mockImplementation(async (...Args) => {
+      if(SaveFails) throw new Error('initial save unavailable');
+      return Mkdir(...Args);
+    });
+    if(Failure === 'allowlist') Dynamic.GithubClient.ListAllowlistFilesAsync.mockRejectedValueOnce(new Error('initial discovery unavailable'));
+    Dynamic.GithubClient.ListAllowlistFilesAsync.mockResolvedValue([{ name: 'mac.json' }]);
+    Dynamic.GithubClient.GetAllowlistFileAsync.mockResolvedValue(JSON.stringify({ schema_version: 1, source: 'repos', generated_at: Now, rows: [Repo] }));
+    Dynamic.GithubClient.ListIssuesSinceAsync.mockResolvedValue(Result([Issue()]));
+    try {
+      await expect(Dynamic.Module.StartAsync()).resolves.toBeUndefined();
+      expect(Polls).toHaveLength(1);
+      expect(Dynamic.SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+      expect(Dynamic.SlackApp.Logger.WarnMessages.some((M) => M.includes('startup'))).toBe(true);
+      if(Failure === 'save') {
+        await Polls.shift()();
+        expect(Dynamic.SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+        expect(Polls).toHaveLength(1);
+      }
+      SaveFails = false;
+      Now = Failure === 'allowlist' ? '2026-10-20T12:03:00.000Z' : '2026-10-20T12:10:00.000Z';
+      await Polls.shift()();
+      if(Failure === 'allowlist') {
+        expect(Dynamic.SlackApp.PostMessageTextAsync).not.toHaveBeenCalled();
+        Now = '2026-10-20T12:10:00.000Z';
+        await Polls.shift()();
+      }
+      expect(Dynamic.SlackApp.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+      expect((await ReadState()).Issues[`${Repo}#1`]).toBeDefined();
+    } finally { SaveFails = false; await Dynamic.Module.StopAsync(); }
+  });
+
+  test('default discovery 404 holds saved cursors and recovery replays their unread range', async () => {
+    await Seed();
+    delete process.env.GITHUB_ISSUE_STREAM_REPOS;
+    const PrevPulse = process.env.SNAPSHOT_RELAY_REPO;
+    process.env.SNAPSHOT_RELAY_REPO = 'exports/demo';
+    let Missing = true;
+    const Fetch = jest.spyOn(global, 'fetch').mockImplementation(async (Url) => {
+      const Address = String(Url);
+      if(Address.includes('/contents/') && Missing)
+        return { ok: false, status: 404, text: async () => 'not found' };
+      let Payload;
+      if(Address.includes('mac.json')) Payload = { encoding: 'base64', content: Buffer.from(JSON.stringify({ schema_version: 1, source: 'repos', generated_at: '2026-10-20T14:00:00.000Z', rows: [Repo] })).toString('base64') };
+      else if(Address.includes('/contents/')) Payload = [{ name: 'mac.json', sha: 'a', type: 'file' }];
+      else if(Address.includes('/comments?')) Payload = [];
+      else Payload = [Issue()];
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => Payload };
+    });
+    const App = MakeMockSlackApp();
+    const Module = new GitHubIssueStreamModule(App, MakeDnd(), { enabled: true, channelId: 'C_TEST', pat: 'test', statePath: StatePath, pollIntervalMs: 999999, postGapMs: 0, now: () => new Date('2026-10-20T14:00:00.000Z') });
+    try {
+      await Module.StartAsync();
+      await Module.RunOnceAsync();
+      expect((await ReadState()).Repos[Repo]?.Cursor).toBe('2026-10-20T12:00:00.000Z');
+      expect(App.PostMessageTextAsync).not.toHaveBeenCalled();
+      expect(App.Logger.WarnMessages.some((M) => M.includes('holding cycle'))).toBe(true);
+      Missing = false;
+      await Module.RunOnceAsync();
+      expect(Fetch.mock.calls.some(([Url]) => String(Url).includes('since=2026-10-20T12%3A00%3A00.000Z'))).toBe(true);
+      expect(App.PostMessageTextAsync).toHaveBeenCalledTimes(1);
+    } finally {
+      await Module.StopAsync();
+      if(PrevPulse === undefined) delete process.env.SNAPSHOT_RELAY_REPO;
+      else process.env.SNAPSHOT_RELAY_REPO = PrevPulse;
+    }
+  });
+
 });
