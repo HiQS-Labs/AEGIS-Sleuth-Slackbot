@@ -32,7 +32,7 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   :1184-1196) and one edit site (`ReplaceReminderSummary` via the Slack Lists edit at :1145). Pass-through copies (event payload
   :775, completion summary :591/:723, projection, state snapshot, reminders-export) carry the string
   as-is and keep doing so.
-- **Readers to move onto the accessor in this phase** (the ones that break without the block):
+- **Readers that gain a structured branch in this phase** (the ones that break without the block):
   `ExtractKeyTasks` users (`lists-module.js:1339` summary column; drift compare `lists-module.js:2720`,
   `reminders-module.js:1140`), `ExtractKeyTaskSummaries`/`ExtractCompactSummary` users
   (`reminders-display-utils.js:307,356`; `web-api.js:597,1085,1137`), `ExtractReminderTitle`
@@ -42,11 +42,11 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   assignee extraction) — unaffected.
 - **Published contract:** `?format=rebalance` `display.summary` / `display.slackSummary` are read by
   rebalanceOS (`scripts/dashboard.py:739-753`, `pulse_web.py:1660`). They stay, computed through the
-  accessor; `tasks` is added to each record additively. rebalanceOS's two regex copies
+  compact-line rule; `tasks` is added to each record additively. rebalanceOS's two regex copies
   (`ingest/sleuth_grouping.py`, `ingest/slack_users.py:281`) keep working (text unchanged) and move to
   `display.summary`/`tasks` in a separate rebalanceOS issue.
 - **Legacy strings are permanent** in completion records, event ledgers and the published export, so
-  phase 6 keeps one legacy parser behind the accessor; this phase must not assume it can go.
+  phase 6 keeps one legacy parser as the else-branch; this phase must not assume it can go.
 - **Latent edge:** `ReplaceReminderSummary` (`slack-format-utils.js:302`) replaces the whole string when
   the `Key task(s):` marker is absent (dropping header, quote, permalink). Only List-row reminders lack
   the marker today, where it is harmless; this phase adds no marker-less writer.
@@ -127,16 +127,11 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
    reminder has `Tasks`, `FormatTasksAsListSummary(Tasks)` joins each `title` and non-empty `context`
    with single spaces exactly as `ExtractKeyTasks` folds the legacy block
    (`src/slack-format-utils.js:272-289`); when it has no `Tasks` (every pre-phase record), it returns
-   `ExtractKeyTasks(ReminderMessageText)` unchanged — NOT the title-only accessor fallback, which drops
-   contexts. Either way the summary string is the one today's code produces, so reconciliation sees no
-   false edit. Title-only consumers
-   (compact lines, clustering, show-me-projects) take `.title`. The readers listed under Recon switch to it in this phase; the parsers remain as
-   the legacy fallback (one of them permanently, see Recon).
-   **Export handoff:** the `?format=rebalance` record builder (`src/web-api.js:485-517`) copies
-   `Tasks` to a `tasks` property only when present (omitted for old records), and
-   `display.summary` / `display.slackSummary` (`:597`, `:625-638`) are computed through the accessor,
-   so they are byte-identical for old records.
-6. **#261 ratchet:** `key_task_reparse_sites` must not rise; it falls as readers move to the accessor.
+   `ExtractKeyTasks(ReminderMessageText)` unchanged (never a title-only form, which drops contexts).
+   Either way the summary string is the one today's code produces, so reconciliation sees no false
+   edit. The legacy parsers stay as the else-branches (one of them permanently, see Recon).
+6. **#261 ratchet:** `key_task_reparse_sites` must not rise. It does not fall in this phase (the
+   parsers remain as else-branches); it falls in phase 6.
 
 ## Non-goals
 
@@ -146,7 +141,7 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
 ## Preflight bet
 
 - Outcome: the task text is read from data, not recovered from a rendered string.
-- Smallest bet: one optional field + one accessor + one List formatter + one creation key + one
+- Smallest bet: one optional field + one branch helper + one List formatter + one creation key + one
   update event, written at the two creation sites and the one edit site.
 - Rejected: a full structured `ReminderView` object or a migration of stored records — both add a
   second source of truth or a one-way data change before the readers need it.
