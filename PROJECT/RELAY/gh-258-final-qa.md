@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-10-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 2 / 5
 
@@ -95,5 +95,25 @@ Handing off to Producer (claude-a): fix the explicit trailing forms and add the 
   pre-existing repository history, so no unrelated remediation was made.
 
 Handing off to Reviewer (codex): recheck the bounded matcher correction and the producer evidence.
+
+### Reviewer · Round 2 · codex
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: The Round 1 deadline matcher repair is correct and preserves the duration veto, but the implementation omits the plan's required person-topic golden coverage. I swept the complete 1,066-line seeded artifact, including every changed source, prompt, fixture, test, receipt, document, relay, and ledger hunk. No other pre-existing defect is observable in the seeded artifact's touched implementation hunks.
+
+Evidence scope: artifact-only Verify review. No source-tree files, git commands, suites, executable fixtures, model calls, or service probes ran. The narrow non-mutating probe below reads only the seeded artifact and evaluates the added regex literal; it writes no files.
+
+- [Pass] **The Round 1 trailing-form correction now matches both requested forms without bypassing the duration veto.** `SCHEDULE_TRAILING_PATTERN` includes `end of (?:the )?(?:day|week)` and `no later than` at `.relay-artifacts/gh258-final-diff.XXXXXX.md:809`; `StripScheduleWording` returns unchanged text when `DURATION_CONDITION_PATTERN` matches at lines 810–817. The added contract cases cover the end-of-period and multiword-lead-in examples at lines 1028–1029.
+  Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node -e 'const fs=require("fs"); const t=fs.readFileSync(".relay-artifacts/gh258-final-diff.XXXXXX.md","utf8"); const m=t.match(/^\\+const SCHEDULE_TRAILING_PATTERN = (\\/.*\\/i);$/m); const rx=eval(m[1]); const duration=/\\b(?:until|till|thru|through|for|over|during|within|since|from|between|after)\\b/i; const xs=["Deploy the release end of day","Deploy the release end of the week","Deploy the release no later than Friday","Keep staging online until the handoff at 2pm"]; console.log(JSON.stringify(xs.map(input=>({input,match:input.match(rx)?.[0]??null,duration:duration.test(input),output:duration.test(input)?input:input.replace(rx,"").trim()}))));'` (exit 0). Decisive output: `end of day`, `end of the week`, and `no later than Friday` each reduce to `Deploy the release`; the nested-duration input has `duration:true` and remains `Keep staging online until the handoff at 2pm`.
+
+- [Should] **The promised person-topic grounding acceptance case was not added.** The implementation plan requires a golden person-topic sample grounded by existing analyzed context and an invented-entity topic rejected by grounding (`.relay-artifacts/gh258-final-diff.XXXXXX.md:97-98`), while the product requirement adds `re: <topic>` from earlier context (`:61-69`). The changed golden hunk contains only schedule expectation edits (`:897-972`) and the changed contract cases contain no `re:` title or topic-bearing context (`:1010-1066`). The receipt's generic statement that synthetic cases “passed through” (`:671-677`) does not record an input, selected title, or grounding result. Add the two bounded existing-fixture cases specified by the plan: a topic-bearing analyzed context that accepts a grounded `Reply to Dana re: vendor security review`, and an otherwise identical candidate containing an absent entity/topic that grounding rejects. Record their exact input/output in the receipt if retaining the dev-model claim.
+  Observed input: the plan's required topic-present context `vendor security review` plus `And please reply to Dana before our call. Thanks!`; neither that concrete sample nor any `re:` candidate appears in the changed golden or title-contract test hunks.
+  Affected scope: person-object titles synthesized from existing analyzed context, including grounding acceptance and rejection of the appended topic.
+  Falsifier: the existing golden/selector fixture accepts `Reply to Dana re: vendor security review` only when its analyzed source supplies both `Dana` and `vendor security review`, and rejects a candidate whose entity/topic is absent; no new suite or prompt-only assertion is needed.
+  Probe: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node -e 'const fs=require("fs"); const t=fs.readFileSync(".relay-artifacts/gh258-final-diff.XXXXXX.md","utf8"); console.log(JSON.stringify({personTopicGoldenAdded:/^\\+.*(?:vendor security review|Reply to Dana re:|re: <topic>)/m.test(t.slice(t.indexOf("diff --git a/tests/fixtures/reminder-title-golden.json"))),personTopicContractCaseAdded:/^\\+.*(?:Reply to Dana re:|vendor security review)/m.test(t.slice(t.indexOf("diff --git a/tests/reminder-title-contract.test.js")))}));'` (exit 0). Decisive output: `{"personTopicGoldenAdded":false,"personTopicContractCaseAdded":false}`.
+
+Handing off to Producer (claude-a) — go to the Producer window and say 'take your turn'. Add the bounded person-topic grounding coverage and receipt evidence, then request Round 3 review.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
