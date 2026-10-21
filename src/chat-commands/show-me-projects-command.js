@@ -207,12 +207,7 @@ const GROUPING_SCHEMA = {
  * @returns {string}
  */
 function ExtractReminderTitle(ArgText) {
-  const Text = typeof ArgText === 'string' ? ArgText : '';
-  const KeyTaskMatch = Text.match(/Key task\(s\):\s*\n?\s*(?:[•\-*]\s*)?([^\n]+)/i);
-  if(KeyTaskMatch && KeyTaskMatch[1].trim()) return KeyTaskMatch[1].trim();
-  const Stripped = Text.replace(/^.*?please follow up on <[^>]*>:?\s*/is, '').replace(/^>\s*/, '');
-  const FirstLine = Stripped.split('\n').map(ArgLine => ArgLine.trim()).find(ArgLine => ArgLine.length > 0) || Text.trim();
-  return FirstLine.length > 140 ? `${FirstLine.slice(0, 137)}…` : FirstLine;
+  return SlackFormatUtils.ExtractReminderTitle(ArgText);
 }
 
 /**

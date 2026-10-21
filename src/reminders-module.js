@@ -2617,8 +2617,8 @@ class RemindersModule {
       const ShouldPostOnUtcString = CurrentReminder.ShouldPostOn.toUTCString();
       const SlackDateFormat = `<!date^${ShouldPostOnUnixTime}^{date_long_pretty} at {time}|${ShouldPostOnUtcString}>`;
 
-      const SourceLink = CurrentReminder.ReminderMessageText.match(/<(https?:\/\/[^>|]+)\|this>/);
-      const SourceReference = SourceLink ? `<${SourceLink[1]}|Original message>` : `<#${CurrentReminder.OriginalChannelID}>`;
+      const SourceLink = SlackFormatUtils.ParseLegacyReminderContent(CurrentReminder.ReminderMessageText).SourceUrl;
+      const SourceReference = SourceLink ? `<${SourceLink}|Original message>` : `<#${CurrentReminder.OriginalChannelID}>`;
 
       // add task summary for the current group of reminders which share the same scheduling trigger.
       FeedbackMessage += `\n\nTasks for ${SlackDateFormat}:\n${SourceReference}`;

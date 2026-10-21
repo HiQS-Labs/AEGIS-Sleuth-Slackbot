@@ -174,11 +174,8 @@ const REMINDER_DUE_SECTIONS = [
  * @returns {string[]} Truncated task summaries in stored order; empty when the record has no bullets.
  */
 function ExtractKeyTaskSummaries(ArgReminderMessageText) {
-  return String(ArgReminderMessageText ?? '')
-    .split('\n')
-    .map((/** @type {string} */ ArgLine) => ArgLine.trim())
-    .filter((/** @type {string} */ ArgLine) => ArgLine.startsWith('•'))
-    .map((/** @type {string} */ ArgLine) => TruncateCompactSummary(ArgLine.replace(/^•\s*/, '')))
+  return SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).BulletTasks
+    .map((/** @type {string} */ ArgLine) => TruncateCompactSummary(ArgLine))
     .filter(Boolean);
 }
 
@@ -194,10 +191,7 @@ function ExtractKeyTaskSummaries(ArgReminderMessageText) {
  * @returns {string}
  */
 function ExtractCompactSummary(ArgReminderMessageText) {
-  const lines = String(ArgReminderMessageText ?? '')
-    .split('\n')
-    .map((/** @type {string} */ ArgLine) => ArgLine.trim())
-    .filter(Boolean);
+  const lines = SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).Lines;
 
   // Prefer the synthesized "Key task(s):" bullet when present. It is the human-reviewed one-line task
   // (GH-337) and must win over the raw quoted-original excerpt — otherwise a long message that has BOTH
