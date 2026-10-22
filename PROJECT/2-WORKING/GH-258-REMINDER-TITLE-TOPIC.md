@@ -122,3 +122,7 @@ and is not implemented or tested in this PR.
     insensitive in the receipt rather than claiming it.
 - Smoke: one existing-context topic sample and one no-topic sample on the dev server only. Receipts
   under `TESTS-RESULTS/2026-10-20+GH-258/`.
+
+## Merge evidence
+
+- PR #266 merged 2026-10-22 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
