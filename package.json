@@ -29,6 +29,7 @@
     "validate:model-catalog": "node scripts/sync-model-catalog.js --check",
     "catalog-editor": "node tools/catalog-server.js",
     "validate:fsm": "node scripts/validate-fsm-invariants.js",
+    "validate:reminder-pipeline": "node scripts/validate-reminder-pipeline.js",
     "validate:workspace-isolation": "node scripts/validate-workspace-isolation.js",
     "validate:reminder-render": "node scripts/validate-reminder-render.js",
     "validate:changelog-tone": "node scripts/validate-changelog-tone.js",

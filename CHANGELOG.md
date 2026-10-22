@@ -33,6 +33,10 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## Unreleased
+
+**Technical:** GH-261 adds a checked reminder-pipeline inventory ratchet. `npm run validate:reminder-pipeline` records the current #79/#250 migration counters and refuses growth or an unrecorded deletion; CI runs it beside the FSM invariant check.
+
 ## 1.4.348 - 2026-10-22
 
 When I can't make a clean task title out of what the model and the message gave me, I now try two
