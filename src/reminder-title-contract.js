@@ -105,10 +105,11 @@ const REQUEST_FRAMING_PATTERNS = [
 const SCHEDULE_LEADING_PATTERN = /^(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|next\s+(?:week|month)|eod|eow|asap)(?=$|[\s,:!.-])[\s,:!.-]*/i;
 // a bare weekday abbreviation (`sun`, `mon`, `sat`, `wed`) is an ordinary word too, so it is only
 // schedule wording behind a deadline lead-in (`on Wed`); full weekday names may stand alone.
-const SCHEDULE_TRAILING_PATTERN = /\s+(?:(?:by|before|on|at|due|no later than)\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:\s+(?:morning|afternoon|evening|night))?|(?:(?:by|before|on|at|due|no later than)\s+)?(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening|night))?|next\s+(?:week|month)|end of (?:the )?(?:day|week)|eod|eow|asap|\d{1,2}(?::\d{2})?\s*(?:am|pm)))[\s.!,;:\-–—]*$/i;
+// `due` may stack with a lead-in (`due on Friday`, `due by Friday`); both words go together.
+const SCHEDULE_TRAILING_PATTERN = /\s+(?:(?:due\s+)?(?:by|before|on|at|due|no later than)\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:\s+(?:morning|afternoon|evening|night))?|(?:(?:due\s+)?(?:by|before|on|at|due|no later than)\s+)?(?:(?:today|tonight|tomorrow)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|week)|(?:this|next|coming)\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:morning|afternoon|evening|night))?|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening|night))?|next\s+(?:week|month)|end of (?:the )?(?:day|week)|eod|eow|asap|\d{1,2}(?::\d{2})?\s*(?:am|pm)))[\s.!,;:\-–—]*$/i;
 const DURATION_CONDITION_PATTERN = /\b(?:until|till|thru|through|for|over|during|within|since|from|between|after)\b/i;
 /** A strip that leaves the title ending on one of these removed its object (`Move the demo to`). */
-const DANGLING_END_PATTERN = /\b(?:to|into|in|of|with|the|a|an|than)$/i;
+const DANGLING_END_PATTERN = /\b(?:to|into|in|of|with|the|a|an|than|due)$/i;
 
 /** @param {string} ArgText @param {string[]} ArgChanges @param {RegExp} ArgPattern @returns {string} */
 function StripScheduleWording(ArgText, ArgChanges, ArgPattern) {
@@ -291,13 +292,25 @@ function NormalizeReminderTitle(ArgText) {
   if(Framed) {
     Changes.push('request-framing');
     Text = Text.replace(/[\s?]+$/, '');
+    // framing can expose schedule wording it was hiding (`Can you tomorrow review` → `tomorrow review`).
+    Text = StripScheduleWording(Text, Changes, SCHEDULE_LEADING_PATTERN);
   }
 
+  // consecutive trailing phrases are one target (`to next Friday at 2pm`): if peeling them would
+  // reach a dangling ending, none of them is schedule wording, so the whole run is kept.
+  const BeforeTrailingSchedule = Text;
+  const ChangesBeforeTrailing = Changes.length;
   let WithoutTrailingSchedule;
   do {
     WithoutTrailingSchedule = Text;
     Text = StripScheduleWording(Text, Changes, SCHEDULE_TRAILING_PATTERN);
   } while(Text !== WithoutTrailingSchedule);
+  const NextPeel = Collapse(Text.replace(SCHEDULE_TRAILING_PATTERN, ''));
+  if(Text !== BeforeTrailingSchedule && NextPeel !== Text
+    && DANGLING_END_PATTERN.test(NextPeel.replace(/[\s.!,;:\-–—]+$/, ''))) {
+    Text = BeforeTrailingSchedule;
+    Changes.length = ChangesBeforeTrailing;
+  }
   // 5. trailing terminal punctuation, except a `?` that still marks a question.
   const WithoutTrailing = Text.replace(/[\s.!,;:\-–—]+$/, '').trim();
   if(WithoutTrailing !== Text) { Changes.push('trailing-punctuation'); Text = WithoutTrailing; }
