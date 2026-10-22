@@ -54,8 +54,9 @@
 // against the REAL workspace name — production resolves client mappings, overlays and display names
 // from that name, so renaming it (as this harness used to) silently changed the rendering under
 // test. Isolation is by DATA DIRECTORY instead (SLEUTH_DATA_DIR, GH-60): all disk-backed persistence
-// is redirected to a throwaway pid-scoped tree, so the real workspace's runtime files are never
-// written at all — strictly safer than the old pid-suffixed-name scheme, which wrote its throwaway
+// is redirected to a fresh throwaway tree, created on EVERY run even when SLEUTH_DATA_DIR is
+// already set (GH-271: trusting an inherited value deleted live production data), so the real
+// workspace's runtime files are never written at all — strictly safer than the old pid-suffixed-name scheme, which wrote its throwaway
 // files into the real data/runtime and relied on remembering to delete each one. The real LLM IS
 // called for turns that reach AI extraction (real API cost/latency, same as
 // first-time-user-battery.js). A turn whose SimulateMessageAsync call throws is still printed in
@@ -207,29 +208,31 @@ async function CleanupRuntimeFilesAsync(ArgWorkspaceName) {
 }
 
 /**
- * Redirect ALL runtime persistence into a throwaway pid-scoped tree, so the harness can keep the
- * REAL workspace name (which production renders from) without touching the real workspace's files.
+ * Redirect ALL runtime persistence into a fresh throwaway tree, so the harness can keep the REAL
+ * workspace name (which production renders from) without touching the real workspace's files.
  *
- * Respects an explicitly-set SLEUTH_DATA_DIR — the same convention `tests/runtime-setup.js` uses,
- * so running under Jest keeps the per-worker isolation the runner already established instead of
- * clobbering it mid-file.
+ * ALWAYS creates its own tree, whatever SLEUTH_DATA_DIR already says (GH-271). An inherited value
+ * is not evidence of isolation: on 2026-10-21 the service environment was exported on the
+ * production host, this function trusted the live data directory, and the run deleted the real
+ * workspace's channel list, completion history and event ledger. The caller's value is handed
+ * back by `RestoreRuntimeTree`, so a Jest worker keeps its own isolation after the run.
  *
  * The client overlay is COPIED in rather than read through from the real tree: `ApplyClientPrefix`
  * needs it to render "<Client> - <task>" the way production does, and a copy makes it structurally
  * impossible for a harness run to write over live client mappings.
  *
  * @param {string} ArgWorkspaceName Real workspace name.
- * @returns {Promise<string|null>} The temp root this call created, or null when isolation was
- * already in force (caller must not delete a directory it did not create).
+ * @returns {Promise<{ IsolatedRoot: string, PreviousDataDir: string|undefined }>}
  */
 async function IsolateRuntimeTreeAsync(ArgWorkspaceName) {
-  if(process.env.SLEUTH_DATA_DIR && process.env.SLEUTH_DATA_DIR.trim().length > 0) return null;
-
-  // resolve read-only inputs against the REAL tree before redirecting.
+  // resolve read-only inputs against the caller's tree before redirecting.
   const RealOverlayPath = Workspaces.GetSubdirPath('client-project-map', `${ArgWorkspaceName}.json`);
 
-  const IsolatedRoot = path.join(os.tmpdir(), `sleuth-reminder-battery-${process.pid}`);
+  const PreviousDataDir = process.env.SLEUTH_DATA_DIR;
+  const IsolatedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sleuth-reminder-battery-'));
   process.env.SLEUTH_DATA_DIR = IsolatedRoot;
+  if(Workspaces.GetRuntimeDirPath() !== path.resolve(IsolatedRoot))
+    throw new Error(`reminder battery: runtime root did not move to ${IsolatedRoot}; refusing to write.`);
 
   const IsolatedOverlayDir = Workspaces.GetSubdirPath('client-project-map');
   await fs.mkdir(IsolatedOverlayDir, { recursive: true });
@@ -241,7 +244,17 @@ async function IsolateRuntimeTreeAsync(ArgWorkspaceName) {
     if(error.code !== 'ENOENT') throw error;
   }
 
-  return IsolatedRoot;
+  return { IsolatedRoot, PreviousDataDir };
+}
+
+/**
+ * Hand the caller's SLEUTH_DATA_DIR back after a run.
+ * @param {{ PreviousDataDir: string|undefined }} ArgIsolation Result of IsolateRuntimeTreeAsync.
+ * @returns {void}
+ */
+function RestoreRuntimeTree(ArgIsolation) {
+  if(ArgIsolation.PreviousDataDir === undefined) delete process.env.SLEUTH_DATA_DIR;
+  else process.env.SLEUTH_DATA_DIR = ArgIsolation.PreviousDataDir;
 }
 
 /**
@@ -286,11 +299,11 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
   // Isolate by data directory, NOT by renaming the workspace. Production resolves client mappings
   // and display identity from WORKSPACE_NAME, so a suffixed name quietly disabled the very
   // rendering this harness is supposed to reproduce (the missing "<Client> - " prefix, GH-68).
-  const IsolatedRoot = await IsolateRuntimeTreeAsync(RealWorkspaceInfo.WORKSPACE_NAME);
+  // The tree is fresh (mkdtemp), so there is nothing to clean before the run: the harness never
+  // deletes a file it did not create.
+  const Isolation = await IsolateRuntimeTreeAsync(RealWorkspaceInfo.WORKSPACE_NAME);
+  const IsolatedRoot = Isolation.IsolatedRoot;
   const HarnessWorkspaceInfo = { ...RealWorkspaceInfo };
-
-  // start clean: a prior --keep-data run (or a reused pid) must not leak reminders into this one.
-  await CleanupRuntimeFilesAsync(HarnessWorkspaceInfo.WORKSPACE_NAME);
 
   // a non-DM scenario has to opt the channel in, exactly as a real workspace admin would have.
   const IsDirectMessage = ArgScenario.channelType === 'im';
@@ -324,7 +337,7 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
 
   console.log('================================================================');
   console.log(`WORKSPACE: ${HarnessWorkspaceInfo.WORKSPACE_NAME}  (real name — client mappings apply)`);
-  console.log(`RUNTIME DATA: ${Workspaces.GetRuntimeDirPath()}${IsolatedRoot ? '  (throwaway)' : '  (pre-set SLEUTH_DATA_DIR)'}`);
+  console.log(`RUNTIME DATA: ${Workspaces.GetRuntimeDirPath()}  (throwaway)`);
   console.log(`CHANNEL: ${ArgScenario.channel}  type=${ArgScenario.channelType}${IsDirectMessage ? '  (DM — enabled-channels gate bypassed)' : '  (seeded as reminder-enabled)'}`);
   console.log(`COMPLEX MODEL (reminder extraction): ${Reminders.WorkspaceAI ? Reminders.WorkspaceAI.ComplexModelName : '(n/a)'}`);
   console.log('================================================================\n');
@@ -383,11 +396,10 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
     if(AllReminders.length === 0) console.log('(none)');
   } finally {
     await Reminders.StopAsync();
-    if(!ArgKeepData) {
-      await CleanupRuntimeFilesAsync(HarnessWorkspaceInfo.WORKSPACE_NAME);
-      // only remove a tree this call created — never one the caller (or Jest) set up.
-      if(IsolatedRoot) await fs.rm(IsolatedRoot, { recursive: true, force: true });
-    }
+    // only the tree this call created is ever removed — never one the caller (or Jest) set up.
+    if(ArgKeepData) console.log(`runtime data kept at ${IsolatedRoot}`);
+    else await fs.rm(IsolatedRoot, { recursive: true, force: true });
+    RestoreRuntimeTree(Isolation);
   }
 
   // surface turn failures as a real non-zero exit instead of a clean-looking run — printed
@@ -398,6 +410,7 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
       TurnErrors.map(({ turnIndex, error }) => `turn ${turnIndex + 1} (${error.message})`).join('; ')
     );
   }
+  return { RuntimeRoot: IsolatedRoot };
 }
 
 /**
@@ -435,6 +448,7 @@ module.exports = {
   GetReminderRuntimeFilePaths,
   CleanupRuntimeFilesAsync,
   IsolateRuntimeTreeAsync,
+  RestoreRuntimeTree,
   SeedEnabledChannelAsync,
   MakeTurnTS,
   RunScenarioAsync,

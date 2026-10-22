@@ -27,6 +27,13 @@ class RemindersChannelSettings {
   #SlackApp;
 
   /**
+   * Whether the last load found no file at all (as opposed to an empty one). A deployed workspace
+   * with reminders but no file has lost its channel list (GH-271); RemindersModule reports that.
+   * @type {boolean}
+   */
+  #FileMissingAtLoad = false;
+
+  /**
    * Initialize the channel settings manager.
    * @param {import('./slack-app')} ArgSlackApp Slack app instance for logging.
    * @param {string} ArgFilePath Path to the enabled channels JSON file.
@@ -41,6 +48,7 @@ class RemindersChannelSettings {
    * @returns {Promise<void>}
    */
   async LoadEnabledChannelsAsync() {
+    this.#FileMissingAtLoad = false;
     try {
       // read and parse the enabled channels file.
       const EnabledChannelsJSON = await fs.readFile(this.#EnabledChannelsFilePath, 'utf8');
@@ -57,13 +65,26 @@ class RemindersChannelSettings {
     } catch(error) {
       // if the file does not exist, log a message and start with an empty list, otherwise propagate the error.
       if(error.code === 'ENOENT') {
-        this.#SlackApp.Logger.info("no enabled channels file found, starting with empty list.");
+        // normal for a brand-new workspace, but it also turns auto-scheduling OFF in every channel,
+        // so it must not read as routine (GH-271: a deleted file went unnoticed for 28 hours).
+        this.#SlackApp.Logger.warn(
+          `no enabled channels file at ${this.#EnabledChannelsFilePath}: auto-scheduling is OFF in every channel.`
+        );
         this.#EnabledChannels = new Set(); // this means reminders are disabled everywhere by default.
+        this.#FileMissingAtLoad = true;
       } else {
         this.#SlackApp.Logger.error("failed to read enabled channels file:", error);
         throw error;
       }
     }
+  }
+
+  /**
+   * Whether the last load found no enabled-channels file at all.
+   * @returns {boolean}
+   */
+  get FileMissingAtLoad() {
+    return this.#FileMissingAtLoad;
   }
 
   /**

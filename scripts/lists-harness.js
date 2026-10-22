@@ -315,6 +315,7 @@ async function AcquireLockAsync() {
  * @returns {Promise<HarnessRuntime>}
  */
 async function CreateHarnessRuntimeAsync(ArgOptions) {
+  Workspaces.AssertNotLiveRuntimeDir('lists-harness');
   const WorkspaceInfo = await Workspaces.LoadWorkspaceInfoByNameAsync(ArgOptions.WorkspaceName);
   Workspaces.ValidateWorkspaceInfo(WorkspaceInfo);
 

@@ -35,6 +35,21 @@
 
 ## Unreleased
 
+If my list of channels with auto-scheduling turned on ever goes missing while reminders exist, I now
+log it as an error instead of quietly treating every channel as off. My test tools can no longer
+touch a server's live data.
+
+**Technical:** GH-271/GH-272. `scripts/reminder-thread-battery.js` and `tests/runtime-setup.js`
+always create their own temp data dir, ignoring an inherited `SLEUTH_DATA_DIR` (on 2026-10-21 an
+exported service environment pointed the battery at production, and it deleted the channel list,
+completion history and event ledger). The battery verifies the runtime root moved before writing,
+never deletes a file it did not create, and restores the caller's value afterwards.
+`Workspaces.AssertNotLiveRuntimeDir` refuses a root carrying a `.live-data` marker; the lists and
+file-upload harnesses call it before starting modules. A missing enabled-channels file now logs at
+WARN, and at ERROR when the workspace has reminders. `backup-sleuth-data-fixed.sh` backs up the
+service's effective data dir and includes `events/*.jsonl`. `AGENTS.md` gains the read-only rule
+for deployed servers. #lessonslearned: an inherited environment variable is not proof of isolation.
+
 When you ask `rmm ifl` in your own words to read text from an image, make a list from an image,
 convert text into a Slack list, or ask about your reminders, I now run that command for you instead
 of only showing its syntax. `refresh clients` is no longer offered for `rmm ifl`; type it directly.
