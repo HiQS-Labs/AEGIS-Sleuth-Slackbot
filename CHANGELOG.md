@@ -46,8 +46,11 @@ completion history and event ledger). The battery verifies the runtime root move
 never deletes a file it did not create, and restores the caller's value afterwards.
 `Workspaces.AssertNotLiveRuntimeDir` refuses a root carrying a `.live-data` marker; the lists and
 file-upload harnesses call it before starting modules. A missing enabled-channels file now logs at
-WARN, and at ERROR when the workspace has reminders. `backup-sleuth-data-fixed.sh` backs up the
-service's effective data dir and includes `events/*.jsonl`. `AGENTS.md` gains the read-only rule
+WARN, and at ERROR when reminders came from channels (DM-only workspaces legitimately have no file).
+The battery restores the caller's `SLEUTH_DATA_DIR` and removes its tree on any failure, including
+setup. `backup-sleuth-data-fixed.sh` backs up the service's effective data dir (env, the unit's
+`Environment=` and `EnvironmentFile=` values, then the install dir with a warning) and includes
+`events/*.jsonl`. `AGENTS.md` gains the read-only rule
 for deployed servers. #lessonslearned: an inherited environment variable is not proof of isolation.
 
 When you ask `rmm ifl` in your own words to read text from an image, make a list from an image,

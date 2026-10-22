@@ -242,6 +242,29 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
     }
   });
 
+  test('GH-271: a setup failure still restores the caller\'s SLEUTH_DATA_DIR and removes its tree', async () => {
+    const RemindersModule = require('../src/reminders-module');
+    const StartSpy = jest.spyOn(RemindersModule.prototype, 'StartAsync')
+      .mockRejectedValueOnce(new Error('simulated startup failure'));
+    const CallerDataDir = process.env.SLEUTH_DATA_DIR;
+    const BeforeTrees = new Set((await fs.readdir(os.tmpdir())).filter(ArgName => ArgName.startsWith('sleuth-reminder-battery-')));
+
+    try {
+      await expect(RunScenarioAsync(
+        FakeWorkspaceInfo.WORKSPACE_NAME,
+        { channel: 'C_HARNESS', channelType: 'im', turns: [{ user: 'U_NOEL', text: "let's run to the park" }] },
+        false
+      )).rejects.toThrow('simulated startup failure');
+    } finally {
+      StartSpy.mockRestore();
+    }
+
+    expect(process.env.SLEUTH_DATA_DIR).toBe(CallerDataDir);
+    const LeftOver = (await fs.readdir(os.tmpdir()))
+      .filter(ArgName => ArgName.startsWith('sleuth-reminder-battery-') && !BeforeTrees.has(ArgName));
+    expect(LeftOver).toEqual([]);
+  });
+
   test('a GH-424 "see above" scenario reaches the AI with the enriched thread context, not just the bare turn', async () => {
     const MockProcessMessage = ConfigureMockWorkspaceAI(MockWorkspaceAI, {
       recommendation: 'schedule',

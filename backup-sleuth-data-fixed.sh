@@ -19,9 +19,21 @@ ZIP_FILE="$BACKUP_DIR/sleuth-config-data-$TIMESTAMP.zip"
 # silently zipped a stale copy for weeks. Order: explicit env, the service's own setting, install dir.
 DATA_DIR="${SLEUTH_DATA_DIR:-}"
 if [ -z "$DATA_DIR" ] && command -v systemctl >/dev/null 2>&1; then
-  DATA_DIR="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^SLEUTH_DATA_DIR=//p' | tail -1)"
+  # Environment= drop-ins first, then the unit's EnvironmentFile= files. A failed query (no systemd,
+  # no such unit) must fall through to the default, not abort under `set -e`.
+  DATA_DIR="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^SLEUTH_DATA_DIR=//p' | tail -1 || true)"
+  if [ -z "$DATA_DIR" ]; then
+    for ENV_FILE in $(systemctl show sleuth-app -p EnvironmentFiles --value 2>/dev/null | tr ' ' '\n' | grep '^/' || true); do
+      [ -r "$ENV_FILE" ] || continue
+      FOUND="$(sed -n 's/^SLEUTH_DATA_DIR=//p' "$ENV_FILE" | tail -1 | tr -d '"'"'"'\r' || true)"
+      [ -n "$FOUND" ] && DATA_DIR="$FOUND"
+    done
+  fi
 fi
-DATA_DIR="${DATA_DIR:-$SCRIPT_DIR/data/runtime}"
+if [ -z "$DATA_DIR" ]; then
+  DATA_DIR="$SCRIPT_DIR/data/runtime"
+  echo "Warning: SLEUTH_DATA_DIR not found in the environment or the sleuth-app unit; backing up the install dir." >&2
+fi
 
 if [ ! -d "$DATA_DIR" ]; then
   echo "Error: runtime data directory not found: $DATA_DIR" >&2

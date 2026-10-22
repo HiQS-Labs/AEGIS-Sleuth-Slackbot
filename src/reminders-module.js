@@ -1392,11 +1392,14 @@ class RemindersModule {
     // to do (trying to proceed with an empty list is tantamount to losing all reminders).
     await this.#LoadRemindersAsync();
 
-    // GH-271: a workspace with reminders but no channel file has LOST its channel list (new
-    // workspaces have neither). Channel auto-scheduling is silently off until someone notices.
-    if(this.#ChannelSettings.FileMissingAtLoad && this.GetAllReminders().length > 0) {
+    // GH-271: reminders that came from a channel (not a DM, whose IDs start with "D") but no channel
+    // file means the channel list was LOST: channel auto-scheduling is silently off until someone
+    // notices. A DM-only workspace legitimately has no file, so it only gets the settings warning.
+    const ChannelReminderCount = this.GetAllReminders()
+      .filter(ArgReminder => ArgReminder.OriginalChannelID && !String(ArgReminder.OriginalChannelID).startsWith('D')).length;
+    if(this.#ChannelSettings.FileMissingAtLoad && ChannelReminderCount > 0) {
       this.#SlackApp.Logger.error(
-        `enabled channels file missing but ${this.GetAllReminders().length} reminders exist: ` +
+        `enabled channels file missing but ${ChannelReminderCount} reminders came from channels: ` +
         'the channel list was probably lost, and auto-scheduling is OFF in every channel. Restore it from a backup.'
       );
     }

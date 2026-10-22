@@ -81,6 +81,36 @@ async function CleanupReminderRuntimeFilesAsync(ArgWorkspaceName) {
 }
 
 describe('RemindersModule integration via MockSlackApp', () => {
+  test.each([
+    ['C_SOURCE', true],
+    ['D_DIRECT', false],
+  ])('GH-271: missing channel file with a reminder from %s logs lost-list error: %s', async (ArgChannelID, ArgExpectError) => {
+    // A lost channel list silently disabled channel auto-scheduling for 28 hours on 2026-10-21.
+    // DM-only workspaces legitimately have no file, so they must not raise a false alarm.
+    const WorkspaceInfo = MakeWorkspaceInfo(`missing_channels_${ArgChannelID}`);
+    const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+    await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+    const Reminder = {
+      ReminderID: `missing-channels-${ArgChannelID}`, CreatedOn: '2026-08-01T12:00:00.000Z',
+      ShouldPostOn: '2099-08-02T12:00:00.000Z', TargetChannelID: 'C_REMINDERS',
+      OriginalChannelID: ArgChannelID, OriginalMessageID: '100.200', OriginalSenderID: 'U_SENDER',
+      ReminderMessageText: 'Review the report', IgnoreSnooze: false, AssigneeID: 'U_OWNER',
+      AssigneeIDs: ['U_OWNER'], GitHubUrls: [], clientId: null, projectId: null, State: 'scheduled',
+    };
+    await fs.writeFile(RuntimePaths.remindersFilePath, JSON.stringify([Reminder]), 'utf8');
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo });
+    const Reminders = new RemindersModule(SlackApp);
+    await Reminders.StartAsync(EmptyWorkspaceStats);
+    try {
+      const LostListErrors = SlackApp.Logger.ErrorMessages.filter(ArgMessage => ArgMessage.includes('channel list was probably lost'));
+      expect(LostListErrors.length > 0).toBe(ArgExpectError);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+    }
+  });
+
   test('REMINDERS_READ_SOURCE loads a lossless baseline projection and rolls back to JSON', async () => {
     const WorkspaceInfo = MakeWorkspaceInfo('projection_read_source');
     const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);

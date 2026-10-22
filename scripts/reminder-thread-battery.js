@@ -230,21 +230,29 @@ async function IsolateRuntimeTreeAsync(ArgWorkspaceName) {
 
   const PreviousDataDir = process.env.SLEUTH_DATA_DIR;
   const IsolatedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sleuth-reminder-battery-'));
+  const Isolation = { IsolatedRoot, PreviousDataDir };
   process.env.SLEUTH_DATA_DIR = IsolatedRoot;
-  if(Workspaces.GetRuntimeDirPath() !== path.resolve(IsolatedRoot))
-    throw new Error(`reminder battery: runtime root did not move to ${IsolatedRoot}; refusing to write.`);
-
-  const IsolatedOverlayDir = Workspaces.GetSubdirPath('client-project-map');
-  await fs.mkdir(IsolatedOverlayDir, { recursive: true });
   try {
-    await fs.copyFile(RealOverlayPath, path.join(IsolatedOverlayDir, `${ArgWorkspaceName}.json`));
+    if(Workspaces.GetRuntimeDirPath() !== path.resolve(IsolatedRoot))
+      throw new Error(`reminder battery: runtime root did not move to ${IsolatedRoot}; refusing to write.`);
+
+    const IsolatedOverlayDir = Workspaces.GetSubdirPath('client-project-map');
+    await fs.mkdir(IsolatedOverlayDir, { recursive: true });
+    try {
+      await fs.copyFile(RealOverlayPath, path.join(IsolatedOverlayDir, `${ArgWorkspaceName}.json`));
+    } catch(error) {
+      // no overlay for this workspace is normal (the static base list still applies) — anything else
+      // is a real failure and must not be swallowed into a run that then renders without prefixes.
+      if(error.code !== 'ENOENT') throw error;
+    }
   } catch(error) {
-    // no overlay for this workspace is normal (the static base list still applies) — anything else
-    // is a real failure and must not be swallowed into a run that then renders without prefixes.
-    if(error.code !== 'ENOENT') throw error;
+    // never leave the caller pointed at a half-built temp tree.
+    RestoreRuntimeTree(Isolation);
+    await fs.rm(IsolatedRoot, { recursive: true, force: true });
+    throw error;
   }
 
-  return { IsolatedRoot, PreviousDataDir };
+  return Isolation;
 }
 
 /**
@@ -302,115 +310,119 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
   // The tree is fresh (mkdtemp), so there is nothing to clean before the run: the harness never
   // deletes a file it did not create.
   const Isolation = await IsolateRuntimeTreeAsync(RealWorkspaceInfo.WORKSPACE_NAME);
-  const IsolatedRoot = Isolation.IsolatedRoot;
-  const HarnessWorkspaceInfo = { ...RealWorkspaceInfo };
-
-  // a non-DM scenario has to opt the channel in, exactly as a real workspace admin would have.
-  const IsDirectMessage = ArgScenario.channelType === 'im';
-  if(!IsDirectMessage)
-    await SeedEnabledChannelAsync(HarnessWorkspaceInfo.WORKSPACE_NAME, ArgScenario.channel);
-
-  // the full scenario is known upfront, so the entire turn list (including turns not yet
-  // "simulated") can be pre-loaded as the thread fixture — #CollectPrecedingHumanThreadMessagesAsync
-  // only ever looks backward from the current turn's own index, so later turns are inert until
-  // their own SimulateMessageAsync call runs.
-  const ThreadTS = MakeTurnTS(0);
-  const ThreadMessages = ArgScenario.turns.map((ArgTurn, ArgIndex) => ({
-    user: ArgTurn.user,
-    text: ArgTurn.text,
-    ts: MakeTurnTS(ArgIndex),
-    thread_ts: ThreadTS,
-    bot_id: undefined,
-    reactions: [],
-  }));
-
-  const SlackApp = new MockSlackApp({
-    WorkspaceInfo: HarnessWorkspaceInfo,
-    AdminUsers: [],
-    ThreadMessagesById: {
-      [`${ArgScenario.channel}:${ThreadTS}`]: ThreadMessages,
-    },
-  });
-
-  const Reminders = new RemindersModule(SlackApp);
-  await Reminders.StartAsync(EmptyWorkspaceStats);
-
-  console.log('================================================================');
-  console.log(`WORKSPACE: ${HarnessWorkspaceInfo.WORKSPACE_NAME}  (real name — client mappings apply)`);
-  console.log(`RUNTIME DATA: ${Workspaces.GetRuntimeDirPath()}  (throwaway)`);
-  console.log(`CHANNEL: ${ArgScenario.channel}  type=${ArgScenario.channelType}${IsDirectMessage ? '  (DM — enabled-channels gate bypassed)' : '  (seeded as reminder-enabled)'}`);
-  console.log(`COMPLEX MODEL (reminder extraction): ${Reminders.WorkspaceAI ? Reminders.WorkspaceAI.ComplexModelName : '(n/a)'}`);
-  console.log('================================================================\n');
-
-  const TurnErrors = [];
   try {
-    for(let TurnIndex = 0; TurnIndex < ArgScenario.turns.length; TurnIndex++) {
-      const Turn = ArgScenario.turns[TurnIndex];
-      const TextBefore = SlackApp.SentMessages.length;
-      const BlockBefore = SlackApp.SentBlockMessages.length;
-      let WasHandled = false;
-      let CaptureError = null;
+    const IsolatedRoot = Isolation.IsolatedRoot;
+    const HarnessWorkspaceInfo = { ...RealWorkspaceInfo };
 
-      const EventInfo = {
-        channel: ArgScenario.channel,
-        user: Turn.user,
-        ts: MakeTurnTS(TurnIndex),
-        thread_ts: TurnIndex === 0 ? undefined : ThreadTS,
-        text: Turn.text,
-        channel_type: ArgScenario.channelType,
-      };
+    // a non-DM scenario has to opt the channel in, exactly as a real workspace admin would have.
+    const IsDirectMessage = ArgScenario.channelType === 'im';
+    if(!IsDirectMessage)
+      await SeedEnabledChannelAsync(HarnessWorkspaceInfo.WORKSPACE_NAME, ArgScenario.channel);
 
-      try {
-        WasHandled = await SlackApp.SimulateMessageAsync(EventInfo);
-      } catch(error) {
-        CaptureError = error;
-        TurnErrors.push({ turnIndex: TurnIndex, error });
+    // the full scenario is known upfront, so the entire turn list (including turns not yet
+    // "simulated") can be pre-loaded as the thread fixture — #CollectPrecedingHumanThreadMessagesAsync
+    // only ever looks backward from the current turn's own index, so later turns are inert until
+    // their own SimulateMessageAsync call runs.
+    const ThreadTS = MakeTurnTS(0);
+    const ThreadMessages = ArgScenario.turns.map((ArgTurn, ArgIndex) => ({
+      user: ArgTurn.user,
+      text: ArgTurn.text,
+      ts: MakeTurnTS(ArgIndex),
+      thread_ts: ThreadTS,
+      bot_id: undefined,
+      reactions: [],
+    }));
+
+    const SlackApp = new MockSlackApp({
+      WorkspaceInfo: HarnessWorkspaceInfo,
+      AdminUsers: [],
+      ThreadMessagesById: {
+        [`${ArgScenario.channel}:${ThreadTS}`]: ThreadMessages,
+      },
+    });
+
+    const Reminders = new RemindersModule(SlackApp);
+    await Reminders.StartAsync(EmptyWorkspaceStats);
+
+    console.log('================================================================');
+    console.log(`WORKSPACE: ${HarnessWorkspaceInfo.WORKSPACE_NAME}  (real name — client mappings apply)`);
+    console.log(`RUNTIME DATA: ${Workspaces.GetRuntimeDirPath()}  (throwaway)`);
+    console.log(`CHANNEL: ${ArgScenario.channel}  type=${ArgScenario.channelType}${IsDirectMessage ? '  (DM — enabled-channels gate bypassed)' : '  (seeded as reminder-enabled)'}`);
+    console.log(`COMPLEX MODEL (reminder extraction): ${Reminders.WorkspaceAI ? Reminders.WorkspaceAI.ComplexModelName : '(n/a)'}`);
+    console.log('================================================================\n');
+
+    const TurnErrors = [];
+    try {
+      for(let TurnIndex = 0; TurnIndex < ArgScenario.turns.length; TurnIndex++) {
+        const Turn = ArgScenario.turns[TurnIndex];
+        const TextBefore = SlackApp.SentMessages.length;
+        const BlockBefore = SlackApp.SentBlockMessages.length;
+        let WasHandled = false;
+        let CaptureError = null;
+
+        const EventInfo = {
+          channel: ArgScenario.channel,
+          user: Turn.user,
+          ts: MakeTurnTS(TurnIndex),
+          thread_ts: TurnIndex === 0 ? undefined : ThreadTS,
+          text: Turn.text,
+          channel_type: ArgScenario.channelType,
+        };
+
+        try {
+          WasHandled = await SlackApp.SimulateMessageAsync(EventInfo);
+        } catch(error) {
+          CaptureError = error;
+          TurnErrors.push({ turnIndex: TurnIndex, error });
+        }
+
+        const NewTexts = SlackApp.SentMessages.slice(TextBefore);
+        const NewBlocks = SlackApp.SentBlockMessages.slice(BlockBefore);
+
+        console.log(`---- Turn ${TurnIndex + 1}/${ArgScenario.turns.length} ----`);
+        console.log(`${Turn.user}: ${Turn.text}`);
+        console.log(`handled=${WasHandled}  text-replies=${NewTexts.length}  block-replies=${NewBlocks.length}`);
+        if(CaptureError) console.log(`ERROR: ${CaptureError.message}`);
+        // THIS is the surface a user reacts to — the confirmation Sleuth posts back into the thread,
+        // rendered by #ComposeFeedbackMessageText. It is a SEPARATE render path from the stored text
+        // dumped at the end of the run, and GH-68 is the case where the two disagreed. Labeled so it
+        // cannot be mistaken for a duplicate of that dump and filtered away.
+        for(const Sent of NewTexts) console.log(`SLEUTH → posted reply (what the user sees NOW):\n${Sent.text}\n`);
+        for(const Block of NewBlocks) console.log(`SLEUTH → posted reply, blocks fallback text:\n${Block.text}\n`);
+        console.log('');
       }
 
-      const NewTexts = SlackApp.SentMessages.slice(TextBefore);
-      const NewBlocks = SlackApp.SentBlockMessages.slice(BlockBefore);
-
-      console.log(`---- Turn ${TurnIndex + 1}/${ArgScenario.turns.length} ----`);
-      console.log(`${Turn.user}: ${Turn.text}`);
-      console.log(`handled=${WasHandled}  text-replies=${NewTexts.length}  block-replies=${NewBlocks.length}`);
-      if(CaptureError) console.log(`ERROR: ${CaptureError.message}`);
-      // THIS is the surface a user reacts to — the confirmation Sleuth posts back into the thread,
-      // rendered by #ComposeFeedbackMessageText. It is a SEPARATE render path from the stored text
-      // dumped at the end of the run, and GH-68 is the case where the two disagreed. Labeled so it
-      // cannot be mistaken for a duplicate of that dump and filtered away.
-      for(const Sent of NewTexts) console.log(`SLEUTH → posted reply (what the user sees NOW):\n${Sent.text}\n`);
-      for(const Block of NewBlocks) console.log(`SLEUTH → posted reply, blocks fallback text:\n${Block.text}\n`);
-      console.log('');
+      const AllReminders = Reminders.GetAllReminders();
+      console.log('================================================================');
+      console.log(`STORED REMINDER TEXT (${AllReminders.length}) — posted LATER when each fires.`);
+      console.log('NOT a summary of the replies above: a different render path composed it.');
+      console.log('If it disagrees with a posted reply, that disagreement is the finding.');
+      console.log('================================================================');
+      for(const Reminder of AllReminders) {
+        console.log(`- "${Reminder.ReminderMessageText}"`);
+        console.log(`  assignee=${Reminder.AssigneeID || '(none)'}  postOn=${Reminder.ShouldPostOn}  state=${Reminder.State || 'scheduled'}`);
+      }
+      if(AllReminders.length === 0) console.log('(none)');
+    } finally {
+      await Reminders.StopAsync();
     }
 
-    const AllReminders = Reminders.GetAllReminders();
-    console.log('================================================================');
-    console.log(`STORED REMINDER TEXT (${AllReminders.length}) — posted LATER when each fires.`);
-    console.log('NOT a summary of the replies above: a different render path composed it.');
-    console.log('If it disagrees with a posted reply, that disagreement is the finding.');
-    console.log('================================================================');
-    for(const Reminder of AllReminders) {
-      console.log(`- "${Reminder.ReminderMessageText}"`);
-      console.log(`  assignee=${Reminder.AssigneeID || '(none)'}  postOn=${Reminder.ShouldPostOn}  state=${Reminder.State || 'scheduled'}`);
+    // surface turn failures as a real non-zero exit instead of a clean-looking run — printed
+    // above already; this just stops a broken pipeline from reading as green to callers/CI.
+    if(TurnErrors.length > 0) {
+      throw new Error(
+        `${TurnErrors.length} of ${ArgScenario.turns.length} turn(s) threw: ` +
+        TurnErrors.map(({ turnIndex, error }) => `turn ${turnIndex + 1} (${error.message})`).join('; ')
+      );
     }
-    if(AllReminders.length === 0) console.log('(none)');
+    return { RuntimeRoot: IsolatedRoot };
   } finally {
-    await Reminders.StopAsync();
-    // only the tree this call created is ever removed — never one the caller (or Jest) set up.
-    if(ArgKeepData) console.log(`runtime data kept at ${IsolatedRoot}`);
-    else await fs.rm(IsolatedRoot, { recursive: true, force: true });
+    // runs on success, turn failure AND setup failure: only the tree this call created is ever
+    // removed, and the caller's SLEUTH_DATA_DIR always comes back (a Jest worker relies on it).
+    if(ArgKeepData) console.log(`runtime data kept at ${Isolation.IsolatedRoot}`);
+    else await fs.rm(Isolation.IsolatedRoot, { recursive: true, force: true });
     RestoreRuntimeTree(Isolation);
   }
-
-  // surface turn failures as a real non-zero exit instead of a clean-looking run — printed
-  // above already; this just stops a broken pipeline from reading as green to callers/CI.
-  if(TurnErrors.length > 0) {
-    throw new Error(
-      `${TurnErrors.length} of ${ArgScenario.turns.length} turn(s) threw: ` +
-      TurnErrors.map(({ turnIndex, error }) => `turn ${turnIndex + 1} (${error.message})`).join('; ')
-    );
-  }
-  return { RuntimeRoot: IsolatedRoot };
 }
 
 /**
