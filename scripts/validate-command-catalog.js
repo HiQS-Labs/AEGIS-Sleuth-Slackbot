@@ -12,6 +12,15 @@ const {
   BuildRegisteredRouteMap,
 } = require('../src/command-catalog');
 const { BuildCanonicalCommandIntentIds } = require('../src/command-intent-resolver');
+const { RegisterCatalogRegexAliases } = require('../src/catalog-regex-aliases');
+
+/**
+ * Registered routes that deliberately have no catalog entry (GH-181). Neither may be advertised:
+ * `ask-self` registers only when the private RAG overlay (`src/rag/`) is installed, so a catalog
+ * entry would be stale in the public tree; `run-tests-unavailable` only answers the retired
+ * `run-tests` command with a refusal.
+ */
+const UNCATALOGED_ROUTES = new Set(['ask-self', 'run-tests-unavailable']);
 
 const HelpFilePath = path.join(__dirname, '..', 'data', 'static', 'HELP.md');
 const DeterministicResponsesPath = path.join(__dirname, '..', 'data', 'static', 'deterministic-responses.json');
@@ -75,13 +84,26 @@ function main() {
   const RouteMap = BuildRegisteredRouteMap(Catalog);
   const Chat = BuildValidationChatModule();
   const Reminders = BuildValidationRemindersHandler();
+  // routes ChatModule.StartAsync adds through the catalog alias pass (`ask-reminders`, GH-181). Run
+  // the same pass against the constructed routes; a copy keeps it from editing the catalog checked here.
+  /** @type {import('../src/chat-command-router').CommandRoute[]} */
+  const StartupRoutes = [];
+  RegisterCatalogRegexAliases(
+    {
+      GetRoutes: () => [...Chat.GetRegisteredCommandRoutes(), ...StartupRoutes],
+      Register: ArgRoute => { StartupRoutes.push(ArgRoute); },
+    },
+    structuredClone(Catalog),
+    { warn() {} },
+  );
   const RegisteredRoutes = [
     ...Chat.GetRegisteredCommandRoutes().map(ArgRoute => ArgRoute.Route),
+    ...StartupRoutes.map(ArgRoute => ArgRoute.Route),
     ...Reminders.GetRegisteredCommandRoutes().map(ArgRoute => ArgRoute.Route),
   ];
   const UniqueRegisteredRoutes = [...new Set(RegisteredRoutes)];
 
-  const MissingCatalogRoutes = UniqueRegisteredRoutes.filter(ArgRoute => !RouteMap.has(ArgRoute));
+  const MissingCatalogRoutes = UniqueRegisteredRoutes.filter(ArgRoute => !RouteMap.has(ArgRoute) && !UNCATALOGED_ROUTES.has(ArgRoute));
   if(MissingCatalogRoutes.length > 0) {
     throw new Error(
       `registered command routes missing from ${path.relative(process.cwd(), CommandCatalogPath)}: ${MissingCatalogRoutes.join(', ')}`

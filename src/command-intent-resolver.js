@@ -764,7 +764,7 @@ const BuildCanonicalCommandIntentIds = new Set([
   'disable-reminders', 'dnd', 'process-reminders-now', 'github-sync-now', 'test-github-sync',
   'show-stats', 'ping', 'set-channel-model', 'model-switch-default', 'model-switch-complex',
   'model-switch-both', 'version', 'changelog', 'view-stratalist', 'rmm',
-  'ask-code', 'recall',
+  'ask-code', 'recall', 'ask-compass',
 ]);
 
 /**
