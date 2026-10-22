@@ -160,6 +160,7 @@ Catalog-driven NL aliases (`data/static/ai/command-catalog.json` → `catalog-re
   - `chat-instructions.md`
   - `reminders-instructions.md`
   - `reminders-dedup-instructions.md`
+  - `reminder-title-repair-instructions.md` (GH-250 phase 3: the one re-synthesis after a refused title)
   - `date-extraction-instructions.md`
 - Schema-driven responses must keep instruction and schema files in sync. The OpenAI `{name, strict, schema}` schema envelope is reused for Claude — the Anthropic provider unwraps it.
 - Deterministic pre-AI behavior remains in `data/static/deterministic-responses.json`.

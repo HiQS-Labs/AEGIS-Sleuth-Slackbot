@@ -37,6 +37,10 @@ const MAX_LONG_TASK_LENGTH = 280;
  * @property {string} [reminder_message] The analyzer's proposed short title.
  * @property {string} [actionable_language] The verbatim evidence span. Never rewritten.
  * @property {string} [context] One line of why (GH-43 Phase 3).
+ * @property {string} [object_ref] GH-250 phase 3: the concrete thing the task is about.
+ * @property {string[]} [subtasks] GH-250 phase 3: at most 3 named sub-items.
+ * @property {{from: string, by: 'model', reasons: string[]}} [title_repair] Set by the scheduler
+ * when the repair decision replaced `reminder_message`.
  */
 
 /**
@@ -50,7 +54,127 @@ const MAX_LONG_TASK_LENGTH = 280;
  * This is what lets a harness prove the cut landed on a boundary of the real text.
  * @property {number} words Word count of the displayed text.
  * @property {number} chars Character count of the displayed text.
+ * @property {null|{by: 'object-ref'|'model', from: string}} repair GH-250 phase 3: how a refused
+ * title was repaired before it was shown — deterministically from the analyzer's `object_ref`, or
+ * by the repair decision (recorded on the candidate as `title_repair`). Null when the displayed
+ * text needed no repair.
  */
+
+/**
+ * GH-250 phase 3: the analyzer's structured fields, checked before anything reads them.
+ *
+ * `object_ref` is kept only when every term it names is in the source — an invented object would
+ * otherwise be written INTO a title by the deterministic repair below. `subtasks` are each put
+ * through the title contract and the grounding check, de-duplicated, and capped at the number a
+ * delivered reminder shows; a long pasted list is thereby reduced to its first three valid lines.
+ * @param {DisplaySelectionInput & {object_ref?: string, subtasks?: string[]}} ArgCandidate
+ * @param {string} ArgGroundingSource Everything the analyzer saw, plus the candidate's own span.
+ * @returns {{objectRef: string, subtasks: string[], reasons: string[]}} `reasons` names what was
+ * dropped (`object-ref-ungrounded`, `subtask-refused`, `subtasks-capped`); empty when nothing was.
+ */
+function ValidateReminderCandidate(ArgCandidate, ArgGroundingSource) {
+  const Candidate = ArgCandidate || {};
+  /** @type {string[]} */
+  const Reasons = [];
+
+  let ObjectRef = typeof Candidate.object_ref === 'string' ? Candidate.object_ref.replace(/\s+/g, ' ').trim() : '';
+  if(ObjectRef && !IsObjectRefGrounded(ObjectRef, ArgGroundingSource)) {
+    Reasons.push('object-ref-ungrounded');
+    ObjectRef = '';
+  }
+
+  /** @type {string[]} */
+  const Subtasks = [];
+  const RawSubtasks = Array.isArray(Candidate.subtasks) ? Candidate.subtasks : [];
+  for(const Raw of RawSubtasks) {
+    if(typeof Raw !== 'string') continue;
+    const Normalized = TitleContract.NormalizeReminderTitle(Raw);
+    const Validation = TitleContract.ValidateReminderTitle(Normalized.text, { RequireSingleSentence: true });
+    if(!Validation.ok || TaskGrounding.UngroundedTerms(Normalized.text, ArgGroundingSource).length > 0) {
+      Reasons.push('subtask-refused');
+      continue;
+    }
+    // the same after-cut check a title gets: a sub-item the budget reduces to its verb names nothing.
+    const Fit = TitleContract.FitTitleToBudget(Normalized.text);
+    if(Fit.shortened && !TitleContract.ValidateReminderTitle(Fit.text.replace(/…$/, '')).ok) {
+      Reasons.push('subtask-refused');
+      continue;
+    }
+    const Fitted = Fit.text;
+    if(Subtasks.some(ArgKept => TaskGrounding.NormalizeForGrounding(ArgKept) === TaskGrounding.NormalizeForGrounding(Fitted))) continue;
+    Subtasks.push(Fitted);
+  }
+  if(Subtasks.length > TitleContract.MAX_DISPLAYED_SUBTASKS) {
+    Reasons.push('subtasks-capped');
+    Subtasks.length = TitleContract.MAX_DISPLAYED_SUBTASKS;
+  }
+
+  return { objectRef: ObjectRef, subtasks: Subtasks, reasons: Reasons };
+}
+
+/**
+ * Whether an `object_ref` is words the source actually says: every name, identifier and number in
+ * it is grounded, AND the whole phrase is a run of consecutive source words. The second half is
+ * load-bearing: the term extractor only claims names, so a lowercase phrase the source never says
+ * (`the billing database` against a message about a hotfix) made no claim it could check, passed,
+ * and was written into a title by the repair below (CodeRabbit on #268). Whole-run matching is the
+ * same rule a title's terms get — never a substring test — so `the invoice from Acme` is grounded
+ * by `the invoice from Acme` and not by `an invoice from Acme Corp`.
+ * @param {string} ArgObjectRef The analyzer's or the repair's object.
+ * @param {string} ArgSource Everything the object may be copied from.
+ * @returns {boolean} false for an empty object.
+ */
+function IsObjectRefGrounded(ArgObjectRef, ArgSource) {
+  const ObjectRef = String(ArgObjectRef || '').replace(/\s+/g, ' ').trim();
+  if(!ObjectRef) return false;
+  if(TaskGrounding.UngroundedTerms(ObjectRef, ArgSource).length > 0) return false;
+  return TaskGrounding.IsTermGrounded(ObjectRef, TaskGrounding.GroundingTokens(ArgSource));
+}
+
+/** Words an object phrase carries that name nothing (`the invoice from Acme` → `invoice`, `acme`). */
+const OBJECT_REF_FUNCTION_WORDS = new Set([
+  'the', 'a', 'an', 'of', 'from', 'to', 'in', 'on', 'for', 'with', 'about', 'and', 'or',
+  'my', 'our', 'your', 'their', 'his', 'her', 'its', 'this', 'that',
+]);
+
+/**
+ * Whether a title names the object it was repaired around: every content word of the object is a
+ * word of the title (plural-tolerant, whole words). The repair prompt asks for a title AND the
+ * object it is about; a title that does not contain its own object (`Deploy the billing database`
+ * with `object_ref: the hotfix`) is the model answering two different questions, and the title is
+ * the unverifiable half (CodeRabbit on #268).
+ * @param {string} ArgTitle The repaired title.
+ * @param {string} ArgObjectRef The object the repair returned.
+ * @returns {boolean} false when the object has no content word.
+ */
+function TitleNamesObjectRef(ArgTitle, ArgObjectRef) {
+  const ContentTokens = TaskGrounding.GroundingTokens(ArgObjectRef).filter(ArgToken => !OBJECT_REF_FUNCTION_WORDS.has(ArgToken));
+  if(ContentTokens.length === 0) return false;
+  const TitleTokens = TaskGrounding.GroundingTokens(ArgTitle);
+  return ContentTokens.every(ArgToken => TaskGrounding.IsTermGrounded(ArgToken, TitleTokens));
+}
+
+/**
+ * A pointer in object position that a grounded `object_ref` can stand in for. Pointers that can
+ * refer to a PERSON (`him`, `her`, `them`) are deliberately absent: `Ask them` + `the invoice` is
+ * not `Ask the invoice`, and nothing deterministic can tell a person from a thing; that case needs
+ * the model's repair, which can also name the person.
+ */
+const THING_POINTER_PATTERN = /\b(?:all of the above|the above|the rest|it|this|that|these|those)\b/gi;
+
+/**
+ * Replace the one thing-pointer in a title with the analyzer's grounded object (`Review it` +
+ * `PR 697` → `Review PR 697`). Returns '' when the title has no pointer or more than one, so the
+ * caller moves on rather than guessing which pointer the object belongs to.
+ * @param {string} ArgTitle Normalized title that failed as a bare pointer.
+ * @param {string} ArgObjectRef Grounded object from {@link ValidateReminderCandidate}.
+ * @returns {string}
+ */
+function ReplaceThingPointer(ArgTitle, ArgObjectRef) {
+  const Matches = [...String(ArgTitle || '').matchAll(THING_POINTER_PATTERN)];
+  if(Matches.length !== 1 || !ArgObjectRef) return '';
+  return String(ArgTitle).replace(THING_POINTER_PATTERN, ArgObjectRef);
+}
 
 /**
  * Choose the displayed task text for one reminder candidate.
@@ -190,8 +314,48 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
         unshortened: Fitted.shortened ? Normalized.text : '',
         words: TitleContract.CountTitleWords(Fitted.text),
         chars: Fitted.text.length,
+        // a title the repair decision rewrote arrives here as an ordinary candidate; it is
+        // reported as repaired only when it is the one shown.
+        repair: Entry.source === 'title' && Candidate.title_repair
+          ? { by: /** @type {'model'} */ ('model'), from: String(Candidate.title_repair.from || '') }
+          : null,
       },
     };
+  }
+
+  // GH-250 phase 3: deterministic repair from the analyzer's own structure. A candidate refused
+  // ONLY for naming nothing (`Review it`) is rebuilt around the grounded `object_ref` (`PR 697`);
+  // the result goes through the same validate → re-ground → fit gate as any candidate. Nothing is
+  // guessed: without a grounded object, or with more than one pointer to replace, this does nothing.
+  const Structure = ValidateReminderCandidate(Candidate, GroundingSource);
+  if(Structure.objectRef) {
+    const PointerOnly = new Set(['bare-pointer', 'too-short']);
+    for(const Entry of Order) {
+      if(!Entry) continue;
+      const Refusal = Rejected.find(ArgRejected => ArgRejected.source === Entry.source && ArgRejected.reasons.every(ArgReason => PointerOnly.has(ArgReason)));
+      if(!Refusal) continue;
+      const Rebuilt = ReplaceThingPointer(TitleContract.NormalizeReminderTitle(Entry.text).text, Structure.objectRef);
+      if(!Rebuilt) continue;
+      const Normalized = TitleContract.NormalizeReminderTitle(Rebuilt);
+      if(!TitleContract.ValidateReminderTitle(Normalized.text, Entry.options).ok) continue;
+      if(TaskGrounding.UngroundedTerms(Normalized.text, GroundingSource).length > 0) continue;
+      const Fitted = TitleContract.FitTitleToBudget(Normalized.text);
+      if(Fitted.shortened && !TitleContract.ValidateReminderTitle(Fitted.text.replace(/…$/, '')).ok) continue;
+      return {
+        text: Fitted.text,
+        source: Entry.source,
+        ungroundedTerms: UngroundedTerms,
+        contract: {
+          rejected: Rejected,
+          normalized: Normalized.changes,
+          shortened: Fitted.shortened,
+          unshortened: Fitted.shortened ? Normalized.text : '',
+          words: TitleContract.CountTitleWords(Fitted.text),
+          chars: Fitted.text.length,
+          repair: { by: /** @type {'object-ref'} */ ('object-ref'), from: Entry.text },
+        },
+      };
+    }
   }
 
   // Every candidate refused — including a candidate that is only a pointer (`Ask him`, `Do it`).
@@ -215,6 +379,7 @@ function SelectTaskTextRaw(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgS
       unshortened: Fallback.unshortened,
       words: TitleContract.CountTitleWords(Fallback.text),
       chars: Fallback.text.length,
+      repair: null,
     },
   };
 }
@@ -395,4 +560,7 @@ function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnreso
   return { kept: Kept, droppedCount: All.length - Kept.length };
 }
 
-module.exports = { SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates, StripContextMarkers };
+module.exports = {
+  SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates, StripContextMarkers,
+  ValidateReminderCandidate, IsObjectRefGrounded, TitleNamesObjectRef,
+};

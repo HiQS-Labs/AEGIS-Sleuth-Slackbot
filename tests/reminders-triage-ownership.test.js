@@ -201,6 +201,11 @@ describe('GH-43: :wrench: triage resolves ownership PER TRIGGER, as scheduling d
     });
     const Reminders = new RemindersModule(SlackApp);
 
+    // GH-250 phase 3: the two candidates render identically only under the LEGACY verbatim routing
+    // (with always-synthesize, the default, they render as two distinct titles and both survive).
+    // This test is about triage agreeing with production on the dedupe, so pin the legacy mode.
+    const PriorAlwaysFlag = process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+    process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'off';
     try {
       await Reminders.StartAsync();
       await SlackApp.SimulateReactionAddedAsync({
@@ -215,6 +220,8 @@ describe('GH-43: :wrench: triage resolves ownership PER TRIGGER, as scheduling d
       // and no limitation warning, because the collapse already happened before ownership was decided
       expect(Triage.text).not.toContain('known limitation');
     } finally {
+      if(PriorAlwaysFlag === undefined) delete process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+      else process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = PriorAlwaysFlag;
       await Reminders.StopAsync();
     }
   });

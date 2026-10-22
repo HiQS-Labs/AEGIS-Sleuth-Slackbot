@@ -11,7 +11,8 @@
 //   4. Other          — everything left. Always rendered last; when it is the only cluster the list is flat.
 
 const { DoesReminderMatchClient } = require('./client-mapping');
-const { ExtractReminderTitle, DetermineProjectForReminder } = require('./chat-commands/show-me-projects-command');
+const SlackFormatUtils = require('./slack-format-utils');
+const { DetermineProjectForReminder } = require('./chat-commands/show-me-projects-command');
 
 /**
  * @typedef {import('./reminders-module').ReminderInfo} ReminderInfo
@@ -178,7 +179,7 @@ function ClusterRemindersByRelationship(ArgReminders, ArgClients = []) {
  * @returns {string}
  */
 function RenderClusteredReminders(ArgClusters, ArgTitleFn) {
-  const TitleFn = ArgTitleFn || (ArgReminder => ExtractReminderTitle(ArgReminder.ReminderMessageText));
+  const TitleFn = ArgTitleFn || (ArgReminder => SlackFormatUtils.ExtractReminderTitle(ArgReminder.ReminderMessageText));
   const Clusters = Array.isArray(ArgClusters) ? ArgClusters : [];
 
   const IsFlat = Clusters.length === 1 && Clusters[0].Kind === 'other';

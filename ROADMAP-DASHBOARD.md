@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 16 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 24 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -26,6 +26,14 @@ Summary: 16 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | First-time-user UX | — | [remediation](PROJECT/2-WORKING/FIRST-TIME-USER-REMEDIATION.md) · [question battery](PROJECT/2-WORKING/FIRST-TIME-USER-QUESTION-BATTERY.md) |
 | Admin bug-report reaction (GH-358) | — | [PROJECT/1-INBOX/GH-358-BUG-REPORT-REACTION.md](PROJECT/1-INBOX/GH-358-BUG-REPORT-REACTION.md) |
 | Startup CI-results poll (GH-418) | — | [#418](https://github.com/NeochromeTeam/sleuth-app/issues/418) · [PROJECT/2-WORKING/GH-418-STARTUP-CI-RESULTS-POLL.md](PROJECT/2-WORKING/GH-418-STARTUP-CI-RESULTS-POLL.md) |
+| GH-138 · Resolve OCR/analyze target from a referenced prior message | — | [GH-138-PRIOR-MESSAGE-ATTACHMENT.md](PROJECT/1-INBOX/GH-138-PRIOR-MESSAGE-ATTACHMENT.md) · [#138](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/138) |
+| GH-139 · ask-code: re-introduce file references / citations lost from the ask-self generation | — | [GH-139-ASK-CODE-CITATIONS.md](PROJECT/1-INBOX/GH-139-ASK-CODE-CITATIONS.md) · [#139](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/139) |
+| GH-152 · Add download skill: fetch my active Sleuth reminders live via SSH | — | [GH-152-DOWNLOAD-REMINDERS-SKILL.md](PROJECT/3-COMPLETED/GH-152-DOWNLOAD-REMINDERS-SKILL.md) · [#152](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/152) |
+| GH-168 · Model alias resolver: vendor/family names resolve to a pinned model ID before catalog validation | — | [GH-168-MODEL-ALIAS-RESOLVER.md](PROJECT/1-INBOX/GH-168-MODEL-ALIAS-RESOLVER.md) · [#168](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/168) |
+| GH-173 · Consume Model-catalog v1 (Phase 2): sync ModelAliases from the shared catalog + provenance-aware diagnostics | — | [GH-173-MODEL-CATALOG-SYNC.md](PROJECT/1-INBOX/GH-173-MODEL-CATALOG-SYNC.md) · [#173](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/173) |
+| GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
+| GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
+| GH-230 · selftest: add T4 later-upload and T6 memory-reuse scenarios, and a zero-download assertion for T5 | — | [GH-230-SELFTEST-T4-LATER-UPLOAD.md](PROJECT/2-WORKING/GH-230-SELFTEST-SCENARIOS.md) · [#230](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/230) |
 
 ## Queue
 
@@ -37,14 +45,13 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 15 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 19 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
 | OCR follow-ups: intent grammar, resolver action split, catalog entry, wiring cleanups (GH-73/74/75/76) | — | [PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md](PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md) |
 | The 2026-08-18 development QA fixes (GH-94, GH-95, GH-96) | — | [PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml](PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml) · [PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md](PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md) · [PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md](PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md) · [PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md](PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md) |
 | Pronoun follow-ups schedule the literal sentence (GH-55) | — | [PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md) |
-| Five entry paths each decided context independently (GH-143) | — | [#147](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/147) · [#149](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149) |
 | Span-ratio rounding hides the most deeply buried tasks (GH-51) | — | [PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md](PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md) |
 | Anchor the jest globs so the merge gate stops crying wolf (GH-48) | — | [PROJECT/2-WORKING/GH-48-JEST-TESTMATCH-ANCHOR.md](PROJECT/2-WORKING/GH-48-JEST-TESTMATCH-ANCHOR.md) |
 | Arm the decision corpus in production (GH-50) | — | [PROJECT/2-WORKING/GH-50-WIRE-DECISION-CAPTURE.md](PROJECT/2-WORKING/GH-50-WIRE-DECISION-CAPTURE.md) |
@@ -56,10 +63,15 @@ Summary: 15 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | Operator-managed Clients Slack List — wiring + backfill (GH-396) | — | [#416](https://github.com/NeochromeTeam/sleuth-app/pull/416) · [#396](https://github.com/NeochromeTeam/sleuth-app/issues/396) · [CHANGELOG.md](CHANGELOG.md) |
 | P2 snapshot→Slack relay | — | [PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md](PROJECT/2-WORKING/P2-SNAPSHOT-SLACK-RELAY.md) |
 | "Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362) | — | [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md) |
+| GH-149 · One owner for reminder intent judgement (GH-149 addendum) | — | [GH-149-REMINDER-JUDGEMENT.md](PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md) · [#149](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149) |
+| GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
+| GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
+| GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
+| GH-261 · Reminder-pipeline inventory ratchet | — | [GH-261-REMINDER-PIPELINE-RATCHET.md](PROJECT/2-WORKING/GH-261-REMINDER-PIPELINE-RATCHET.md) · [#261](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/261) |
 
 ## Completed
 
-Summary: 40 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 1 · 🔮 0 · 🔲 0
+Summary: 50 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 9 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -84,9 +96,19 @@ Summary: 40 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 1 · �
 | Reminder-render primitive (GH-391) | ✅ | [PROJECT/3-COMPLETED/GH-391-REMINDER-RENDER-PRIMITIVE.md](PROJECT/3-COMPLETED/GH-391-REMINDER-RENDER-PRIMITIVE.md) |
 | NaN completion timestamp bypasses time-window filter (GH-393) | — | [PROJECT/3-COMPLETED/GH-393-NAN-TIMESTAMP-FILTER.md](PROJECT/3-COMPLETED/GH-393-NAN-TIMESTAMP-FILTER.md) |
 | Missing/blank Candidate.title guard (GH-399) | — | [PROJECT/3-COMPLETED/GH-399-CANDIDATE-TITLE-GUARD.md](PROJECT/3-COMPLETED/GH-399-CANDIDATE-TITLE-GUARD.md) |
+| GH-169 · Seeded property test: MarkdownToMrkdwn + command normalizer, plus a malformed-Slack-event corpus through MockSlackApp | ✅ | [GH-169-PROPERTY-FUZZ-TEST.md](PROJECT/3-COMPLETED/GH-169-PROPERTY-FUZZ-TEST.md) · [#169](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/169) |
 | Sleuth hardening marathon (GH-383 + GH-387 + GH-388) | — | [GH-383](PROJECT/3-COMPLETED/GH-383-CHANNEL-PRIVACY-CACHE.md) · [GH-387](PROJECT/3-COMPLETED/GH-387-WORKSPACE-ISOLATION-GUARD.md) · [GH-388](PROJECT/3-COMPLETED/GH-388-NO-SILENT-FAILURES.md) |
 | Reminder task-text quality (GH-337) | — | [PROJECT/3-COMPLETED/GH-337-REMINDER-TASK-TEXT.md](PROJECT/3-COMPLETED/GH-337-REMINDER-TASK-TEXT.md) |
+| GH-205 · "This week" with no clock time schedules tomorrow 8 AM and falsely warns "the requested time was in the past" | ✅ | [GH-205-THIS-WEEK-PAST-WARNING.md](PROJECT/3-COMPLETED/GH-205-THIS-WEEK-PAST-WARNING.md) · [#205](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/205) |
+| GH-215 · Product Compass knowledge facilitator | ✅ | [GH-215-PRODUCT-COMPASS.md](PROJECT/3-COMPLETED/GH-215-PRODUCT-COMPASS.md) · [#215](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/215) · [PR #216](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/216) |
+| GH-217 · Remove redundant Compass evidence and oversized-thread reads | ✅ | [GH-217-COMPASS-CONTEXT-CLEANUP.md](PROJECT/3-COMPLETED/GH-217-COMPASS-CONTEXT-CLEANUP.md) · [#217](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/217) |
+| GH-221 · Dev-server-only self-QA mode: @Sleuth selftest &lt;scenario&gt; drives real Slack scenarios and reports pass/fail in-thread | — | [GH-221-DEV-SERVER-ONLY-SELF.md](PROJECT/3-COMPLETED/GH-221-SELFTEST-MODE.md) · [#221](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/221) |
 | Task bucketing (P2-TASK-BUCKETING) | — | [PROJECT/3-COMPLETED/P2-TASK-BUCKETING.md](PROJECT/3-COMPLETED/P2-TASK-BUCKETING.md) |
+| GH-225 · Shared bounded thread-context provider for Compass, earlier-file lookback and selftest | — | [GH-225-THREAD-CONTEXT-PROVIDER.md](PROJECT/3-COMPLETED/GH-225-THREAD-CONTEXT-PROVIDER.md) · [#225](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/225) |
+| GH-233 · Active-mode router can execute admin-only commands (e.g. a data dump) from a non-literal match | ✅ | [GH-233-ROUTER-ACTIVE-ADMIN-COMMANDS.md](PROJECT/3-COMPLETED/GH-233-ROUTER-ACTIVE-ADMIN-COMMANDS.md) · [#233](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/233) |
+| GH-237 · Production: upgrade Node 18 -&gt; 22 to match development, then promote 1.4.344 | ✅ | [GH-237-PRODUCTION-UPGRADE-NODE-18.md](PROJECT/3-COMPLETED/GH-237-PROD-NODE22-AND-RELEASE-1.4.344.md) · [#237](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/237) |
+| GH-249 · Prod: hourly read-only git-pulse mirror for Sleuth scripts | ✅ | [GH-249-GIT-PULSE-MIRROR.md](PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md) · [#249](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249) |
+| GH-257 · Issue stream review follow-up | ✅ | [GH-257-REVIEW-FIXES.md](PROJECT/3-COMPLETED/GH-257-REVIEW-FIXES.md) · [#257](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/257) |
 | show-me reactable output (GH-338) | — | [PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md](PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md) |
 | Adopt Blend philosophy into GUIDING-PRINCIPLES.md (GH-348) | — | [PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md](PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md) |
 | Hyphen/space command normalization (GH-349) | — | [PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md](PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md) |

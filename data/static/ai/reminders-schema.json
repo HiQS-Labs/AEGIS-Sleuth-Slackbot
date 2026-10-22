@@ -6,7 +6,10 @@
     "properties": {
       "recommendation": {
         "type": "string",
-        "enum": ["schedule", "ignore"],
+        "enum": [
+          "schedule",
+          "ignore"
+        ],
         "description": "Indicates whether a reminder should be scheduled ('schedule') or not ('ignore')."
       },
       "rationale": {
@@ -36,13 +39,30 @@
             },
             "owner": {
               "type": "string",
-              "enum": ["speaker", "mentioned", "unclear"],
+              "enum": [
+                "speaker",
+                "mentioned",
+                "unclear"
+              ],
               "description": "Who is going to DO this task, judged from the grammatical subject of the actionable language. 'speaker' when the message author commits to it themselves ('I will…', 'i am going to…'). 'mentioned' when the author asks one or more @-mentioned people to do it ('@alpha can you…', '@alpha @beta please…'). 'unclear' when the actionable language names no subject. Being @-mentioned at the START of a message is being ADDRESSED, not assigned — that alone is never 'mentioned'."
             },
             "owner_mentions": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Slack user IDs of the people being asked to do this task. Populate ONLY when owner is 'mentioned', and only with IDs that appear verbatim as <@U…> in the source message, scoped to the clause carrying the commitment. Empty array otherwise. Never invent a user ID."
+            },
+            "object_ref": {
+              "type": "string",
+              "description": "The concrete thing this task is about, copied from the source words: a PR or issue number, a document, product or system name, a user mention token, a file. Empty string when the task has no nameable object. Never a name the source does not contain."
+            },
+            "subtasks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "When the task carries a short list of named sub-items (at most 3, each an imperative line in the same shape as reminder_message), list them here; empty array otherwise. Never copy a long pasted list."
             }
           },
           "required": [
@@ -51,7 +71,9 @@
             "reminder_message",
             "context",
             "owner",
-            "owner_mentions"
+            "owner_mentions",
+            "object_ref",
+            "subtasks"
           ],
           "additionalProperties": false
         },
