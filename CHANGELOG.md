@@ -78,6 +78,21 @@ intentional exclusion until its source has been evaluated.
 
 ## 1.4.346 - 2026-10-20
 
+Reminder titles now also remove stand-alone scheduling phrasing such as a leading day or a trailing
+deadline, while retaining duration and condition clauses. Common misspellings of courtesy wording
+are handled with the same deterministic cleanup.
+
+**Technical:** GH-258 requirements 1–3, 5, and 6 extend the existing title-contract normalizer;
+the thread-topic header is explicitly deferred to GH-250 phase 5. The schedule transform runs after
+courtesy cleanup and before/after request framing, and refuses to remove a title containing a
+duration or condition clause. Golden and decision-replay baselines record only the intended title
+shortening; ownership, recommendations, and grounding remain unchanged. A bare weekday abbreviation
+(`in the sun`) is only removed behind a deadline lead-in (`on Wed`), and a removal that would leave
+the title ending on its preposition or article (`Move the demo to`) is refused. Review follow-up:
+consecutive trailing phrases that form one rescheduling target (`to next Friday at 2pm`) are kept
+whole, a stacked `due on/by` deadline is removed as one phrase, and leading schedule wording exposed
+by request framing (`Can you tomorrow review…`) is removed too.
+
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,
 with the source link, the owner, a labelled due date and a labelled age. I no longer repeat your
 raw wording with the `@mention` and "please" left in, I never cut a title off mid-word, I refuse

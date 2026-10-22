@@ -45,7 +45,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 17 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 18 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -66,6 +66,7 @@ Summary: 17 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-149 · One owner for reminder intent judgement (GH-149 addendum) | — | [GH-149-REMINDER-JUDGEMENT.md](PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md) · [#149](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149) |
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
 | GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
+| GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
 
 ## Completed
 
