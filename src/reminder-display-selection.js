@@ -94,7 +94,13 @@ function ValidateReminderCandidate(ArgCandidate, ArgGroundingSource) {
       Reasons.push('subtask-refused');
       continue;
     }
-    const Fitted = TitleContract.FitTitleToBudget(Normalized.text).text;
+    // the same after-cut check a title gets: a sub-item the budget reduces to its verb names nothing.
+    const Fit = TitleContract.FitTitleToBudget(Normalized.text);
+    if(Fit.shortened && !TitleContract.ValidateReminderTitle(Fit.text.replace(/…$/, '')).ok) {
+      Reasons.push('subtask-refused');
+      continue;
+    }
+    const Fitted = Fit.text;
     if(Subtasks.some(ArgKept => TaskGrounding.NormalizeForGrounding(ArgKept) === TaskGrounding.NormalizeForGrounding(Fitted))) continue;
     Subtasks.push(Fitted);
   }
@@ -107,11 +113,12 @@ function ValidateReminderCandidate(ArgCandidate, ArgGroundingSource) {
 }
 
 /**
- * A pointer in object position that a grounded `object_ref` can stand in for. Person pointers
- * (`him`, `her`) are deliberately absent: `Ask him` + `the invoice` is not `Ask the invoice`; that
- * case needs the model's repair, which can also name the person.
+ * A pointer in object position that a grounded `object_ref` can stand in for. Pointers that can
+ * refer to a PERSON (`him`, `her`, `them`) are deliberately absent: `Ask them` + `the invoice` is
+ * not `Ask the invoice`, and nothing deterministic can tell a person from a thing; that case needs
+ * the model's repair, which can also name the person.
  */
-const THING_POINTER_PATTERN = /\b(?:all of the above|the above|the rest|it|this|that|these|those|them)\b/gi;
+const THING_POINTER_PATTERN = /\b(?:all of the above|the above|the rest|it|this|that|these|those)\b/gi;
 
 /**
  * Replace the one thing-pointer in a title with the analyzer's grounded object (`Review it` +

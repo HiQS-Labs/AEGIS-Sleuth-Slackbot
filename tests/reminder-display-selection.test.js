@@ -88,6 +88,15 @@ describe('GH-250 phase 3 — structured fields and the deterministic object repa
     expect(Selection.text).not.toContain('9999');
   });
 
+  test('`them` can be a person too: never rebuilt around a thing (Greptile on #268)', () => {
+    const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> the invoice from Acme is overdue\n[the message to act on]\nask them tomorrow';
+    const Selection = SelectTaskText(
+      { reminder_message: 'Ask them', actionable_language: 'ask them', object_ref: 'the invoice' }, 'ask them tomorrow', true, Analyzed,
+    );
+    expect(Selection.text).not.toBe('Ask the invoice');
+    expect(Selection.source).toBe('fallback');
+  });
+
   test('a person pointer is never repaired deterministically — that is the model\'s job', () => {
     const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> PR 697 needs a second review\n[the message to act on]\nask him tomorrow';
     const Selection = SelectTaskText(
@@ -119,6 +128,10 @@ describe('GH-250 phase 3 — structured fields and the deterministic object repa
     expect(Capped.subtasks).toHaveLength(3);
     expect(Capped.reasons).toEqual(['object-ref-ungrounded', 'subtasks-capped']);
     expect(ValidateReminderCandidate({}, Source)).toEqual({ objectRef: '', subtasks: [], reasons: [] });
+    // a sub-item the budget cut reduces to its verb is refused, as a title would be (Greptile on #268).
+    const QuotedName = 'Quarterly Rollout Checklist for the Northern Region Retail Partners and Wholesale Accounts';
+    expect(ValidateReminderCandidate({ subtasks: [`Review "${QuotedName}"`] }, `review "${QuotedName}" tomorrow`))
+      .toEqual({ objectRef: '', subtasks: [], reasons: ['subtask-refused'] });
   });
 });
 
