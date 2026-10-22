@@ -327,3 +327,7 @@ pass. Three witnessed fault controls are summarized in the follow-up smoke recei
 prompt change, production write, merge or deployment. PDDA retains the same unrelated13 frontmatter
 and9 status-table findings, none on this task. No generated ledger changes in the follow-up.
 
+
+## Merge evidence
+
+- PR #265 merged 2026-10-22 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
