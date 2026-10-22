@@ -69,7 +69,7 @@ Summary: 17 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 
 ## Completed
 
-Summary: 49 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 8 · 🔮 0 · 🔲 0
+Summary: 50 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 9 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -106,6 +106,7 @@ Summary: 49 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 8 · �
 | GH-233 · Active-mode router can execute admin-only commands (e.g. a data dump) from a non-literal match | ✅ | [GH-233-ROUTER-ACTIVE-ADMIN-COMMANDS.md](PROJECT/3-COMPLETED/GH-233-ROUTER-ACTIVE-ADMIN-COMMANDS.md) · [#233](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/233) |
 | GH-237 · Production: upgrade Node 18 -&gt; 22 to match development, then promote 1.4.344 | ✅ | [GH-237-PRODUCTION-UPGRADE-NODE-18.md](PROJECT/3-COMPLETED/GH-237-PROD-NODE22-AND-RELEASE-1.4.344.md) · [#237](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/237) |
 | GH-249 · Prod: hourly read-only git-pulse mirror for Sleuth scripts | ✅ | [GH-249-GIT-PULSE-MIRROR.md](PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md) · [#249](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249) |
+| GH-257 · Issue stream review follow-up | ✅ | [GH-257-REVIEW-FIXES.md](PROJECT/3-COMPLETED/GH-257-REVIEW-FIXES.md) · [#257](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/257) |
 | show-me reactable output (GH-338) | — | [PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md](PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md) |
 | Adopt Blend philosophy into GUIDING-PRINCIPLES.md (GH-348) | — | [PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md](PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md) |
 | Hyphen/space command normalization (GH-349) | — | [PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md](PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md) |
