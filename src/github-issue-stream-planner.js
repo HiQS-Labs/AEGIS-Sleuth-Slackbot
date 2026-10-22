@@ -48,7 +48,7 @@ const { ExtractIssueReferences, IssueKey } = require('./github-url-utils');
  * @typedef {object} IssueStreamState
  * @property {number} SchemaVersion
  * @property {string[]} AllowlistCache
- * @property {Object<string, { Cursor: string, SeededAt: string }>} Repos
+ * @property {Object<string, { Cursor: string, SeededAt: string, ParentScanAt?: string }>} Repos
  * @property {Object<string, IssueThread>} Issues
  */
 
@@ -64,8 +64,6 @@ const { ExtractIssueReferences, IssueKey } = require('./github-url-utils');
  */
 
 const COMMENT_SNIPPET_MAX = 300;
-const CLOSED_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
-const INACTIVE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const CURSOR_OVERLAP_MS = 60 * 1000;
 
 /**
@@ -343,15 +341,56 @@ function PlanRepoActions(ArgState, ArgRepo, ArgIssues, ArgComments, ArgOptions =
 }
 
 /**
+ * Whether a fetched reply's parent eligibility is still unknown.
+ * Fetched old/ignored issues and PRs are known exclusions; absent issues are not.
+ * @param {IssueStreamState} ArgState
+ * @param {string} ArgRepo
+ * @param {GitHubIssue[]} ArgIssues
+ * @param {GitHubComment[]} ArgComments
+ * @param {Set<string>} ArgIgnoreAuthors
+ * @param {boolean} ArgIssuesComplete
+ * @param {string[]} ArgAllowlist
+ * @returns {boolean}
+ */
+function HasUnmappedParents(ArgState, ArgRepo, ArgIssues, ArgComments, ArgIgnoreAuthors, ArgIssuesComplete, ArgAllowlist) {
+  const Known = new Set(Object.keys(ArgState.Issues));
+  for(const Item of ArgIssues)
+    Known.add(IssueKey(ArgRepo, Item.number));
+  for(const Comment of ArgComments) {
+    if(IsIgnoredAuthor(Comment.user, ArgIgnoreAuthors)) continue;
+    const Key = IssueKeyFromCommentUrl(Comment.issue_url, ArgRepo);
+    if(!ArgIssuesComplete && Key && !Known.has(Key)) return true;
+  }
+  for(const Item of ArgIssues) {
+    if(!Item.pull_request || IsIgnoredAuthor(Item.user, ArgIgnoreAuthors)) continue;
+    for(const Key of ExtractIssueReferences(`${Item.title || ''}\n${Item.body || ''}`, ArgRepo)) {
+      if(Known.has(Key)) continue;
+      const TargetRepo = Key.split('#')[0];
+      if(TargetRepo === ArgRepo.toLowerCase()) {
+        if(!ArgIssuesComplete) return true;
+        continue;
+      }
+      const Target = ArgState.Repos[TargetRepo];
+      const EventAt = Item.updated_at || Item.created_at;
+      if(!ArgAllowlist.includes(TargetRepo) || !Target || EventAt < Target.SeededAt) continue;
+      if(!Target.ParentScanAt || Target.ParentScanAt < EventAt) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Compute the next per-repo cursor from the newest event timestamps, overlapping by 60s.
+ * Incomplete endpoints cap that progress at their own fetched watermark.
  * Never moves backwards relative to ArgPrevious.
  *
  * @param {GitHubIssue[]} ArgIssues Issues/PRs fetched this cycle.
  * @param {GitHubComment[]} ArgComments Comments fetched this cycle.
  * @param {string} ArgPrevious Previous cursor ISO string.
+ * @param {{ Issues?: boolean, Comments?: boolean }} [ArgComplete] Endpoint traversal completion.
  * @returns {string}
  */
-function NextCursor(ArgIssues, ArgComments, ArgPrevious) {
+function NextCursor(ArgIssues, ArgComments, ArgPrevious, ArgComplete = {}) {
   let Newest = ArgPrevious || '';
   for(const Issue of ArgIssues || []) {
     const Stamp = Issue.updated_at || Issue.created_at || '';
@@ -363,12 +402,17 @@ function NextCursor(ArgIssues, ArgComments, ArgPrevious) {
   }
   if(!Newest) return ArgPrevious || '';
   const Overlapped = new Date(new Date(Newest).getTime() - CURSOR_OVERLAP_MS).toISOString();
-  if(ArgPrevious && Overlapped < ArgPrevious) return ArgPrevious;
-  return Overlapped;
+  let Next = ArgPrevious && Overlapped < ArgPrevious ? ArgPrevious : Overlapped;
+  if(ArgComplete.Issues === false)
+    Next = [Next, NextCursor(ArgIssues, [], ArgPrevious)].sort()[0];
+  if(ArgComplete.Comments === false)
+    Next = [Next, NextCursor([], ArgComments, ArgPrevious)].sort()[0];
+  return Next;
 }
 
 /**
- * Drop stale closed/inactive threads and repo cursors no longer on the allowlist.
+ * Drop repo cursors no longer on the allowlist; retain delivery identity and keys.
+ * Age alone cannot revoke a Slack parent: old issues can reopen or receive replies.
  *
  * @param {IssueStreamState} ArgState Mutable state object.
  * @param {Date|string} ArgNow Current time.
@@ -376,7 +420,6 @@ function NextCursor(ArgIssues, ArgComments, ArgPrevious) {
  * @returns {IssueStreamState}
  */
 function PruneState(ArgState, ArgNow, ArgAllowlist) {
-  const NowMs = new Date(ArgNow).getTime();
   const Allow = ArgAllowlist
     ? new Set(ArgAllowlist.map((ArgRepo) => ArgRepo.toLowerCase()))
     : null;
@@ -388,19 +431,6 @@ function PruneState(ArgState, ArgNow, ArgAllowlist) {
     ArgState.AllowlistCache = [...ArgAllowlist];
   }
 
-  for(const [Key, Thread] of Object.entries(ArgState.Issues || {})) {
-    const LastMs = new Date(Thread.LastActivityAt || 0).getTime();
-    if(!Number.isFinite(LastMs)) {
-      delete ArgState.Issues[Key];
-      continue;
-    }
-    if(Thread.Closed && NowMs - LastMs > CLOSED_RETENTION_MS) {
-      delete ArgState.Issues[Key];
-      continue;
-    }
-    if(!Thread.Closed && NowMs - LastMs > INACTIVE_RETENTION_MS)
-      delete ArgState.Issues[Key];
-  }
   return ArgState;
 }
 
@@ -420,6 +450,7 @@ function EmptyState() {
 module.exports = {
   PlanRepoActions,
   NextCursor,
+  HasUnmappedParents,
   PruneState,
   EmptyState,
   EscapeMrkdwn,
@@ -430,7 +461,5 @@ module.exports = {
   FormatPrMergedReply,
   FormatCloseReply,
   COMMENT_SNIPPET_MAX,
-  CLOSED_RETENTION_MS,
-  INACTIVE_RETENTION_MS,
   CURSOR_OVERLAP_MS,
 };

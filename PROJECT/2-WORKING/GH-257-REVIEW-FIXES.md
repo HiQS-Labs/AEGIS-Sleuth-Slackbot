@@ -1,0 +1,90 @@
+---
+title: GH-257 — Issue stream review follow-up
+status: In Progress
+created: 2026-10-20
+updated: 2026-10-20
+owner: Codex
+goal: Fix validated promotion review defects with synthetic verification and independent QA.
+gh_issue: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/257
+effort: 3
+complexity: 3
+risk: 2
+phases: 1
+roadmap_exempt: true
+---
+
+## Status
+
+| What was just completed | What's next |
+|---|---|
+| Startup/404 follow-up fixed; fresh QA attested for c2eefe2; 46 focused and full regression passed | User review of PR #259; latest published-head CI status is linked on that PR |
+
+## Scope and recon
+
+Source: PR #256 issuecomment-6305958196; inline discussions r4332194038/4042/4047/4050/4055/4057/4065/4070/4075.
+`development` is the canonical integration base (ROUTER/AGENTS); main d8c4a91 has identical content after promotion. No newer open PR or issue covers the work at intake. Fresh isolated full clone; no changes to previous task checkouts. Runtime scope is the existing per-workspace stream module, planner and existing suites. No deploy, production/server access, monitoring changes, Slack posts, stream test posts or credentials changes.
+
+Measured source trace: app shutdown awaits stream StopAsync before exiting; StopAsync currently only clears a timer. RunOnceAsync -> RunCycleAsync fetches both endpoints with one Cursor; PaginateSinceAsync caps at five full pages without completion metadata; NextCursor takes maximum across endpoints. Planner uses the issue map for both parent identity and event dedup, but PruneState deletes it by age. Reply writes use config.ChannelID despite persisted Thread.ChannelID. SaveState catches durable-write errors; callers cannot detect failure. Dynamic allowlist successful empties fall back to persisted nonempty cache. DND is checked only before fetching, not before each post. These observations validate six P1 claims and DND at the code level, not a production incident. Reported production uses static repos, so the dynamic-list finding is not evidence of live exposure.
+
+Quoted-name truncation r4332194065 is present (FitTitleToBudget quote loop omits single quotes). Deferred to the separate PR #252 takeover work, candidate 0bc0468; do not copy/cherry-pick or change title code here. Mirror receipt/dashboard paths must be checked against current file location and fixed through the canonical ledger/dashboard generator where needed.
+
+RAG query attempted but synthesis unavailable (no Gemini key); direct architecture/changelog/project/source reading used. temp/SOP.md read from primary checkout; no live claims inferred from stale notes. New test files/suites/gates are not proposed; extend existing stream suites only. No individual new-test approval is assumed.
+
+## Smallest viable bet
+
+Outcome: prevent skipped unread ranges and routine duplicate/orphan delivery after cleanup, config changes, persistence failure and graceful shutdown. Extend existing state writer and module lifecycle, not a new queue/journal/reconciliation service. Keep the five-page fetch bound and 40-post budget.
+
+1. Report endpoint completion in GithubListResult. Keep shared cursor for backwards compatibility but bound NextCursor by the last fetched updated timestamp minus existing overlap for EACH incomplete endpoint. When the issues traversal is incomplete and a fetched comment or PR references an unmapped/unplanned parent, hold the shared cursor and warn: absence cannot yet mean intentional no-backlog exclusion. Add a small pure planner predicate using existing issue/reference parsing, no queue or extra API. For cross-repo references to a seeded allowlisted repo, hold the source cursor until its target parent is mapped or the target has completed a successful parent scan at/after the PR update (optional ParentScanAt timestamp in existing repo state, backwards compatible). A successful complete issue scan records its request-start time only after all planned actions delivered. Continue to subsequent repos when only a dependency holds, so the target can be evaluated; source replay then delivers once on the next cycle. A target seeded after the PR or outside the allowlist is intentionally skipped; a complete target scan with no eligible parent resolves old/ignored targets without indefinite holds. Incomplete target scans may conservatively hold/warn and require operator catch-up. This conservative hold can require operator-directed catch-up. A complete endpoint cannot pull the shared cursor past unread results on the other. Include PRs/ignored items in watermark calculation. Keep conservative overlap on equal timestamps; if the cap contains no safe cursor progress, hold and warn rather than lose data. Known tradeoff: a burst exceeding 500 records inside the overlap can stall this bounded poller and needs operator-directed catch-up; do not silently discard it or add an unrequested paging infrastructure.
+2. Retain thread identity AND event keys across age cleanup (otherwise overlap/replayed PR refs can duplicate replies). Keep repo allowlist pruning; no additional archival/tombstone subsystem. State grows with delivered threads/events; that is the existing delivery record's actual retention requirement. Revert code only preserves additive state compatibility.
+3. Resolve reply ChannelID and ThreadTs from the same saved thread; new parents use configured channel. Recheck DND for actual destination immediately before EVERY Slack write. Hold repo cursor for undelivered actions, including shutdown cancellation.
+4. Propagate state save failures and abort further delivery. Retry saving current in-memory state at cycle entry before fetching/posting more; pending successful posts cannot be forgotten during a surviving process. On shutdown await active cycle, retry pending save before return, prevent new cycle scheduling/writes while stopping. A process crash between Slack acceptance and durable state save CAN duplicate: no exactly-once promise or external API transaction invented.
+5. Dynamic allowlist fails closed: successful empty/stale-only snapshots mean empty, transport failure holds the cycle without pruning/reseeding state. Eliminate cached authorization reuse rather than invent cache expiry metadata. Static configured lists remain on existing path. Per-file transport errors must hold the cycle rather than publish a partial authorization set.
+6. Correct currently broken mirror links using existing ledger generator, add changelog and receipts. Keep separate title work deferred. No version bump.
+
+Simpler alternatives rejected: raising/removing cap removes bounded polling; retaining the old maximum cursor loses unread events; disabling the stream does not fix the asked behavior; cache TTL adds machinery and still permits removed repos during TTL. All changes revert in one branch; legacy SchemaVersion 1 files remain readable.
+
+## Verification and review questions
+
+Use ONLY mocked fetch/Slack, temporary local state and fixed clocks. Existing tests will be extended and mutation-verified against original source (record red results). Run focused stream suites, build, relevant validators, full Jest/node suite and PDDA. No startup smoke of app.js because it can connect to real workspaces; use RunOnceAsync main path and restart/held path through mocked integration suite.
+
+Acceptance: (a) >500 issues with newer comments AND reverse direction never advances cursor beyond unread boundary; bounded fetch count, continued next-cycle progress; dense-boundary case explicitly holds/warns; (b) pruned old issue reopen/comment uses original parent with no replayed keys; (c) changed configured channel replies to stored channel and obeys its DND; (d) successful empty/stale-only allowlist stops fetches, transport failure holds and restart never trusts old cache; (e) pre/post-write save failures stop additional posts and retain pending state for surviving-process recovery, then prove restart after a successful recovery/shutdown save; (f) StopAsync remains pending during blocked in-flight Slack acceptance/save, no new cycle after stop, persisted keys prevent restart repeats; (g) DND activated between posts holds remaining actions/cursor and clearing resumes; (h) mirror links resolve, title overlap disposition explicit.
+
+Reviewer: read whole module/planner and existing tests plus this plan. Are the shared safe watermark and documented dense-burst hold sufficient for bounded no-loss behavior? Are persistence recovery, destination identity, DND and shutdown gates correct without a new subsystem? Are the verification cases falsifiable and proportional? Flag only concrete scoped defects with file:line, Observed input, Affected scope, Falsifier. No changes outside the review thread; no network/production/live APIs, tests in reviewer worktree or speculative infrastructure. Require actual review evidence before implementation.
+
+## Evidence ledger
+
+- GitHub current PR list: promotion #256 latest; no open follow-up. Tracking issue #257 created.
+- Branch heads: development 50fa08c0616af0a79a3431043f68e6ea8db5dd7f; main d8c4a91af4eeb5cad87112e02907b82081f83ec9; compare files empty.
+- Root cause: incomplete source traversal masquerades as complete, identity/delivery state deleted or save errors hidden, lifecycle/config boundaries not tied to writes; Fix site: existing fetch metadata, planner retention, module delivery/state/lifecycle; Why not downstream: Slack cannot transact atomically with local JSON.
+
+## Plan QA dispositions
+
+Round 1 independent Codex review ran and returned FAIL with a reproducible unseen-parent loss case. R1 accepted: hold/warn on unresolved parent dependencies during incomplete issue traversal, with a since-filtered multi-cycle red control. R2 accepted: Setup now names the tracked plan directly. R3 accepted: restart guarantee explicitly follows a successful save. Harness exit 6 came from producer test edits during the review; it backed up and reverted those edits, which were restored. Do not mutate the working tree while subsequent reviews run. No harness modification or containment bypass.
+
+Round 2 dispositions: R4 accepted, one optional ParentScanAt field disambiguates unvisited target repositories from evaluated exclusions; no queues/API. Cover both repo orders with since-filtered mocked responses and pre-seed/non-allowlisted targets. R5 accepted: initial 500 records exclude #501 and preserve ascending update order. Only three plan rounds are configured; no force/cap bypass.
+
+Round 3 plan QA: PASS, attested at 7dea9c6268662dca2c3a461bbf89a315f6e103a8. Implementation follows the approved source/state boundaries. Dense-boundary and blocked-save shutdown cases were added to the existing module suite.
+
+## Verification checkpoint
+
+Independent final code QA PASS, attested for c19b227a9c0535f2a8afa78190a6125455e70a19; no source findings. Disposable original-source mutation: 20 failures / 23 passes (43 total), exit 1; restored candidate 43/43 pass and git diff clean. Full qualification PASS: 145 Jest suites / 2,807 tests plus 116 Node tests; build/FSM/sanitizer PASS. Existing skips: one suite/four tests. Initial publication head 40b45a9b883a1417711bd99b95a5988816b5a808 passed hosted Run Tests 39535614818. New review remediation below supersedes that readiness verdict; current follow-up CI is pending publication.
+
+`roadmap_exempt: true` applies to the stale legacy ROADMAP.md coverage check only: ROUTER.md records that the roadmap ledger is releases.db and the checker still reads frozen Markdown. This task remains registered/rated in that canonical DB and linked in regenerated ROADMAP-DASHBOARD.md. Exact-base deterministic PDDA baseline has 41 errors (13 frontmatter, 9 status-table, 5 paths, 14 legacy coverage); those unrelated errors are not changed here.
+
+## PR #259 review follow-up
+
+PR remained OPEN at 40b45a9b883a1417711bd99b95a5988816b5a808 with no newer author changes; returned to draft before changes. Greptile r4332602488 and CodeRabbit r4332634640 reproduce first-run discovery/save failures escaping StartAsync before scheduling polling. app.js then executes its workspace startup catch and disconnects Slack. Greptile r4332602492 reproduces default discovery HTTP404 becoming an authoritative empty list and deleting saved cursors.
+
+Minimal correction: contain only initial seeding/save errors at the stream boundary, warn and retain the existing scheduled retry; cycle entry still requires a successful save before delivery. Initial discovery failure defers first seed until successful discovery; initial save failure retains its seeded in-memory cursor and retries it. Remove the directory 404-as-empty special case so the existing non-OK error path holds without pruning. No app.js changes, new state schema, new suites, or new abstractions. This is a small local extension of the approved failure-boundary design; fresh independent code QA is required.
+
+Three new cases in the existing module suite failed against 40b45a9 (43 prior cases passed). After correction: 46 focused cases pass; startup timer callback recovery is mocked (including repeated initial save failure), no live workspace/app startup is run. Existing startup caller source establishes the disconnected-workspace consequence.
+
+CodeRabbit r4332634629 accepted: the status table and receipt distinguish the passing initial head from pending follow-up head; final exact-head evidence will be posted to the same PR. r4332634634 accepted: the preview had generatedAt/lastOp 2026-10-21 but a local-date calculation saying “in 1 day”. Re-run the existing read-only exporter under TZ=UTC, with no vendored edits or ledger mutation; lastSyncDisplay is preserved and label becomes “today”.
+
+Full-state write finding assessed, not expanded into a store migration: retention and exact keys remain required for held/overlap replay suppression. JSON serialize/write cost grows with complete delivery history; the existing bound is at most 40 post saves + 200 repo saves + entry/exit saves per cycle. This is a coarse upper bound, not a measured latency claim. There is no observed workload/latency failure or approved retention contract that would justify an indexed-store rewrite here. Keep the documented growth tradeoff; any measured scalability/store work is separate scope. No keys compacted/deleted.
+
+Follow-up QA: reviewer reported PASS in round 1 but workflow refused close-mismatch (token released instead of completed), so that run had no attestation. One bounded completion turn on unchanged code succeeded: attested Approved at c2eefe22e6d85a76b52191c525081d6de662b0ea. No impersonation, manual attestation, harness edit or bypass. Full regression and exact published-head CI still require new evidence.
+
+Preview exporter selection: final artifact uses repository-native utils/timeline/export_timeline.py (the ledger writer’s configured exporter) under TZ=UTC. This preserves the existing release IDs and sync data; using the newer vendored-harness exporter would add unrelated generated metadata changes. Both yield the corrected today label and unchanged sync timestamp; no exporter source changed.
+
+Final follow-up local qualification: disposable clone HEAD before/after c2eefe22e6d85a76b52191c525081d6de662b0ea, clean tracked state. npm test PASS (145 Jest suites / 2,810 tests, existing 1 suite / 4 tests skipped; 116 Node tests PASS), build PASS, FSM/isolation/render/tone validators and sanitizer PASS. Previous-head mutation: exactly 3 new failures / 43 passes, exit 1. Runtime source/tests are unchanged after fresh QA. Exact publication-head CI is recorded on PR #259 rather than treating the initial 40b45a9 run as current evidence.
