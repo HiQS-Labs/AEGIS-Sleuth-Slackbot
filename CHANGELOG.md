@@ -36,8 +36,9 @@
 ## Unreleased
 
 If my list of channels with auto-scheduling turned on ever goes missing while reminders exist, I now
-log it as an error instead of quietly treating every channel as off. My test tools can no longer
-touch a server's live data.
+log it as an error instead of quietly treating every channel as off. My reminder test battery and test
+suite now always work in their own scratch data, and my other test harnesses refuse to run against a
+server's data once that server is marked as live.
 
 **Technical:** GH-271/GH-272. `scripts/reminder-thread-battery.js` and `tests/runtime-setup.js`
 always create their own temp data dir, ignoring an inherited `SLEUTH_DATA_DIR` (on 2026-10-21 an

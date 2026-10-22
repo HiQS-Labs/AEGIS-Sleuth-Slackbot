@@ -419,9 +419,9 @@ async function RunScenarioAsync(ArgWorkspaceName, ArgScenario, ArgKeepData) {
   } finally {
     // runs on success, turn failure AND setup failure: only the tree this call created is ever
     // removed, and the caller's SLEUTH_DATA_DIR always comes back (a Jest worker relies on it).
+    RestoreRuntimeTree(Isolation); // first, so a failed removal cannot skip it
     if(ArgKeepData) console.log(`runtime data kept at ${Isolation.IsolatedRoot}`);
     else await fs.rm(Isolation.IsolatedRoot, { recursive: true, force: true });
-    RestoreRuntimeTree(Isolation);
   }
 }
 
