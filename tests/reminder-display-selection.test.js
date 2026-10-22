@@ -68,7 +68,7 @@ describe('SelectTaskText — verbatim path', () => {
 });
 
 describe('GH-250 phase 3 — structured fields and the deterministic object repair', () => {
-  const { ValidateReminderCandidate } = require('../src/reminder-display-selection');
+  const { ValidateReminderCandidate, IsObjectRefGrounded, TitleNamesObjectRef } = require('../src/reminder-display-selection');
   const Source = 'can you review it by Friday? PR 697 is waiting on the API deploy and the smoke tests';
 
   test('a grounded object_ref repairs a pointer title in place, and the repair is reported', () => {
@@ -95,6 +95,30 @@ describe('GH-250 phase 3 — structured fields and the deterministic object repa
     );
     expect(Selection.text).not.toBe('Ask the invoice');
     expect(Selection.source).toBe('fallback');
+  });
+
+  test('an invented lowercase object never reaches a title through the deterministic repair', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Review it', actionable_language: 'review it', object_ref: 'the billing database' },
+      'can you review it by Friday?', true,
+    );
+    expect(Selection.source).toBe('fallback');
+    expect(Selection.text).not.toMatch(/billing/);
+    expect(Selection.contract.repair).toBeNull();
+  });
+
+  test('IsObjectRefGrounded wants a whole run of source words; TitleNamesObjectRef wants its content words in the title', () => {
+    const Thread = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> the invoice from Acme is overdue\n[the message to act on]\n<@U_BETA> ask him tomorrow';
+    expect(IsObjectRefGrounded('the invoice from Acme', Thread)).toBe(true);
+    expect(IsObjectRefGrounded('<@U_ALPHA>', Thread)).toBe(true);
+    expect(IsObjectRefGrounded('the overdue invoice', Thread)).toBe(false);
+    expect(IsObjectRefGrounded('an invoice from Acme Corp', Thread)).toBe(false);
+    expect(IsObjectRefGrounded('', Thread)).toBe(false);
+    expect(TitleNamesObjectRef('Ask <@U_ALPHA> about the overdue Acme invoice', 'the invoice from Acme')).toBe(true);
+    expect(TitleNamesObjectRef('Ask <@U_ALPHA> about the overdue Acme invoice', '<@U_ALPHA>')).toBe(true);
+    expect(TitleNamesObjectRef('Deploy the billing database', 'the hotfix')).toBe(false);
+    expect(TitleNamesObjectRef('Deploy the hotfix', '')).toBe(false);
+    expect(TitleNamesObjectRef('Deploy the hotfix', 'the')).toBe(false);
   });
 
   test('a person pointer is never repaired deterministically — that is the model\'s job', () => {
@@ -128,6 +152,11 @@ describe('GH-250 phase 3 — structured fields and the deterministic object repa
     expect(Capped.subtasks).toHaveLength(3);
     expect(Capped.reasons).toEqual(['object-ref-ungrounded', 'subtasks-capped']);
     expect(ValidateReminderCandidate({}, Source)).toEqual({ objectRef: '', subtasks: [], reasons: [] });
+    // an object the source never says is dropped even when it names nothing the term extractor
+    // claims: a lowercase phrase is grounded as a whole run of source words (CodeRabbit on #268).
+    expect(ValidateReminderCandidate({ object_ref: 'the billing database' }, Source))
+      .toEqual({ objectRef: '', subtasks: [], reasons: ['object-ref-ungrounded'] });
+    expect(ValidateReminderCandidate({ object_ref: 'the smoke tests' }, Source).objectRef).toBe('the smoke tests');
     // a sub-item the budget cut reduces to its verb is refused, as a title would be (Greptile on #268).
     const QuotedName = 'Quarterly Rollout Checklist for the Northern Region Retail Partners and Wholesale Accounts';
     expect(ValidateReminderCandidate({ subtasks: [`Review "${QuotedName}"`] }, `review "${QuotedName}" tomorrow`))

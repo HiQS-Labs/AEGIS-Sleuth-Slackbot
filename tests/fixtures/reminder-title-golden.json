@@ -666,6 +666,23 @@
           "9999"
         ]
       }
+    },
+    {
+      "id": "G-45",
+      "note": "phase 3: an object_ref the source never says is dropped even when it names no entity — a lowercase phrase is grounded as a whole run of source words",
+      "candidate": {
+        "reminder_message": "Review it",
+        "actionable_language": "review it",
+        "object_ref": "the billing database"
+      },
+      "source": "can you review it by Friday?",
+      "synthesisOn": true,
+      "expect": {
+        "source": "fallback",
+        "excludes": [
+          "billing"
+        ]
+      }
     }
   ]
 }

@@ -1976,8 +1976,11 @@ class RemindersModule {
       candidate: ArgCandidate,
       text: this.#SelectReminderTaskText(ArgCandidate, DisplaySourceMessageText, SynthesisOn, ArgMessageText),
       // GH-250: the candidate's own words, for the pointer check. The displayed text may be the
-      // contract's fallback for a pointer title, which would hide the echo this filter exists to drop.
-      rawText: ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
+      // contract's fallback for a pointer title, which would hide the echo this filter exists to drop;
+      // and a title the repair above rewrote (`Do all of the above` → `Take the car and bring the
+      // cooler`) is still the live reply restated beside its siblings, so the filter reads what the
+      // repair replaced (`title_repair.from`), not the repaired title.
+      rawText: ArgCandidate.title_repair?.from || ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
     }));
     const ReferenceFilter = ReminderDisplaySelection.DropUnresolvedReferenceCandidates(
       RenderedCandidates, Boolean(ArgUsedEnrichedThreadContext), ContextResolution.NeedsEarlierContext,
@@ -2448,9 +2451,9 @@ class RemindersModule {
         text: this.#SelectReminderTaskText(
           ArgCandidate, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn, TriageContext.text,
         ),
-        // GH-250: the same raw words scheduling hands the filter, or triage keeps a pointer that
-        // scheduling drops and explains a candidate set production never had.
-        rawText: ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
+        // GH-250: the same raw words scheduling hands the filter (the pre-repair title first), or
+        // triage keeps a pointer that scheduling drops and explains a candidate set production never had.
+        rawText: ArgCandidate.title_repair?.from || ArgCandidate.reminder_message || ArgCandidate.actionable_language || '',
       })),
       TriageContext.enriched, ContextResolution.NeedsEarlierContext, TriageContext.liveReplyText,
     ).kept;
@@ -2784,16 +2787,23 @@ class RemindersModule {
           Candidate,
           RefusedFor,
         });
+        const RepairObjectRef = typeof Repair?.object_ref === 'string' ? Repair.object_ref.replace(/\s+/g, ' ').trim() : '';
         if(!Repair || !Repair.reminder_message) {
           Outcome = Repair ? 'declined' : 'unavailable';
+        } else if(!ReminderDisplaySelection.IsObjectRefGrounded(RepairObjectRef, ArgAnalyzedSourceText || ArgNormalizedOriginalText)) {
+          // the title's names are re-grounded by the selector below, but its ordinary words are not:
+          // the object is the one phrase the repair must copy from the source, so it is checked whole.
+          Outcome = 'refused:object-ref-ungrounded';
+        } else if(!ReminderDisplaySelection.TitleNamesObjectRef(Repair.reminder_message, RepairObjectRef)) {
+          Outcome = 'refused:object-ref-not-in-title';
         } else {
           // the model's answer is a candidate like any other: contract, grounding and budget decide.
-          const Trial = { ...Candidate, reminder_message: Repair.reminder_message, object_ref: Repair.object_ref || Candidate.object_ref || '' };
+          const Trial = { ...Candidate, reminder_message: Repair.reminder_message, object_ref: RepairObjectRef };
           const After = ReminderDisplaySelection.SelectTaskText(Trial, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
           if(After.source === 'title') {
             Candidate.title_repair = { from: Candidate.reminder_message || '', by: 'model', reasons: RefusedFor };
             Candidate.reminder_message = Repair.reminder_message;
-            if(Repair.object_ref) Candidate.object_ref = Repair.object_ref;
+            Candidate.object_ref = RepairObjectRef;
             Outcome = 'accepted';
           } else {
             Outcome = `refused:${After.contract.rejected.filter(ArgEntry => ArgEntry.source === 'title').map(ArgEntry => ArgEntry.reasons.join('+')).join('+') || After.source}`;

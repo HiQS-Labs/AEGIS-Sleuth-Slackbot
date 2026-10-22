@@ -45,24 +45,29 @@ already clean up your wording either way.
 **Technical:** GH-250 phase 3 (structured extraction). `data/static/ai/reminders-schema.json` and
 `reminders-instructions.md` add `object_ref` (the concrete object, in source words) and `subtasks`
 (≤3 named sub-items) per candidate; `ValidateReminderCandidate` (`src/reminder-display-selection.js`)
-grounds `object_ref` and validates, de-duplicates and caps `subtasks` (`object-ref-ungrounded`,
-`subtask-refused`, `subtasks-capped`). The selector gains a deterministic repair: a candidate refused
+grounds `object_ref` as a whole run of source words (`IsObjectRefGrounded`; a lowercase phrase the
+source never says is refused, not only an invented name) and validates, de-duplicates and caps
+`subtasks` (`object-ref-ungrounded`, `subtask-refused`, `subtasks-capped`). The selector gains a deterministic repair: a candidate refused
 only as `bare-pointer`/`too-short` is rebuilt by replacing its one thing-pointer (`it`, `this`, `the
 above`, …; never `him`/`her`) with the grounded `object_ref`, then validated, re-grounded and fitted;
 `contract.repair` reports `{by: 'object-ref'|'model', from}`. New decision `reminder-title-repair`
 (`RemindersAIPipeline.RepairReminderTitleAsync`, `DecideAsync` with the new
 `reminder-title-repair-instructions.md`/`-schema.json` pair, registered in `validate-ai-prompts.js`)
 runs from `RemindersModule#RepairRefusedTitlesAsync` for each candidate the selector would show as
-`fallback`, on both the scheduling and the `:wrench:` triage paths; the answer is accepted only if the
-selector then shows it as `title`, and it is written onto the candidate with `title_repair` so every
-later read agrees. Flags: `REMINDER_TITLE_REPAIR` (default on) and `REMINDER_TITLE_ALWAYS_SYNTHESIZE`
+`fallback`, on both the scheduling and the `:wrench:` triage paths; the answer is accepted only if its
+`object_ref` is grounded and named by the title (`TitleNamesObjectRef`; outcomes
+`refused:object-ref-ungrounded` / `refused:object-ref-not-in-title`) and the selector then shows it as
+`title`, and it is written onto the candidate with `title_repair` so every later read agrees. The
+pointer-echo filter reads `title_repair.from`, so a repaired pointer is still dropped beside the
+siblings it restates. Flags: `REMINDER_TITLE_REPAIR` (default on) and `REMINDER_TITLE_ALWAYS_SYNTHESIZE`
 (default on unless a legacy `REMINDER_TEXT_SYNTHESIS*` flag is set explicitly; explicit value wins),
 applied inside `DescribeSynthesisRouting` (`synthesisOn: true`, `routedBy: 'always_synthesize'`,
 new `alwaysSynthesize` fact) so scheduling, triage and replay all follow it. Telemetry line gains
 `repair=`; triage `↳ title:` gains `repaired_by`, `object` and `subtasks`. Tests: flag precedence and
 the repair decision (`reminders-ai-pipeline.test.js`), selector repair and structure validation plus
-golden samples G-43/G-44, four end-to-end repair cases (accepted, ungrounded → template, declined,
-flag off) in `reminders-integration.test.js`; legacy-routing tests pin the flag off; replay baseline
+golden samples G-43/G-44/G-45, seven end-to-end repair cases (accepted, ungrounded → template,
+object not in title, no object, repaired pointer still dropped as an echo, declined, flag off) in
+`reminders-integration.test.js`; legacy-routing tests pin the flag off; replay baseline
 re-recorded under always-synthesize (title-first rows) with a test asserting every scenario routes
 to the title. Not done, by the plan's own ordering: storing `object_ref`/`subtasks` (phase 4, so
 subtasks are validated and shown in triage but not yet rendered) and deleting the legacy routing

@@ -78,7 +78,7 @@ function ValidateReminderCandidate(ArgCandidate, ArgGroundingSource) {
   const Reasons = [];
 
   let ObjectRef = typeof Candidate.object_ref === 'string' ? Candidate.object_ref.replace(/\s+/g, ' ').trim() : '';
-  if(ObjectRef && TaskGrounding.UngroundedTerms(ObjectRef, ArgGroundingSource).length > 0) {
+  if(ObjectRef && !IsObjectRefGrounded(ObjectRef, ArgGroundingSource)) {
     Reasons.push('object-ref-ungrounded');
     ObjectRef = '';
   }
@@ -110,6 +110,48 @@ function ValidateReminderCandidate(ArgCandidate, ArgGroundingSource) {
   }
 
   return { objectRef: ObjectRef, subtasks: Subtasks, reasons: Reasons };
+}
+
+/**
+ * Whether an `object_ref` is words the source actually says: every name, identifier and number in
+ * it is grounded, AND the whole phrase is a run of consecutive source words. The second half is
+ * load-bearing: the term extractor only claims names, so a lowercase phrase the source never says
+ * (`the billing database` against a message about a hotfix) made no claim it could check, passed,
+ * and was written into a title by the repair below (CodeRabbit on #268). Whole-run matching is the
+ * same rule a title's terms get — never a substring test — so `the invoice from Acme` is grounded
+ * by `the invoice from Acme` and not by `an invoice from Acme Corp`.
+ * @param {string} ArgObjectRef The analyzer's or the repair's object.
+ * @param {string} ArgSource Everything the object may be copied from.
+ * @returns {boolean} false for an empty object.
+ */
+function IsObjectRefGrounded(ArgObjectRef, ArgSource) {
+  const ObjectRef = String(ArgObjectRef || '').replace(/\s+/g, ' ').trim();
+  if(!ObjectRef) return false;
+  if(TaskGrounding.UngroundedTerms(ObjectRef, ArgSource).length > 0) return false;
+  return TaskGrounding.IsTermGrounded(ObjectRef, TaskGrounding.GroundingTokens(ArgSource));
+}
+
+/** Words an object phrase carries that name nothing (`the invoice from Acme` → `invoice`, `acme`). */
+const OBJECT_REF_FUNCTION_WORDS = new Set([
+  'the', 'a', 'an', 'of', 'from', 'to', 'in', 'on', 'for', 'with', 'about', 'and', 'or',
+  'my', 'our', 'your', 'their', 'his', 'her', 'its', 'this', 'that',
+]);
+
+/**
+ * Whether a title names the object it was repaired around: every content word of the object is a
+ * word of the title (plural-tolerant, whole words). The repair prompt asks for a title AND the
+ * object it is about; a title that does not contain its own object (`Deploy the billing database`
+ * with `object_ref: the hotfix`) is the model answering two different questions, and the title is
+ * the unverifiable half (CodeRabbit on #268).
+ * @param {string} ArgTitle The repaired title.
+ * @param {string} ArgObjectRef The object the repair returned.
+ * @returns {boolean} false when the object has no content word.
+ */
+function TitleNamesObjectRef(ArgTitle, ArgObjectRef) {
+  const ContentTokens = TaskGrounding.GroundingTokens(ArgObjectRef).filter(ArgToken => !OBJECT_REF_FUNCTION_WORDS.has(ArgToken));
+  if(ContentTokens.length === 0) return false;
+  const TitleTokens = TaskGrounding.GroundingTokens(ArgTitle);
+  return ContentTokens.every(ArgToken => TaskGrounding.IsTermGrounded(ArgToken, TitleTokens));
 }
 
 /**
@@ -520,5 +562,5 @@ function DropUnresolvedReferenceCandidates(ArgRendered, ArgEnriched, ArgIsUnreso
 
 module.exports = {
   SelectTaskText, SelectContextLine, DropUnresolvedReferenceCandidates, StripContextMarkers,
-  ValidateReminderCandidate,
+  ValidateReminderCandidate, IsObjectRefGrounded, TitleNamesObjectRef,
 };
