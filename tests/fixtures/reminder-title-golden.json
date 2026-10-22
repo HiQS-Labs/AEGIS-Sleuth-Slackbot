@@ -634,6 +634,38 @@
           "Follow up: The one two"
         ]
       }
+    },
+    {
+      "id": "G-43",
+      "note": "phase 3: a grounded object_ref repairs a pointer title deterministically",
+      "candidate": {
+        "reminder_message": "Review it",
+        "actionable_language": "review it",
+        "object_ref": "PR 697"
+      },
+      "source": "can you review it by Friday? PR 697 is waiting",
+      "synthesisOn": true,
+      "expect": {
+        "text": "Review PR 697",
+        "source": "title"
+      }
+    },
+    {
+      "id": "G-44",
+      "note": "phase 3: an object_ref the source never names is dropped, never written into a title",
+      "candidate": {
+        "reminder_message": "Review it",
+        "actionable_language": "review it",
+        "object_ref": "PR 9999"
+      },
+      "source": "can you review it by Friday? PR 697 is waiting",
+      "synthesisOn": true,
+      "expect": {
+        "source": "fallback",
+        "excludes": [
+          "9999"
+        ]
+      }
     }
   ]
 }

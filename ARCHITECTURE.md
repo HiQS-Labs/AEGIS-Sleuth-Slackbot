@@ -184,6 +184,28 @@ no permalink to point at). Digest summaries of
 records stored before this contract are still cut at 140 characters, but on a word boundary.
 Records are not migrated: the stored `Key task(s):` bullets remain the persisted form.
 
+**Phase 3 — structured extraction.** The analyzer schema carries two structured fields next to the
+title: `object_ref` (the concrete thing the task is about, in the source's words) and `subtasks`
+(at most 3 named sub-items). `ValidateReminderCandidate` in `src/reminder-display-selection.js`
+grounds `object_ref` and validates, de-duplicates and caps `subtasks` before anything reads them.
+Two repairs then sit between "every candidate refused" and the template:
+
+1. **Deterministic**, inside the selector: a candidate refused only as a pointer is rebuilt around
+   the grounded `object_ref` (`Review it` + `PR 697` → `Review PR 697`), then validated, re-grounded
+   and fitted like any candidate. Person pointers (`him`) are never rebuilt this way.
+2. **Model**, in `RemindersModule#RepairRefusedTitlesAsync`: one `reminder-title-repair` decision
+   (`DecideAsync`, prompt pair `reminder-title-repair-*`) per candidate the selector would show as
+   `fallback`. The answer is accepted only if the same selector then shows it as the `title`; it is
+   written onto the candidate (`title_repair` records what it replaced) so dedupe, the pointer
+   filter, the stored task, the confirmation and the `:wrench:` triage all read one title. Off with
+   `REMINDER_TITLE_REPAIR=off`; never throws into scheduling. Logged as `reminder title repair:`.
+
+**Always synthesize** (`REMINDER_TITLE_ALWAYS_SYNTHESIZE`, default ON when no legacy synthesis flag
+is set; an explicit legacy `REMINDER_TEXT_SYNTHESIS*` keeps governing an existing deployment): the
+routing decision in `DescribeSynthesisRouting` is forced ON (`routedBy: always_synthesize`), so the
+analyzer's grounded title is tried before the user's wording on every message. The legacy routing
+matrix still runs and is still reported, and governs only with the flag off; its removal is phase 6.
+
 ### Reminder FSM and Write-Path Contract
 
 Reminder state is an explicit FSM with three enforcement points — do not bypass any of them:

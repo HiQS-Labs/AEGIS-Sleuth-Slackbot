@@ -168,10 +168,91 @@ describe('RemindersAIPipeline', () => {
     });
   });
 
+  describe('always-synthesize (GH-250 phase 3)', () => {
+    const Flags = ['REMINDER_TITLE_ALWAYS_SYNTHESIZE', 'REMINDER_TEXT_SYNTHESIS', 'REMINDER_TEXT_SYNTHESIS_NORMAL', 'REMINDER_TEXT_SYNTHESIS_LONG'];
+    const Original = Object.fromEntries(Flags.map(Name => [Name, process.env[Name]]));
+    beforeEach(() => Flags.forEach(Name => delete process.env[Name]));
+    afterEach(() => {
+      for(const Name of Flags) {
+        if(Original[Name] === undefined) delete process.env[Name];
+        else process.env[Name] = Original[Name];
+      }
+    });
+
+    it('is ON when nothing is configured, and routes a short message to the title', () => {
+      expect(RemindersAIPipeline.IsAlwaysSynthesizeEnabled()).toBe(true);
+      const Routing = RemindersAIPipeline.DescribeSynthesisRouting('Ship the fix today.', [{ actionable_language: 'Ship the fix' }]);
+      expect(Routing).toMatchObject({ synthesisOn: true, routedBy: 'always_synthesize', alwaysSynthesize: true, segment: 'normal' });
+      expect(RemindersAIPipeline.IsTaskSynthesisEnabledForText('Ship the fix today.')).toBe(true);
+    });
+
+    it('keeps the legacy rule name when the legacy matrix already said ON', () => {
+      const Routing = RemindersAIPipeline.DescribeSynthesisRouting('First. Second. Third. Fourth.', []);
+      expect(Routing).toMatchObject({ synthesisOn: true, routedBy: 'sentence_count', alwaysSynthesize: true });
+    });
+
+    it.each(['REMINDER_TEXT_SYNTHESIS', 'REMINDER_TEXT_SYNTHESIS_NORMAL', 'REMINDER_TEXT_SYNTHESIS_LONG'])(
+      'yields to an existing deployment that set %s explicitly', (ArgName) => {
+        process.env[ArgName] = 'off';
+        expect(RemindersAIPipeline.IsAlwaysSynthesizeEnabled()).toBe(false);
+        expect(RemindersAIPipeline.DescribeSynthesisRouting('Ship the fix today.', []).synthesisOn).toBe(false);
+      });
+
+    it('wins over the legacy flags when set explicitly, either way', () => {
+      process.env.REMINDER_TEXT_SYNTHESIS = 'off';
+      process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'on';
+      expect(RemindersAIPipeline.DescribeSynthesisRouting('Ship the fix today.', []).synthesisOn).toBe(true);
+      process.env.REMINDER_TEXT_SYNTHESIS = 'on';
+      process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'off';
+      // explicit off restores the legacy matrix, which here says ON via the master flag.
+      expect(RemindersAIPipeline.DescribeSynthesisRouting('Ship the fix today.', []))
+        .toMatchObject({ synthesisOn: true, routedBy: 'master_override', alwaysSynthesize: false });
+      process.env.REMINDER_TEXT_SYNTHESIS = 'off';
+      expect(RemindersAIPipeline.DescribeSynthesisRouting('Ship the fix today.', []).synthesisOn).toBe(false);
+    });
+
+    it('the repair decision defaults ON and honours REMINDER_TITLE_REPAIR', () => {
+      delete process.env.REMINDER_TITLE_REPAIR;
+      expect(RemindersAIPipeline.IsTitleRepairEnabled()).toBe(true);
+      process.env.REMINDER_TITLE_REPAIR = 'off';
+      expect(RemindersAIPipeline.IsTitleRepairEnabled()).toBe(false);
+      delete process.env.REMINDER_TITLE_REPAIR;
+    });
+  });
+
+  describe('RepairReminderTitleAsync (GH-250 phase 3)', () => {
+    it('sends the source, candidate and refusal reasons and returns the trimmed answer', async () => {
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValue({
+        rationale: 'resolved the pointer', reminder_message: '  Ask <@U1> about the overdue Acme invoice ', object_ref: ' the invoice from Acme ',
+      });
+      const Result = await Pipeline.RepairReminderTitleAsync({
+        SourceText: '1. <@U1> the invoice from Acme is overdue\nask him tomorrow',
+        Candidate: { reminder_message: 'Ask him', actionable_language: 'ask him', context: '' },
+        RefusedFor: ['title:bare-pointer', 'span:bare-pointer', 'verbatim:bare-pointer'],
+      });
+      expect(Result).toEqual({ reminder_message: 'Ask <@U1> about the overdue Acme invoice', object_ref: 'the invoice from Acme', rationale: 'resolved the pointer' });
+      const [Payload, , Schema] = MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mock.calls[0];
+      expect(JSON.parse(Payload)).toMatchObject({ candidate_title: 'Ask him', evidence_span: 'ask him', refused_for: ['title:bare-pointer', 'span:bare-pointer', 'verbatim:bare-pointer'] });
+      expect(Schema.name).toBe('reminder_title_repair_response');
+    });
+
+    it('returns null, never throws, when the model fails or answers out of shape', async () => {
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockRejectedValueOnce(new Error('boom'));
+      expect(await Pipeline.RepairReminderTitleAsync({ SourceText: 'x', Candidate: {}, RefusedFor: [] })).toBeNull();
+      MockWorkspaceAI.ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({ rationale: 'no title field', object_ref: '' });
+      expect(await Pipeline.RepairReminderTitleAsync({ SourceText: 'x', Candidate: {}, RefusedFor: [] })).toBeNull();
+    });
+  });
+
   describe('text-synthesis settings (GH-337 Phase 2)', () => {
-    const SynthesisFlags = ['REMINDER_TEXT_SYNTHESIS', 'REMINDER_TEXT_SYNTHESIS_NORMAL', 'REMINDER_TEXT_SYNTHESIS_LONG'];
+    // GH-250 phase 3: these tests describe the LEGACY routing matrix, which now only governs when
+    // always-synthesize is off. Pin it off here so the matrix is what is under test.
+    const SynthesisFlags = ['REMINDER_TEXT_SYNTHESIS', 'REMINDER_TEXT_SYNTHESIS_NORMAL', 'REMINDER_TEXT_SYNTHESIS_LONG', 'REMINDER_TITLE_ALWAYS_SYNTHESIZE'];
     const OriginalFlags = Object.fromEntries(SynthesisFlags.map(Name => [Name, process.env[Name]]));
-    const ClearFlags = () => SynthesisFlags.forEach(Name => delete process.env[Name]);
+    const ClearFlags = () => {
+      SynthesisFlags.forEach(Name => delete process.env[Name]);
+      process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'off';
+    };
 
     beforeEach(ClearFlags);
     afterEach(() => {

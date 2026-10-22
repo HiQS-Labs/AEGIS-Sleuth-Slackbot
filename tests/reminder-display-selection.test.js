@@ -67,6 +67,61 @@ describe('SelectTaskText — verbatim path', () => {
   });
 });
 
+describe('GH-250 phase 3 — structured fields and the deterministic object repair', () => {
+  const { ValidateReminderCandidate } = require('../src/reminder-display-selection');
+  const Source = 'can you review it by Friday? PR 697 is waiting on the API deploy and the smoke tests';
+
+  test('a grounded object_ref repairs a pointer title in place, and the repair is reported', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Review it', actionable_language: 'review it', object_ref: 'PR 697' }, Source, true,
+    );
+    expect(Selection).toMatchObject({ text: 'Review PR 697', source: 'title' });
+    expect(Selection.contract.repair).toEqual({ by: 'object-ref', from: 'Review it' });
+    expect(Selection.contract.rejected.map(ArgE => ArgE.source)).toEqual(['title', 'span', 'verbatim']);
+  });
+
+  test('an ungrounded object_ref is dropped and the template is used instead', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Review it', actionable_language: 'review it', object_ref: 'PR 9999' }, Source, true,
+    );
+    expect(Selection.source).toBe('fallback');
+    expect(Selection.text).not.toContain('9999');
+  });
+
+  test('a person pointer is never repaired deterministically — that is the model\'s job', () => {
+    const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> PR 697 needs a second review\n[the message to act on]\nask him tomorrow';
+    const Selection = SelectTaskText(
+      { reminder_message: 'Ask him', actionable_language: 'ask him', object_ref: 'PR 697' }, 'ask him tomorrow', true, Analyzed,
+    );
+    expect(Selection).toMatchObject({ text: 'Follow up: PR 697 needs a second review', source: 'fallback' });
+    expect(Selection.contract.repair).toBeNull();
+  });
+
+  test('a title that was repaired by the model reports that repair when shown', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Deploy the hotfix', actionable_language: 'do it', title_repair: { from: 'Do it', by: 'model', reasons: ['title:bare-pointer'] } },
+      'the hotfix is ready, can you do it tomorrow?', true,
+    );
+    expect(Selection).toMatchObject({ text: 'Deploy the hotfix', source: 'title' });
+    expect(Selection.contract.repair).toEqual({ by: 'model', from: 'Do it' });
+  });
+
+  test('ValidateReminderCandidate grounds object_ref and validates, de-duplicates and caps subtasks', () => {
+    const Structure = ValidateReminderCandidate(
+      { object_ref: 'PR 697', subtasks: ['Deploy the API', 'deploy the api', 'Do it', 'Run the smoke tests', 'Review Snowflake'] },
+      Source,
+    );
+    expect(Structure).toEqual({ objectRef: 'PR 697', subtasks: ['Deploy the API', 'Run the smoke tests'], reasons: ['subtask-refused', 'subtask-refused'] });
+    const Capped = ValidateReminderCandidate(
+      { object_ref: 'Acme', subtasks: ['Deploy the API', 'Run the smoke tests', 'Review PR 697', 'Ship the Friday build'] }, Source,
+    );
+    expect(Capped.objectRef).toBe('');
+    expect(Capped.subtasks).toHaveLength(3);
+    expect(Capped.reasons).toEqual(['object-ref-ungrounded', 'subtasks-capped']);
+    expect(ValidateReminderCandidate({}, Source)).toEqual({ objectRef: '', subtasks: [], reasons: [] });
+  });
+});
+
 describe('GH-250 — the pointer-echo filter still sees the pointer behind the template', () => {
   const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> let\'s take the car.\n2. <@U_BETA> please bring the cooler.\n[the message to act on]\n<@U_BETA> can you do all of the above tomorrow?';
   const Live = '<@U_BETA> can you do all of the above tomorrow?';

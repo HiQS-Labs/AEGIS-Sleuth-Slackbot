@@ -382,7 +382,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
       }
     });
 
-    test('alarm clock reaction preserves the original message verbatim when synthesis is OFF (default)', async () => {
+    test('alarm clock reaction preserves the original message verbatim when synthesis is OFF (legacy routing)', async () => {
       const WorkspaceInfo = MakeWorkspaceInfo('manual_force_raw_default');
       const ExtractCalls = [];
       const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
@@ -421,7 +421,10 @@ describe('RemindersModule integration via MockSlackApp', () => {
       const Reminders = new RemindersModule(SlackApp);
 
       const PriorSynthesisFlag = process.env.REMINDER_TEXT_SYNTHESIS;
-      delete process.env.REMINDER_TEXT_SYNTHESIS; // default = OFF
+      const PriorAlwaysFlag = process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+      delete process.env.REMINDER_TEXT_SYNTHESIS;
+      // GH-250 phase 3: always-synthesize is the default now; this test is about the legacy matrix.
+      process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'off';
       try {
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
         await Reminders.StartAsync(EmptyWorkspaceStats);
@@ -444,6 +447,8 @@ describe('RemindersModule integration via MockSlackApp', () => {
       } finally {
         if(PriorSynthesisFlag === undefined) delete process.env.REMINDER_TEXT_SYNTHESIS;
         else process.env.REMINDER_TEXT_SYNTHESIS = PriorSynthesisFlag;
+        if(PriorAlwaysFlag === undefined) delete process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+        else process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = PriorAlwaysFlag;
         await Reminders.StopAsync();
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       }
@@ -3439,6 +3444,103 @@ describe('RemindersModule integration via MockSlackApp', () => {
         DedupSpy.mockRestore();
         await Reminders.StopAsync();
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    });
+  });
+
+  describe('GH-250 phase 3 — one constrained re-synthesis before the template fallback', () => {
+    /**
+     * Drive the REAL scheduling path with an analyzer that returns a pointer-only candidate (`Do it`)
+     * for a message with no thread context, so the title contract refuses every text and the repair
+     * decision is the only thing standing between the user and `Follow up: …`.
+     * @param {string} ArgSuffix Workspace suffix.
+     * @param {{reminder_message: string, object_ref: string}|null} ArgRepairAnswer What the repair model answers.
+     * @returns {Promise<{FeedbackText: string, RepairCalls: any[], Stored: any[]}>}
+     */
+    async function RunRepairCaseAsync(ArgSuffix, ArgRepairAnswer) {
+      const WorkspaceInfo = MakeWorkspaceInfo(ArgSuffix);
+      const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const RepairCalls = [];
+      const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
+        if(ArgMessageText.includes('BASE DATE:'))
+          return { year: 2030, month: 5, day: 7, hour: 8, minute: 0, second: 0, rationale: 'Tomorrow morning.' };
+        if(ArgSchema?.name === 'reminder_title_repair_response') {
+          RepairCalls.push(JSON.parse(ArgMessageText));
+          return { rationale: 'resolved the pointer from the sentence before it', ...ArgRepairAnswer };
+        }
+        if(ArgSchema?.name === 'reminder_response') {
+          return {
+            recommendation: 'schedule',
+            rationale: 'direct ask with a trigger',
+            reminders: [{
+              actionable_language: 'can you do it', scheduling_trigger: 'tomorrow', reminder_message: 'Do it',
+              context: '', owner: 'mentioned', owner_mentions: ['U_ALPHA'], object_ref: '', subtasks: [],
+            }],
+          };
+        }
+        return { recommendation: 'schedule', rationale: 'no duplicate', matched_by: null };
+      });
+      MockWorkspaceAI.mockImplementation(() => ({
+        ProcessMessageWithJsonResponseAsync: MockProcess,
+        ProcessMessageWithTextResponseAsync: jest.fn().mockResolvedValue('mock text response'),
+        get ComplexModelName() { return 'gpt-4o'; },
+        get DefaultModelName() { return 'gpt-4o-mini'; },
+        set DefaultModelName(_) {},
+      }));
+      const SlackApp = new MockSlackApp({ WorkspaceInfo, ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' } });
+      const Reminders = new RemindersModule(SlackApp);
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await fs.writeFile(RuntimePaths.enabledChannelsFilePath, JSON.stringify(['C_ENABLED']), 'utf8');
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        await SlackApp.SimulateMessageAsync({
+          channel: 'C_ENABLED', user: 'U_SENDER',
+          text: '<@U_ALPHA> the hotfix is ready, can you do it tomorrow?',
+        });
+        const FeedbackMessage = SlackApp.SentMessages.find(ArgMessage => /Slack reminder.*been scheduled/.test(ArgMessage.text));
+        expect(FeedbackMessage).toBeDefined();
+        const Stored = JSON.parse(await fs.readFile(RuntimePaths.remindersFilePath, 'utf8'));
+        return { FeedbackText: FeedbackMessage.text, RepairCalls, Stored };
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    }
+
+    test('a grounded repair is accepted: the confirmation and the stored task show it, once', async () => {
+      const R = await RunRepairCaseAsync('title_repair_accepted', { reminder_message: 'Deploy the hotfix', object_ref: 'the hotfix' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.RepairCalls[0]).toMatchObject({ candidate_title: 'Do it', evidence_span: 'can you do it' });
+      expect(R.RepairCalls[0].refused_for.join(' ')).toMatch(/bare-pointer/);
+      expect(R.FeedbackText).toContain('• Deploy the hotfix');
+      expect(R.FeedbackText).not.toContain('Follow up');
+      expect(R.Stored[0].ReminderMessageText).toContain('• Deploy the hotfix');
+    });
+
+    test('a repair that invents a term is refused by the same contract, and the template is shown', async () => {
+      const R = await RunRepairCaseAsync('title_repair_ungrounded', { reminder_message: 'Deploy the Snowflake hotfix', object_ref: 'Snowflake' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).not.toContain('Snowflake');
+      expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+      expect(R.Stored[0].ReminderMessageText).not.toContain('Snowflake');
+    });
+
+    test('an empty answer means "no task here" and keeps the template', async () => {
+      const R = await RunRepairCaseAsync('title_repair_declined', { reminder_message: '', object_ref: '' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+    });
+
+    test('REMINDER_TITLE_REPAIR=off spends no model call', async () => {
+      const Prior = process.env.REMINDER_TITLE_REPAIR;
+      process.env.REMINDER_TITLE_REPAIR = 'off';
+      try {
+        const R = await RunRepairCaseAsync('title_repair_off', { reminder_message: 'Deploy the hotfix', object_ref: 'the hotfix' });
+        expect(R.RepairCalls).toHaveLength(0);
+        expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+      } finally {
+        if(Prior === undefined) delete process.env.REMINDER_TITLE_REPAIR;
+        else process.env.REMINDER_TITLE_REPAIR = Prior;
       }
     });
   });
