@@ -67,6 +67,103 @@ describe('SelectTaskText — verbatim path', () => {
   });
 });
 
+describe('GH-250 phase 3 — structured fields and the deterministic object repair', () => {
+  const { ValidateReminderCandidate, IsObjectRefGrounded, TitleNamesObjectRef } = require('../src/reminder-display-selection');
+  const Source = 'can you review it by Friday? PR 697 is waiting on the API deploy and the smoke tests';
+
+  test('a grounded object_ref repairs a pointer title in place, and the repair is reported', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Review it', actionable_language: 'review it', object_ref: 'PR 697' }, Source, true,
+    );
+    expect(Selection).toMatchObject({ text: 'Review PR 697', source: 'title' });
+    expect(Selection.contract.repair).toEqual({ by: 'object-ref', from: 'Review it' });
+    expect(Selection.contract.rejected.map(ArgE => ArgE.source)).toEqual(['title', 'span', 'verbatim']);
+  });
+
+  test('an ungrounded object_ref is dropped and the template is used instead', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Review it', actionable_language: 'review it', object_ref: 'PR 9999' }, Source, true,
+    );
+    expect(Selection.source).toBe('fallback');
+    expect(Selection.text).not.toContain('9999');
+  });
+
+  test('`them` can be a person too: never rebuilt around a thing (Greptile on #268)', () => {
+    const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> the invoice from Acme is overdue\n[the message to act on]\nask them tomorrow';
+    const Selection = SelectTaskText(
+      { reminder_message: 'Ask them', actionable_language: 'ask them', object_ref: 'the invoice' }, 'ask them tomorrow', true, Analyzed,
+    );
+    expect(Selection.text).not.toBe('Ask the invoice');
+    expect(Selection.source).toBe('fallback');
+  });
+
+  test('an invented lowercase object never reaches a title through the deterministic repair', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Review it', actionable_language: 'review it', object_ref: 'the billing database' },
+      'can you review it by Friday?', true,
+    );
+    expect(Selection.source).toBe('fallback');
+    expect(Selection.text).not.toMatch(/billing/);
+    expect(Selection.contract.repair).toBeNull();
+  });
+
+  test('IsObjectRefGrounded wants a whole run of source words; TitleNamesObjectRef wants its content words in the title', () => {
+    const Thread = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> the invoice from Acme is overdue\n[the message to act on]\n<@U_BETA> ask him tomorrow';
+    expect(IsObjectRefGrounded('the invoice from Acme', Thread)).toBe(true);
+    expect(IsObjectRefGrounded('<@U_ALPHA>', Thread)).toBe(true);
+    expect(IsObjectRefGrounded('the overdue invoice', Thread)).toBe(false);
+    expect(IsObjectRefGrounded('an invoice from Acme Corp', Thread)).toBe(false);
+    expect(IsObjectRefGrounded('', Thread)).toBe(false);
+    expect(TitleNamesObjectRef('Ask <@U_ALPHA> about the overdue Acme invoice', 'the invoice from Acme')).toBe(true);
+    expect(TitleNamesObjectRef('Ask <@U_ALPHA> about the overdue Acme invoice', '<@U_ALPHA>')).toBe(true);
+    expect(TitleNamesObjectRef('Deploy the billing database', 'the hotfix')).toBe(false);
+    expect(TitleNamesObjectRef('Deploy the hotfix', '')).toBe(false);
+    expect(TitleNamesObjectRef('Deploy the hotfix', 'the')).toBe(false);
+  });
+
+  test('a person pointer is never repaired deterministically — that is the model\'s job', () => {
+    const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> PR 697 needs a second review\n[the message to act on]\nask him tomorrow';
+    const Selection = SelectTaskText(
+      { reminder_message: 'Ask him', actionable_language: 'ask him', object_ref: 'PR 697' }, 'ask him tomorrow', true, Analyzed,
+    );
+    expect(Selection).toMatchObject({ text: 'Follow up: PR 697 needs a second review', source: 'fallback' });
+    expect(Selection.contract.repair).toBeNull();
+  });
+
+  test('a title that was repaired by the model reports that repair when shown', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Deploy the hotfix', actionable_language: 'do it', title_repair: { from: 'Do it', by: 'model', reasons: ['title:bare-pointer'] } },
+      'the hotfix is ready, can you do it tomorrow?', true,
+    );
+    expect(Selection).toMatchObject({ text: 'Deploy the hotfix', source: 'title' });
+    expect(Selection.contract.repair).toEqual({ by: 'model', from: 'Do it' });
+  });
+
+  test('ValidateReminderCandidate grounds object_ref and validates, de-duplicates and caps subtasks', () => {
+    const Structure = ValidateReminderCandidate(
+      { object_ref: 'PR 697', subtasks: ['Deploy the API', 'deploy the api', 'Do it', 'Run the smoke tests', 'Review Snowflake'] },
+      Source,
+    );
+    expect(Structure).toEqual({ objectRef: 'PR 697', subtasks: ['Deploy the API', 'Run the smoke tests'], reasons: ['subtask-refused', 'subtask-refused'] });
+    const Capped = ValidateReminderCandidate(
+      { object_ref: 'Acme', subtasks: ['Deploy the API', 'Run the smoke tests', 'Review PR 697', 'Ship the Friday build'] }, Source,
+    );
+    expect(Capped.objectRef).toBe('');
+    expect(Capped.subtasks).toHaveLength(3);
+    expect(Capped.reasons).toEqual(['object-ref-ungrounded', 'subtasks-capped']);
+    expect(ValidateReminderCandidate({}, Source)).toEqual({ objectRef: '', subtasks: [], reasons: [] });
+    // an object the source never says is dropped even when it names nothing the term extractor
+    // claims: a lowercase phrase is grounded as a whole run of source words (CodeRabbit on #268).
+    expect(ValidateReminderCandidate({ object_ref: 'the billing database' }, Source))
+      .toEqual({ objectRef: '', subtasks: [], reasons: ['object-ref-ungrounded'] });
+    expect(ValidateReminderCandidate({ object_ref: 'the smoke tests' }, Source).objectRef).toBe('the smoke tests');
+    // a sub-item the budget cut reduces to its verb is refused, as a title would be (Greptile on #268).
+    const QuotedName = 'Quarterly Rollout Checklist for the Northern Region Retail Partners and Wholesale Accounts';
+    expect(ValidateReminderCandidate({ subtasks: [`Review "${QuotedName}"`] }, `review "${QuotedName}" tomorrow`))
+      .toEqual({ objectRef: '', subtasks: [], reasons: ['subtask-refused'] });
+  });
+});
+
 describe('GH-250 — the pointer-echo filter still sees the pointer behind the template', () => {
   const Analyzed = '[earlier messages in this thread, for reference]\n1. <@U_ALPHA> let\'s take the car.\n2. <@U_BETA> please bring the cooler.\n[the message to act on]\n<@U_BETA> can you do all of the above tomorrow?';
   const Live = '<@U_BETA> can you do all of the above tomorrow?';

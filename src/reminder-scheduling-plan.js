@@ -31,7 +31,12 @@ function PrepareReminderCandidates(ArgInput) {
     const Key = `${Candidate.scheduling_trigger} ${Text}`;
     if(Seen.has(Key)) continue;
     Seen.add(Key);
-    Distinct.push({ candidate: Candidate, text: Text, rawText: Candidate.reminder_message || Candidate.actionable_language || '' });
+    // GH-250 phase 3: a title the repair step rewrote is still the live reply restated beside its
+    // siblings, so the pointer filter reads what the repair replaced (`title_repair.from`).
+    Distinct.push({
+      candidate: Candidate, text: Text,
+      rawText: Candidate.title_repair?.from || Candidate.reminder_message || Candidate.actionable_language || '',
+    });
   }
   const Filter = DisplaySelection.DropUnresolvedReferenceCandidates(
     Distinct, Boolean(ArgInput.Enriched), ContextResolution.NeedsEarlierContext, ArgInput.LiveReplyText || '',

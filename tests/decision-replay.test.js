@@ -124,6 +124,11 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
   test('each Phase 2 mechanism is INDEPENDENTLY load bearing — neither is dead code', async () => {
     const Battery = require(BatteryPath);
     const Pipeline = require('../src/reminders-ai-pipeline');
+    // GH-250 phase 3: always-synthesize (the default) makes routing moot by design; the legacy
+    // matrix these perturbations exercise only governs with it off.
+    const PriorAlwaysFlag = process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+    process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'off';
+    try {
 
     /**
      * @param {any[]} ArgRows
@@ -206,6 +211,21 @@ describe('RunAllAsync over the shipped GH-43 battery', () => {
     // and the battery is green again once both are restored — the perturbation, not the code, was
     // what turned it red.
     expect(FailedIDs(await RunAllAsync(Battery.scenarios))).toEqual([]);
+    } finally {
+      if(PriorAlwaysFlag === undefined) delete process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+      else process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = PriorAlwaysFlag;
+    }
+  });
+
+  test('GH-250 phase 3: with always-synthesize (the default) every scenario routes to the title and the battery is green', async () => {
+    const Battery = require(BatteryPath);
+    const Rows = await RunAllAsync(Battery.scenarios);
+    expect(Rows.filter(ArgR => ArgR.status === 'FAIL')).toEqual([]);
+    const Analysed = Rows.filter(ArgR => ArgR.observed && ArgR.observed.routing);
+    expect(Analysed.length).toBeGreaterThan(10);
+    for(const Row of Analysed) expect(Row.observed.routing.synthesisOn).toBe(true);
+    // the user's wording is no longer shown first: S-03's title wins over its verbatim sentence.
+    expect(Rows.find(ArgR => ArgR.id === 'S-03').observed.displayedTasks).toEqual(['Deploy the changes']);
   });
 
   test('GH-43 Phase 3: task and context are separate, and the grounding constraint is enforced', async () => {

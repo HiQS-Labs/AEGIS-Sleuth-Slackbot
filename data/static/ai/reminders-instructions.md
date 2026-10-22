@@ -149,6 +149,8 @@ The JSON output must be generated as follows:
        - Use an empty string `""` when the message is only a task with no surrounding background.
        - Example: given `I'll deploy the hotfix tomorrow morning`, `context` is `""`.
        - **GROUNDING RULE**: never introduce a system, product, person, number, or identifier that is not in the source message. This applies to `reminder_message` too — you may re-word freely, but every name and figure you use must already appear in the message. Anything you invent will be discarded and the reminder will fall back to quoting the message verbatim.
+    - `object_ref`: the concrete thing this task is about, copied from the source words — a PR or issue number (`PR 697`, `#12`), a document, product or system name (`the LTVera website layout`, `the Mailgun data pipeline alerts`), a user mention token exactly as written (`<@U123>`), or a file. Use an empty string `""` when the task has no nameable object. Never a name the source does not contain. When `reminder_message` had to resolve a pointer (`it`, `this`, `the above`), `object_ref` is the thing it resolved to.
+    - `subtasks`: when the task carries a SHORT list of named sub-items (at most 3), one imperative line per item in the same shape as `reminder_message`; an empty array `[]` otherwise. A long pasted list is never copied here — summarize it in `reminder_message` instead. Each sub-item obeys the GROUNDING RULE.
     - `owner`: who is going to DO this task. Decide it from the **grammatical subject of the `actionable language`**, never from who is mentioned in the message.
        - `speaker` — the author commits to doing it themselves.
          - Example: given `i am going to deploy the changes tomorrow morning`, `owner` is `speaker`.

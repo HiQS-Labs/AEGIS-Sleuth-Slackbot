@@ -22,6 +22,8 @@ const EXPECTED_PAIRS = {
   'compass-instructions.md': 'compass-schema.json',
   'reminders-instructions.md': 'reminders-schema.json',
   'manual-reminder-task-instructions.md': 'manual-reminder-task-schema.json',
+  // GH-250 phase 3: the one constrained re-synthesis run when every title candidate is refused.
+  'reminder-title-repair-instructions.md': 'reminder-title-repair-schema.json',
   'date-extraction-instructions.md': 'date-extraction-schema.json',
   'reminders-dedup-instructions.md': 'reminders-dedup-schema.json',
   'github-relay-relevance-instructions.md': 'github-relay-relevance-schema.json',

@@ -74,16 +74,16 @@
     "routing": {
       "actionableSpanRatio": 0.56,
       "messageLength": 41,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
         "rejected": [],
         "shortened": false,
-        "source": "verbatim",
+        "source": "title",
         "unshortened": "",
         "words": 3
       }
@@ -134,16 +134,14 @@
     "routing": {
       "actionableSpanRatio": 0.16,
       "messageLength": 80,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 2,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
-        "rejected": [
-          "verbatim:multi-sentence"
-        ],
+        "rejected": [],
         "shortened": false,
         "source": "title",
         "unshortened": "",
@@ -176,16 +174,16 @@
     "routing": {
       "actionableSpanRatio": 0.46,
       "messageLength": 72,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
         "rejected": [],
         "shortened": false,
-        "source": "verbatim",
+        "source": "title",
         "unshortened": "",
         "words": 4
       }
@@ -254,16 +252,16 @@
     "routing": {
       "actionableSpanRatio": 0.49,
       "messageLength": 35,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
         "rejected": [],
         "shortened": false,
-        "source": "verbatim",
+        "source": "title",
         "unshortened": "",
         "words": 3
       }
@@ -343,7 +341,7 @@
       ""
     ],
     "displayedTasks": [
-      "Work on \"On-going Project: Yard Photo Backfill\""
+      "\"On-going Project: Yard Photo Backfill\""
     ],
     "ownership": {
       "assignees": [
@@ -357,18 +355,18 @@
     "routing": {
       "actionableSpanRatio": 0.76,
       "messageLength": 75,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
         "rejected": [],
         "shortened": false,
-        "source": "verbatim",
+        "source": "title",
         "unshortened": "",
-        "words": 7
+        "words": 5
       }
     ],
     "triggers": [
@@ -421,7 +419,7 @@
       ""
     ],
     "displayedTasks": [
-      "Review the Development branch and if it's safe push to Production"
+      "Review Development branch and if safe push to Production"
     ],
     "ownership": {
       "assignees": [
@@ -435,18 +433,18 @@
     "routing": {
       "actionableSpanRatio": 0.69,
       "messageLength": 94,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
         "rejected": [],
         "shortened": false,
-        "source": "verbatim",
+        "source": "title",
         "unshortened": "",
-        "words": 11
+        "words": 9
       }
     ],
     "triggers": [
@@ -471,10 +469,10 @@
     "routing": {
       "actionableSpanRatio": 0,
       "messageLength": 68,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [],
     "triggers": []
@@ -496,10 +494,10 @@
     "routing": {
       "actionableSpanRatio": 0,
       "messageLength": 60,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [],
     "triggers": []
@@ -576,16 +574,14 @@
     "routing": {
       "actionableSpanRatio": 0.45,
       "messageLength": 56,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
-        "rejected": [
-          "verbatim:not-imperative"
-        ],
+        "rejected": [],
         "shortened": false,
         "source": "title",
         "unshortened": "",
@@ -620,16 +616,14 @@
     "routing": {
       "actionableSpanRatio": 0.47,
       "messageLength": 72,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
-        "rejected": [
-          "verbatim:not-imperative"
-        ],
+        "rejected": [],
         "shortened": false,
         "source": "title",
         "unshortened": "",
@@ -702,16 +696,16 @@
     "routing": {
       "actionableSpanRatio": 0.46,
       "messageLength": 70,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
         "rejected": [],
         "shortened": false,
-        "source": "verbatim",
+        "source": "title",
         "unshortened": "",
         "words": 4
       }
@@ -741,16 +735,14 @@
     "routing": {
       "actionableSpanRatio": 0.73,
       "messageLength": 63,
-      "routedBy": "sentence_count",
+      "routedBy": "always_synthesize",
       "segment": "normal",
       "sentenceCount": 1,
-      "synthesisOn": false
+      "synthesisOn": true
     },
     "titleSources": [
       {
-        "rejected": [
-          "verbatim:status-remark"
-        ],
+        "rejected": [],
         "shortened": false,
         "source": "title",
         "unshortened": "",
