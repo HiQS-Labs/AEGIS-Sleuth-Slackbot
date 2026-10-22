@@ -2,9 +2,9 @@
 gh_issue: 261
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/261
 title: Reminder-pipeline inventory ratchet
-status: Active
+status: Complete
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-22
 owner: Codex
 goal: Prevent #250's known reminder text-pipeline complexity signals from growing during its deletion phases.
 doc_type: bugfix
