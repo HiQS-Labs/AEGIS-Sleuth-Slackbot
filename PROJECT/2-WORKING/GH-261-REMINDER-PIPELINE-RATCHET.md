@@ -22,7 +22,7 @@ non_goals: [Implementing #250 deletions, AST-based complexity analysis, new test
 
 | What was just completed | What's next |
 |---|---|
-| Captured #261, registered and rated its roadmap row (70/65/70/80), and measured the current signal locations from `origin/development` (`50fa08c`). | Complete plan QA, then add the narrow guard, baseline, CI hook, contract rule, and smoke receipts. |
+| Guard, baseline, CI hook, contract rule and smoke receipts shipped in PR #262 (plan and final Codex QA approved). Review follow-up: display sources found by their declared union, indented specs and prefixed `Key task` regexes counted, fixture tests on a fixed baseline, and any baseline increase needs its own `increases` record; `llm_extraction_specs` raised 3 → 4 for #268's title-repair spec. | Merge PR #262. Later #250 phases lower the counters with `--update-baseline` in the deleting PR. |
 
 ## Table of contents
 

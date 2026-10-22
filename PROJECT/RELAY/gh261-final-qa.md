@@ -99,7 +99,7 @@ Handing off to Reviewer — re-review the multiline display-source control and t
 
 swept file: yes
 
-- [Pass] The repaired display-source matcher consumes the complete `source` union before its closing type brace, so a continuation-line member is counted: `scripts/validate-reminder-pipeline.js:53-59`. Static probe: `$ node - <<'NODE' > "$TMPDIR/round2-static-probe.txt" … NODE; cat "$TMPDIR/round2-static-probe.txt"` (exit 0) produced `production=verbatim,title,span,fallback; count=4` and `multiline=verbatim,title,span,fallback,new-source; count=5`. The focused red control asserts that multiline fifth member exits 1 at `tests/validate-fsm-invariants.test.js:209-211`.
+- [Pass] The repaired display-source matcher consumes the complete `source` union before its closing type brace, so a continuation-line member is counted: `scripts/validate-reminder-pipeline.js:53-59`. Static probe: `$ node - <<'NODE' > "$TMPDIR/round2-static-probe.txt" … NODE; cat "$TMPDIR/round2-static-probe.txt"` (exit 0) produced `production=verbatim,title,span,fallback; count=4` and `multiline=verbatim,title,span,fallback,new-source; count=5`. The focused red control asserts that multiline fifth member exits 1 at `tests/validate-fsm-invariants.test.js:205-207` (at de0524c; corrected in review follow-up).
 
 - [Pass] The validator retains the required structural ratchet behavior: baseline counts are 3/6/3/4/2 at `scripts/reminder-pipeline-baseline.json:4-8`; growth and an unrecorded shrink fail at `scripts/validate-reminder-pipeline.js:72-74`; and `--update-baseline` explicitly rejects an upward count at `scripts/validate-reminder-pipeline.js:75`. The required existing-suite growth controls and deletion control are present at `tests/validate-fsm-invariants.test.js:175-227`.
 
