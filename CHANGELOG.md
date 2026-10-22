@@ -42,7 +42,9 @@ of only showing its syntax. `refresh clients` is no longer offered for `rmm ifl`
 **Technical:** GH-181. `BuildCanonicalCommand` gains `scan-image-for-text`, `make-list-from-image`,
 `convert-text-into-slack-list` and `ask-reminders` cases (catalog entries already marked
 `CanExecuteWithIfl`; GH-64 named `rmm ifl` reach as a goal), and `ask-compass` joins
-`BuildCanonicalCommandIntentIds`. `refresh-clients` (rewrites the client overlay, no plan for a
+`BuildCanonicalCommandIntentIds`. List conversion is built only with source text, since its route
+has no thread-context fallback. The rmm resolver now loads the catalog through
+`LoadCommandCatalogSync`, so it sees the code-registered `ask-reminders` entry. `refresh-clients` (rewrites the client overlay, no plan for a
 model-resolved run) is now `CanExecuteWithIfl: false`. `validate:commands` exempts `ask-self`
 (private RAG overlay only) and `run-tests-unavailable` (retired refusal) by name, runs
 `ChatModule.StartAsync`'s catalog alias pass so `ask-reminders` counts as registered, and now runs in CI.

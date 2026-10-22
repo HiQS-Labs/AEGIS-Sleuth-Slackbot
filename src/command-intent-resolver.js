@@ -4,6 +4,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const { RenderSnapshotContextLines } = require('./workspace-snapshot');
 const { GetProviderDescriptorForModel } = require('./ai-providers');
+const { LoadCommandCatalogSync } = require('./command-catalog');
 
 /** @typedef {import('./workspace-ai')} WorkspaceAI */
 
@@ -89,10 +90,9 @@ let CachedArgumentInvariantCommands = null;
  * @returns {Promise<void>}
  */
 async function LoadCommandIntentAssetsAsync() {
-  if(!CachedCommandCatalog) {
-    const CommandCatalogText = await fs.readFile(path.join(AssetsBasePath, 'command-catalog.json'), 'utf8');
-    CachedCommandCatalog = JSON.parse(CommandCatalogText);
-  }
+  // the same loader help and the router use, which adds code-registered entries (`ask-reminders`)
+  // the JSON file does not carry (GH-181).
+  if(!CachedCommandCatalog) CachedCommandCatalog = LoadCommandCatalogSync();
 
   if(!CachedNormalizationConfig) {
     const NormalizationText = await fs.readFile(path.join(AssetsBasePath, 'command-normalization.json'), 'utf8');
@@ -411,13 +411,14 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
   case 'ask-reminders':
     return QueryText ? `ask-reminders ${QueryText}` : null;
   // GH-64/GH-74 (GH-181): the image commands read the attachment from the event itself, so the
-  // canonical command carries no argument; list conversion may carry its source text.
+  // canonical command carries no argument. List conversion needs its source text: the route gets
+  // no thread-context fallback, so a bare command would only post usage.
   case 'scan-image-for-text':
     return 'scan image for text';
   case 'make-list-from-image':
     return 'make list from image';
   case 'convert-text-into-slack-list':
-    return QueryText ? `convert text into slack list ${QueryText}` : 'convert text into slack list';
+    return QueryText ? `convert text into slack list ${QueryText}` : null;
   default:
     return null;
   }

@@ -105,13 +105,42 @@ describe('command-intent-resolver', () => {
     await NormalizeDirectCommandTextAsync('ping'); // loads the normalization config BuildCanonicalCommand needs
     expect(BuildCanonicalCommand('scan-image-for-text', {})).toBe('scan image for text');
     expect(BuildCanonicalCommand('make-list-from-image', {})).toBe('make list from image');
-    expect(BuildCanonicalCommand('convert-text-into-slack-list', {})).toBe('convert text into slack list');
+    expect(BuildCanonicalCommand('convert-text-into-slack-list', {})).toBeNull();
     expect(BuildCanonicalCommand('convert-text-into-slack-list', { QueryText: ' milk,  eggs ' }))
       .toBe('convert text into slack list milk, eggs');
     expect(BuildCanonicalCommand('ask-reminders', { QueryText: "what's open for Client A?" }))
       .toBe("ask-reminders what's open for Client A?");
     expect(BuildCanonicalCommand('ask-reminders', {})).toBeNull();
     expect(BuildCanonicalCommand('refresh-clients', {})).toBeNull();
+  });
+
+  test('rmm resolves ask-reminders, which only the code-registered catalog carries', async () => {
+    const WorkspaceAI = {
+      DefaultModelName: 'gpt-4o-mini',
+      ComplexModelName: 'gpt-4o',
+      ProcessMessageWithJsonResponseAsync: jest.fn().mockResolvedValue({
+        intent_id: 'ask-reminders',
+        confidence: 0.9,
+        rationale: 'Question about open reminders.',
+        needs_clarification: false,
+        clarification_question: '',
+        default_model_name: '',
+        complex_model_name: '',
+        channel_model_name: '',
+        query_text: "what's open for Client A?",
+        user_mention: '',
+      }),
+    };
+
+    const Result = await ResolveRmmIntentAsync(WorkspaceAI, "what's still open for Client A?", {
+      RequestMode: 'execute',
+      ChannelID: 'C_TEST',
+      ChannelModelStatus: { override: null, defaultModel: 'gpt-4o-mini', effectiveModel: 'gpt-4o-mini' },
+    });
+
+    expect(Result.CatalogEntry?.Id).toBe('ask-reminders');
+    expect(Result.CatalogEntry?.CanExecuteWithIfl).toBe(true);
+    expect(Result.CanonicalCommand).toBe("ask-reminders what's open for Client A?");
   });
 });
 
@@ -173,7 +202,7 @@ describe('GH-405 workspace-snapshot context injection', () => {
       const AiA = MakeCapturingWorkspaceAI();
       await ResolveRmmIntentAsync(AiA, 'what is open', {
         ...BaseOptions,
-        WorkspaceSnapshot: { openTotal: 7, topClientsByOpen: [{ name: 'Client A', count: 7 }] },
+        WorkspaceSnapshot: { openTotal: 7, topClientsByOpen: [{ name: 'Zephyrine Ltd', count: 7 }] },
       });
       const AiB = MakeCapturingWorkspaceAI();
       await ResolveRmmIntentAsync(AiB, 'what is open', {
@@ -184,11 +213,11 @@ describe('GH-405 workspace-snapshot context injection', () => {
       const PromptA = AiA.ProcessMessageWithJsonResponseAsync.mock.calls[0][0];
       const PromptB = AiB.ProcessMessageWithJsonResponseAsync.mock.calls[0][0];
       expect(PromptA).toContain('open_total: 7');
-      expect(PromptA).toContain('top_clients_by_open: Client A (7)');
+      expect(PromptA).toContain('top_clients_by_open: Zephyrine Ltd (7)');
       expect(PromptA).not.toContain('Acme');
       expect(PromptB).toContain('open_total: 1');
       expect(PromptB).toContain('top_clients_by_open: Acme (1)');
-      expect(PromptB).not.toContain('Client A');
+      expect(PromptB).not.toContain('Zephyrine Ltd');
     });
   });
 
