@@ -836,7 +836,7 @@
     "Id": "refresh-clients",
     "Permission": "public",
     "Risk": "low",
-    "CanExecuteWithIfl": true,
+    "CanExecuteWithIfl": false,
     "Description": "Re-read the operator-managed Clients Slack List into the Sleuth client lookup so reminder client-name inference picks up new clients and aliases without a code deploy.",
     "SyntaxExamples": [
       "@Sleuth AI refresh clients"
