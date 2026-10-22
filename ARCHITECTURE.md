@@ -127,11 +127,16 @@ The normal reminder creation flow is:
 7. Snooze suppression must pass through `#ShouldSuppressForSnooze(...)` before posting.
 8. Posted reminders can be completed, canceled, snoozed, retried, or dead-lettered depending on the state transition.
 
-A scheduled reminder is rendered **twice by separate code**: the confirmation posted immediately
-(`#ComposeFeedbackMessageText`) and the reminder text stored for posting at its due time (composed at
-the `#SelectReminderTaskText` reduce). Both must be handed the same synthesis routing decision and
-grounding source, or the two disagree for one reminder — see the invariant comment above
-`SynthesisRouting` in `src/reminders-module.js`, which is authoritative.
+`src/reminder-scheduling-plan.js` prepares candidate selection, render-identity deduplication,
+unresolved-reference filtering and trigger groups once. Scheduling and triage share that pure
+computation and per-group ownership resolution. The existing gateway keeps AI/date/dedup calls,
+factory, queue, save, List fanout and feedback in their existing order. Confirmation consumes the
+prepared task view used for the stored body; it does not select the task again.
+
+Legacy content is interpreted by `SlackFormatUtils.ParseLegacyReminderContent`. Existing format,
+compact-display and project-title entrypoints retain their distinct views (including casing,
+newline and fallback quirks); storage and exported wire shapes stay unchanged. The project-title
+export remains a compatibility facade. No parser or planning step owns durable state.
 
 ### Long Slack-message reminder contract (GH-243)
 
