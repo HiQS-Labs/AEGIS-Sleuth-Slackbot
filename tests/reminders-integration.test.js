@@ -3611,3 +3611,112 @@ describe('RemindersModule integration via MockSlackApp', () => {
     });
   });
 });
+
+// characterize effects before replacing internal planning; the real registered handler is invoked.
+describe('GH-264 scheduling effect and failure contracts', () => {
+  test.each(['success', 'ignore', 'duplicate', 'save-failure', 'list-failure', 'feedback-failure'])(
+    '%s retains handled/state/effect ordering', async ArgCase => {
+      const WorkspaceInfo = MakeWorkspaceInfo(`gh264_${ArgCase}`);
+      const Paths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const Effects = [];
+      const MockProcess = ConfigureMockWorkspaceAI(MockWorkspaceAI, {
+        recommendation: ArgCase === 'ignore' ? 'ignore' : 'schedule',
+        reminderMessage: 'Review release notes', actionableLanguage: 'review release notes',
+      });
+      const Analyze = MockProcess.getMockImplementation();
+      MockProcess.mockImplementation(async (...ArgArgs) => { Effects.push('analysis'); return Analyze(...ArgArgs); });
+      const SlackApp = new MockSlackApp({ WorkspaceInfo, ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' } });
+      const Register = jest.spyOn(SlackApp, 'HandleMessage');
+      const Reminders = new RemindersModule(SlackApp);
+      const Handler = Register.mock.calls[1][0];
+      const Event = { channel: 'D_SOURCE', channel_type: 'im', ts: '1800000000.000001', user: 'U_SENDER', text: "I'll review release notes tomorrow.", thread_ts: null };
+      const DateSpy = jest.spyOn(RemindersAIPipeline.prototype, 'ExtractDateWithGptAsync').mockImplementation(async () => {
+        Effects.push('date');
+        return { success: true, date: new Date('2030-01-02T17:00:00Z'), wasAdjustedForward: false };
+      });
+      const DedupSpy = jest.spyOn(RemindersAIPipeline.prototype, 'CheckForDuplicateReminderAsync').mockImplementation(async ArgReminder => {
+        Effects.push('dedup');
+        const SameMessage = Reminders.GetPendingReminders().some(r => r.OriginalMessageID === ArgReminder.OriginalMessageID);
+        return { recommendation: ArgCase === 'duplicate' || SameMessage ? 'ignore' : 'schedule', rationale: 'characterized duplicate', matched_by: SameMessage ? 'message_id' : 'semantic' };
+      });
+      const ReadDisk = async () => {
+        try { return JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8')); }
+        catch(error) { if(error.code === 'ENOENT') return []; throw error; }
+      };
+      const ListSawPersisted = [];
+      const Lists = { IsListsAvailable: true, AddReminderToListAsync: jest.fn(async ArgReminder => {
+        Effects.push('list');
+        ListSawPersisted.push((await ReadDisk()).some(r => r.ReminderID === ArgReminder.ReminderID));
+        if(ArgCase === 'list-failure') throw new Error('characterized list failure');
+      }) };
+      let RenameSpy;
+      let PostSpy;
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        Reminders.SetListsModule(Lists);
+        const Rename = fs.rename.bind(fs);
+        let FailSave = ArgCase === 'save-failure';
+        RenameSpy = jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+          if(ArgTo === Paths.remindersFilePath) {
+            if(FailSave) { FailSave = false; Effects.push('save-failed'); throw new Error('characterized save failure'); }
+            Effects.push('save');
+          }
+          return Rename(ArgFrom, ArgTo);
+        });
+        const Post = SlackApp.PostMessageTextAsync.bind(SlackApp);
+        PostSpy = jest.spyOn(SlackApp, 'PostMessageTextAsync').mockImplementation(async (...ArgArgs) => {
+          if(ArgArgs[4]?.Tag === 'reminders-feedback') {
+            Effects.push('feedback');
+            if(ArgCase === 'feedback-failure') throw new Error('characterized feedback failure');
+          }
+          return Post(...ArgArgs);
+        });
+        Effects.length = 0;
+        if(ArgCase === 'feedback-failure')
+          await expect(Handler(SlackApp, Event)).rejects.toThrow('characterized feedback failure');
+        else
+          expect(await Handler(SlackApp, Event)).toBe(ArgCase === 'success');
+
+        const ExpectedEffects = {
+          success: ['analysis', 'date', 'dedup', 'save', 'list', 'feedback'],
+          ignore: ['analysis'], duplicate: ['analysis', 'date', 'dedup'],
+          'save-failure': ['analysis', 'date', 'dedup', 'save-failed'],
+          'list-failure': ['analysis', 'date', 'dedup', 'save', 'list'],
+          'feedback-failure': ['analysis', 'date', 'dedup', 'save', 'list', 'feedback'],
+        };
+        expect(Effects).toEqual(ExpectedEffects[ArgCase]);
+        expect(ListSawPersisted).toEqual(ExpectedEffects[ArgCase].filter(e => e === 'list').map(() => true));
+        const Created = !['ignore', 'duplicate'].includes(ArgCase);
+        expect(Reminders.GetPendingReminders()).toHaveLength(Created ? 1 : 0);
+        expect(await ReadDisk()).toHaveLength(Created && ArgCase !== 'save-failure' ? 1 : 0);
+        if(Created) {
+          const Record = Reminders.GetPendingReminders()[0];
+          expect(Record.ShouldPostOn).toBeInstanceOf(Date);
+          expect(Object.hasOwn(Record, 'EnrichedFrom')).toBe(false);
+          expect(Record.AssigneeIDs).toEqual(['U_SENDER']);
+          expect(Record.ReminderMessageText).toContain('Key task(s):');
+        }
+        const Feedback = SlackApp.SentMessages.filter(m => m.metadata?.event_type === 'sleuth-ai-reminder-ids');
+        expect(Feedback).toHaveLength(ArgCase === 'success' ? 1 : 0);
+        if(ArgCase === 'success') expect(JSON.parse(Feedback[0].metadata.event_payload.ReminderIDs)).toEqual([Reminders.GetPendingReminders()[0].ReminderID]);
+        if(ArgCase === 'duplicate') expect(SlackApp.AddedReactions.some(r => r.reaction === 'gemini')).toBe(true);
+        if(ArgCase === 'save-failure') {
+          expect(await Handler(SlackApp, { ...Event, ts: '1800000000.000002' })).toBe(true);
+          expect(await ReadDisk()).toHaveLength(2);
+          expect(ListSawPersisted).toEqual([true]);
+        }
+        if(ArgCase === 'feedback-failure') {
+          expect(await SlackApp.SimulateMessageAsync(Event)).toBe(false);
+          expect(Reminders.GetPendingReminders()).toHaveLength(1);
+          expect(Lists.AddReminderToListAsync).toHaveBeenCalledTimes(1);
+        }
+      } finally {
+        RenameSpy?.mockRestore(); PostSpy?.mockRestore(); DateSpy.mockRestore(); DedupSpy.mockRestore();
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        MockWorkspaceAI.mockReset();
+      }
+    },
+  );
+});

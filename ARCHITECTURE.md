@@ -83,8 +83,10 @@ This ordering matters. In particular:
 
 - **Default off.** Enabled only when the workspace is listed in `GITHUB_ISSUE_STREAM_WORKSPACES` and `GITHUB_ISSUE_STREAM_CHANNEL_ID` is set. Missing channel → stay disabled and warn (same rule as `HIQS_DIGEST_CHANNEL_ID`).
 - **Allowlist.** `GITHUB_ISSUE_STREAM_REPOS` overrides everything. Otherwise Sleuth unions `rows` from fresh `sync/repos/*.json` files in the private git-pulse repo (published by RebalanceOS's daily sync). Optional `GITHUB_ISSUE_STREAM_ORG_FILTER` narrows by owner.
-- **Idempotency.** Durable JSON state under `data/runtime/github-issue-stream/<workspace>_github-issue-stream.json` stores per-repo cursors and an issue→`thread_ts` map with posted event keys. An event key is recorded only after Slack confirms the post; a repo cursor advances only when every planned action for that repo was delivered.
-- **DND.** Reads this workspace's `RemindersDndSettings` (injected from `RemindersModule.GetDndSettings()`). Workspace or channel DND holds the cycle without advancing cursors.
+- **Delivery state.** Durable JSON state under `data/runtime/github-issue-stream/<workspace>_github-issue-stream.json` retains channel/thread identities and posted event keys, including inactive/closed issues. Replies keep their saved parent channel when the configured destination changes. Saves must succeed before more delivery; shutdown awaits the active cycle and retries pending state. A crash between Slack acceptance and a successful local save can still repeat a post; these APIs do not provide one atomic transaction. State grows with delivered threads/events.
+- **Bounded polling.** Each endpoint reads at most five 100-item pages per cycle. Incomplete-endpoint watermarks constrain the shared cursor; unresolved parent dependencies hold it for replay. Optional per-repo `ParentScanAt` records complete parent evaluation for cross-repo references. Dense bursts inside the overlap or unresolved parents beyond the cap can hold polling and log `catch-up required`; automatic backlog draining is not guaranteed. Any catch-up must preserve saved delivery identities/keys and needs a separate operator decision.
+- **Dynamic list failures.** Fresh successful empty/stale-only snapshots revoke the watched list. Transport failures hold the cycle without pruning state. Persisted allowlist caches never authorize polling after a failed refresh; explicit static repo lists retain their existing path.
+- **DND.** Reads this workspace's `RemindersDndSettings` (injected from `RemindersModule.GetDndSettings()`). Workspace DND holds the cycle; channel DND is rechecked for each actual destination immediately before its write. Undelivered work keeps its repo cursor.
 - **No Slack handlers.** The module registers no message/reaction handlers, so the reminder / comment-relay chain is unchanged. Pure planning logic lives in `src/github-issue-stream-planner.js`.
 
 Checklist and env inventory: `PROJECT/2-WORKING/GH-248-GITHUB-ISSUE-STREAM.md`. Upstream tracking: git-pulse#5 (private repo).
@@ -125,11 +127,16 @@ The normal reminder creation flow is:
 7. Snooze suppression must pass through `#ShouldSuppressForSnooze(...)` before posting.
 8. Posted reminders can be completed, canceled, snoozed, retried, or dead-lettered depending on the state transition.
 
-A scheduled reminder is rendered **twice by separate code**: the confirmation posted immediately
-(`#ComposeFeedbackMessageText`) and the reminder text stored for posting at its due time (composed at
-the `#SelectReminderTaskText` reduce). Both must be handed the same synthesis routing decision and
-grounding source, or the two disagree for one reminder — see the invariant comment above
-`SynthesisRouting` in `src/reminders-module.js`, which is authoritative.
+`src/reminder-scheduling-plan.js` prepares candidate selection, render-identity deduplication,
+unresolved-reference filtering and trigger groups once. Scheduling and triage share that pure
+computation and per-group ownership resolution. The existing gateway keeps AI/date/dedup calls,
+factory, queue, save, List fanout and feedback in their existing order. Confirmation consumes the
+prepared task view used for the stored body; it does not select the task again.
+
+Legacy content is interpreted by `SlackFormatUtils.ParseLegacyReminderContent`. Existing format,
+compact-display and project-title entrypoints retain their distinct views (including casing,
+newline and fallback quirks); storage and exported wire shapes stay unchanged. The project-title
+export remains a compatibility facade. No parser or planning step owns durable state.
 
 ### Long Slack-message reminder contract (GH-243)
 

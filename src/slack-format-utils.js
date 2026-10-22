@@ -252,6 +252,45 @@ class SlackFormatUtils {
   }
 
   /**
+   * Read legacy reminder content without conflating its distinct consumer views.
+   * Header readers are case-insensitive; quote/writer boundaries deliberately stay literal.
+   * @param {any} ArgText Stored text; display callers historically coerce non-strings.
+   */
+  static ParseLegacyReminderContent(ArgText) {
+    const Text = String(ArgText ?? '');
+    const Section = Text.match(/Key task\(s\):\s*([\s\S]*?)$/i);
+    const TaskBlock = Section ? Section[1] : null;
+    const FirstTask = TaskBlock?.match(/^(?:[•\-*]\s*)?([^\n]+)/);
+    const Lines = Text.split('\n').map(ArgLine => ArgLine.trim()).filter(Boolean);
+    const QuoteStart = Text.indexOf(':\n>');
+    const Quoted = QuoteStart === -1 ? null : Text.substring(QuoteStart + 3);
+    const QuoteEnd = Quoted?.indexOf('\n\nKey task(s):') ?? -1;
+    return {
+      TaskBlock,
+      TaskTitle: FirstTask?.[1].trim() || null,
+      Lines,
+      BulletTasks: Lines.filter(ArgLine => ArgLine.startsWith('•')).map(ArgLine => ArgLine.replace(/^•\s*/, '')),
+      Quoted: Quoted !== null && QuoteEnd !== -1 ? Quoted.substring(0, QuoteEnd) : Quoted,
+      WriterMarkerIndex: Text.indexOf('\n\nKey task(s):'),
+      SourceUrl: Text.match(/<(https?:\/\/[^>|]+)\|this>/)?.[1] || null,
+    };
+  }
+
+  /**
+   * Legacy project/clustering title view; unlike compact summaries, section titles are unbounded.
+   * @param {string} ArgText
+   * @returns {string}
+   */
+  static ExtractReminderTitle(ArgText) {
+    const Text = typeof ArgText === 'string' ? ArgText : '';
+    const Title = SlackFormatUtils.ParseLegacyReminderContent(Text).TaskTitle;
+    if(Title) return Title;
+    const Stripped = Text.replace(/^.*?please follow up on <[^>]*>:?\s*/is, '').replace(/^>\s*/, '');
+    const FirstLine = Stripped.split('\n').map(ArgLine => ArgLine.trim()).find(ArgLine => ArgLine.length > 0) || Text.trim();
+    return FirstLine.length > 140 ? `${FirstLine.slice(0, 137)}…` : FirstLine;
+  }
+
+  /**
    * Extract the key task(s) from a reminder message.
    * The reminder message typically has a structure like:
    * "@user - please follow up on <link|this>:
@@ -270,9 +309,9 @@ class SlackFormatUtils {
     }
 
     // Look for "Key task(s):" section
-    const KeyTaskMatch = ArgMrkdwn.match(/Key task\(s\):\s*([\s\S]*?)$/i);
-    if(KeyTaskMatch && KeyTaskMatch[1]) {
-      let Tasks = KeyTaskMatch[1]
+    const TaskBlock = SlackFormatUtils.ParseLegacyReminderContent(ArgMrkdwn).TaskBlock;
+    if(TaskBlock) {
+      let Tasks = TaskBlock
         // Remove bullet points
         .replace(/^[•\-\*]\s*/gm, '')
         // Clean up whitespace
@@ -285,7 +324,7 @@ class SlackFormatUtils {
     }
 
     // Fallback to clean summary
-    return this.ExtractCleanSummary(ArgMrkdwn, { maxLength: 100 });
+    return (this ?? SlackFormatUtils).ExtractCleanSummary(ArgMrkdwn, { maxLength: 100 });
   }
 
   /**
@@ -318,7 +357,7 @@ class SlackFormatUtils {
     }
 
     const Marker = '\n\nKey task(s):';
-    const MarkerIndex = ArgReminderMessageText.indexOf(Marker);
+    const MarkerIndex = SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).WriterMarkerIndex;
     if(MarkerIndex === -1) {
       return NewSummary;
     }
@@ -397,22 +436,7 @@ class SlackFormatUtils {
       return null;
     }
 
-    // Find the quoted section which starts with ":\n>" (colon, newline, blockquote)
-    const QuoteStartIndex = ArgReminderMessageText.indexOf(':\n>');
-    if(QuoteStartIndex === -1) {
-      return null;
-    }
-
-    // Extract everything after ":\n>"
-    const QuotedSection = ArgReminderMessageText.substring(QuoteStartIndex + 3);
-
-    // The quoted section ends before "Key task(s):" if present, or at the end
-    const KeyTasksIndex = QuotedSection.indexOf('\n\nKey task(s):');
-    if(KeyTasksIndex !== -1) {
-      return QuotedSection.substring(0, KeyTasksIndex);
-    }
-
-    return QuotedSection;
+    return SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).Quoted;
   }
 
   /**

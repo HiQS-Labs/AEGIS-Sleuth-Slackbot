@@ -11,7 +11,7 @@
       "source": "<@U_MIKE> can we please wrap up the LTVera website layout improvements tonight, please?",
       "synthesisOn": false,
       "expect": {
-        "text": "Wrap up the LTVera website layout improvements tonight",
+        "text": "Wrap up the LTVera website layout improvements",
         "source": "verbatim"
       }
     },
@@ -25,7 +25,7 @@
       "source": "<@U_JOSE> let's connect the loop on the Mailgun data pipeline alerts setup tomorrow morning, please.",
       "synthesisOn": false,
       "expect": {
-        "text": "Connect the loop on the Mailgun data pipeline alerts setup tomorrow morning",
+        "text": "Connect the loop on the Mailgun data pipeline alerts setup",
         "source": "verbatim"
       }
     },
@@ -212,7 +212,7 @@
       "source": "i am going to deploy the changes tomorrow morning",
       "synthesisOn": false,
       "expect": {
-        "text": "Deploy the changes tomorrow morning",
+        "text": "Deploy the changes",
         "source": "verbatim"
       }
     },
@@ -240,7 +240,7 @@
       "source": "Can you please review this PR by EOD?",
       "synthesisOn": true,
       "expect": {
-        "text": "Review this PR by EOD",
+        "text": "Review this PR",
         "source": "span"
       }
     },
@@ -282,7 +282,7 @@
       "source": "hey <@U_ALPHA>, could you possibly send me the logs when you get a chance tomorrow? thanks!",
       "synthesisOn": false,
       "expect": {
-        "text": "Send me the logs when you get a chance tomorrow",
+        "text": "Send me the logs when you get a chance",
         "source": "verbatim"
       }
     },
@@ -423,7 +423,7 @@
       "source": "don't forget to rotate the API keys on Monday",
       "synthesisOn": false,
       "expect": {
-        "text": "Rotate the API keys on Monday",
+        "text": "Rotate the API keys",
         "source": "verbatim"
       }
     },
@@ -437,7 +437,7 @@
       "source": "<@U_ALPHA> you need to re-run the migration on staging tomorrow, cc <@U_BETA>",
       "synthesisOn": false,
       "expect": {
-        "text": "Re-run the migration on staging tomorrow",
+        "text": "Re-run the migration on staging",
         "source": "verbatim"
       }
     },
@@ -482,7 +482,7 @@
       "source": "I'd like you to draft the launch email by Thursday",
       "synthesisOn": false,
       "expect": {
-        "text": "Draft the launch email by Thursday",
+        "text": "Draft the launch email",
         "source": "verbatim"
       }
     },
@@ -508,7 +508,7 @@
       "source": "Deploy the hotfix tomorrow morning.",
       "synthesisOn": true,
       "expect": {
-        "text": "Deploy the hotfix tomorrow morning",
+        "text": "Deploy the hotfix",
         "source": "verbatim"
       }
     },
@@ -561,7 +561,7 @@
       "source": "Review \"The Kindly Migration\" tomorrow",
       "synthesisOn": true,
       "expect": {
-        "text": "Review \"The Kindly Migration\" tomorrow",
+        "text": "Review \"The Kindly Migration\"",
         "source": "title",
         "contains": [
           "Kindly"
@@ -637,6 +637,21 @@
     },
     {
       "id": "G-43",
+      "note": "GH-258: a person title keeps a supplied topic only when the analyzed context names it",
+      "candidate": {
+        "reminder_message": "Reply to Person One re: Atlas compliance review",
+        "actionable_language": "reply to Person One"
+      },
+      "source": "Please reply to Person One tomorrow.",
+      "analyzedSource": "[earlier messages in this thread, for reference]\\n1. Atlas compliance review needs a response from Person One.\\n[the message to act on]\\nPlease reply to Person One tomorrow.",
+      "synthesisOn": true,
+      "expect": {
+        "text": "Reply to Person One re: Atlas compliance review",
+        "source": "title"
+      }
+    },
+    {
+      "id": "G-44",
       "note": "phase 3: a grounded object_ref repairs a pointer title deterministically",
       "candidate": {
         "reminder_message": "Review it",
@@ -651,7 +666,7 @@
       }
     },
     {
-      "id": "G-44",
+      "id": "G-45",
       "note": "phase 3: an object_ref the source never names is dropped, never written into a title",
       "candidate": {
         "reminder_message": "Review it",
@@ -668,7 +683,7 @@
       }
     },
     {
-      "id": "G-45",
+      "id": "G-46",
       "note": "phase 3: an object_ref the source never says is dropped even when it names no entity — a lowercase phrase is grounded as a whole run of source words",
       "candidate": {
         "reminder_message": "Review it",

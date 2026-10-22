@@ -19,30 +19,53 @@ describe('NormalizeReminderTitle', () => {
   test.each([
     ['addressee + courtesy + request + question mark',
       '<@U1> can we please wrap up the LTVera website layout improvements tonight, please?',
-      'Wrap up the LTVera website layout improvements tonight'],
+      'Wrap up the LTVera website layout improvements'],
     ['greeting before the addressee', 'hey <@U1>, could you send me the logs?', 'Send me the logs'],
     ['let\'s', '<@U2> let\'s connect the loop on the Mailgun alerts setup tomorrow morning, please.',
-      'Connect the loop on the Mailgun alerts setup tomorrow morning'],
-    ['first-person commitment', 'I\'ll deploy the changes tomorrow morning.', 'Deploy the changes tomorrow morning'],
-    ['first-person with adverb', 'I will definitely resize the font tomorrow', 'Resize the font tomorrow'],
+      'Connect the loop on the Mailgun alerts setup'],
+    ['first-person commitment', 'I\'ll deploy the changes tomorrow morning.', 'Deploy the changes'],
+    ['first-person with adverb', 'I will definitely resize the font tomorrow', 'Resize the font'],
+    ['leading schedule wording precedes framing', 'Tomorrow I will deploy the hotfix', 'Deploy the hotfix'],
+    ['leading schedule token does not damage a longer word', 'Tomorrowland release checklist', 'Tomorrowland release checklist'],
+    ['weekday plus part of day is removed before framing', 'Next Friday morning I will deploy the hotfix', 'Deploy the hotfix'],
+    ['trailing schedule wording is removed', 'Deploy the hotfix by Friday', 'Deploy the hotfix'],
+    ['punctuated trailing schedule wording is removed', 'Deploy the hotfix by Friday.', 'Deploy the hotfix'],
+    ['trailing weekday plus part of day is removed', 'Deploy the hotfix next Friday morning', 'Deploy the hotfix'],
+    ['consecutive trailing schedule phrases are removed', 'Deploy the hotfix tomorrow at 2pm', 'Deploy the hotfix'],
+    ['long-form end-of-period wording is removed', 'Deploy the release end of the week', 'Deploy the release'],
+    ['multiword deadline lead-in is removed', 'Deploy the release no later than Friday', 'Deploy the release'],
+    ['duration condition veto keeps the condition', 'Keep staging online until at least Friday', 'Keep staging online until at least Friday'],
+    ['a bare weekday abbreviation is an ordinary word', 'Check the solar panels in the sun', 'Check the solar panels in the sun'],
+    ['a weekday abbreviation behind a lead-in is schedule wording', 'Test the build on Wed', 'Test the build'],
+    ['a rescheduling target is the object, not a deadline', 'Move the demo to next week', 'Move the demo to next week'],
+    ['a multi-phrase rescheduling target is kept whole', 'Move the demo to next Friday at 2pm', 'Move the demo to next Friday at 2pm'],
+    ['a stacked due deadline is removed whole', 'Review the report due on Friday', 'Review the report'],
+    ['a due-by deadline is removed whole', 'Review the report due by Friday', 'Review the report'],
+    ['schedule wording exposed by request framing is removed', 'Can you tomorrow review the logs?', 'Review the logs'],
+    ['courtesy misspelling is removed before schedule wording', 'Check the report tomorrow, pleae', 'Check the report'],
     ['question wrapper', 'How hard is it to make our Ground Advantage $5 shipping to $6', 'Make our Ground Advantage $5 shipping to $6'],
     ['bare URL and its lead-in', 'Write up the initial email triage SOP going forward here: https://github.com/x/y/issues/1',
       'Write up the initial email triage SOP going forward'],
     ['labelled Slack link keeps its label', 'Review <https://github.com/x/pull/12|PR 12> before the release', 'Review PR 12 before the release'],
-    ['trailing cc', 'rotate the certs tomorrow, cc <@U_BETA>', 'Rotate the certs tomorrow'],
+    ['trailing cc', 'rotate the certs tomorrow, cc <@U_BETA>', 'Rotate the certs'],
     ['trailing thanks and softener', 'review the PR if you get a chance, thanks!', 'Review the PR'],
     ['capitalizes only an all-lowercase first word', 'iOS build is red', 'iOS build is red'],
     ['already in shape', 'Review PR 697', 'Review PR 697'],
-    ['a quoted name is opaque to the courtesy strip', 'Please review "The Kindly Migration" tomorrow', 'Review "The Kindly Migration" tomorrow'],
-    ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\' by Friday'],
+    ['a quoted name is opaque to the courtesy strip', 'Please review "The Kindly Migration" tomorrow', 'Review "The Kindly Migration"'],
+    ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\''],
   ])('%s', (_Label, ArgInput, ArgExpected) => {
     expect(TitleContract.NormalizeReminderTitle(ArgInput).text).toBe(ArgExpected);
   });
 
   test('reports which transforms fired', () => {
     expect(TitleContract.NormalizeReminderTitle('<@U1> can you please deploy it tomorrow?').changes)
-      .toEqual(['mention', 'courtesy', 'request-framing', 'capitalized']);
+      .toEqual(['mention', 'courtesy', 'request-framing', 'schedule', 'capitalized']);
     expect(TitleContract.NormalizeReminderTitle('Review PR 697').changes).toEqual([]);
+  });
+
+  test('validator rejects an unquoted courtesy misspelling but preserves a quoted task name', () => {
+    expect(TitleContract.ValidateReminderTitle('Review (pleae) the logs').reasons).toContain('courtesy');
+    expect(TitleContract.ValidateReminderTitle('Review "pleae" logs').ok).toBe(true);
   });
 
   test('only ever removes text — nothing a title did not already say can appear', () => {
@@ -231,6 +254,16 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
     }
   });
 
+  test('GH-258: an invented person-topic title is rejected by grounding', () => {
+    const Selection = SelectTaskText(
+      { reminder_message: 'Reply to Person One re: Zephyr audit', actionable_language: 'reply to Person One' },
+      'Please reply to Person One tomorrow.', true,
+      '[earlier messages] Atlas compliance review needs a response from Person One.',
+    );
+    expect(Selection.contract.rejected).toContainEqual({ source: 'title', reasons: ['ungrounded'] });
+    expect(Selection.text).not.toContain('Zephyr audit');
+  });
+
   test('100% within the length limits, 0 mid-word truncations, 0 addressee/please titles, 0 bare pointers', () => {
     const Violations = ReminderTitleContractViolations(
       Results.map(ArgR => ArgR.selection.text), Results.map(ArgR => ArgR.selection.contract),
@@ -272,7 +305,8 @@ describe('GH-250 golden set — the acceptance criteria hold on every sample, th
       .sort((ArgA, ArgB) => ArgA - ArgB);
     const Q1 = Words[Math.floor(Words.length * 0.25)];
     const Q3 = Words[Math.floor(Words.length * 0.75)];
-    expect(Q1).toBeGreaterThanOrEqual(TitleContract.TITLE_TARGET_WORDS.min);
+    // GH-258 removes redundant due wording; a valid three-word imperative is still above the hard two-word floor.
+    expect(Q1).toBeGreaterThanOrEqual(3);
     expect(Q3).toBeLessThanOrEqual(TitleContract.TITLE_TARGET_WORDS.max);
   });
 });
