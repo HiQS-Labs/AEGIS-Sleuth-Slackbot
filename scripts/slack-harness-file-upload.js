@@ -366,6 +366,7 @@ function ThrowFormattedSlackError(ArgError, ArgContext) {
  * @returns {Promise<FileUploadHarnessRuntime>}
  */
 async function CreateHarnessRuntimeAsync(ArgWorkspaceInfo, ArgLogger, ArgDependencies = {}) {
+  Workspaces.AssertNotLiveRuntimeDir('slack-harness-file-upload');
   const SlackAppClass = ArgDependencies.SlackAppClass || SlackApp;
   const StatsModuleClass = ArgDependencies.StatsModuleClass || StatsModule;
   const RemindersModuleClass = ArgDependencies.RemindersModuleClass || RemindersModule;

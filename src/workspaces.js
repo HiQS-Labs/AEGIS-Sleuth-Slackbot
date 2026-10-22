@@ -72,6 +72,24 @@ class Workspaces {
   }
 
   /**
+   * Refuse to continue when the runtime root is a deployed bot's live data (GH-271). A server's data
+   * directory carries a `.live-data` marker file (created once per host); developer harnesses that
+   * start app modules call this before constructing any, so an exported service environment can
+   * never point them at live state. The running app itself never calls it.
+   * @param {string} ArgCaller Name shown in the refusal.
+   * @returns {void}
+   */
+  static AssertNotLiveRuntimeDir(ArgCaller) {
+    const MarkerPath = path.join(this.GetRuntimeDirPath(), '.live-data');
+    if(require('fs').existsSync(MarkerPath)) {
+      throw new Error(
+        `${ArgCaller}: refusing to run against live data (${MarkerPath} exists). ` +
+        'Run harnesses on a development checkout, never on a server.'
+      );
+    }
+  }
+
+  /**
    * Get the path to a subdirectory or file under the root runtime directory.
    * @param {string} ArgSubdir Subdirectory name (e.g. 'reminders', 'events', 'stats').
    * @param {string} [ArgFilename] Optional file name within the subdirectory.

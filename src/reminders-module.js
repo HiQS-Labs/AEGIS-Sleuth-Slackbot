@@ -1392,6 +1392,18 @@ class RemindersModule {
     // to do (trying to proceed with an empty list is tantamount to losing all reminders).
     await this.#LoadRemindersAsync();
 
+    // GH-271: reminders that came from a channel (not a DM, whose IDs start with "D") but no channel
+    // file means the channel list was LOST: channel auto-scheduling is silently off until someone
+    // notices. A DM-only workspace legitimately has no file, so it only gets the settings warning.
+    const ChannelReminderCount = this.GetAllReminders()
+      .filter(ArgReminder => ArgReminder.OriginalChannelID && !String(ArgReminder.OriginalChannelID).startsWith('D')).length;
+    if(this.#ChannelSettings.FileMissingAtLoad && ChannelReminderCount > 0) {
+      this.#SlackApp.Logger.error(
+        `enabled channels file missing but ${ChannelReminderCount} reminders came from channels: ` +
+        'the channel list was probably lost, and auto-scheduling is OFF in every channel. Restore it from a backup.'
+      );
+    }
+
     // start the reminder timer. We use setTimeout instead of setInterval to avoid overlapping timer calls which can
     // happen since setInterval does not wait for the previous timer call to complete before starting the next one.
     // https://nodejs.org/en/learn/asynchronous-work/discover-javascript-timers#recursive-settimeout

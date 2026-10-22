@@ -54,7 +54,21 @@ describe('RemindersChannelSettings', () => {
       await Settings.LoadEnabledChannelsAsync();
 
       expect(Settings.AreRemindersEnabledForChannel('C_ANY')).toBe(false);
-      expect(Logger.InfoMessages.some(msg => msg.includes('no enabled channels file found'))).toBe(true);
+      // GH-271: a missing file turns auto-scheduling off everywhere, so it is a warning, and the
+      // module can tell "missing" apart from "present but empty".
+      expect(Logger.WarnMessages.some(msg => msg.includes('auto-scheduling is OFF in every channel'))).toBe(true);
+      expect(Settings.FileMissingAtLoad).toBe(true);
+    });
+
+    test('GH-271: an existing (even empty-list) file does not report as missing', async () => {
+      const Logger = new MockLogger();
+      const Settings = new RemindersChannelSettings({ Logger }, TestFilePath);
+      await fs.writeFile(TestFilePath, '[]', 'utf8');
+
+      await Settings.LoadEnabledChannelsAsync();
+
+      expect(Settings.FileMissingAtLoad).toBe(false);
+      expect(Logger.WarnMessages).toEqual([]);
     });
 
     test('handles empty file gracefully', async () => {

@@ -14,35 +14,43 @@ BACKUP_ROOT="$(dirname "$SCRIPT_DIR")"
 BACKUP_DIR="$BACKUP_ROOT/sleuth-backups/$CURRENT_DATE"
 ZIP_FILE="$BACKUP_DIR/sleuth-config-data-$TIMESTAMP.zip"
 
-# Change to script directory for consistent relative paths
-cd "$SCRIPT_DIR"
+# Back up the data the running service actually uses (GH-271). Production keeps it outside the
+# install dir (SLEUTH_DATA_DIR=/var/lib/aegis-sleuth), so backing up "$SCRIPT_DIR/data/runtime"
+# silently zipped a stale copy for weeks. Order: explicit env, the service's own setting, install dir.
+# Same precedence as Workspaces.GetRuntimeDirPath(): SLEUTH_DATA_DIR, then AEGIS_DATA_DIR.
+DATA_DIR="${SLEUTH_DATA_DIR:-${AEGIS_DATA_DIR:-}}"
+if [ -z "$DATA_DIR" ] && command -v systemctl >/dev/null 2>&1; then
+  # Environment= drop-ins first, then the unit's EnvironmentFile= files. A failed query (no systemd,
+  # no such unit) must fall through to the default, not abort under `set -e`.
+  DATA_DIR="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n -e 's/^SLEUTH_DATA_DIR=//p' | tail -1 || true)"
+  [ -n "$DATA_DIR" ] || DATA_DIR="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^AEGIS_DATA_DIR=//p' | tail -1 || true)"
+  if [ -z "$DATA_DIR" ]; then
+    for ENV_FILE in $(systemctl show sleuth-app -p EnvironmentFiles --value 2>/dev/null | tr ' ' '\n' | grep '^/' || true); do
+      [ -r "$ENV_FILE" ] || continue
+      FOUND="$(sed -n -e 's/^SLEUTH_DATA_DIR=//p' "$ENV_FILE" | tail -1 | tr -d '"'"'"'\r' || true)"
+      [ -n "$FOUND" ] || FOUND="$(sed -n -e 's/^AEGIS_DATA_DIR=//p' "$ENV_FILE" | tail -1 | tr -d '"'"'"'\r' || true)"
+      [ -n "$FOUND" ] && DATA_DIR="$FOUND"
+    done
+  fi
+fi
+if [ -z "$DATA_DIR" ]; then
+  DATA_DIR="$SCRIPT_DIR/data/runtime"
+  echo "Warning: SLEUTH_DATA_DIR/AEGIS_DATA_DIR not found in the environment or the sleuth-app unit; backing up the install dir." >&2
+fi
 
-# Check if data directory exists
-if [ ! -d "data/runtime" ]; then
-  echo "Error: data/runtime directory not found. Are you in the Sleuth app root?" >&2
+if [ ! -d "$DATA_DIR" ]; then
+  echo "Error: runtime data directory not found: $DATA_DIR" >&2
   exit 1
 fi
+echo "Backing up runtime data from: $DATA_DIR"
+cd "$DATA_DIR"
 
 # Enable nullglob to handle missing directories gracefully
 shopt -s nullglob
 
-# Collect all files to backup
-FILES=()
-
-# Workspace configurations
-if [ -d "data/runtime/workspaces" ]; then
-  FILES+=(data/runtime/workspaces/*.json)
-fi
-
-# Reminder files (including enabled channels and counters)
-if [ -d "data/runtime/reminders" ]; then
-  FILES+=(data/runtime/reminders/*.json)
-fi
-
-# Stats files
-if [ -d "data/runtime/stats" ]; then
-  FILES+=(data/runtime/stats/*.json)
-fi
+# Collect all files to backup: workspace configs; reminders, counters, enabled channels and
+# completion history; stats; and the event ledger (JSONL).
+FILES=(workspaces/*.json reminders/*.json stats/*.json events/*.jsonl)
 
 # Check if we found any files
 if [ ${#FILES[@]} -eq 0 ]; then
