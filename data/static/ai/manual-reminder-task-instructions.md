@@ -15,6 +15,8 @@ Rules:
 - Preserve the concrete object of the task, including product names, prices, quantities, destinations, and variants.
 - Preserve the full core intent; do not over-compress the task into a vague noun phrase.
 - Do not include scheduling language such as `tomorrow`, `next week`, `by EOD`, or `this morning` in the task title.
+- Keep duration or condition wording such as `until Friday`, `until after the deploy`, or `over the weekend` when it is part of the task.
+- When the object is a person, append `re: <topic>` only when the message or provided context names that topic; never invent a topic.
 - Do not prepend filler such as `Remember to`, `Need to`, or `Please`.
 - Keep safely short quoted task names verbatim, including quote marks. If the quoted target exceeds 90 characters, summarize its requested work instead.
 - If the message is already a direct task/request, keep that intent and clean it up only as needed.

@@ -69,6 +69,9 @@ jobs:
       - name: FSM invariants
         run: npm run validate:fsm
 
+      - name: Reminder-pipeline inventory ratchet
+        run: npm run validate:reminder-pipeline
+
       # 5. Secret / PII gate for the public tree. Fails the build on any finding, and exits 2
       # (never 0) if it cannot verify its own tooling — so a broken scanner can never be
       # mistaken for a clean tree.

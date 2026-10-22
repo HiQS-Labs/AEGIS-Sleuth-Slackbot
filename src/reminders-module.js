@@ -57,6 +57,11 @@ const { CollectDiagnosticsBaselineAsync, FormatDiagnosticsBaselineLines } = requ
  * @property {string[]} [owner_mentions] Slack user IDs the analyzer says were asked to do it.
  * Populated only when `owner` is `mentioned`, and always intersected with the mentions actually
  * present in the source before use — the model may narrow the set, never extend it.
+ * @property {string} [object_ref] GH-250 phase 3: the concrete thing the task is about, in the
+ * source's own words. Grounded before use.
+ * @property {string[]} [subtasks] GH-250 phase 3: at most 3 named sub-items, validated before use.
+ * @property {{from: string, by: 'model', reasons: string[]}} [title_repair] Set by
+ * `#RepairRefusedTitlesAsync` when the repair decision replaced `reminder_message`.
  */
 
 /**
@@ -1940,6 +1945,14 @@ class RemindersModule {
     // #SelectReminderTaskText, which both the scheduling and triage paths funnel through. There is no
     // longer a mutating override of `reminder_message` here — keeping the analyzer's candidates intact
     // is what lets the auto-scheduled digest and the :wrench: triage view agree by construction.
+    //
+    // GH-250 phase 3 is the ONE exception, and it is the same on both paths: a candidate whose every
+    // text the title contract refused gets one constrained re-synthesis, and the repaired title is
+    // written onto the candidate (with `title_repair` recording what it replaced) so every later
+    // selection — dedupe, pointer filter, stored task, confirmation, triage — reads the same title.
+    AnalysisResult.reminders = await this.#RepairRefusedTitlesAsync(
+      AnalysisResult.reminders, DisplaySourceMessageText, SynthesisOn, ArgMessageText, StructuralPath,
+    );
 
     // prepare once, using the same pure candidate policy as triage. Effects remain below.
     const Plan = ReminderSchedulingPlan.PrepareReminderCandidates({
@@ -2353,6 +2366,12 @@ class RemindersModule {
       OriginalText, TriageResult.analysis.reminders,
       { EnrichedContext: TriageContext.enriched },
     );
+    // GH-250 phase 3: the same repair step scheduling runs, so triage shows the title production
+    // would store rather than the template a refused candidate falls to without it.
+    TriageResult.analysis.reminders = await this.#RepairRefusedTitlesAsync(
+      TriageResult.analysis.reminders, TriageNormalizedText, TriageRoutingForOwnership.synthesisOn,
+      TriageContext.text, 'wrench_triage',
+    );
     const TriagePlan = ReminderSchedulingPlan.PrepareReminderCandidates({
       Candidates: TriageResult.analysis.reminders, OriginalText: TriageNormalizedText,
       AnalyzedText: TriageContext.text, SynthesisOn: TriageRoutingForOwnership.synthesisOn,
@@ -2433,12 +2452,18 @@ class RemindersModule {
         const TitleSelection = ReminderDisplaySelection.SelectTaskText(
           Reminder, TriageNormalizedOriginal, TriageRouting.synthesisOn, TriageContext.text,
         );
+        const Structure = ReminderDisplaySelection.ValidateReminderCandidate(
+          Reminder, `${TriageNormalizedOriginal} ${Reminder.actionable_language || ''} ${TriageContext.text || ''}`,
+        );
         FeedbackLines.push(
           `  ↳ title: source=${TitleSelection.source} words=${TitleSelection.contract.words}` +
           ` chars=${TitleSelection.contract.chars}${TitleSelection.contract.shortened ? ' (shortened at a boundary)' : ''}` +
           (TitleSelection.contract.rejected.length > 0
             ? ` refused=${TitleSelection.contract.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`).join(', ')}`
-            : '')
+            : '') +
+          (TitleSelection.contract.repair ? ` repaired_by=${TitleSelection.contract.repair.by}` : '') +
+          (Structure.objectRef ? ` object="${SlackFormatUtils.SanitizeForInlineSlack(Structure.objectRef)}"` : '') +
+          (Structure.subtasks.length > 0 ? ` subtasks=${Structure.subtasks.length}` : '')
         );
 
         if(!DateResult.success) {
@@ -2619,6 +2644,67 @@ class RemindersModule {
   }
 
   /**
+   * GH-250 phase 3 — RepairOrFallback. For each candidate the title contract refuses on every text
+   * (so the selector would show the templated fallback), ask the repair decision for one grounded
+   * title and accept it ONLY if the same selector then shows it as the title. The accepted title is
+   * written onto the candidate so every later read agrees. Off with `REMINDER_TITLE_REPAIR=off`;
+   * never throws into the scheduling path.
+   * @param {GptReminderInfo[]} ArgCandidates Analyzer candidates (mutated in place when repaired).
+   * @param {string} ArgNormalizedOriginalText Normalized display source.
+   * @param {boolean} ArgSynthesisOn The message's one routing decision.
+   * @param {string} ArgAnalyzedSourceText Everything the analyzer saw.
+   * @param {string} ArgPath Structural path label for the log line.
+   * @returns {Promise<GptReminderInfo[]>} the same array.
+   */
+  async #RepairRefusedTitlesAsync(ArgCandidates, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText, ArgPath) {
+    const Candidates = Array.isArray(ArgCandidates) ? ArgCandidates : [];
+    if(!this.#AIPipeline || !RemindersAIPipeline.IsTitleRepairEnabled()) return Candidates;
+
+    for(const Candidate of Candidates) {
+      const Before = ReminderDisplaySelection.SelectTaskText(Candidate, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
+      if(Before.source !== 'fallback') continue;
+      const RefusedFor = Before.contract.rejected.map(ArgEntry => `${ArgEntry.source}:${ArgEntry.reasons.join('+')}`);
+
+      let Outcome = 'error';
+      try {
+        const Repair = await this.#AIPipeline.RepairReminderTitleAsync({
+          SourceText: ArgAnalyzedSourceText || ArgNormalizedOriginalText,
+          Candidate,
+          RefusedFor,
+        });
+        const RepairObjectRef = typeof Repair?.object_ref === 'string' ? Repair.object_ref.replace(/\s+/g, ' ').trim() : '';
+        if(!Repair || !Repair.reminder_message) {
+          Outcome = Repair ? 'declined' : 'unavailable';
+        } else if(!ReminderDisplaySelection.IsObjectRefGrounded(RepairObjectRef, ArgAnalyzedSourceText || ArgNormalizedOriginalText)) {
+          // the title's names are re-grounded by the selector below, but its ordinary words are not:
+          // the object is the one phrase the repair must copy from the source, so it is checked whole.
+          Outcome = 'refused:object-ref-ungrounded';
+        } else if(!ReminderDisplaySelection.TitleNamesObjectRef(Repair.reminder_message, RepairObjectRef)) {
+          Outcome = 'refused:object-ref-not-in-title';
+        } else {
+          // the model's answer is a candidate like any other: contract, grounding and budget decide.
+          const Trial = { ...Candidate, reminder_message: Repair.reminder_message, object_ref: RepairObjectRef };
+          const After = ReminderDisplaySelection.SelectTaskText(Trial, ArgNormalizedOriginalText, ArgSynthesisOn, ArgAnalyzedSourceText);
+          if(After.source === 'title') {
+            Candidate.title_repair = { from: Candidate.reminder_message || '', by: 'model', reasons: RefusedFor };
+            Candidate.reminder_message = Repair.reminder_message;
+            Candidate.object_ref = RepairObjectRef;
+            Outcome = 'accepted';
+          } else {
+            Outcome = `refused:${After.contract.rejected.filter(ArgEntry => ArgEntry.source === 'title').map(ArgEntry => ArgEntry.reasons.join('+')).join('+') || After.source}`;
+          }
+        }
+      } catch(error) {
+        this.#SlackApp.Logger.warn('reminder title repair failed (non-fatal); keeping the templated fallback:', error);
+      }
+      this.#SlackApp.Logger.info(
+        `reminder title repair: path=${ArgPath} refused_for=${RefusedFor.join(',') || 'none'} outcome=${Outcome}`
+      );
+    }
+    return Candidates;
+  }
+
+  /**
    * One structured log line describing how a reminder title was chosen (GH-250). No message text
    * is logged — only the path, the counts, and the rule slugs — so this is safe at info level.
    * @param {ReturnType<typeof ReminderDisplaySelection.SelectTaskText>} ArgSelection
@@ -2632,7 +2718,8 @@ class RemindersModule {
       : 'none';
     return `reminder title contract: path=${ArgPath} source=${ArgSelection.source}` +
       ` words=${Facts.words} chars=${Facts.chars} shortened=${Facts.shortened ? 'yes' : 'no'}` +
-      ` normalized=${Facts.normalized.length > 0 ? Facts.normalized.join(',') : 'none'} rejected=${Rejected}`;
+      ` normalized=${Facts.normalized.length > 0 ? Facts.normalized.join(',') : 'none'} rejected=${Rejected}` +
+      ` repair=${Facts.repair ? Facts.repair.by : 'none'}`;
   }
 
   /**

@@ -92,6 +92,50 @@ function WithComplexModel(ArgModelName) {
   return { ...MultiTaskExtractionDecisionSpec, ModelName: ArgModelName };
 }
 
+/**
+ * Validate a title-repair response: the two fields the selector reads must be strings. An empty
+ * `reminder_message` is a VALID answer — it means "the source carries no task" — so emptiness is
+ * not checked here; the caller treats it as a refusal.
+ * @param {any} ArgResponse
+ * @returns {void}
+ */
+function ValidateTitleRepair(ArgResponse) {
+  if(!ArgResponse || typeof ArgResponse.reminder_message !== 'string')
+    throw new Error('Title repair: response is missing reminder_message.');
+  if(typeof ArgResponse.object_ref !== 'string')
+    throw new Error('Title repair: response is missing object_ref.');
+}
+
+/**
+ * GH-250 phase 3: the one constrained re-synthesis. Runs ONLY when the deterministic title contract
+ * has refused every candidate for a task (title, span and verbatim), before the templated fallback.
+ * Its output goes back through the same contract and the same grounding check as any other
+ * candidate, so a repair that invents a term or still names nothing is refused like any other.
+ */
+const TitleRepairDecisionSpec = Object.freeze({
+  Name: 'reminder-title-repair',
+  InstructionsFile: 'reminder-title-repair-instructions.md',
+  SchemaFile: 'reminder-title-repair-schema.json',
+  RequiredFields: [],
+  Validate: ValidateTitleRepair,
+  PromptVersion: 'title-repair-v1',
+  SchemaVersion: 'title-repair-schema-v1',
+  /**
+   * @param {any} ArgInput Serialized repair payload.
+   * @param {any} ArgResponse Repair result.
+   * @returns {object}
+   */
+  DebugFacts: (ArgInput, ArgResponse) => {
+    let RefusedFor = /** @type {string[]} */ ([]);
+    try { RefusedFor = JSON.parse(typeof ArgInput === 'string' ? ArgInput : '{}').refused_for || []; } catch(error) { RefusedFor = []; }
+    return {
+      refusedFor: RefusedFor,
+      answered: Boolean(ArgResponse && typeof ArgResponse.reminder_message === 'string' && ArgResponse.reminder_message.trim()),
+      hasObjectRef: Boolean(ArgResponse && typeof ArgResponse.object_ref === 'string' && ArgResponse.object_ref.trim()),
+    };
+  },
+});
+
 const ReminderAnalysisDecisionSpec = Object.freeze({
   Name: 'reminder-analysis',
   InstructionsFile: 'reminders-instructions.md',
@@ -204,6 +248,13 @@ function GetReminderThreadIdentity(ArgReminderInfo) {
  * @property {string[]} [owner_mentions] Slack user IDs the analyzer says were asked to do it.
  * Populated only when `owner` is `mentioned`, and always intersected with the mentions actually
  * present in the source before use — the model may narrow the set, never extend it.
+ * @property {string} [object_ref] GH-250 phase 3: the concrete thing the task is about, in the
+ * source's own words. Used to repair a pointer title deterministically (`Review it` + `PR 697`).
+ * Grounded against the source before use; optional because recorded responses predate the field.
+ * @property {string[]} [subtasks] GH-250 phase 3: at most 3 named sub-items, each in title shape.
+ * Validated and capped before use; optional for the same reason.
+ * @property {{from: string, by: 'model', reasons: string[]}} [title_repair] Set by the scheduler
+ * when the repair decision replaced `reminder_message`; never produced by the analyzer.
  */
 
 /**
@@ -378,6 +429,43 @@ class RemindersAIPipeline {
   }
 
   /**
+   * GH-250 phase 3: ask the model for ONE repaired title for a candidate the contract refused.
+   *
+   * Returns null on any model failure (the caller then uses the templated fallback); never throws
+   * into the scheduling path. The answer is NOT trusted here: the caller runs it through the same
+   * contract and grounding check as every other candidate.
+   * @param {{SourceText: string, Candidate: GptReminderInfo, RefusedFor: string[]}} ArgInput
+   * @returns {Promise<{reminder_message: string, object_ref: string, rationale: string}|null>}
+   */
+  async RepairReminderTitleAsync(ArgInput) {
+    const Candidate = ArgInput.Candidate || /** @type {GptReminderInfo} */ ({});
+    const Payload = JSON.stringify({
+      source: ArgInput.SourceText || '',
+      candidate_title: Candidate.reminder_message || '',
+      evidence_span: Candidate.actionable_language || '',
+      context: Candidate.context || '',
+      refused_for: ArgInput.RefusedFor || [],
+    });
+    let Result = null;
+    try {
+      Result = await DecideAsync(this.#WorkspaceAI, TitleRepairDecisionSpec, Payload, {
+        Capture: this.#DecisionCapture,
+        Logger: this.#SlackApp && this.#SlackApp.Logger,
+      });
+    } catch(error) {
+      // a repair is a bonus, never a dependency: the caller falls back to the template.
+      if(this.#SlackApp && this.#SlackApp.Logger) this.#SlackApp.Logger.warn('reminder title repair decision failed:', error);
+      return null;
+    }
+    if(!Result || typeof Result.reminder_message !== 'string') return null;
+    return {
+      reminder_message: Result.reminder_message.trim(),
+      object_ref: typeof Result.object_ref === 'string' ? Result.object_ref.trim() : '',
+      rationale: typeof Result.rationale === 'string' ? Result.rationale : '',
+    };
+  }
+
+  /**
    * Infer a concise task title for a manually force-scheduled reminder.
    * @param {string} ArgMessageText Original Slack message text.
    * @returns {Promise<string>}
@@ -488,6 +576,36 @@ class RemindersAIPipeline {
    */
   static IsLongTextSynthesisEnabled() {
     const Flag = RemindersAIPipeline.#ReadFlagTriState('REMINDER_TEXT_SYNTHESIS_LONG');
+    return Flag === null ? true : Flag;
+  }
+
+  /**
+   * GH-250 phase 3: whether every message routes to the synthesized title first, regardless of
+   * length segment — the "always synthesize" behavior of #79. Controlled by
+   * `REMINDER_TITLE_ALWAYS_SYNTHESIZE`:
+   *  - set explicitly: its value wins over every legacy flag;
+   *  - unset, with any legacy synthesis flag (`REMINDER_TEXT_SYNTHESIS`, `_NORMAL`, `_LONG`) set
+   *    explicitly: the legacy matrix governs, so an existing deployment keeps its configuration;
+   *  - unset, with no legacy flag set: ON. The title contract (GH-250) cleans and re-grounds every
+   *    candidate, so the verbatim path no longer buys safety; routing only chose which text to show.
+   * @returns {boolean}
+   */
+  static IsAlwaysSynthesizeEnabled() {
+    const Explicit = RemindersAIPipeline.#ReadFlagTriState('REMINDER_TITLE_ALWAYS_SYNTHESIZE');
+    if(Explicit !== null) return Explicit;
+    const LegacyConfigured = ['REMINDER_TEXT_SYNTHESIS', 'REMINDER_TEXT_SYNTHESIS_NORMAL', 'REMINDER_TEXT_SYNTHESIS_LONG']
+      .some(ArgName => RemindersAIPipeline.#ReadFlagTriState(ArgName) !== null);
+    return !LegacyConfigured;
+  }
+
+  /**
+   * GH-250 phase 3: whether the one constrained re-synthesis runs when the title contract refuses
+   * every candidate of a task. Controlled by `REMINDER_TITLE_REPAIR`; default ON. It is one extra
+   * model call per refused task, and refusal is the exception, not the rule.
+   * @returns {boolean}
+   */
+  static IsTitleRepairEnabled() {
+    const Flag = RemindersAIPipeline.#ReadFlagTriState('REMINDER_TITLE_REPAIR');
     return Flag === null ? true : Flag;
   }
 
@@ -609,7 +727,7 @@ class RemindersAIPipeline {
    * master override (`REMINDER_TEXT_SYNTHESIS=off`) beats it, so a deliberate global opt-out is
    * never silently defeated for short sources. GH-243 long-source safety requires synthesis
    * regardless of display flags; it never permits a full-message fallback.
-   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, enrichedContext: boolean, routedBy: 'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count' }}
+   * @returns {{ sentenceCount: number, segment: 'normal'|'long', synthesisOn: boolean, messageLength: number, actionableSpanRatio: number, spanRatioUsable: boolean, enrichedContext: boolean, routedBy: 'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'|'always_synthesize', alwaysSynthesize: boolean }}
    */
   static DescribeSynthesisRouting(ArgOriginalText, ArgReminders = [], ArgOptions = {}) {
     const Original = (ArgOriginalText || '').trim();
@@ -660,21 +778,30 @@ class RemindersAIPipeline {
           ? RemindersAIPipeline.IsLongTextSynthesisEnabled()
           : RemindersAIPipeline.IsNormalTextSynthesisEnabled());
 
-    const RoutedBy = /** @type {'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'} */ (
+    const LegacyRoutedBy = /** @type {'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'} */ (
       LongSource ? 'long_message' : MasterOverride !== null ? 'master_override'
         : EnrichedContext ? 'enriched_context'
           : (IsBuriedTask ? 'buried_task_ratio' : 'sentence_count')
     );
 
+    // GH-250 phase 3: always-synthesize sits ABOVE the legacy matrix when it governs (see
+    // IsAlwaysSynthesizeEnabled for the precedence). The segment facts are still computed and
+    // reported, so the log line keeps describing the message; only the decision changes.
+    const AlwaysSynthesize = RemindersAIPipeline.IsAlwaysSynthesizeEnabled();
+    const RoutedBy = /** @type {'long_message'|'master_override'|'enriched_context'|'buried_task_ratio'|'sentence_count'|'always_synthesize'} */ (
+      AlwaysSynthesize && !SynthesisOn ? 'always_synthesize' : LegacyRoutedBy
+    );
+
     return {
       sentenceCount: SentenceCount,
       segment: Segment,
-      synthesisOn: SynthesisOn,
+      synthesisOn: AlwaysSynthesize ? true : SynthesisOn,
       messageLength: Original.length,
       actionableSpanRatio: ActionableSpanRatio,
       spanRatioUsable: SpanRatioUsable,
       enrichedContext: EnrichedContext,
       routedBy: RoutedBy,
+      alwaysSynthesize: AlwaysSynthesize,
     };
   }
 

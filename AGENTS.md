@@ -141,6 +141,7 @@ Catalog-driven NL aliases (`data/static/ai/command-catalog.json` → `catalog-re
   3. **State transitions:** After creation, `reminder.State` may only be changed via `#TransitionReminderState(reminder, nextState, reason)`. Never assign `reminder.State` directly. The `reason` string becomes the FSM audit log entry — make it descriptive.
   - See `ARCHITECTURE.md` § *Reminder FSM and Write-Path Contract* for the full approved-caller list and decision table.
   - These rules are enforced structurally by `npm run validate:fsm` (`scripts/validate-fsm-invariants.js`), which scans `src/reminders-module.js` and fails on any direct `.State =` assignment outside `#TransitionReminderState` / `#MakeScheduledReminder`, or any inline `ReminderInfo` cast outside `#MakeScheduledReminder`. Legitimate legacy backfill paths (e.g. promoting un-stated reminders loaded from disk) carry a `// FSM-BACKFILL-OK` line pragma so each exception is reviewable. Run the validator before raising a PR that touches the reminder write path.
+  - Reminder-pipeline inventory is ratcheted by `npm run validate:reminder-pipeline` (`scripts/validate-reminder-pipeline.js`). Its checked-in baseline records the #250/#79 extraction-spec, `Key task(s)` reparse, routing-threshold, display-source, and context-marker counts with their approved deletion reason. The validator fails any growth and also fails an unrecorded shrink; use `--update-baseline` only in the deletion PR that lowers a count. A reviewed increase is the one way up: raise `count` by hand and add an `increases` entry (`to`, `reason`, `issue`) to that counter; a count above `initial` with no matching entry fails. Run it before raising a PR that changes the reminder pipeline.
   - The sibling `npm run validate:workspace-isolation` guard (`scripts/validate-workspace-isolation.js`) enforces the multi-tenant isolation contract from §0.1 the same way: scan `src/**/*.js`, flag global-singleton state reads and primary routes registered outside `RegisterCommandRoutes`, honor an `// ISOLATION-OK:` pragma, report file:line, exit non-zero on any violation.
   - The sibling `npm run validate:reminder-render` guard (`scripts/validate-reminder-render.js`) enforces the reminder-render contract from §0.1 the same way: scan `src/**/*.js`, flag a raw `id:${…}` construction and a prompt instructing the model to cite reminder ids, honor a `// RENDER-OK:` pragma, report file:line, exit non-zero on any violation. All three guards run under `npm test` via their `tests/validate-*.test.js` "tree is clean" assertion.
 
@@ -159,6 +160,7 @@ Catalog-driven NL aliases (`data/static/ai/command-catalog.json` → `catalog-re
   - `chat-instructions.md`
   - `reminders-instructions.md`
   - `reminders-dedup-instructions.md`
+  - `reminder-title-repair-instructions.md` (GH-250 phase 3: the one re-synthesis after a refused title)
   - `date-extraction-instructions.md`
 - Schema-driven responses must keep instruction and schema files in sync. The OpenAI `{name, strict, schema}` schema envelope is reused for Claude — the Anthropic provider unwraps it.
 - Deterministic pre-AI behavior remains in `data/static/deterministic-responses.json`.

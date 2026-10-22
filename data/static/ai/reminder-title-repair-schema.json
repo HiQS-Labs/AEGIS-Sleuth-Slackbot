@@ -1,0 +1,27 @@
+{
+  "name": "reminder_title_repair_response",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "rationale": {
+        "type": "string",
+        "description": "One sentence on how the pointer was resolved or the title reshaped."
+      },
+      "reminder_message": {
+        "type": "string",
+        "description": "The repaired task title: an imperative verb plus a concrete object, about 4 to 14 words and at most 90 characters, grounded in the source. Empty string when the source carries no task (a question or a status remark only)."
+      },
+      "object_ref": {
+        "type": "string",
+        "description": "The concrete thing the task is about, copied from the source words (PR/issue number, document or product name, a user mention token, a file). Empty string when there is none."
+      }
+    },
+    "required": [
+      "rationale",
+      "reminder_message",
+      "object_ref"
+    ],
+    "additionalProperties": false
+  }
+}
