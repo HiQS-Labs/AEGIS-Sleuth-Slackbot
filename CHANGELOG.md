@@ -35,6 +35,18 @@
 
 ## Unreleased
 
+When you ask `rmm ifl` in your own words to read text from an image, make a list from an image,
+convert text into a Slack list, or ask about your reminders, I now run that command for you instead
+of only showing its syntax. `refresh clients` is no longer offered for `rmm ifl`; type it directly.
+
+**Technical:** GH-181. `BuildCanonicalCommand` gains `scan-image-for-text`, `make-list-from-image`,
+`convert-text-into-slack-list` and `ask-reminders` cases (catalog entries already marked
+`CanExecuteWithIfl`; GH-64 named `rmm ifl` reach as a goal), and `ask-compass` joins
+`BuildCanonicalCommandIntentIds`. `refresh-clients` (rewrites the client overlay, no plan for a
+model-resolved run) is now `CanExecuteWithIfl: false`. `validate:commands` exempts `ask-self`
+(private RAG overlay only) and `run-tests-unavailable` (retired refusal) by name, runs
+`ChatModule.StartAsync`'s catalog alias pass so `ask-reminders` counts as registered, and now runs in CI.
+
 **Technical:** GH-261 adds a checked reminder-pipeline inventory ratchet. `npm run validate:reminder-pipeline` records the current #79/#250 migration counters and refuses growth or an unrecorded deletion; CI runs it beside the FSM invariant check.
 
 ## 1.4.348 - 2026-10-22

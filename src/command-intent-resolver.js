@@ -408,6 +408,16 @@ function BuildCanonicalCommand(ArgIntentId, ArgArguments = {}) {
     return QueryText ? `ask-code ${QueryText}` : null;
   case 'recall':
     return QueryText ? `recall ${QueryText}` : null;
+  case 'ask-reminders':
+    return QueryText ? `ask-reminders ${QueryText}` : null;
+  // GH-64/GH-74 (GH-181): the image commands read the attachment from the event itself, so the
+  // canonical command carries no argument; list conversion may carry its source text.
+  case 'scan-image-for-text':
+    return 'scan image for text';
+  case 'make-list-from-image':
+    return 'make list from image';
+  case 'convert-text-into-slack-list':
+    return QueryText ? `convert text into slack list ${QueryText}` : 'convert text into slack list';
   default:
     return null;
   }
@@ -764,7 +774,8 @@ const BuildCanonicalCommandIntentIds = new Set([
   'disable-reminders', 'dnd', 'process-reminders-now', 'github-sync-now', 'test-github-sync',
   'show-stats', 'ping', 'set-channel-model', 'model-switch-default', 'model-switch-complex',
   'model-switch-both', 'version', 'changelog', 'view-stratalist', 'rmm',
-  'ask-code', 'recall', 'ask-compass',
+  'ask-code', 'recall', 'ask-compass', 'ask-reminders', 'scan-image-for-text', 'make-list-from-image',
+  'convert-text-into-slack-list',
 ]);
 
 /**

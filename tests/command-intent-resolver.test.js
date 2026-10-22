@@ -100,7 +100,22 @@ describe('command-intent-resolver', () => {
     expect(Result.CanonicalCommand).toBe('gemini-search automated web browsers');
   });
 
-  describe('GH-405 workspace-snapshot context injection', () => {
+  describe('GH-181 canonical commands for rmm-runnable catalog entries', () => {
+  test('builds the registered route text for the image, list and reminder-query commands', async () => {
+    await NormalizeDirectCommandTextAsync('ping'); // loads the normalization config BuildCanonicalCommand needs
+    expect(BuildCanonicalCommand('scan-image-for-text', {})).toBe('scan image for text');
+    expect(BuildCanonicalCommand('make-list-from-image', {})).toBe('make list from image');
+    expect(BuildCanonicalCommand('convert-text-into-slack-list', {})).toBe('convert text into slack list');
+    expect(BuildCanonicalCommand('convert-text-into-slack-list', { QueryText: ' milk,  eggs ' }))
+      .toBe('convert text into slack list milk, eggs');
+    expect(BuildCanonicalCommand('ask-reminders', { QueryText: "what's open for Client A?" }))
+      .toBe("ask-reminders what's open for Client A?");
+    expect(BuildCanonicalCommand('ask-reminders', {})).toBeNull();
+    expect(BuildCanonicalCommand('refresh-clients', {})).toBeNull();
+  });
+});
+
+describe('GH-405 workspace-snapshot context injection', () => {
     /**
      * Minimal WorkspaceAI mock that captures the prompt text handed to the model.
      * @returns {any}
