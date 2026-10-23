@@ -839,8 +839,10 @@ class RemindersModule {
 
   /**
    * Return a reminder's canonical set of human assignees without mutating the record.
-   * A non-empty AssigneeIDs array is authoritative; legacy records fall back to AssigneeID, then
-   * OriginalSenderID. Invalid values, duplicates, and the bot are excluded.
+   * An AssigneeIDs array with at least one valid ID is authoritative. Otherwise (no array, an empty
+   * one, or one holding only invalid/bot IDs) fall back to AssigneeID, then OriginalSenderID — an
+   * empty array must not hand a reminder with a valid AssigneeID to its sender, because the load
+   * path persists the result. Invalid values, duplicates, and the bot are excluded.
    * @param {Partial<ReminderInfo>|null|undefined} ArgReminder Reminder record to inspect.
    * @param {string|null|undefined} [ArgBotUserID] Workspace bot ID to exclude.
    * @returns {string[]}
@@ -848,20 +850,27 @@ class RemindersModule {
   static GetAssigneeIDs(ArgReminder, ArgBotUserID = null) {
     if(!ArgReminder || typeof ArgReminder !== 'object') return [];
 
-    const HasArray = Array.isArray(ArgReminder.AssigneeIDs);
-    const Candidates = HasArray
-      ? ArgReminder.AssigneeIDs
-      : [ArgReminder.AssigneeID];
-    /** @type {string[]} */
-    const AssigneeIDs = [];
-    for(const Candidate of Candidates) {
-      if(typeof Candidate !== 'string') continue;
-      const AssigneeID = Candidate.trim();
-      if(!AssigneeID || AssigneeID === ArgBotUserID || AssigneeIDs.includes(AssigneeID)) continue;
-      AssigneeIDs.push(AssigneeID);
-    }
+    /**
+     * @param {unknown[]} ArgCandidates
+     * @returns {string[]}
+     */
+    const CollectValidIDs = (ArgCandidates) => {
+      /** @type {string[]} */
+      const AssigneeIDs = [];
+      for(const Candidate of ArgCandidates) {
+        if(typeof Candidate !== 'string') continue;
+        const AssigneeID = Candidate.trim();
+        if(!AssigneeID || AssigneeID === ArgBotUserID || AssigneeIDs.includes(AssigneeID)) continue;
+        AssigneeIDs.push(AssigneeID);
+      }
+      return AssigneeIDs;
+    };
 
-    if(AssigneeIDs.length > 0) return AssigneeIDs;
+    const FromArray = Array.isArray(ArgReminder.AssigneeIDs) ? CollectValidIDs(ArgReminder.AssigneeIDs) : [];
+    if(FromArray.length > 0) return FromArray;
+
+    const FromMirror = CollectValidIDs([ArgReminder.AssigneeID]);
+    if(FromMirror.length > 0) return FromMirror;
 
     const SenderID = typeof ArgReminder.OriginalSenderID === 'string'
       ? ArgReminder.OriginalSenderID.trim()
