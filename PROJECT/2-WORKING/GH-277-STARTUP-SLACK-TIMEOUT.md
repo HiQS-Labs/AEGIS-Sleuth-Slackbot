@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Issue filed; recon traced the hang to an unbounded `await this.#SlackBoltApp.start()`; plan drafted. | Codex plan QA, then implement. |
+| Plan approved by Codex plan QA (round 3). Implemented in `b3649c0`: bounded `init()`/`auth.test`/`start()`, deferred initialization, late-start ownership, ingress fence, Stats/PluginLoader cleanup in the startup catch. 16 new tests (4 fail on the base); full suite green; two-workspace smoke on the real `src/app.js` with red control recorded in `TESTS-RESULTS/2026-10-23+GH-277/smoke.md`. | Codex final QA, then the PR. |
 
 ## Observed problem
 
