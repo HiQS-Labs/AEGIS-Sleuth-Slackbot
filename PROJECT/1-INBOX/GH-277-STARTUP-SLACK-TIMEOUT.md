@@ -39,20 +39,28 @@ first workspace, logged `registered 11 catalog regex aliases` (`ChatModule.Start
 
 ## Recon (base `c53412b`)
 
-- **Startup loop:** `src/app.js:298-443`, sequential. Per workspace, after module construction:
+- **Startup loop:** `src/app.js:298-453`, sequential. Per workspace, after module construction:
   `ChatModule.StartAsync` → `SlackAppInstance.StartAsync` (`:369`) → `RemindersModule.StartAsync` → Lists → Notion → CodeTaskRelay,
-  all inside `try { … } catch(error) { logger.error('failed to start workspace …, skipping:') … continue; }` (`:358-389`).
+  all inside `try { … } catch(error) { logger.error('failed to start workspace …, skipping:') … continue; }` (`:358-451`).
   So a **rejection** already skips one workspace and continues; a **promise that never settles** blocks the loop forever.
 - **Slack start:** `SlackApp.StartAsync` → `#InitializeClientAsync(ArgStats, true)` (`src/slack-app.js:468-470`, `:1732-1798`):
   `new App({ socketMode: true, … })`, `await client.auth.test()` (bounded only by `@slack/web-api` 7.17.0's default retry policy),
-  handler registration, then **`await this.#SlackBoltApp.start()` (`:1797`) with no bound**. The production log places the hang
-  here: auth.test succeeded at 16:09:18, the next two 503s are Socket Mode's `apps.connections.open` attempts, and `start()`
-  never resolved or rejected. Bolt 4.6.0 / socket-mode 2.0.5 internals were not traced further; the fix does not depend on why
-  the library promise stays pending.
+  handler registration, then **`await this.#SlackBoltApp.start()` (`:1797`) with no bound**. The production log places the stall
+  here: auth.test succeeded at 16:09:18, the next two 503s are Socket Mode's `apps.connections.open` attempts. Socket Mode's own
+  WebClient retries up to 100 times with factor 1.3 (`node_modules/@slack/socket-mode/dist/src/SocketModeClient.js:103-107`) and
+  the HTTP request timeout defaults to 0 (`node_modules/@slack/web-api/dist/WebClient.js:128,157`), so there is no useful wall-clock
+  bound; retry count is not a deadline. The logs show a stalled start, not proof that the promise is pending forever; the fix
+  does not depend on which.
 - **Restart policy:** `sleuth-app.service:104-105` `Restart = on-failure`, `RestartSec = 1`: a process exit is already recovered
   (that is how 16:08:53 and 16:09:08 came back). A hang is not.
+- **Line refs:** the startup loop is `src/app.js:298-453`; the per-workspace try is `:358-451`, its catch `:445-451`.
 - **Other callers of `#InitializeClientAsync`:** `ConnectOneShotAsync` (`:478`, operator tooling, `ArgStartSocketMode=false`)
-  never calls `start()`, so it is unaffected.
+  never calls `start()` but shares the auth step, which this change bounds too (intentional).
+- **Failed-workspace cleanup (pre-existing gap):** the catch at `src/app.js:445-451` stops only Chat and Slack, yet Stats
+  (`:315`, repeating save timer) and PluginLoader (`:331`) have already started; shutdown arrays get them only on success
+  (`:427-434`).
+- **Bolt constructor auth:** without `deferInitialization`, `new App` starts an `auth.test` with no rejection handler
+  (`node_modules/@slack/bolt/dist/App.js:190,801,822-837`).
 - **Tests:** Bolt is mocked with `jest.mock('@slack/bolt', …)` exposing `start`/`stop`/`client.auth.test`
   (`tests/slack-app-observability.test.js:6-31`); no test covers `src/app.js`'s loop.
 - **Untraced:** whether other startup awaits (Reminders/Lists/Notion network calls) can also hang; named as a risk, not fixed here.
@@ -67,33 +75,49 @@ first workspace, logged `registered 11 catalog regex aliases` (`ChatModule.Start
   (c) background reconnect for skipped workspaces: real value, but a new scheduler (non-goal; revisit if a skip happens again).
 - **Rollback:** revert the commit; or set `SLACK_START_TIMEOUT_MS=0` to disable the bound without a redeploy.
 
-## Plan
+## Plan (revised after plan QA round 1)
 
-1. `src/slack-app.js`: add a small module-level `WithTimeoutAsync(promise, ms, label)` helper (rejects with a labelled error
-   after `ms`; `ms <= 0` → no bound; clears its timer either way). Read `SLACK_START_TIMEOUT_MS` (default **60000**, integer,
-   invalid → default) once per start.
-   - Wrap `client.auth.test()` and `this.#SlackBoltApp.start()` in it.
-   - On a `start()` timeout: log ERROR naming the workspace and the timeout, best-effort `await this.#SlackBoltApp.stop()`
-     (ignore its error), reset `#SlackBoltApp = null` / `#SlackBoltAppStarted = false` so `StopAsync` is a no-op, then throw.
-   - A late resolution/rejection of the abandoned `start()` promise must not become an unhandled rejection (attach a no-op catch).
-2. `src/app.js`: no change to the loop (its catch already logs `failed to start workspace X, skipping:` and continues).
-3. `AGENTS.md` §12: document `SLACK_START_TIMEOUT_MS` (default, `0` disables, why).
+1. `src/slack-app.js`, all inside `#InitializeClientAsync` (`:1732-1798`):
+   - Construct Bolt with `deferInitialization: true` (supported option, `node_modules/@slack/bolt/dist/App.js:81,182-188`), so
+     the constructor no longer fires an unowned `auth.test` (`App.js:190,801,822-837`). Then `await app.init()` (`App.js:207-238`),
+     which performs that auth check itself, with token verification kept on.
+   - A small module-level `WithTimeoutAsync(promise, ms, label)` helper: rejects with a labelled `Error` after `ms`, clears its
+     timer when the promise settles first; `ms === null` means no bound.
+   - `SLACK_START_TIMEOUT_MS` contract, read once per start: unset or blank → **60000**; exactly `0` → no bound; a positive
+     integer ≤ 2147483647 → that value; anything else (negative, fractional, non-numeric, too large) → 60000 with one WARN.
+   - Bound, each separately: `app.init()`, the explicit `client.auth.test()` (`:1756`), and, for the event loop only,
+     `app.start()` (`:1797`). Sequential bounds can total ≈3× the value per workspace (documented).
+   - **Timeout cleanup with late ownership (F1):** on a `start()` timeout, log ERROR naming the workspace, mark this Bolt instance
+     retired, best-effort `stop()` now, **and** attach `startPromise.then(() => app.stop(), () => {})` so a start that completes
+     after the timeout is stopped as soon as it connects (socket-mode's `disconnect()` cannot cancel a pending URL request,
+     `SocketModeClient.js:138-184`). Event fencing: the instance is discarded and `SlackApp.StopAsync` (called by the existing
+     catch) clears every handler array (`src/slack-app.js:484-500`), so a late event reaches no module.
+   - A timed-out `init()`/`auth.test()` gets the same late `.catch(() => {})` so its eventual rejection is never unhandled.
+   - `ConnectOneShotAsync` (`:478`) shares `init()` + `auth.test`; bounding them there is intentional (operator tooling must not
+     hang either).
+2. `src/app.js` catch (`:445-451`) **(F2):** add best-effort `StopAsync()` for the already-started `PluginLoaderInstance` and
+   `StatsModuleInstance` (started at `:315`, `:331`; Stats owns a repeating save timer, `src/stats-module.js:172-181`), in reverse
+   start order after Chat and Slack. Existing owners' stop methods only; no new lifecycle code.
+3. `AGENTS.md` §12: document `SLACK_START_TIMEOUT_MS` (contract above, why, ≈3× per-workspace total).
 4. `CHANGELOG.md`: Unreleased entry.
 
 ## Acceptance checks
 
-- **Unit (existing Bolt mock pattern, new test file `tests/slack-app-start-timeout.test.js`):**
-  - `start()` that never resolves + `SLACK_START_TIMEOUT_MS=50` → `StartAsync` rejects with a timeout error naming the
-    workspace; `stop()` was called; ERROR logged. Red control: fails on the base commit (hangs → jest test timeout).
-  - `auth.test()` that never resolves → same rejection path.
-  - `start()` resolving normally → `StartAsync` resolves (no regression); timer cleared (no open handle).
-  - `SLACK_START_TIMEOUT_MS=0` → no bound applied.
-- **Loop behaviour (focused test over the existing catch):** a minimal check that a rejected workspace start is skipped and a
-  second workspace still starts is **not** added: `app.js` has no test harness and building one exceeds this change. Covered by
-  the smoke instead.
-- **Smoke (manual, recorded under `TESTS-RESULTS/2026-10-23+GH-277/`):** main path: run the real `SlackApp.StartAsync` with a
-  Bolt stub whose `start()` never settles → rejects at the bound; adjacent path: a normal `start()` → resolves, and a second
-  `StartAsync` after `StopAsync` works.
+- **Unit (existing Bolt mock pattern, `tests/slack-app-observability.test.js:6-31`; new file
+  `tests/slack-app-start-timeout.test.js`), with the timeout set small:**
+  - `start()` never settles → `StartAsync` rejects naming the workspace; `stop()` called; ERROR logged. **Red control:** on the
+    base commit the same test never settles (jest test timeout).
+  - `start()` settles **after** the timeout → `stop()` called again once it resolves (late ownership).
+  - `init()` never settles, and explicit `auth.test()` never settles → each rejects through the same path; a later rejection of
+    the abandoned promise produces no unhandled rejection.
+  - Bolt constructed with `deferInitialization: true` and `init()` awaited.
+  - `start()` resolves normally → `StartAsync` resolves; no timer left pending.
+  - Env contract: unset → 60000; `0` → no bound; `-5`, `1.5`, `abc`, `9999999999` → 60000 + WARN.
+- **Smoke on the real orchestration path (F4; disposable clone, recorded under `TESTS-RESULTS/2026-10-23+GH-277/`):** run
+  `node src/app.js` with a temp `SLEUTH_DATA_DIR` holding two fake workspaces (A, B) and a `node -r` preload that stubs
+  `@slack/bolt` so A's `start()` never settles and B's resolves (no network). Expect: A logs the timeout and
+  `failed to start workspace A, skipping`, A's stats timer stopped, B logs `workspace modules started: B`. **Red control:** the
+  same run on the base commit never reaches B. Adjacent path: both workspaces healthy → both start.
 - Full suite, build, validators, sanitize scan on the final commit.
 
 ## Risks
