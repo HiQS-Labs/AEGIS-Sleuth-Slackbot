@@ -114,47 +114,65 @@ describe('GH-277 SlackApp startup timeout', () => {
     expect(mockAppStart).not.toHaveBeenCalled();
   });
 
-  test('an abandoned init() that rejects later is not an unhandled rejection', async () => {
+  test.each([
+    ['init()', mockAppInit],
+    ['auth.test()', mockAuthTest],
+  ])('an abandoned %s that rejects later is not an unhandled rejection', async (_ArgName, ArgMock) => {
     /** @type {(reason?: any) => void} */
-    let RejectInit = () => {};
-    mockAppInit.mockImplementation(() => new Promise((_, ArgReject) => { RejectInit = ArgReject; }));
+    let RejectLate = () => {};
+    ArgMock.mockImplementation(() => new Promise((_, ArgReject) => { RejectLate = ArgReject; }));
     const App = new SlackApp(WorkspaceInfo, new MockLogger());
 
     await expect(App.StartAsync(EmptyStats)).rejects.toThrow(/connectivity test failed/);
-    RejectInit(new Error('late invalid_auth'));
+    RejectLate(new Error('late invalid_auth'));
     await Flush();
     expect(Unhandled).toEqual([]);
   });
 
   test('events from a retired instance reach no handler, even after the same wrapper starts again', async () => {
     mockAppStart.mockImplementationOnce(Never);
-    const Logger = new MockLogger();
-    const App = new SlackApp(WorkspaceInfo, Logger);
-    const MessageHandler = jest.fn(async () => false);
-    const MentionHandler = jest.fn(async () => false);
-    App.HandleMessage(MessageHandler);
-    App.HandleAppMention(MentionHandler);
+    const App = new SlackApp(WorkspaceInfo, new MockLogger());
+    const Handlers = {
+      message: jest.fn(async () => false),
+      mention: jest.fn(async () => false),
+      reaction: jest.fn(async () => false),
+      action: jest.fn(async () => {}),
+    };
+    const RegisterAll = () => {
+      App.HandleMessage(Handlers.message);
+      App.HandleAppMention(Handlers.mention);
+      App.HandleReactionAdded(Handlers.reaction);
+      App.HandleAction('gh277_action', Handlers.action);
+    };
+    RegisterAll();
 
     await expect(App.StartAsync(EmptyStats)).rejects.toThrow(/did not complete/);
-    const RetiredMessage = mockAppMessage.mock.calls[0][0];
-    const RetiredMention = mockAppEvent.mock.calls.find((ArgCall) => ArgCall[0] === 'app_mention')[1];
-    const RetiredReaction = mockAppEvent.mock.calls.find((ArgCall) => ArgCall[0] === 'reaction_added')[1];
+    const Retired = {
+      message: mockAppMessage.mock.calls[0][0],
+      mention: mockAppEvent.mock.calls.find((ArgCall) => ArgCall[0] === 'app_mention')[1],
+      reaction: mockAppEvent.mock.calls.find((ArgCall) => ArgCall[0] === 'reaction_added')[1],
+      action: mockAppAction.mock.calls.find((ArgCall) => ArgCall[0] === 'gh277_action')[1],
+    };
     await App.StopAsync(); // what the startup catch in src/app.js does
 
-    const Payload = { message: { text: 'hello', channel: 'C_FAKE', user: 'U_FAKE', ts: '1.0' } };
-    await expect(RetiredMessage(Payload)).resolves.toBeUndefined();
-    await expect(RetiredMention({ event: { text: '<@UBOT123> hi', channel: 'C_FAKE', user: 'U_FAKE', ts: '2.0' } })).resolves.toBeUndefined();
-    await expect(RetiredReaction({ event: { reaction: 'alarm_clock', user: 'U_FAKE', item: { channel: 'C_FAKE', ts: '1.0' } } })).resolves.toBeUndefined();
+    const Ack = jest.fn(async () => {});
+    const DeliverAll = async () => {
+      await expect(Retired.message({ message: { text: 'hello', channel: 'C_FAKE', user: 'U_FAKE', ts: '1.0' } })).resolves.toBeUndefined();
+      await expect(Retired.mention({ event: { text: '<@UBOT123> hi', channel: 'C_FAKE', user: 'U_FAKE', ts: '2.0' } })).resolves.toBeUndefined();
+      await expect(Retired.reaction({ event: { reaction: 'alarm_clock', user: 'U_FAKE', item: { type: 'message', channel: 'C_FAKE', ts: '1.0' } } })).resolves.toBeUndefined();
+      await expect(Retired.action({ ack: Ack, body: { user: { id: 'U_FAKE' }, channel: { id: 'C_FAKE' }, message: { ts: '1.0' } }, action: { action_id: 'gh277_action', value: 'x' } })).resolves.toBeUndefined();
+    };
+    await DeliverAll();
 
     // the same wrapper starts again (healthy); the old instance's callbacks still must not reach the new handlers.
-    App.HandleMessage(MessageHandler);
-    App.HandleAppMention(MentionHandler);
+    RegisterAll();
     await App.StartAsync(EmptyStats);
-    await RetiredMessage(Payload);
-    await RetiredMention({ event: { text: '<@UBOT123> hi', channel: 'C_FAKE', user: 'U_FAKE', ts: '2.0' } });
+    await DeliverAll();
 
-    expect(MessageHandler).not.toHaveBeenCalled();
-    expect(MentionHandler).not.toHaveBeenCalled();
+    for(const [ArgName, ArgHandler] of Object.entries(Handlers)) {
+      expect({ [ArgName]: ArgHandler.mock.calls.length }).toEqual({ [ArgName]: 0 });
+    }
+    expect(Ack).not.toHaveBeenCalled();
     expect(Unhandled).toEqual([]);
     await App.StopAsync();
   });

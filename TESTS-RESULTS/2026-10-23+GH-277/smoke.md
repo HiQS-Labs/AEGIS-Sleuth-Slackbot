@@ -48,6 +48,13 @@ After 20 s the base never leaves Alpha: Bravo never loads and the web API never 
 - `npm run build`, `validate:commands`, `validate:fsm`, `validate:ai`, `validate:reminder-pipeline`, `validate:changelog-tone`, `validate:workspace-isolation` — PASS.
 - `./utils/sanitize-scan.sh --allowlist utils/sanitize-allowlist.txt` — PASS (no findings).
 
+## Final-QA round 1 follow-up (S2): completed regression cases and their sensitivity
+
+- `tests/slack-app-start-timeout.test.js` now registers message, mention, reaction and action handlers, delivers all four retired callbacks before and after the same wrapper starts again, and asserts no handler ran and no `ack()` was sent; the late-rejection case is parameterized for `init()` **and** explicit `auth.test()`. `npx jest tests/slack-app-start-timeout.test.js` — PASS (17).
+- Sensitivity, each on a temporarily modified `src/slack-app.js` (restored, `git diff HEAD -- src/slack-app.js` empty afterwards):
+  - ingress fence line removed → `-t "retired instance"`: **1 failed**.
+  - explicit `auth.test` awaited through a hand-rolled timer that does not subscribe to late rejection → `-t "abandoned auth"`: **1 failed**.
+
 ## Preload used
 
 ```js
