@@ -42,7 +42,8 @@ keep the recorded assignee.
 **Technical:** `RemindersModule.GetAssigneeIDs` treated any `AssigneeIDs` array, empty included, as
 authoritative and fell straight through to `OriginalSenderID`; `#NormalizeReminderAssignees` then
 rewrote `AssigneeID` and the load path saved it. An array now wins only when it yields at least one
-valid ID; otherwise the order is `AssigneeID`, then `OriginalSenderID`. A populated array is unchanged.
+valid ID; otherwise the order is `AssigneeID`, then `OriginalSenderID`. An array holding a valid ID
+is unchanged.
 Pre-existing since GH-22 (2026-08-07); found by the PR #275 final QA relay
 (`PROJECT/RELAY/pr275-promotion-final-qa.md` on `qa/pr275-final-qa-2026-10-23`). Reminders already
 reassigned on production are not restored by this change. Tests:
