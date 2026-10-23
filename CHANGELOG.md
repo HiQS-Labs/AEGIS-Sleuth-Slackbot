@@ -35,6 +35,19 @@
 
 ## Unreleased
 
+A reminder that had its assignee recorded only in the older single-assignee field, next to an empty
+assignee list, was being handed to whoever sent the original message every time I restarted. I now
+keep the recorded assignee.
+
+**Technical:** `RemindersModule.GetAssigneeIDs` treated any `AssigneeIDs` array, empty included, as
+authoritative and fell straight through to `OriginalSenderID`; `#NormalizeReminderAssignees` then
+rewrote `AssigneeID` and the load path saved it. An array now wins only when it yields at least one
+valid ID; otherwise the order is `AssigneeID`, then `OriginalSenderID`. A populated array is unchanged.
+Pre-existing since GH-22 (2026-08-07); found by the PR #275 final QA relay
+(`PROJECT/RELAY/pr275-promotion-final-qa.md` on `qa/pr275-final-qa-2026-10-23`). Reminders already
+reassigned on production are not restored by this change. Tests:
+`tests/reminders-multiple-assignees.test.js` (unit cases plus an empty-array load-and-persist case).
+
 If my list of channels with auto-scheduling turned on ever goes missing while reminders exist, I now
 log it as an error instead of quietly treating every channel as off. My reminder test battery and test
 suite now always work in their own scratch data, and my other test harnesses refuse to run against a
