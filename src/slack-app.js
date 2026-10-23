@@ -3,6 +3,54 @@
 const path = require('path');
 const { App } = require('@slack/bolt');
 
+/**
+ * Default bound on each Slack startup step, in ms (GH-277). A healthy start takes 1–3 s; without a bound, a stalled
+ * Socket Mode connect (its client retries up to 100 times, with no request timeout) blocked every later workspace for
+ * 14 hours on 2026-10-22.
+ */
+const DEFAULT_SLACK_START_TIMEOUT_MS = 60000;
+
+/** Largest delay setTimeout honours; anything above it fires immediately. */
+const MAX_TIMER_DELAY_MS = 2147483647;
+
+/**
+ * Resolve SLACK_START_TIMEOUT_MS: unset or blank → the default; exactly "0" → no bound; a positive integer up to the
+ * timer limit → that value; anything else → the default, with a warning.
+ * @param {string|undefined} ArgRawValue Raw environment value.
+ * @param {{ warn?: (...args: any[]) => void }} [ArgLogger] Logger for an ignored value.
+ * @returns {number|null} Bound in ms, or null for no bound.
+ */
+function ResolveSlackStartTimeoutMs(ArgRawValue, ArgLogger) {
+  const RawValue = String(ArgRawValue ?? '').trim();
+  if(RawValue === '') return DEFAULT_SLACK_START_TIMEOUT_MS;
+  if(RawValue === '0') return null;
+  if(/^\d+$/.test(RawValue)) {
+    const Value = Number(RawValue);
+    if(Value > 0 && Value <= MAX_TIMER_DELAY_MS) return Value;
+  }
+  ArgLogger?.warn?.(`ignoring invalid SLACK_START_TIMEOUT_MS="${RawValue}"; using ${DEFAULT_SLACK_START_TIMEOUT_MS} ms.`);
+  return DEFAULT_SLACK_START_TIMEOUT_MS;
+}
+
+/**
+ * Reject when a promise has not settled within a bound. The timer is cleared as soon as either side settles. Because
+ * Promise.race subscribes to the original promise, its later rejection is handled rather than unhandled.
+ * @template T
+ * @param {Promise<T>} ArgPromise Operation to bound.
+ * @param {number|null} ArgTimeoutMs Bound in ms, or null for no bound.
+ * @param {string} ArgLabel Names the operation in the timeout error.
+ * @returns {Promise<T>}
+ */
+function WithTimeoutAsync(ArgPromise, ArgTimeoutMs, ArgLabel) {
+  if(ArgTimeoutMs === null) return ArgPromise;
+  /** @type {NodeJS.Timeout|undefined} */
+  let TimerId;
+  const Timeout = new Promise((_, ArgReject) => {
+    TimerId = setTimeout(() => ArgReject(new Error(`${ArgLabel} did not complete within ${ArgTimeoutMs} ms`)), ArgTimeoutMs);
+  });
+  return /** @type {Promise<T>} */ (Promise.race([ArgPromise, Timeout]).finally(() => clearTimeout(TimerId)));
+}
+
 // add typedefs for our own types.
 /**
  * @typedef {import('./workspaces').WorkspaceInfo} WorkspaceInfo
@@ -1742,18 +1790,27 @@ class SlackApp {
     // https://slack.dev/bolt-js/getting-started for details on getting the tokens and secrets). We run
     // the app in socket mode to avoid the need for a public webhook URL which requires setting up SSL
     // certificates.
-    this.#SlackBoltApp = new App({
+    // GH-277: deferInitialization stops the constructor from firing its own auth.test with no rejection handler;
+    // init() runs that check below, bounded and owned, with token verification still on.
+    const BoltApp = new App({
       token: this.#WorkspaceInfo.LIVE_TOKEN,
       appToken: this.#WorkspaceInfo.LIVE_APP_TOKEN,
       signingSecret: this.#WorkspaceInfo.LIVE_SIGNING_SECRET,
       socketMode: true,
       logger: this.#SlackLogger,
+      deferInitialization: true,
     });
+    this.#SlackBoltApp = BoltApp;
+    const WorkspaceName = this.#WorkspaceInfo.WORKSPACE_NAME;
+    const StartTimeoutMs = ResolveSlackStartTimeoutMs(process.env.SLACK_START_TIMEOUT_MS, this.#SlackLogger);
 
     // run a quick connectivity test and get the app's ID for mentions.
     let AuthTestResp;
     try {
-      AuthTestResp = await this.#SlackBoltApp.client.auth.test();
+      await WithTimeoutAsync(BoltApp.init(), StartTimeoutMs, `Slack initialization for workspace ${WorkspaceName}`);
+      AuthTestResp = await WithTimeoutAsync(
+        BoltApp.client.auth.test(), StartTimeoutMs, `Slack auth.test for workspace ${WorkspaceName}`
+      );
     } catch(/** @type {any} */ error) {
       const Message = error?.data?.error || error?.message || 'unknown error';
       this.#SlackLogger.error(
@@ -1779,25 +1836,56 @@ class SlackApp {
       return;
     }
 
+    // GH-277 ingress fence: a callback runs only while its own Bolt instance is still this wrapper's current one. A
+    // retired instance (start timed out, or the wrapper was started again) can still deliver events while its socket
+    // closes; those must not reach handlers or the cleared stats.
+    /**
+     * @template {any[]} TArgs
+     * @param {(...args: TArgs) => Promise<void>} ArgHandler Handler to guard.
+     * @returns {(...args: TArgs) => Promise<void>}
+     */
+    const ForThisInstance = (ArgHandler) => async (...ArgArgs) => {
+      if(this.#SlackBoltApp !== BoltApp) return;
+      await ArgHandler(...ArgArgs);
+    };
+
     // add Slack event handlers.
-    this.#SlackBoltApp.event('reaction_added', this.#OnReactionAddedAsync.bind(this));
-    this.#SlackBoltApp.event('app_mention', this.#OnAppMentionAsync.bind(this));
-    this.#SlackBoltApp.message(this.#OnMessageAsync.bind(this));
+    BoltApp.event('reaction_added', ForThisInstance(this.#OnReactionAddedAsync.bind(this)));
+    BoltApp.event('app_mention', ForThisInstance(this.#OnAppMentionAsync.bind(this)));
+    BoltApp.message(ForThisInstance(this.#OnMessageAsync.bind(this)));
 
     // add Bolt action handlers for each registered action_id. Subscribing per id (rather than a
     // regex catch-all) means Bolt only routes interactions we explicitly handle to this app.
     for(const ActionID of this.#ActionHandlersByActionId.keys()) {
-      this.#SlackBoltApp.action(
+      BoltApp.action(
         ActionID,
-        (ArgInteraction) => this.#OnActionAsync(ActionID, /** @type {any} */ (ArgInteraction))
+        ForThisInstance((ArgInteraction) => this.#OnActionAsync(ActionID, /** @type {any} */ (ArgInteraction)))
       );
     }
 
-    // start processing slack events.
-    await this.#SlackBoltApp.start();
+    // start processing slack events, bounded (GH-277): a stalled connect must fail this workspace's startup so the
+    // caller can skip it, instead of blocking every workspace after it.
+    const StartPromise = BoltApp.start();
+    try {
+      await WithTimeoutAsync(StartPromise, StartTimeoutMs, `Slack Socket Mode start for workspace ${WorkspaceName}`);
+    } catch(/** @type {any} */ error) {
+      // retire first, so the ingress fence drops anything the instance delivers from here on.
+      this.#SlackBoltApp = null;
+      this.#SlackBoltAppStarted = false;
+      this.#SlackLogger.error(`Slack Socket Mode did not start for workspace ${WorkspaceName}: ${error?.message || error}`);
+      // stopping now cannot cancel a connect that is still fetching its URL, so stop again once a late start settles.
+      // The trailing catch owns both a late start failure and a failing late stop.
+      StartPromise
+        .then(() => BoltApp.stop())
+        .catch((/** @type {any} */ LateError) =>
+          this.#SlackLogger.warn(`late Slack shutdown for workspace ${WorkspaceName} failed: ${LateError?.message || LateError}`));
+      try { await BoltApp.stop(); } catch { /* best-effort: the late stop above retries once the start settles */ }
+      throw error;
+    }
     this.#SlackBoltAppStarted = true;
   }
 }
 
 // export the class.
 module.exports = SlackApp;
+module.exports.ResolveSlackStartTimeoutMs = ResolveSlackStartTimeoutMs;

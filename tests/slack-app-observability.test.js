@@ -17,6 +17,7 @@ const mockAppConstructor = jest.fn(() => ({
     conversations: {},
     reactions: {},
   },
+  init: jest.fn(async () => {}),
   start: mockAppStart,
   stop: mockAppStop,
   event: mockAppEvent,

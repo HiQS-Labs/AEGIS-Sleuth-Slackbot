@@ -1,6 +1,6 @@
 ---
 title: "GH-277: bound each workspace's Slack startup so one stalled connection cannot hang every workspace"
-status: Inbox (1-INBOX)
+status: Working (2-WORKING)
 created: 2026-10-23
 updated: 2026-10-23
 owner: noel

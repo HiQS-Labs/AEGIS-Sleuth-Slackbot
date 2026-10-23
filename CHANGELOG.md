@@ -35,6 +35,17 @@
 
 ## Unreleased
 
+If Slack stops answering while I start up one workspace, I now give up on that workspace after a minute,
+log it as an error and start the others, instead of waiting forever with every workspace offline.
+
+**Technical:** GH-277. `SlackApp.#InitializeClientAsync` bounds Bolt `init()`, the `auth.test` check and the
+Socket Mode `start()` with `SLACK_START_TIMEOUT_MS` (default 60000, `0` disables). Bolt is built with
+`deferInitialization: true`, so the constructor no longer fires an unowned `auth.test`. On a start timeout the
+instance is retired first, stopped now and stopped again if the start completes late (a trailing catch owns any
+late failure), and every Bolt callback is fenced to its own instance so a retired one reaches no handler. The
+startup catch in `src/app.js` now also stops the already-started PluginLoader and Stats of a skipped workspace.
+On 2026-10-22 a stalled connect blocked every workspace for 14 hours while systemd reported the service active.
+
 A reminder that had its assignee recorded only in the older single-assignee field, next to an empty
 assignee list, was being handed to whoever sent the original message every time I restarted. I now
 keep the recorded assignee.
