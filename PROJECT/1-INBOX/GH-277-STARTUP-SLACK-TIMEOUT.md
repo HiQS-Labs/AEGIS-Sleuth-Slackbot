@@ -87,11 +87,16 @@ first workspace, logged `registered 11 catalog regex aliases` (`ChatModule.Start
      integer ≤ 2147483647 → that value; anything else (negative, fractional, non-numeric, too large) → 60000 with one WARN.
    - Bound, each separately: `app.init()`, the explicit `client.auth.test()` (`:1756`), and, for the event loop only,
      `app.start()` (`:1797`). Sequential bounds can total ≈3× the value per workspace (documented).
-   - **Timeout cleanup with late ownership (F1):** on a `start()` timeout, log ERROR naming the workspace, mark this Bolt instance
-     retired, best-effort `stop()` now, **and** attach `startPromise.then(() => app.stop(), () => {})` so a start that completes
-     after the timeout is stopped as soon as it connects (socket-mode's `disconnect()` cannot cancel a pending URL request,
-     `SocketModeClient.js:138-184`). Event fencing: the instance is discarded and `SlackApp.StopAsync` (called by the existing
-     catch) clears every handler array (`src/slack-app.js:484-500`), so a late event reaches no module.
+   - **Timeout cleanup with late ownership (F1):** on a `start()` timeout, log ERROR naming the workspace, **first** retire the
+     instance (`this.#SlackBoltApp = null`, `#SlackBoltAppStarted = false`, keeping a local reference `BoltApp`), then
+     best-effort `stop()` now, **and** attach `startPromise.then(() => BoltApp.stop()).catch((error) => log WARN)`, a single
+     trailing catch that owns both a late start rejection and a late `stop()` rejection (F1a). A start that completes after the
+     timeout is therefore stopped as soon as it connects (socket-mode's `disconnect()` cannot cancel a pending URL request,
+     `SocketModeClient.js:138-184`).
+   - **Ingress fence (F1b):** the three Bolt registrations (`event('reaction_added')`, `event('app_mention')`, `message(...)`, and
+     each `action(...)`, `src/slack-app.js:1781-1795`) are registered through a guard that returns immediately unless the
+     callback's own Bolt instance is still `this.#SlackBoltApp` (identity check, so a retired instance or a wrapper reused for a
+     new start can never reach handlers or the cleared stats). No new registry.
    - A timed-out `init()`/`auth.test()` gets the same late `.catch(() => {})` so its eventual rejection is never unhandled.
    - `ConnectOneShotAsync` (`:478`) shares `init()` + `auth.test`; bounding them there is intentional (operator tooling must not
      hang either).
@@ -107,7 +112,12 @@ first workspace, logged `registered 11 catalog regex aliases` (`ChatModule.Start
   `tests/slack-app-start-timeout.test.js`), with the timeout set small:**
   - `start()` never settles → `StartAsync` rejects naming the workspace; `stop()` called; ERROR logged. **Red control:** on the
     base commit the same test never settles (jest test timeout).
-  - `start()` settles **after** the timeout → `stop()` called again once it resolves (late ownership).
+  - `start()` settles **after** the timeout → `stop()` called again once it resolves (late ownership); and with that late
+    `stop()` rejecting → WARN logged, no unhandled rejection (F1a).
+  - After a timeout, invoking the retired instance's captured message / app_mention / reaction / action callbacks (payload
+    `{ message: { text: 'hello', channel: 'C_FAKE', user: 'U_FAKE', ts: '1.0' } }`) reaches no handler, touches no cleared
+    state, and does not throw, including after the same wrapper is started again (F1b).
+  - The updated Bolt mock exposes `init()`.
   - `init()` never settles, and explicit `auth.test()` never settles → each rejects through the same path; a later rejection of
     the abandoned promise produces no unhandled rejection.
   - Bolt constructed with `deferInitialization: true` and `init()` awaited.
@@ -115,9 +125,11 @@ first workspace, logged `registered 11 catalog regex aliases` (`ChatModule.Start
   - Env contract: unset → 60000; `0` → no bound; `-5`, `1.5`, `abc`, `9999999999` → 60000 + WARN.
 - **Smoke on the real orchestration path (F4; disposable clone, recorded under `TESTS-RESULTS/2026-10-23+GH-277/`):** run
   `node src/app.js` with a temp `SLEUTH_DATA_DIR` holding two fake workspaces (A, B) and a `node -r` preload that stubs
-  `@slack/bolt` so A's `start()` never settles and B's resolves (no network). Expect: A logs the timeout and
-  `failed to start workspace A, skipping`, A's stats timer stopped, B logs `workspace modules started: B`. **Red control:** the
-  same run on the base commit never reaches B. Adjacent path: both workspaces healthy → both start.
+  `@slack/bolt` so A's `start()` never settles and B's resolves, and stubs the AI connectivity probe
+  (`WorkspaceAI.prototype.TestConnectivityAsync` → ok; the real one calls OpenAI, `src/app.js:352`), with the fixture's optional
+  integrations left unconfigured and the web API on a free port, so nothing leaves the machine. Expect: A logs the timeout and
+  `failed to start workspace A, skipping`, A's Stats timer and PluginLoader stopped, B logs `workspace modules started: B`.
+  **Red control:** the same run on the base commit never reaches B. Adjacent path: both workspaces healthy → both start.
 - Full suite, build, validators, sanitize scan on the final commit.
 
 ## Risks
