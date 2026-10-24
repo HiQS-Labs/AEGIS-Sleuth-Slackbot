@@ -46,7 +46,11 @@ function WithTimeoutAsync(ArgPromise, ArgTimeoutMs, ArgLabel) {
   /** @type {NodeJS.Timeout|undefined} */
   let TimerId;
   const Timeout = new Promise((ArgResolve, ArgReject) => {
-    TimerId = setTimeout(() => ArgReject(new Error(`${ArgLabel} did not complete within ${ArgTimeoutMs} ms`)), ArgTimeoutMs);
+    TimerId = setTimeout(() => {
+      const TimeoutError = /** @type {Error & { code?: string }} */ (new Error(`${ArgLabel} did not complete within ${ArgTimeoutMs} ms`));
+      TimeoutError.code = 'SLACK_START_TIMEOUT';
+      ArgReject(TimeoutError);
+    }, ArgTimeoutMs);
   });
   return /** @type {Promise<T>} */ (Promise.race([ArgPromise, Timeout]).finally(() => clearTimeout(TimerId)));
 }
@@ -1874,9 +1878,13 @@ class SlackApp {
       this.#SlackBoltAppStarted = false;
       this.#SlackLogger.error(`Slack Socket Mode did not start for workspace ${WorkspaceName}: ${error?.message || error}`);
       // stopping now cannot cancel a connect that is still fetching its URL, so stop again once a late start succeeds.
-      // a start that failed was already logged above, so only a failing late stop is reported here.
+      // a start that failed before the bound was already logged above; one that fails after it carries the real cause.
+      const TimedOut = error?.code === 'SLACK_START_TIMEOUT';
       StartPromise
-        .then(() => BoltApp.stop(), () => {})
+        .then(() => BoltApp.stop(), (/** @type {any} */ ArgStartError) => {
+          if(TimedOut)
+            this.#SlackLogger.warn(`Slack Socket Mode start for workspace ${WorkspaceName} failed after its timeout: ${ArgStartError?.message || ArgStartError}`);
+        })
         .catch((/** @type {any} */ ArgError) =>
           this.#SlackLogger.warn(`late Slack shutdown for workspace ${WorkspaceName} failed: ${ArgError?.message || ArgError}`));
       try { await BoltApp.stop(); } catch { /* best-effort: the late stop above retries once the start settles */ }

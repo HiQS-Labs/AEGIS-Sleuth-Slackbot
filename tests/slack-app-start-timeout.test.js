@@ -114,6 +114,21 @@ describe('GH-277 SlackApp startup timeout', () => {
     expect(Unhandled).toEqual([]);
   });
 
+  test('a start() that fails after the bound is reported with its real cause', async () => {
+    /** @type {(reason?: any) => void} */
+    let RejectStart = () => {};
+    mockAppStart.mockImplementation(() => new Promise((ArgResolve, ArgReject) => { RejectStart = ArgReject; }));
+    const Logger = new MockLogger();
+    const App = new SlackApp(WorkspaceInfo, Logger);
+
+    await expect(App.StartAsync(EmptyStats)).rejects.toThrow(/did not complete within 40 ms/);
+    RejectStart(new Error('invalid_auth'));
+    await Flush();
+    expect(Logger.WarnMessages.some((ArgMessage) => ArgMessage.includes('Slack Socket Mode start for workspace TimeoutWorkspace failed after its timeout: invalid_auth'))).toBe(true);
+    expect(Logger.WarnMessages.some((ArgMessage) => ArgMessage.includes('late Slack shutdown'))).toBe(false);
+    expect(Unhandled).toEqual([]);
+  });
+
   test.each([
     ['init()', () => mockAppInit.mockImplementation(Never), /Slack initialization for workspace TimeoutWorkspace did not complete/],
     ['auth.test()', () => mockAuthTest.mockImplementation(Never), /Slack auth.test for workspace TimeoutWorkspace did not complete/],
