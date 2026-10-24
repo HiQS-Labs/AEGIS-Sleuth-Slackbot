@@ -5,8 +5,9 @@ const path = require('path');
 const fs = require('fs');
 
 // Isolate test runtime data per worker process to prevent cross-process state races (GH-60).
-// If SLEUTH_DATA_DIR is already explicitly set by the test runner / caller, respect it.
-if(!process.env.SLEUTH_DATA_DIR || process.env.SLEUTH_DATA_DIR.trim().length === 0) {
+// ALWAYS, even when SLEUTH_DATA_DIR is already set (GH-271): an inherited value may be a live data
+// directory (the production service exports one), and tests write and delete under it.
+{
   const WorkerId = process.env.JEST_WORKER_ID || '1';
   const IsolatedDir = path.join(os.tmpdir(), `sleuth-test-runtime-${WorkerId}-${process.pid}`);
   fs.mkdirSync(IsolatedDir, { recursive: true });

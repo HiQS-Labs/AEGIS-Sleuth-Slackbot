@@ -21,6 +21,7 @@ const {
   GetReminderRuntimeFilePaths,
   CleanupRuntimeFilesAsync,
   IsolateRuntimeTreeAsync,
+  RestoreRuntimeTree,
   SeedEnabledChannelAsync,
   MakeTurnTS,
   RunScenarioAsync,
@@ -174,32 +175,46 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
     await CleanupRuntimeFilesAsync(HarnessWorkspaceName);
   });
 
-  test('writes and then cleans up the throwaway harness workspace runtime files by default', async () => {
+  test('GH-271: never touches the caller\'s data dir, even for the same workspace name', async () => {
+    // The 2026-10-21 incident: the inherited SLEUTH_DATA_DIR was the live production directory, and
+    // the run deleted these five files there. Seed them where the caller's tree has them.
     ConfigureMockWorkspaceAI(MockWorkspaceAI, { recommendation: 'ignore' });
+    const CallerFiles = GetReminderRuntimeFilePaths(HarnessWorkspaceName);
+    for(const FilePath of CallerFiles) {
+      await fs.mkdir(path.dirname(FilePath), { recursive: true });
+      await fs.writeFile(FilePath, `live:${path.basename(FilePath)}`);
+    }
+    const CallerDataDir = process.env.SLEUTH_DATA_DIR;
 
-    await RunScenarioAsync(
+    const { RuntimeRoot } = await RunScenarioAsync(
       FakeWorkspaceInfo.WORKSPACE_NAME,
-      { channel: 'C_HARNESS', channelType: 'im', turns: [{ user: 'U_NOEL', text: "let's run to the park" }] },
+      { channel: 'C_HARNESS', channelType: 'channel', turns: [{ user: 'U_NOEL', text: "let's run to the park" }] },
       false
     );
 
-    const RuntimeFiles = GetReminderRuntimeFilePaths(HarnessWorkspaceName);
-    for(const FilePath of RuntimeFiles) {
-      await expect(fs.stat(FilePath)).rejects.toThrow();
+    for(const FilePath of CallerFiles) {
+      await expect(fs.readFile(FilePath, 'utf8')).resolves.toBe(`live:${path.basename(FilePath)}`);
     }
+    expect(RuntimeRoot).not.toBe(CallerDataDir);
+    await expect(fs.stat(RuntimeRoot)).rejects.toThrow();
+    expect(process.env.SLEUTH_DATA_DIR).toBe(CallerDataDir);
   });
 
-  test('keeps runtime files when --keep-data is requested', async () => {
+  test('keeps its own runtime tree when --keep-data is requested', async () => {
     ConfigureMockWorkspaceAI(MockWorkspaceAI, { recommendation: 'ignore' });
 
-    await RunScenarioAsync(
+    const { RuntimeRoot } = await RunScenarioAsync(
       FakeWorkspaceInfo.WORKSPACE_NAME,
       { channel: 'C_HARNESS', channelType: 'im', turns: [{ user: 'U_NOEL', text: "let's run to the park" }] },
       true
     );
 
-    const RemindersFilePath = GetReminderRuntimeFilePaths(HarnessWorkspaceName)[0];
-    await expect(fs.stat(RemindersFilePath)).resolves.toBeDefined();
+    try {
+      await expect(fs.stat(path.join(RuntimeRoot, 'reminders', `${HarnessWorkspaceName}_reminders.json`)))
+        .resolves.toBeDefined();
+    } finally {
+      await fs.rm(RuntimeRoot, { recursive: true, force: true });
+    }
   });
 
   test('rejects (does not exit clean) when a turn throws, and still cleans up runtime files', async () => {
@@ -225,6 +240,29 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
     for(const FilePath of RuntimeFiles) {
       await expect(fs.stat(FilePath)).rejects.toThrow();
     }
+  });
+
+  test('GH-271: a setup failure still restores the caller\'s SLEUTH_DATA_DIR and removes its tree', async () => {
+    const RemindersModule = require('../src/reminders-module');
+    const StartSpy = jest.spyOn(RemindersModule.prototype, 'StartAsync')
+      .mockRejectedValueOnce(new Error('simulated startup failure'));
+    const CallerDataDir = process.env.SLEUTH_DATA_DIR;
+    const BeforeTrees = new Set((await fs.readdir(os.tmpdir())).filter(ArgName => ArgName.startsWith('sleuth-reminder-battery-')));
+
+    try {
+      await expect(RunScenarioAsync(
+        FakeWorkspaceInfo.WORKSPACE_NAME,
+        { channel: 'C_HARNESS', channelType: 'im', turns: [{ user: 'U_NOEL', text: "let's run to the park" }] },
+        false
+      )).rejects.toThrow('simulated startup failure');
+    } finally {
+      StartSpy.mockRestore();
+    }
+
+    expect(process.env.SLEUTH_DATA_DIR).toBe(CallerDataDir);
+    const LeftOver = (await fs.readdir(os.tmpdir()))
+      .filter(ArgName => ArgName.startsWith('sleuth-reminder-battery-') && !BeforeTrees.has(ArgName));
+    expect(LeftOver).toEqual([]);
   });
 
   test('a GH-424 "see above" scenario reaches the AI with the enriched thread context, not just the bare turn', async () => {
@@ -291,14 +329,20 @@ describe('reminder-thread-battery RunScenarioAsync (mocked WorkspaceAI, no real 
     expect(JSON.parse(await fs.readFile(SeededPath, 'utf8'))).toEqual(['C_SEEDED']);
   });
 
-  test('IsolateRuntimeTreeAsync leaves a caller-established SLEUTH_DATA_DIR alone', async () => {
-    // Under Jest, runtime-setup.js already isolated this worker. If the harness clobbered that, it
-    // would redirect the REST of the worker's tests to its own temp tree mid-run and then delete
-    // it — the exact cross-worker leakage GH-60 fixed.
+  test('GH-271: IsolateRuntimeTreeAsync ignores an inherited SLEUTH_DATA_DIR and hands it back', async () => {
+    // An inherited value is not evidence of isolation (it was the live production dir). The harness
+    // must take its own tree, then restore the caller's value so this Jest worker keeps its own.
     const PreExisting = process.env.SLEUTH_DATA_DIR;
     expect(PreExisting).toBeTruthy();
 
-    await expect(IsolateRuntimeTreeAsync(HarnessWorkspaceName)).resolves.toBeNull();
+    const Isolation = await IsolateRuntimeTreeAsync(HarnessWorkspaceName);
+    try {
+      expect(Isolation.IsolatedRoot).not.toBe(PreExisting);
+      expect(Workspaces.GetRuntimeDirPath()).toBe(path.resolve(Isolation.IsolatedRoot));
+    } finally {
+      RestoreRuntimeTree(Isolation);
+      await fs.rm(Isolation.IsolatedRoot, { recursive: true, force: true });
+    }
     expect(process.env.SLEUTH_DATA_DIR).toBe(PreExisting);
   });
 });

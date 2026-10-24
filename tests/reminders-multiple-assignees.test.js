@@ -94,7 +94,10 @@ describe('multiple reminder assignees', () => {
     }
   });
 
-  test('normalizes a legacy single-assignee record on load without changing its owner', async () => {
+  test.each([
+    ['a legacy single-assignee record', {}],
+    ['a record with an empty AssigneeIDs array', { AssigneeIDs: [], OriginalSenderID: 'U_SENDER' }],
+  ])('normalizes %s on load without changing its owner', async (_ArgLabel, ArgExtraFields) => {
     const WorkspaceInfo = MakeWorkspaceInfo('legacy');
     const ReminderPath = GetReminderPath(WorkspaceInfo.WORKSPACE_NAME);
     const SlackApp = new MockSlackApp({ WorkspaceInfo });
@@ -118,6 +121,7 @@ describe('multiple reminder assignees', () => {
         GitHubUrls: [],
         clientId: null,
         projectId: null,
+        ...ArgExtraFields,
       }], null, 2));
 
       await Reminders.StartAsync();
@@ -143,6 +147,20 @@ describe('multiple reminder assignees', () => {
     };
     expect(RemindersModule.GetAssigneeIDs(Shared, 'U_BOT')).toEqual(['U_ALICE', 'U_BOB']);
     expect(RemindersModule.GetAssigneeIDs({ AssigneeIDs: ['U_BOT'], OriginalSenderID: 'U_SENDER' }, 'U_BOT'))
+      .toEqual(['U_SENDER']);
+  });
+
+  test('an empty AssigneeIDs array keeps a valid AssigneeID instead of reassigning to the sender', () => {
+    const Sender = { OriginalSenderID: 'U_SENDER' };
+    expect(RemindersModule.GetAssigneeIDs({ ...Sender, AssigneeIDs: [], AssigneeID: 'U_ALICE' }, 'U_BOT'))
+      .toEqual(['U_ALICE']);
+    expect(RemindersModule.GetAssigneeIDs({ ...Sender, AssigneeID: 'U_ALICE' }, 'U_BOT'))
+      .toEqual(['U_ALICE']);
+    expect(RemindersModule.GetAssigneeIDs({ ...Sender, AssigneeIDs: ['U_BOT'], AssigneeID: 'U_ALICE' }, 'U_BOT'))
+      .toEqual(['U_ALICE']);
+    expect(RemindersModule.GetAssigneeIDs({ ...Sender, AssigneeIDs: ['U_CAROL'], AssigneeID: 'U_ALICE' }, 'U_BOT'))
+      .toEqual(['U_CAROL']);
+    expect(RemindersModule.GetAssigneeIDs({ ...Sender, AssigneeIDs: [], AssigneeID: null }, 'U_BOT'))
       .toEqual(['U_SENDER']);
   });
 

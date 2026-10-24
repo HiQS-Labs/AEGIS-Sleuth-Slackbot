@@ -81,6 +81,36 @@ async function CleanupReminderRuntimeFilesAsync(ArgWorkspaceName) {
 }
 
 describe('RemindersModule integration via MockSlackApp', () => {
+  test.each([
+    ['C_SOURCE', true],
+    ['D_DIRECT', false],
+  ])('GH-271: missing channel file with a reminder from %s logs lost-list error: %s', async (ArgChannelID, ArgExpectError) => {
+    // A lost channel list silently disabled channel auto-scheduling for 28 hours on 2026-10-21.
+    // DM-only workspaces legitimately have no file, so they must not raise a false alarm.
+    const WorkspaceInfo = MakeWorkspaceInfo(`missing_channels_${ArgChannelID}`);
+    const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+    await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+    const Reminder = {
+      ReminderID: `missing-channels-${ArgChannelID}`, CreatedOn: '2026-08-01T12:00:00.000Z',
+      ShouldPostOn: '2099-08-02T12:00:00.000Z', TargetChannelID: 'C_REMINDERS',
+      OriginalChannelID: ArgChannelID, OriginalMessageID: '100.200', OriginalSenderID: 'U_SENDER',
+      ReminderMessageText: 'Review the report', IgnoreSnooze: false, AssigneeID: 'U_OWNER',
+      AssigneeIDs: ['U_OWNER'], GitHubUrls: [], clientId: null, projectId: null, State: 'scheduled',
+    };
+    await fs.writeFile(RuntimePaths.remindersFilePath, JSON.stringify([Reminder]), 'utf8');
+
+    const SlackApp = new MockSlackApp({ WorkspaceInfo });
+    const Reminders = new RemindersModule(SlackApp);
+    await Reminders.StartAsync(EmptyWorkspaceStats);
+    try {
+      const LostListErrors = SlackApp.Logger.ErrorMessages.filter(ArgMessage => ArgMessage.includes('channel list was probably lost'));
+      expect(LostListErrors.length > 0).toBe(ArgExpectError);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+    }
+  });
+
   test('REMINDERS_READ_SOURCE loads a lossless baseline projection and rolls back to JSON', async () => {
     const WorkspaceInfo = MakeWorkspaceInfo('projection_read_source');
     const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
@@ -382,7 +412,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
       }
     });
 
-    test('alarm clock reaction preserves the original message verbatim when synthesis is OFF (default)', async () => {
+    test('alarm clock reaction preserves the original message verbatim when synthesis is OFF (legacy routing)', async () => {
       const WorkspaceInfo = MakeWorkspaceInfo('manual_force_raw_default');
       const ExtractCalls = [];
       const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
@@ -421,7 +451,10 @@ describe('RemindersModule integration via MockSlackApp', () => {
       const Reminders = new RemindersModule(SlackApp);
 
       const PriorSynthesisFlag = process.env.REMINDER_TEXT_SYNTHESIS;
-      delete process.env.REMINDER_TEXT_SYNTHESIS; // default = OFF
+      const PriorAlwaysFlag = process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+      delete process.env.REMINDER_TEXT_SYNTHESIS;
+      // GH-250 phase 3: always-synthesize is the default now; this test is about the legacy matrix.
+      process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = 'off';
       try {
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
         await Reminders.StartAsync(EmptyWorkspaceStats);
@@ -444,6 +477,8 @@ describe('RemindersModule integration via MockSlackApp', () => {
       } finally {
         if(PriorSynthesisFlag === undefined) delete process.env.REMINDER_TEXT_SYNTHESIS;
         else process.env.REMINDER_TEXT_SYNTHESIS = PriorSynthesisFlag;
+        if(PriorAlwaysFlag === undefined) delete process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE;
+        else process.env.REMINDER_TITLE_ALWAYS_SYNTHESIZE = PriorAlwaysFlag;
         await Reminders.StopAsync();
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       }
@@ -3442,4 +3477,276 @@ describe('RemindersModule integration via MockSlackApp', () => {
       }
     });
   });
+
+  describe('GH-250 phase 3 — one constrained re-synthesis before the template fallback', () => {
+    /**
+     * Drive the REAL scheduling path with an analyzer that returns a pointer-only candidate (`Do it`)
+     * for a message with no thread context, so the title contract refuses every text and the repair
+     * decision is the only thing standing between the user and `Follow up: …`.
+     * @param {string} ArgSuffix Workspace suffix.
+     * @param {{reminder_message: string, object_ref: string}|null} ArgRepairAnswer What the repair model answers.
+     * @param {{Text?: string, Reminders?: any[], Thread?: Array<{user: string, text: string}>}} [ArgScenario]
+     * The live message, the analyzer's candidates, and earlier thread messages (when the live
+     * message is a thread reply that enrichment should prepend them to).
+     * @returns {Promise<{FeedbackText: string, RepairCalls: any[], Stored: any[], WarnMessages: string[]}>}
+     */
+    async function RunRepairCaseAsync(ArgSuffix, ArgRepairAnswer, ArgScenario = {}) {
+      const Scenario = {
+        Text: '<@U_ALPHA> the hotfix is ready, can you do it tomorrow?',
+        Reminders: [{
+          actionable_language: 'can you do it', scheduling_trigger: 'tomorrow', reminder_message: 'Do it',
+          context: '', owner: 'mentioned', owner_mentions: ['U_ALPHA'], object_ref: '', subtasks: [],
+        }],
+        Thread: null,
+        ...ArgScenario,
+      };
+      const ParentTS = '1700000000.000001';
+      const ReplyTS = `1700000000.00000${(Scenario.Thread?.length || 0) + 1}`;
+      const WorkspaceInfo = MakeWorkspaceInfo(ArgSuffix);
+      const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const RepairCalls = [];
+      const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
+        if(ArgMessageText.includes('BASE DATE:'))
+          return { year: 2030, month: 5, day: 7, hour: 8, minute: 0, second: 0, rationale: 'Tomorrow morning.' };
+        if(ArgSchema?.name === 'reminder_title_repair_response') {
+          RepairCalls.push(JSON.parse(ArgMessageText));
+          return { rationale: 'resolved the pointer from the sentence before it', ...ArgRepairAnswer };
+        }
+        if(ArgSchema?.name === 'reminder_response') {
+          return {
+            recommendation: 'schedule',
+            rationale: 'direct ask with a trigger',
+            reminders: Scenario.Reminders.map(ArgReminder => ({ ...ArgReminder })),
+          };
+        }
+        return { recommendation: 'schedule', rationale: 'no duplicate', matched_by: null };
+      });
+      MockWorkspaceAI.mockImplementation(() => ({
+        ProcessMessageWithJsonResponseAsync: MockProcess,
+        ProcessMessageWithTextResponseAsync: jest.fn().mockResolvedValue('mock text response'),
+        get ComplexModelName() { return 'gpt-4o'; },
+        get DefaultModelName() { return 'gpt-4o-mini'; },
+        set DefaultModelName(_) {},
+      }));
+      const ThreadMessages = Scenario.Thread
+        ? [
+          ...Scenario.Thread.map((ArgMessage, ArgIndex) => ({
+            user: ArgMessage.user, text: ArgMessage.text, ts: ArgIndex === 0 ? ParentTS : `1700000000.00000${ArgIndex + 1}`,
+            bot_id: undefined, reactions: [],
+          })),
+          { user: 'U_SENDER', text: Scenario.Text, ts: ReplyTS, bot_id: undefined, reactions: [] },
+        ]
+        : null;
+      const SlackApp = new MockSlackApp({
+        WorkspaceInfo, ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' },
+        ...(ThreadMessages ? { ThreadMessagesById: { [`C_ENABLED:${ParentTS}`]: ThreadMessages } } : {}),
+      });
+      const Reminders = new RemindersModule(SlackApp);
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await fs.writeFile(RuntimePaths.enabledChannelsFilePath, JSON.stringify(['C_ENABLED']), 'utf8');
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        await SlackApp.SimulateMessageAsync({
+          channel: 'C_ENABLED', user: 'U_SENDER', text: Scenario.Text,
+          ...(ThreadMessages ? { ts: ReplyTS, thread_ts: ParentTS } : {}),
+        });
+        const FeedbackMessage = SlackApp.SentMessages.find(ArgMessage => /Slack reminder.*been scheduled/.test(ArgMessage.text));
+        expect(FeedbackMessage).toBeDefined();
+        const Stored = JSON.parse(await fs.readFile(RuntimePaths.remindersFilePath, 'utf8'));
+        return { FeedbackText: FeedbackMessage.text, RepairCalls, Stored, WarnMessages: SlackApp.Logger.WarnMessages };
+      } finally {
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      }
+    }
+
+    test('a grounded repair is accepted: the confirmation and the stored task show it, once', async () => {
+      const R = await RunRepairCaseAsync('title_repair_accepted', { reminder_message: 'Deploy the hotfix', object_ref: 'the hotfix' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.RepairCalls[0]).toMatchObject({ candidate_title: 'Do it', evidence_span: 'can you do it' });
+      expect(R.RepairCalls[0].refused_for.join(' ')).toMatch(/bare-pointer/);
+      expect(R.FeedbackText).toContain('• Deploy the hotfix');
+      expect(R.FeedbackText).not.toContain('Follow up');
+      expect(R.Stored[0].ReminderMessageText).toContain('• Deploy the hotfix');
+    });
+
+    test('a repair that invents a term is refused by the same contract, and the template is shown', async () => {
+      const R = await RunRepairCaseAsync('title_repair_ungrounded', { reminder_message: 'Deploy the Snowflake hotfix', object_ref: 'Snowflake' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).not.toContain('Snowflake');
+      expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+      expect(R.Stored[0].ReminderMessageText).not.toContain('Snowflake');
+    });
+
+    test('a title that does not name the object the repair returned is refused — the object is the checked half', async () => {
+      // `billing database` is lowercase, so the title's own grounding has nothing to claim; the
+      // returned object (`the hotfix`) is grounded but the title never says it (CodeRabbit on #268).
+      const R = await RunRepairCaseAsync('title_repair_object_mismatch', { reminder_message: 'Deploy the billing database', object_ref: 'the hotfix' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).not.toContain('billing');
+      expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+      expect(R.Stored[0].ReminderMessageText).not.toContain('billing');
+    });
+
+    test('a repair without an object is refused: a title with nothing to check is the bare pointer again', async () => {
+      const R = await RunRepairCaseAsync('title_repair_no_object', { reminder_message: 'Deploy the hotfix', object_ref: '' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+    });
+
+    test('a repaired pointer is still the live reply restated: the echo filter reads the title the repair replaced', async () => {
+      const R = await RunRepairCaseAsync(
+        'title_repair_echo_filter',
+        { reminder_message: 'Take the car and bring the cooler', object_ref: 'the car' },
+        {
+          Text: '<@U_BETA> can you do all of the above tomorrow?',
+          Thread: [
+            { user: 'U_ALPHA', text: 'let\'s take the car.' },
+            { user: 'U_BETA', text: 'please bring the cooler.' },
+          ],
+          Reminders: [
+            { actionable_language: 'let\'s take the car', scheduling_trigger: 'tomorrow', reminder_message: 'Take the car', context: '', owner: 'mentioned', owner_mentions: ['U_BETA'], object_ref: 'the car', subtasks: [] },
+            { actionable_language: 'please bring the cooler', scheduling_trigger: 'tomorrow', reminder_message: 'Bring the cooler', context: '', owner: 'mentioned', owner_mentions: ['U_BETA'], object_ref: 'the cooler', subtasks: [] },
+            { actionable_language: 'can you do all of the above', scheduling_trigger: 'tomorrow', reminder_message: 'Do all of the above', context: '', owner: 'mentioned', owner_mentions: ['U_BETA'], object_ref: '', subtasks: [] },
+          ],
+        },
+      );
+      // the repair was accepted (its object is grounded and named by the title) …
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.RepairCalls[0]).toMatchObject({ candidate_title: 'Do all of the above' });
+      // … and the candidate was still dropped as the pointer echo of its two siblings.
+      expect(R.WarnMessages.some(ArgMessage => ArgMessage.includes('reminder unresolved reference:') && ArgMessage.includes('dropped=1'))).toBe(true);
+      expect(R.FeedbackText).toContain('• Take the car');
+      expect(R.FeedbackText).toContain('• Bring the cooler');
+      expect(R.FeedbackText).not.toContain('Take the car and bring the cooler');
+    });
+
+    test('an empty answer means "no task here" and keeps the template', async () => {
+      const R = await RunRepairCaseAsync('title_repair_declined', { reminder_message: '', object_ref: '' });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+    });
+
+    test('REMINDER_TITLE_REPAIR=off spends no model call', async () => {
+      const Prior = process.env.REMINDER_TITLE_REPAIR;
+      process.env.REMINDER_TITLE_REPAIR = 'off';
+      try {
+        const R = await RunRepairCaseAsync('title_repair_off', { reminder_message: 'Deploy the hotfix', object_ref: 'the hotfix' });
+        expect(R.RepairCalls).toHaveLength(0);
+        expect(R.FeedbackText).toContain('• Follow up: The hotfix is ready');
+      } finally {
+        if(Prior === undefined) delete process.env.REMINDER_TITLE_REPAIR;
+        else process.env.REMINDER_TITLE_REPAIR = Prior;
+      }
+    });
+  });
+});
+
+// characterize effects before replacing internal planning; the real registered handler is invoked.
+describe('GH-264 scheduling effect and failure contracts', () => {
+  test.each(['success', 'ignore', 'duplicate', 'save-failure', 'list-failure', 'feedback-failure'])(
+    '%s retains handled/state/effect ordering', async ArgCase => {
+      const WorkspaceInfo = MakeWorkspaceInfo(`gh264_${ArgCase}`);
+      const Paths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+      const Effects = [];
+      const MockProcess = ConfigureMockWorkspaceAI(MockWorkspaceAI, {
+        recommendation: ArgCase === 'ignore' ? 'ignore' : 'schedule',
+        reminderMessage: 'Review release notes', actionableLanguage: 'review release notes',
+      });
+      const Analyze = MockProcess.getMockImplementation();
+      MockProcess.mockImplementation(async (...ArgArgs) => { Effects.push('analysis'); return Analyze(...ArgArgs); });
+      const SlackApp = new MockSlackApp({ WorkspaceInfo, ChannelIdsByName: { 'test-reminders': 'C_REMINDERS' } });
+      const Register = jest.spyOn(SlackApp, 'HandleMessage');
+      const Reminders = new RemindersModule(SlackApp);
+      const Handler = Register.mock.calls[1][0];
+      const Event = { channel: 'D_SOURCE', channel_type: 'im', ts: '1800000000.000001', user: 'U_SENDER', text: "I'll review release notes tomorrow.", thread_ts: null };
+      const DateSpy = jest.spyOn(RemindersAIPipeline.prototype, 'ExtractDateWithGptAsync').mockImplementation(async () => {
+        Effects.push('date');
+        return { success: true, date: new Date('2030-01-02T17:00:00Z'), wasAdjustedForward: false };
+      });
+      const DedupSpy = jest.spyOn(RemindersAIPipeline.prototype, 'CheckForDuplicateReminderAsync').mockImplementation(async ArgReminder => {
+        Effects.push('dedup');
+        const SameMessage = Reminders.GetPendingReminders().some(r => r.OriginalMessageID === ArgReminder.OriginalMessageID);
+        return { recommendation: ArgCase === 'duplicate' || SameMessage ? 'ignore' : 'schedule', rationale: 'characterized duplicate', matched_by: SameMessage ? 'message_id' : 'semantic' };
+      });
+      const ReadDisk = async () => {
+        try { return JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8')); }
+        catch(error) { if(error.code === 'ENOENT') return []; throw error; }
+      };
+      const ListSawPersisted = [];
+      const Lists = { IsListsAvailable: true, AddReminderToListAsync: jest.fn(async ArgReminder => {
+        Effects.push('list');
+        ListSawPersisted.push((await ReadDisk()).some(r => r.ReminderID === ArgReminder.ReminderID));
+        if(ArgCase === 'list-failure') throw new Error('characterized list failure');
+      }) };
+      let RenameSpy;
+      let PostSpy;
+      try {
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        await Reminders.StartAsync(EmptyWorkspaceStats);
+        Reminders.SetListsModule(Lists);
+        const Rename = fs.rename.bind(fs);
+        let FailSave = ArgCase === 'save-failure';
+        RenameSpy = jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+          if(ArgTo === Paths.remindersFilePath) {
+            if(FailSave) { FailSave = false; Effects.push('save-failed'); throw new Error('characterized save failure'); }
+            Effects.push('save');
+          }
+          return Rename(ArgFrom, ArgTo);
+        });
+        const Post = SlackApp.PostMessageTextAsync.bind(SlackApp);
+        PostSpy = jest.spyOn(SlackApp, 'PostMessageTextAsync').mockImplementation(async (...ArgArgs) => {
+          if(ArgArgs[4]?.Tag === 'reminders-feedback') {
+            Effects.push('feedback');
+            if(ArgCase === 'feedback-failure') throw new Error('characterized feedback failure');
+          }
+          return Post(...ArgArgs);
+        });
+        Effects.length = 0;
+        if(ArgCase === 'feedback-failure')
+          await expect(Handler(SlackApp, Event)).rejects.toThrow('characterized feedback failure');
+        else
+          expect(await Handler(SlackApp, Event)).toBe(ArgCase === 'success');
+
+        const ExpectedEffects = {
+          success: ['analysis', 'date', 'dedup', 'save', 'list', 'feedback'],
+          ignore: ['analysis'], duplicate: ['analysis', 'date', 'dedup'],
+          'save-failure': ['analysis', 'date', 'dedup', 'save-failed'],
+          'list-failure': ['analysis', 'date', 'dedup', 'save', 'list'],
+          'feedback-failure': ['analysis', 'date', 'dedup', 'save', 'list', 'feedback'],
+        };
+        expect(Effects).toEqual(ExpectedEffects[ArgCase]);
+        expect(ListSawPersisted).toEqual(ExpectedEffects[ArgCase].filter(e => e === 'list').map(() => true));
+        const Created = !['ignore', 'duplicate'].includes(ArgCase);
+        expect(Reminders.GetPendingReminders()).toHaveLength(Created ? 1 : 0);
+        expect(await ReadDisk()).toHaveLength(Created && ArgCase !== 'save-failure' ? 1 : 0);
+        if(Created) {
+          const Record = Reminders.GetPendingReminders()[0];
+          expect(Record.ShouldPostOn).toBeInstanceOf(Date);
+          expect(Object.hasOwn(Record, 'EnrichedFrom')).toBe(false);
+          expect(Record.AssigneeIDs).toEqual(['U_SENDER']);
+          expect(Record.ReminderMessageText).toContain('Key task(s):');
+        }
+        const Feedback = SlackApp.SentMessages.filter(m => m.metadata?.event_type === 'sleuth-ai-reminder-ids');
+        expect(Feedback).toHaveLength(ArgCase === 'success' ? 1 : 0);
+        if(ArgCase === 'success') expect(JSON.parse(Feedback[0].metadata.event_payload.ReminderIDs)).toEqual([Reminders.GetPendingReminders()[0].ReminderID]);
+        if(ArgCase === 'duplicate') expect(SlackApp.AddedReactions.some(r => r.reaction === 'gemini')).toBe(true);
+        if(ArgCase === 'save-failure') {
+          expect(await Handler(SlackApp, { ...Event, ts: '1800000000.000002' })).toBe(true);
+          expect(await ReadDisk()).toHaveLength(2);
+          expect(ListSawPersisted).toEqual([true]);
+        }
+        if(ArgCase === 'feedback-failure') {
+          expect(await SlackApp.SimulateMessageAsync(Event)).toBe(false);
+          expect(Reminders.GetPendingReminders()).toHaveLength(1);
+          expect(Lists.AddReminderToListAsync).toHaveBeenCalledTimes(1);
+        }
+      } finally {
+        RenameSpy?.mockRestore(); PostSpy?.mockRestore(); DateSpy.mockRestore(); DedupSpy.mockRestore();
+        await Reminders.StopAsync();
+        await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+        MockWorkspaceAI.mockReset();
+      }
+    },
+  );
 });

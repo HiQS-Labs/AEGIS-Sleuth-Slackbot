@@ -363,3 +363,20 @@ describe('RemindersModule startup-window handler safety', () => {
     ).toBe(false);
   });
 });
+
+
+test('GH-264 pure preparation keeps frozen candidates and first render identity', () => {
+  const { PrepareReminderCandidates, PlanTriggerOwnership } = require('../src/reminder-scheduling-plan');
+  const Candidate = Object.freeze({ reminder_message: 'Review release notes', actionable_language: 'review release notes', scheduling_trigger: 'tomorrow', owner: 'speaker' });
+  const Duplicate = Object.freeze({ ...Candidate });
+  const Candidates = Object.freeze([Candidate, Duplicate]);
+  const Plan = PrepareReminderCandidates({ Candidates, OriginalText: "I'll review release notes tomorrow.", AnalyzedText: "I'll review release notes tomorrow.", SynthesisOn: true });
+  expect(Plan.Candidates).toEqual([Candidate]);
+  expect(Plan.Candidates[0]).toBe(Candidate);
+  expect(Plan.Groups.map(g => g.trigger)).toEqual(['tomorrow']);
+  expect(Plan.Views.get(Candidate).Text).toBe('Review release notes');
+  expect(Candidates).toHaveLength(2);
+  const Group = PlanTriggerOwnership(Plan.Candidates, { MessageText: "I'll review release notes tomorrow.", LiveReplyText: '', MentionedIDs: [], SenderID: 'U_OWNER' });
+  expect(Group.Resolution.assigneeIDs).toEqual(['U_OWNER']);
+  expect(Group.Disagreement).toEqual([]);
+});

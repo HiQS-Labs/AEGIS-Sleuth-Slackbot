@@ -103,10 +103,14 @@ function SplitIntoSentenceLikeChunks(ArgText) {
  * @returns {string}
  */
 function ExtractQuotedOriginalExcerpt(ArgReminderMessageText) {
-  const QuotedOriginal = SlackFormatUtils.ExtractQuotedOriginalMessage(ArgReminderMessageText);
-  if(!QuotedOriginal) return '';
+  return BuildQuotedOriginalExcerpt(SlackFormatUtils.ExtractQuotedOriginalMessage(ArgReminderMessageText));
+}
 
-  const TrimmedLines = TrimRedundantEdgeLines(GetQuotedMessageLines(QuotedOriginal));
+/** @param {string|null} ArgQuotedOriginal */
+function BuildQuotedOriginalExcerpt(ArgQuotedOriginal) {
+  if(!ArgQuotedOriginal) return '';
+
+  const TrimmedLines = TrimRedundantEdgeLines(GetQuotedMessageLines(ArgQuotedOriginal));
   const NormalizedOriginal = NormalizeCompactWhitespace(TrimmedLines.join(' '));
   if(!NormalizedOriginal) return '';
 
@@ -174,12 +178,12 @@ const REMINDER_DUE_SECTIONS = [
  * @returns {string[]} Truncated task summaries in stored order; empty when the record has no bullets.
  */
 function ExtractKeyTaskSummaries(ArgReminderMessageText) {
-  return String(ArgReminderMessageText ?? '')
-    .split('\n')
-    .map((/** @type {string} */ ArgLine) => ArgLine.trim())
-    .filter((/** @type {string} */ ArgLine) => ArgLine.startsWith('•'))
-    .map((/** @type {string} */ ArgLine) => TruncateCompactSummary(ArgLine.replace(/^•\s*/, '')))
-    .filter(Boolean);
+  return TruncateTaskSummaries(SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText).BulletTasks);
+}
+
+/** @param {string[]} ArgTasks */
+function TruncateTaskSummaries(ArgTasks) {
+  return ArgTasks.map(ArgLine => TruncateCompactSummary(ArgLine)).filter(Boolean);
 }
 
 /**
@@ -194,22 +198,20 @@ function ExtractKeyTaskSummaries(ArgReminderMessageText) {
  * @returns {string}
  */
 function ExtractCompactSummary(ArgReminderMessageText) {
-  const lines = String(ArgReminderMessageText ?? '')
-    .split('\n')
-    .map((/** @type {string} */ ArgLine) => ArgLine.trim())
-    .filter(Boolean);
+  const Content = SlackFormatUtils.ParseLegacyReminderContent(ArgReminderMessageText);
+  const lines = Content.Lines;
 
   // Prefer the synthesized "Key task(s):" bullet when present. It is the human-reviewed one-line task
   // (GH-337) and must win over the raw quoted-original excerpt — otherwise a long message that has BOTH
   // a quote block AND a synthesized task shows the quote lead in the digest while the confirmation
   // showed the clean task (prod: "Get the Woocommerce plugins done" rendered as "com. I'll follow the
   // same method…").
-  const [FirstKeyTask] = ExtractKeyTaskSummaries(ArgReminderMessageText);
+  const [FirstKeyTask] = TruncateTaskSummaries(Content.BulletTasks);
   if(FirstKeyTask)
     return FirstKeyTask;
 
   // Otherwise fall back to a trimmed excerpt of the quoted original (GH-337 Phase 3)...
-  const QuotedExcerpt = ExtractQuotedOriginalExcerpt(ArgReminderMessageText);
+  const QuotedExcerpt = BuildQuotedOriginalExcerpt(typeof ArgReminderMessageText === 'string' ? Content.Quoted : null);
   if(QuotedExcerpt)
     return TruncateCompactSummary(QuotedExcerpt);
 

@@ -33,7 +33,167 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## Unreleased
+
+If Slack stops answering while I start up one workspace, I now give up on that workspace after a minute,
+log it as an error and start the others, instead of waiting forever with every workspace offline.
+
+**Technical:** GH-277. `SlackApp.#InitializeClientAsync` bounds Bolt `init()`, the `auth.test` check and the
+Socket Mode `start()` with `SLACK_START_TIMEOUT_MS` (default 60000, `0` disables). Bolt is built with
+`deferInitialization: true`, so the constructor no longer fires an unowned `auth.test`. On a start timeout the
+instance is retired first, stopped now and stopped again if the start completes late (a trailing catch owns any
+late failure), and every Bolt callback is fenced to its own instance so a retired one reaches no handler. The
+startup catch in `src/app.js` now also stops the already-started PluginLoader and Stats of a skipped workspace.
+On 2026-10-22 a stalled connect blocked every workspace for 14 hours while systemd reported the service active.
+
+A reminder that had its assignee recorded only in the older single-assignee field, next to an empty
+assignee list, was being handed to whoever sent the original message every time I restarted. I now
+keep the recorded assignee.
+
+**Technical:** `RemindersModule.GetAssigneeIDs` treated any `AssigneeIDs` array, empty included, as
+authoritative and fell straight through to `OriginalSenderID`; `#NormalizeReminderAssignees` then
+rewrote `AssigneeID` and the load path saved it. An array now wins only when it yields at least one
+valid ID; otherwise the order is `AssigneeID`, then `OriginalSenderID`. An array holding a valid ID
+is unchanged.
+Pre-existing since GH-22 (2026-08-07); found by the PR #275 final QA relay
+(`PROJECT/RELAY/pr275-promotion-final-qa.md` on `qa/pr275-final-qa-2026-10-23`). Reminders already
+reassigned on production are not restored by this change. Tests:
+`tests/reminders-multiple-assignees.test.js` (unit cases plus an empty-array load-and-persist case).
+
+If my list of channels with auto-scheduling turned on ever goes missing while reminders exist, I now
+log it as an error instead of quietly treating every channel as off. My reminder test battery and test
+suite now always work in their own scratch data, and my other test harnesses refuse to run against a
+server's data once that server is marked as live.
+
+**Technical:** GH-271/GH-272. `scripts/reminder-thread-battery.js` and `tests/runtime-setup.js`
+always create their own temp data dir, ignoring an inherited `SLEUTH_DATA_DIR` (on 2026-10-21 an
+exported service environment pointed the battery at production, and it deleted the channel list,
+completion history and event ledger). The battery verifies the runtime root moved before writing,
+never deletes a file it did not create, and restores the caller's value afterwards.
+`Workspaces.AssertNotLiveRuntimeDir` refuses a root carrying a `.live-data` marker; the lists and
+file-upload harnesses call it before starting modules. A missing enabled-channels file now logs at
+WARN, and at ERROR when reminders came from channels (DM-only workspaces legitimately have no file).
+The battery restores the caller's `SLEUTH_DATA_DIR` and removes its tree on any failure, including
+setup. `backup-sleuth-data-fixed.sh` backs up the service's effective data dir (env, the unit's
+`Environment=` and `EnvironmentFile=` values, then the install dir with a warning) and includes
+`events/*.jsonl`. `AGENTS.md` gains the read-only rule
+for deployed servers. #lessonslearned: an inherited environment variable is not proof of isolation.
+
+When you ask `rmm ifl` in your own words to read text from an image, make a list from an image,
+convert text into a Slack list, or ask about your reminders, I now run that command for you instead
+of only showing its syntax. `refresh clients` is no longer offered for `rmm ifl`; type it directly.
+
+**Technical:** GH-181. `BuildCanonicalCommand` gains `scan-image-for-text`, `make-list-from-image`,
+`convert-text-into-slack-list` and `ask-reminders` cases (catalog entries already marked
+`CanExecuteWithIfl`; GH-64 named `rmm ifl` reach as a goal), and `ask-compass` joins
+`BuildCanonicalCommandIntentIds`. List conversion is built only with source text, since its route
+has no thread-context fallback. The rmm resolver now loads the catalog through
+`LoadCommandCatalogSync`, so it sees the code-registered `ask-reminders` entry. `refresh-clients` (rewrites the client overlay, no plan for a
+model-resolved run) is now `CanExecuteWithIfl: false`. `validate:commands` exempts `ask-self`
+(private RAG overlay only) and `run-tests-unavailable` (retired refusal) by name, runs
+`ChatModule.StartAsync`'s catalog alias pass so `ask-reminders` counts as registered, and now runs in CI.
+
+**Technical:** GH-261 adds a checked reminder-pipeline inventory ratchet. `npm run validate:reminder-pipeline` records the current #79/#250 migration counters and refuses growth or an unrecorded deletion; CI runs it beside the FSM invariant check.
+
+## 1.4.348 - 2026-10-22
+
+When I can't make a clean task title out of what the model and the message gave me, I now try two
+repairs before falling back to "Follow up: …": I rebuild a pointer title around the thing the model
+said it refers to ("Review it" plus "PR 697" becomes "Review PR 697"), and if that isn't possible I
+ask the model once more for a grounded title, checked by the same rules as everything else. I also
+show the model's title first on every message now, not only on long ones, since the title rules
+already clean up your wording either way.
+
+**Technical:** GH-250 phase 3 (structured extraction). `data/static/ai/reminders-schema.json` and
+`reminders-instructions.md` add `object_ref` (the concrete object, in source words) and `subtasks`
+(≤3 named sub-items) per candidate; `ValidateReminderCandidate` (`src/reminder-display-selection.js`)
+grounds `object_ref` as a whole run of source words (`IsObjectRefGrounded`; a lowercase phrase the
+source never says is refused, not only an invented name) and validates, de-duplicates and caps
+`subtasks` (`object-ref-ungrounded`, `subtask-refused`, `subtasks-capped`). The selector gains a deterministic repair: a candidate refused
+only as `bare-pointer`/`too-short` is rebuilt by replacing its one thing-pointer (`it`, `this`, `the
+above`, …; never `him`/`her`) with the grounded `object_ref`, then validated, re-grounded and fitted;
+`contract.repair` reports `{by: 'object-ref'|'model', from}`. New decision `reminder-title-repair`
+(`RemindersAIPipeline.RepairReminderTitleAsync`, `DecideAsync` with the new
+`reminder-title-repair-instructions.md`/`-schema.json` pair, registered in `validate-ai-prompts.js`)
+runs from `RemindersModule#RepairRefusedTitlesAsync` for each candidate the selector would show as
+`fallback`, on both the scheduling and the `:wrench:` triage paths; the answer is accepted only if its
+`object_ref` is grounded and named by the title (`TitleNamesObjectRef`; outcomes
+`refused:object-ref-ungrounded` / `refused:object-ref-not-in-title`) and the selector then shows it as
+`title`, and it is written onto the candidate with `title_repair` so every later read agrees. The
+pointer-echo filter reads `title_repair.from`, so a repaired pointer is still dropped beside the
+siblings it restates. Flags: `REMINDER_TITLE_REPAIR` (default on) and `REMINDER_TITLE_ALWAYS_SYNTHESIZE`
+(default on unless a legacy `REMINDER_TEXT_SYNTHESIS*` flag is set explicitly; explicit value wins),
+applied inside `DescribeSynthesisRouting` (`synthesisOn: true`, `routedBy: 'always_synthesize'`,
+new `alwaysSynthesize` fact) so scheduling, triage and replay all follow it. Telemetry line gains
+`repair=`; triage `↳ title:` gains `repaired_by`, `object` and `subtasks`. Tests: flag precedence and
+the repair decision (`reminders-ai-pipeline.test.js`), selector repair and structure validation plus
+golden samples G-43/G-44/G-45, seven end-to-end repair cases (accepted, ungrounded → template,
+object not in title, no object, repaired pointer still dropped as an echo, declined, flag off) in
+`reminders-integration.test.js`; legacy-routing tests pin the flag off; replay baseline
+re-recorded under always-synthesize (title-first rows) with a test asserting every scenario routes
+to the title. Not done, by the plan's own ordering: storing `object_ref`/`subtasks` (phase 4, so
+subtasks are validated and shown in triage but not yet rendered) and deleting the legacy routing
+matrix (phase 6).
+
+## 1.4.347 - 2026-10-20
+
+I've simplified how I prepare reminders and read older reminder text, so scheduling and its
+explanations share the same rules. Your reminder commands, links and saved reminders work as before.
+
+**Technical:** GH-264 shares pure candidate selection/grouping and ownership preparation between
+scheduling and triage, reuses the prepared task in confirmations, and consolidates legacy content
+views in SlackFormatUtils behind existing helper names. Factory/FSM, persistence, snooze/DND,
+provider calls, API endpoints and stored formats retain their existing owners and contracts.
+Characterization covers save, List-sync and feedback failures and their retry outcomes. Rollback is
+an ordinary code revert: no migration or new durable fields. Structured storage and extraction-door
+simplification remain coordinated separately under GH-250. Review follow-up removes the unused private
+dedup facade, fails before persistence if a prepared task view is missing, and asserts event/save
+ordering outside error-catching mock callbacks. Ungrounded-title warnings now emit once per
+prepared candidate rather than once per repeated selection call. Compact summaries reuse one parsed
+legacy-content result across task, quote and fallback formatting.
+
+## 2026-10-20 — GH-257 issue stream review follow-up
+
+I keep GitHub replies with their original Slack thread when the destination changes, and pause
+remaining posts when DND or a state-save failure interrupts a batch. I wait for an active batch
+and its saved progress during shutdown.
+
+**Technical:** PR #259 review follow-up additionally contains first-run seed/save errors inside the stream and retries through its existing poll timer, preserving workspace startup. Dynamic directory HTTP404 follows the hold path instead of revoking saved cursors. Synthetic first-run recovery and default-client 404 regressions extend the existing suite.
+
+**Technical:** Follow-up to PR #256's review. The bounded GitHub client reports incomplete
+traversals; shared cursor advancement respects each unread boundary and unresolved parent
+references. An optional `ParentScanAt` in the existing repo state preserves cross-repo reference
+replay until the target is evaluated. Age cleanup retains thread identities and event keys;
+state grows with delivered activity. Dynamic allowlists no longer reuse stale cache authority:
+empty/stale-only success revokes the list, while transport failures hold it without pruning.
+Static repo configuration is unchanged; no production incident is inferred for dynamic discovery.
+Durable-write errors stop further delivery, pending in-memory state is saved before retry, and
+shutdown awaits the cycle. Slack acceptance and JSON persistence are separate operations: a
+process crash in between can still duplicate a post. Dense capped timestamp bursts and unresolved
+parents beyond the cap conservatively hold/warn and require separately authorized catch-up.
+Existing stream suites cover synthetic pagination, channel/config changes, DND, save failure,
+restart and shutdown. Independent plan QA approved round 3 after correcting missing-parent and
+cross-repo replay gaps; final QA/results are recorded with GH-257. The single-quote title finding
+remains with the separate PR #252 takeover; no title code was copied or changed. Mirror receipt
+links now point to the existing completed document. #lessonslearned: an absent parent is not an
+intentional exclusion until its source has been evaluated.
+
 ## 1.4.346 - 2026-10-20
+
+Reminder titles now also remove stand-alone scheduling phrasing such as a leading day or a trailing
+deadline, while retaining duration and condition clauses. Common misspellings of courtesy wording
+are handled with the same deterministic cleanup.
+
+**Technical:** GH-258 requirements 1–3, 5, and 6 extend the existing title-contract normalizer;
+the thread-topic header is explicitly deferred to GH-250 phase 5. The schedule transform runs after
+courtesy cleanup and before/after request framing, and refuses to remove a title containing a
+duration or condition clause. Golden and decision-replay baselines record only the intended title
+shortening; ownership, recommendations, and grounding remain unchanged. A bare weekday abbreviation
+(`in the sun`) is only removed behind a deadline lead-in (`on Wed`), and a removal that would leave
+the title ending on its preposition or article (`Move the demo to`) is refused. Review follow-up:
+consecutive trailing phrases that form one rescheduling target (`to next Friday at 2pm`) are kept
+whole, a stacked `due on/by` deadline is removed as one phrase, and leading schedule wording exposed
+by request framing (`Can you tomorrow review…`) is removed too.
 
 Every reminder I post now reads the same way: a short imperative line that names the thing to do,
 with the source link, the owner, a labelled due date and a labelled age. I no longer repeat your
@@ -126,7 +286,7 @@ file, empty PAT, unset repo, missing unit config) each fail with a named error. 
 matched authenticated `ls-remote` main; the real reminder reader loaded from the mirror; the
 installer rerun was byte-identical; a dirty tracked file was reset; the token leak scan (config,
 remote, journal, sampled argv; positive control fired) was clean. Receipt:
-[PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md](PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md).
+[PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md](PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md).
 
 ## 2026-10-12 — GH-243 verification and PR
 Phases 1–2 are ready for review in PR #244; Phase 3 stays deferred.

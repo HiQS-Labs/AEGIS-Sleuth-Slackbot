@@ -729,3 +729,15 @@ describe('BuildProjectMapContext', () => {
     }
   });
 });
+
+
+describe('GH-264 project-title legacy edges', () => {
+  test.each([
+    ['Header:\n>quote\n\nKey task(s):\n•', '•'],
+    ['Plain row\n• Do alpha', 'Plain row'],
+    ['Header:\n>quote\n\nKEY TASK(S):\n- Do alpha', 'Do alpha'],
+    ['Key task(s):\n• ' + 'x'.repeat(160), 'x'.repeat(160)],
+  ])('preserves title view for %s', (text, expected) => {
+    expect(ExtractReminderTitle(text)).toBe(expected);
+  });
+});

@@ -45,7 +45,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 17 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 19 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -65,11 +65,13 @@ Summary: 17 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | "Make Sleuth smart" marathon (GH-360 / GH-361 / GH-362) | — | [GH-361](PROJECT/3-COMPLETED/GH-361-CONNECT-THE-DOTS.md) · [GH-360](PROJECT/3-COMPLETED/GH-360-MULTI-MESSAGE-INFERENCE.md) · [GH-362](PROJECT/3-COMPLETED/GH-362-PROACTIVE-LAYER.md) |
 | GH-149 · One owner for reminder intent judgement (GH-149 addendum) | — | [GH-149-REMINDER-JUDGEMENT.md](PROJECT/2-WORKING/GH-149-REMINDER-JUDGEMENT.md) · [#149](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/149) |
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
-| GH-249 · Prod: hourly read-only git-pulse mirror for Sleuth scripts | — | [GH-249-GIT-PULSE-MIRROR.md](PROJECT/2-WORKING/GH-249-GIT-PULSE-MIRROR.md) · [#249](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249) |
+| GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
+| GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
+| GH-277 · Startup hangs when one workspace's Slack connection stalls | — | [GH-277-STARTUP-SLACK-TIMEOUT.md](PROJECT/2-WORKING/GH-277-STARTUP-SLACK-TIMEOUT.md) · [#277](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/277) |
 
 ## Completed
 
-Summary: 48 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 7 · 🔮 0 · 🔲 0
+Summary: 51 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 10 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -105,6 +107,9 @@ Summary: 48 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 7 · �
 | GH-225 · Shared bounded thread-context provider for Compass, earlier-file lookback and selftest | — | [GH-225-THREAD-CONTEXT-PROVIDER.md](PROJECT/3-COMPLETED/GH-225-THREAD-CONTEXT-PROVIDER.md) · [#225](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/225) |
 | GH-233 · Active-mode router can execute admin-only commands (e.g. a data dump) from a non-literal match | ✅ | [GH-233-ROUTER-ACTIVE-ADMIN-COMMANDS.md](PROJECT/3-COMPLETED/GH-233-ROUTER-ACTIVE-ADMIN-COMMANDS.md) · [#233](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/233) |
 | GH-237 · Production: upgrade Node 18 -&gt; 22 to match development, then promote 1.4.344 | ✅ | [GH-237-PRODUCTION-UPGRADE-NODE-18.md](PROJECT/3-COMPLETED/GH-237-PROD-NODE22-AND-RELEASE-1.4.344.md) · [#237](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/237) |
+| GH-249 · Prod: hourly read-only git-pulse mirror for Sleuth scripts | ✅ | [GH-249-GIT-PULSE-MIRROR.md](PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md) · [#249](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249) |
+| GH-257 · Issue stream review follow-up | ✅ | [GH-257-REVIEW-FIXES.md](PROJECT/3-COMPLETED/GH-257-REVIEW-FIXES.md) · [#257](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/257) |
+| GH-261 · Reminder-pipeline inventory ratchet | ✅ | [GH-261-REMINDER-PIPELINE-RATCHET.md](PROJECT/3-COMPLETED/GH-261-REMINDER-PIPELINE-RATCHET.md) · [#261](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/261) |
 | show-me reactable output (GH-338) | — | [PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md](PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md) |
 | Adopt Blend philosophy into GUIDING-PRINCIPLES.md (GH-348) | — | [PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md](PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md) |
 | Hyphen/space command normalization (GH-349) | — | [PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md](PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md) |
