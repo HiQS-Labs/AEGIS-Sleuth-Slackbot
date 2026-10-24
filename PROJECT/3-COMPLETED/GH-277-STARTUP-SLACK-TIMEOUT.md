@@ -1,8 +1,8 @@
 ---
 title: "GH-277: bound each workspace's Slack startup so one stalled connection cannot hang every workspace"
-status: Working (2-WORKING)
+status: Complete
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-10-24
 owner: noel
 branch: fix/AEGIS-Sleuth-Slackbot-gh277-startup-hang-2026-10-23
 doc_type: project
