@@ -448,6 +448,10 @@ async function RunAppAsync() {
       SlackAppsByWorkspace.delete(WorkspaceName);
       try { await ChatModuleInstance.StopAsync(); } catch { /* best-effort cleanup */ }
       try { await SlackAppInstance.StopAsync(); } catch { /* best-effort cleanup */ }
+      // GH-277: these started before the try (above) and join the shutdown arrays only on success, so a skipped
+      // workspace kept its stats save timer and plugins running. Reverse start order.
+      try { await PluginLoaderInstance.StopAsync(); } catch { /* best-effort cleanup */ }
+      try { await StatsModuleInstance.StopAsync(); } catch { /* best-effort cleanup */ }
       continue;
     }
   }

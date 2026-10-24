@@ -1,7 +1,7 @@
 
 'use strict';
 const mockReplies = jest.fn();
-jest.mock('@slack/bolt', () => ({ App: jest.fn(() => ({ client: { conversations: { replies: mockReplies }, auth: { test: jest.fn().mockResolvedValue({ ok: true, user_id: 'UBOT123' }) } }, event: jest.fn(), message: jest.fn(), action: jest.fn() })) }));
+jest.mock('@slack/bolt', () => ({ App: jest.fn(() => ({ init: async () => {}, client: { conversations: { replies: mockReplies }, auth: { test: jest.fn().mockResolvedValue({ ok: true, user_id: 'UBOT123' }) } }, event: jest.fn(), message: jest.fn(), action: jest.fn() })) }));
 const mockAi = { DefaultModelName: 'gpt-4o-mini', ProcessMessageWithJsonResponseAsync: jest.fn(), ProcessMessageWithTextResponseAsync: jest.fn() };
 const mockClient = { connect: jest.fn(), listTools: jest.fn(), callTool: jest.fn(), close: jest.fn() };
 let mockTransportOptions;
