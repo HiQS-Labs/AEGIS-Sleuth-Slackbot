@@ -1,3 +1,4 @@
+
 'use strict';
 
 // GH-277: a Slack startup step that never settles must fail this workspace's start after a bound, clean up the
@@ -101,10 +102,22 @@ describe('GH-277 SlackApp startup timeout', () => {
     expect(Unhandled).toEqual([]);
   });
 
+  test('a start() that fails before the bound is reported once, not as a late shutdown failure', async () => {
+    mockAppStart.mockRejectedValueOnce(new Error('fatal_error'));
+    const Logger = new MockLogger();
+    const App = new SlackApp(WorkspaceInfo, Logger);
+
+    await expect(App.StartAsync(EmptyStats)).rejects.toThrow('fatal_error');
+    await Flush();
+    expect(Logger.ErrorMessages.some((ArgMessage) => ArgMessage.includes('Slack Socket Mode did not start for workspace TimeoutWorkspace: fatal_error'))).toBe(true);
+    expect(Logger.WarnMessages.some((ArgMessage) => ArgMessage.includes('late Slack shutdown'))).toBe(false);
+    expect(Unhandled).toEqual([]);
+  });
+
   test.each([
     ['init()', () => mockAppInit.mockImplementation(Never), /Slack initialization for workspace TimeoutWorkspace did not complete/],
     ['auth.test()', () => mockAuthTest.mockImplementation(Never), /Slack auth.test for workspace TimeoutWorkspace did not complete/],
-  ])('%s that never settles rejects through the connectivity-test path', async (_ArgName, ArgArrange, ArgPattern) => {
+  ])('%s that never settles rejects through the connectivity-test path', async (ArgName, ArgArrange, ArgPattern) => {
     ArgArrange();
     const Logger = new MockLogger();
     const App = new SlackApp(WorkspaceInfo, Logger);
@@ -117,10 +130,10 @@ describe('GH-277 SlackApp startup timeout', () => {
   test.each([
     ['init()', mockAppInit],
     ['auth.test()', mockAuthTest],
-  ])('an abandoned %s that rejects later is not an unhandled rejection', async (_ArgName, ArgMock) => {
+  ])('an abandoned %s that rejects later is not an unhandled rejection', async (ArgName, ArgMock) => {
     /** @type {(reason?: any) => void} */
     let RejectLate = () => {};
-    ArgMock.mockImplementation(() => new Promise((_, ArgReject) => { RejectLate = ArgReject; }));
+    ArgMock.mockImplementation(() => new Promise((ArgResolve, ArgReject) => { RejectLate = ArgReject; }));
     const App = new SlackApp(WorkspaceInfo, new MockLogger());
 
     await expect(App.StartAsync(EmptyStats)).rejects.toThrow(/connectivity test failed/);
@@ -153,7 +166,7 @@ describe('GH-277 SlackApp startup timeout', () => {
       reaction: mockAppEvent.mock.calls.find((ArgCall) => ArgCall[0] === 'reaction_added')[1],
       action: mockAppAction.mock.calls.find((ArgCall) => ArgCall[0] === 'gh277_action')[1],
     };
-    await App.StopAsync(); // what the startup catch in src/app.js does
+    await App.StopAsync(); // what the startup catch in src/app.js does.
 
     const Ack = jest.fn(async () => {});
     const DeliverAll = async () => {

@@ -28,7 +28,7 @@ goal: >
 
 | What was just completed | What's next |
 |---|---|
-| Plan approved by Codex plan QA (round 3). Implemented in `b3649c0`: bounded `init()`/`auth.test`/`start()`, deferred initialization, late-start ownership, ingress fence, Stats/PluginLoader cleanup in the startup catch. 16 new tests (4 fail on the base); full suite green; two-workspace smoke on the real `src/app.js` with red control recorded in `TESTS-RESULTS/2026-10-23+GH-277/smoke.md`. | Codex final QA, then the PR. |
+| Plan approved by Codex plan QA (round 3). Implemented in `b3649c0`: bounded `init()`/`auth.test`/`start()`, deferred initialization, late-start ownership, ingress fence, Stats/PluginLoader cleanup in the startup catch. Final QA round 1 follow-up (`e2b6af3`) completed the four-callback fence and late-auth cases; Codex final QA approved round 2. PR #278 review follow-up: naming/comment/JSDoc conventions, and an early start failure is no longer re-reported as a late-shutdown failure. 18 tests in `tests/slack-app-start-timeout.test.js` (4 core cases fail on the base); full suite green; two-workspace smoke on the real `src/app.js` with red control recorded in `TESTS-RESULTS/2026-10-23+GH-277/smoke.md`. | Merge PR #278; then deploy and point the nightly backup at the deployed script. |
 
 ## Observed problem
 

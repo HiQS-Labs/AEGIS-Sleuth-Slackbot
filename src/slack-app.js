@@ -8,28 +8,28 @@ const { App } = require('@slack/bolt');
  * Socket Mode connect (its client retries up to 100 times, with no request timeout) blocked every later workspace for
  * 14 hours on 2026-10-22.
  */
-const DEFAULT_SLACK_START_TIMEOUT_MS = 60000;
+const DefaultSlackStartTimeoutMs = 60000;
 
 /** Largest delay setTimeout honours; anything above it fires immediately. */
-const MAX_TIMER_DELAY_MS = 2147483647;
+const MaxTimerDelayMs = 2147483647;
 
 /**
- * Resolve SLACK_START_TIMEOUT_MS: unset or blank → the default; exactly "0" → no bound; a positive integer up to the
- * timer limit → that value; anything else → the default, with a warning.
+ * Resolve SLACK_START_TIMEOUT_MS to a bound in ms, or null for no bound: unset or blank → the default; exactly "0" → no
+ * bound; a positive integer up to the timer limit → that value; anything else → the default, with a warning.
  * @param {string|undefined} ArgRawValue Raw environment value.
  * @param {{ warn?: (...args: any[]) => void }} [ArgLogger] Logger for an ignored value.
- * @returns {number|null} Bound in ms, or null for no bound.
+ * @returns {number|null}
  */
 function ResolveSlackStartTimeoutMs(ArgRawValue, ArgLogger) {
   const RawValue = String(ArgRawValue ?? '').trim();
-  if(RawValue === '') return DEFAULT_SLACK_START_TIMEOUT_MS;
+  if(RawValue === '') return DefaultSlackStartTimeoutMs;
   if(RawValue === '0') return null;
   if(/^\d+$/.test(RawValue)) {
     const Value = Number(RawValue);
-    if(Value > 0 && Value <= MAX_TIMER_DELAY_MS) return Value;
+    if(Value > 0 && Value <= MaxTimerDelayMs) return Value;
   }
-  ArgLogger?.warn?.(`ignoring invalid SLACK_START_TIMEOUT_MS="${RawValue}"; using ${DEFAULT_SLACK_START_TIMEOUT_MS} ms.`);
-  return DEFAULT_SLACK_START_TIMEOUT_MS;
+  ArgLogger?.warn?.(`ignoring invalid SLACK_START_TIMEOUT_MS="${RawValue}"; using ${DefaultSlackStartTimeoutMs} ms.`);
+  return DefaultSlackStartTimeoutMs;
 }
 
 /**
@@ -45,7 +45,7 @@ function WithTimeoutAsync(ArgPromise, ArgTimeoutMs, ArgLabel) {
   if(ArgTimeoutMs === null) return ArgPromise;
   /** @type {NodeJS.Timeout|undefined} */
   let TimerId;
-  const Timeout = new Promise((_, ArgReject) => {
+  const Timeout = new Promise((ArgResolve, ArgReject) => {
     TimerId = setTimeout(() => ArgReject(new Error(`${ArgLabel} did not complete within ${ArgTimeoutMs} ms`)), ArgTimeoutMs);
   });
   return /** @type {Promise<T>} */ (Promise.race([ArgPromise, Timeout]).finally(() => clearTimeout(TimerId)));
@@ -1873,12 +1873,12 @@ class SlackApp {
       this.#SlackBoltApp = null;
       this.#SlackBoltAppStarted = false;
       this.#SlackLogger.error(`Slack Socket Mode did not start for workspace ${WorkspaceName}: ${error?.message || error}`);
-      // stopping now cannot cancel a connect that is still fetching its URL, so stop again once a late start settles.
-      // The trailing catch owns both a late start failure and a failing late stop.
+      // stopping now cannot cancel a connect that is still fetching its URL, so stop again once a late start succeeds.
+      // a start that failed was already logged above, so only a failing late stop is reported here.
       StartPromise
-        .then(() => BoltApp.stop())
-        .catch((/** @type {any} */ LateError) =>
-          this.#SlackLogger.warn(`late Slack shutdown for workspace ${WorkspaceName} failed: ${LateError?.message || LateError}`));
+        .then(() => BoltApp.stop(), () => {})
+        .catch((/** @type {any} */ ArgError) =>
+          this.#SlackLogger.warn(`late Slack shutdown for workspace ${WorkspaceName} failed: ${ArgError?.message || ArgError}`));
       try { await BoltApp.stop(); } catch { /* best-effort: the late stop above retries once the start settles */ }
       throw error;
     }
