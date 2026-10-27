@@ -6,7 +6,7 @@
 // Unlike tests/chat-module.integration.test.js (which hard-mocks WorkspaceAI), this harness uses
 // the live provider so the captured answers are byte-for-byte what a first-time user would see.
 // Run it on a development checkout where the workspace config + OPENAI_API_KEY exist. It refuses a
-// data dir carrying the `.live-data` marker, so it never runs against a server's data (GH-272):
+// data dir carrying the `.live-data` marker (GH-272); an unmarked server is not caught, so never run it on one:
 //
 //   node scripts/first-time-user-battery.js [WorkspaceName]
 //
@@ -123,7 +123,7 @@ async function MainAsync() {
   const Requested = process.argv[2] || null;
   const AllNames = await workspaces.EnumerateWorkspaceNamesAsync();
   if(AllNames.length === 0) {
-    console.error('No workspaces found under data/runtime/workspaces. Run this on a configured server.');
+    console.error('No workspaces found under the runtime data dir. Run this on a development checkout with a workspace configured.');
     process.exit(2);
   }
 

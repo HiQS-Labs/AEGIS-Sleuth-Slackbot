@@ -87,7 +87,9 @@ days are removed. My first-time-user test harness also refuses to run against a 
 
 **Technical:** GH-272 follow-up. `backup-sleuth-data.sh` (the command AGENTS.md documents) zipped only the
 install-relative `data/runtime` tree and skipped `events/*.jsonl`; it now hands off to
-`backup-sleuth-data-fixed.sh`, which resolves `SLEUTH_DATA_DIR` and includes the ledger. Output moves from
+`backup-sleuth-data-fixed.sh`, which resolves `SLEUTH_DATA_DIR` (the unit's `EnvironmentFile=` now overrides
+`Environment=`, as in systemd) and zips the whole data dir instead of four file patterns, so settings, context
+memory, decisions, lists and the ledger are all included (dotfiles such as `.live-data` are not). Output moves from
 `<install>/<date>-backup/` to `<install>/../sleuth-backups/<date>/`, with 30-day pruning; anything reading the
 old location must be repointed. `scripts/first-time-user-battery.js` calls `Workspaces.AssertNotLiveRuntimeDir`
 like the other module-starting harnesses. `tests/test-runtime-isolation.test.js` checks all three harness

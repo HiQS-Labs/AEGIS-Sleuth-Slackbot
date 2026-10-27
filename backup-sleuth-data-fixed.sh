@@ -19,19 +19,23 @@ ZIP_FILE="$BACKUP_DIR/sleuth-config-data-$TIMESTAMP.zip"
 # silently zipped a stale copy for weeks. Order: explicit env, the service's own setting, install dir.
 # Same precedence as Workspaces.GetRuntimeDirPath(): SLEUTH_DATA_DIR, then AEGIS_DATA_DIR.
 DATA_DIR="${SLEUTH_DATA_DIR:-${AEGIS_DATA_DIR:-}}"
+
+# Effective value of one variable in the sleuth-app unit, in systemd's own precedence: EnvironmentFile=
+# overrides Environment=, and a later file or drop-in overrides an earlier one. A failed query (no systemd,
+# no such unit) must yield nothing, not abort under `set -e`.
+UnitVar() {
+  local VALUE ENV_FILE FOUND
+  VALUE="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n -e "s/^$1=//p" | tail -1 || true)"
+  for ENV_FILE in $(systemctl show sleuth-app -p EnvironmentFiles --value 2>/dev/null | tr ' ' '\n' | grep '^/' || true); do
+    [ -r "$ENV_FILE" ] || continue
+    FOUND="$(sed -n -e "s/^$1=//p" "$ENV_FILE" | tail -1 | tr -d '"'"'"'\r' || true)"
+    [ -n "$FOUND" ] && VALUE="$FOUND"
+  done
+  echo "$VALUE"
+}
 if [ -z "$DATA_DIR" ] && command -v systemctl >/dev/null 2>&1; then
-  # Environment= drop-ins first, then the unit's EnvironmentFile= files. A failed query (no systemd,
-  # no such unit) must fall through to the default, not abort under `set -e`.
-  DATA_DIR="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n -e 's/^SLEUTH_DATA_DIR=//p' | tail -1 || true)"
-  [ -n "$DATA_DIR" ] || DATA_DIR="$(systemctl show sleuth-app -p Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^AEGIS_DATA_DIR=//p' | tail -1 || true)"
-  if [ -z "$DATA_DIR" ]; then
-    for ENV_FILE in $(systemctl show sleuth-app -p EnvironmentFiles --value 2>/dev/null | tr ' ' '\n' | grep '^/' || true); do
-      [ -r "$ENV_FILE" ] || continue
-      FOUND="$(sed -n -e 's/^SLEUTH_DATA_DIR=//p' "$ENV_FILE" | tail -1 | tr -d '"'"'"'\r' || true)"
-      [ -n "$FOUND" ] || FOUND="$(sed -n -e 's/^AEGIS_DATA_DIR=//p' "$ENV_FILE" | tail -1 | tr -d '"'"'"'\r' || true)"
-      [ -n "$FOUND" ] && DATA_DIR="$FOUND"
-    done
-  fi
+  DATA_DIR="$(UnitVar SLEUTH_DATA_DIR)"
+  [ -n "$DATA_DIR" ] || DATA_DIR="$(UnitVar AEGIS_DATA_DIR)"
 fi
 if [ -z "$DATA_DIR" ]; then
   DATA_DIR="$SCRIPT_DIR/data/runtime"
@@ -48,9 +52,10 @@ cd "$DATA_DIR"
 # Enable nullglob to handle missing directories gracefully
 shopt -s nullglob
 
-# Collect all files to backup: workspace configs; reminders, counters, enabled channels and
-# completion history; stats; and the event ledger (JSONL).
-FILES=(workspaces/*.json reminders/*.json stats/*.json events/*.jsonl)
+# Back up everything the service keeps under the data dir (workspaces, reminders, events, stats, settings,
+# context memory, decisions, client maps, relay state, ...), not a hand-kept list that drifts as features
+# add new files. Dotfiles such as the .live-data marker are left out, so a restore never marks a dev box live.
+FILES=(*)
 
 # Check if we found any files
 if [ ${#FILES[@]} -eq 0 ]; then
@@ -62,7 +67,7 @@ fi
 mkdir -p "$BACKUP_DIR"
 
 # Create the backup
-echo "Creating backup of ${#FILES[@]} files..."
+echo "Creating backup of ${#FILES[@]} top-level entries..."
 zip -r "$ZIP_FILE" "${FILES[@]}"
 
 # Verify the backup was created
@@ -71,7 +76,7 @@ if [ -f "$ZIP_FILE" ]; then
   echo "✓ Backup created successfully"
   echo "  Location: $ZIP_FILE"
   echo "  Size: $SIZE"
-  echo "  Files: ${#FILES[@]}"
+  echo "  Files: $(zipinfo -1 "$ZIP_FILE" | grep -vc '/$' || true)"
 else
   echo "Error: Failed to create backup" >&2
   exit 1
