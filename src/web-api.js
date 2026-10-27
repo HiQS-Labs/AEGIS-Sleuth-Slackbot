@@ -1051,6 +1051,7 @@ class WebAPI {
         Results.push({ reminderId: Item.reminderId, action: Item.action, status: Status });
       }
 
+      /** @type {Record<string, number>} */
       const Counts = {};
       for(const Result of Results) Counts[Result.status] = (Counts[Result.status] || 0) + 1;
       ArgRes.status(200).json({ success: true, data: { results: Results, counts: Counts } });

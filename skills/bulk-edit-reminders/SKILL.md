@@ -9,8 +9,8 @@ Closes a triaged batch of live reminders in one step. The script
 (`bulk-edit-reminders.mjs`) always does three things in this order:
 
 1. **Back up** the workspace's raw reminder records (`GET /workspace/:name/reminders`) to
-   `~/secrets/sleuth/backups/<workspace>_reminders_<UTC>.json` (mode 600). An empty or failed read
-   aborts the run.
+   `~/secrets/sleuth/backups/<workspace>_reminders_<UTC ms>.json` (mode 600, never overwritten). An
+   empty or failed read aborts the run.
 2. **Resolve** every requested ID against that backup and print what will change. An unknown,
    ambiguous or repeated ID aborts the run before anything is sent.
 3. **Apply** the batch with `POST /workspace/:name/reminders/bulk`, then print one result per
@@ -53,8 +53,9 @@ node skills/bulk-edit-reminders/bulk-edit-reminders.mjs --workspace neochrome \
 | `--dry-run` | Back up and resolve only; send nothing. |
 
 To find IDs, use `skills/talk-to-reminders` (mirror) or the backup file the dry run writes.
-Exit code is `0` only when every reminder was closed. Re-running an applied batch is safe: already
-closed reminders report `not-found` and nothing else changes.
+Exit code is `0` only when every reminder was closed. Re-running an applied batch is safe: closed
+reminders are no longer in the live records, so the run stops at the resolve step ("no match") and
+sends nothing. `not-found` only appears when a reminder closes between the backup and the POST.
 
 ## Notes
 

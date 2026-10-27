@@ -106,9 +106,10 @@ async function MainAsync() {
   if(!Array.isArray(Records) || Records.length === 0)
     throw new Error('backup read returned no reminders; refusing to continue');
   fs.mkdirSync(Config.BackupDir, { recursive: true, mode: 0o700 });
-  const Stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  // millisecond stamp + exclusive create: a later run can never overwrite an earlier backup.
+  const Stamp = new Date().toISOString().replace(/[-:.]/g, '');
   const BackupPath = path.join(Config.BackupDir, `${Config.Workspace}_reminders_${Stamp}.json`);
-  fs.writeFileSync(BackupPath, JSON.stringify(Records, null, 2), { mode: 0o600 });
+  fs.writeFileSync(BackupPath, JSON.stringify(Records, null, 2), { mode: 0o600, flag: 'wx' });
   console.log(`backup: ${Records.length} records → ${BackupPath}`);
 
   // 2. resolve against the backup and show what will change.
