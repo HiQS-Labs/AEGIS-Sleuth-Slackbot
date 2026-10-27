@@ -195,3 +195,7 @@ Full consumer inventory: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issu
   `ReminderMessageText`; edit its Slack List row title, confirm both changed; restart, confirm the
   projected reminder carries the same `Tasks`. Old record without `Tasks` still renders.
 - ATE: not required for this phase (no extraction change); the #250 metamorphic suite must stay green.
+
+## Merge evidence
+
+- PR #263 merged 2026-10-27 — linked issue still OPEN; doc stays active by design (GH-202: promotion requires the issue to be closed).
