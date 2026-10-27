@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 24 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -34,7 +34,6 @@ Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-172 · app_mention dispatch passes non-string text raw; every handler assumes a string | — | [CHANGELOG.md](CHANGELOG.md) · [#172](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/172) |
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
 | GH-230 · selftest: add T4 later-upload and T6 memory-reuse scenarios, and a zero-download assertion for T5 | — | [GH-230-SELFTEST-T4-LATER-UPLOAD.md](PROJECT/2-WORKING/GH-230-SELFTEST-SCENARIOS.md) · [#230](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/230) |
-| GH-279 · Bulk-close Sleuth reminders from an agent session (Web API endpoint + skill) | — | [GH-279-BULK-EDIT-REMINDERS.md](PROJECT/1-INBOX/GH-279-BULK-EDIT-REMINDERS.md) · [#279](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/279) |
 
 ## Queue
 
@@ -46,7 +45,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 18 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 19 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -68,6 +67,7 @@ Summary: 18 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
 | GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
 | GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
+| GH-279 · Bulk-close Sleuth reminders from an agent session (Web API endpoint + skill) | — | [GH-279-BULK-EDIT-REMINDERS.md](PROJECT/2-WORKING/GH-279-BULK-EDIT-REMINDERS.md) · [#279](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/279) |
 
 ## Completed
 

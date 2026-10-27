@@ -2,7 +2,7 @@
 gh_issue: 279
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/279
 title: "Bulk-close Sleuth reminders from an agent session (Web API endpoint + skill)"
-status: Proposed (1-INBOX — not yet active)
+status: Working (2-WORKING)
 created: 2026-10-27
 updated: 2026-10-27
 owner: noel
@@ -16,6 +16,12 @@ phases: 1
 ---
 
 # GH-279 — bulk-close Sleuth reminders from an agent session
+
+## Status
+
+| What was just completed | What's next |
+|---|---|
+| Intake parked and rated; plan approved by Codex relay round 1 (`relay-system/2026-10-27/gh279-plan-qa.md`, attested at `c5ee212`). Production `neochrome` reminders backed up out-of-repo before any write. | Implement the endpoint, tests, skill and docs; run the gates; smoke test; final Codex QA; open the PR. |
 
 ## Problem
 
@@ -89,6 +95,11 @@ documented prerequisite, matching the existing `127.0.0.1:12020` base URL conven
   WebAPI-backed instance or the test harness with one real ID; the adjacent path re-runs the same
   batch (already closed → `not-found`, non-zero exit), and `--dry-run` writes the backup and nothing else.
 - After deploy (operator, outside this PR): close the 7 triaged Neochrome reminders.
+
+## Plan QA dispositions (round 1, Approved)
+
+- Nit: log tags `[github-sync]`/`[lists-sync]` don't fit an API caller. **Disposition: Rejected (Out of Scope / Ponytail).** The `api-bulk:` reason already identifies API-originated closes, and a generic writer just to relabel logs is needless scope.
+- Nit: tests should assert the exact `api-bulk:` reason passed to each writer. **Disposition: Accepted.**
 
 ## Rating (2026-10-27)
 
