@@ -81,6 +81,20 @@ log it as an error instead of quietly treating every channel as off. My reminder
 suite now always work in their own scratch data, and my other test harnesses refuse to run against a
 server's data once that server is marked as live.
 
+My documented backup command now backs up the data directory the service really uses, including the event
+ledger. Backups now land in `sleuth-backups/<date>/` next to the install directory, and backups older than 30
+days are removed. My first-time-user test harness also refuses to run against a server's data.
+
+**Technical:** GH-272 follow-up. `backup-sleuth-data.sh` (the command AGENTS.md documents) zipped only the
+install-relative `data/runtime` tree and skipped `events/*.jsonl`; it now hands off to
+`backup-sleuth-data-fixed.sh`, which resolves `SLEUTH_DATA_DIR` (the unit's `EnvironmentFile=` now overrides
+`Environment=`, as in systemd) and zips the whole data dir instead of four file patterns, so settings, context
+memory, decisions, lists and the ledger are all included (dotfiles such as `.live-data` are not). Output moves from
+`<install>/<date>-backup/` to `<install>/../sleuth-backups/<date>/`, with 30-day pruning; anything reading the
+old location must be repointed. `scripts/first-time-user-battery.js` calls `Workspaces.AssertNotLiveRuntimeDir`
+like the other module-starting harnesses. `tests/test-runtime-isolation.test.js` checks all three harness
+scripts keep the guard.
+
 **Technical:** GH-271/GH-272. `scripts/reminder-thread-battery.js` and `tests/runtime-setup.js`
 always create their own temp data dir, ignoring an inherited `SLEUTH_DATA_DIR` (on 2026-10-21 an
 exported service environment pointed the battery at production, and it deleted the channel list,
