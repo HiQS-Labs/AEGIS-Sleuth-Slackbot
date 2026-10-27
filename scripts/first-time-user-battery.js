@@ -56,6 +56,7 @@ const Battery = [
  * @returns {Promise<void>}
  */
 async function RunBatteryForWorkspaceAsync(ArgWorkspaceName) {
+  workspaces.AssertNotLiveRuntimeDir('first-time-user-battery');
   const WorkspaceInfo = await workspaces.LoadWorkspaceInfoByNameAsync(ArgWorkspaceName);
 
   const SlackApp = new MockSlackApp({
