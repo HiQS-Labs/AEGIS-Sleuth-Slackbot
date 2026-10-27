@@ -21,7 +21,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Intake parked and rated; plan approved by Codex relay round 1 (`relay-system/2026-10-27/gh279-plan-qa.md`, attested at `c5ee212`). Production `neochrome` reminders backed up out-of-repo before any write. | Implement the endpoint, tests, skill and docs; run the gates; smoke test; final Codex QA; open the PR. |
+| Endpoint, tests, skill and docs implemented; gates green at `7b4c889`; smoke passed after fixing a backup-overwrite defect it found. | Final Codex QA, then a ready PR. After merge + deploy, the operator closes the 7 triaged `neochrome` reminders. |
 
 ## Problem
 
@@ -95,6 +95,33 @@ documented prerequisite, matching the existing `127.0.0.1:12020` base URL conven
   WebAPI-backed instance or the test harness with one real ID; the adjacent path re-runs the same
   batch (already closed → `not-found`, non-zero exit), and `--dry-run` writes the backup and nothing else.
 - After deploy (operator, outside this PR): close the 7 triaged Neochrome reminders.
+
+## Verification (2026-10-27, HEAD `7b4c889`)
+
+**Gates:** `npm run build` exit 0 · `npm run validate:fsm` OK · `npm run validate:changelog-tone` clean ·
+`npm test`: 147/147 suites, 2924/2924 Jest, 116/116 Node. The test run unsets `GOOGLE_API_KEY`: with it set,
+`tests/thread-memory.test.js` › "stores the row but no embedding when no key/embedder" fails, because it assumes
+no key in the environment. That file isn't touched by this branch, and it passes 26/26 with the key unset.
+
+**Red controls** (each mutation applied to `src/web-api.js`, the GH-279 tests run, then the file restored
+byte-for-byte): M1 swapping the writers fails the routing test; M2 dropping action validation fails "rejects bad
+action before any write"; M3 dropping the not-running check fails the workspace test; M4 running items with
+`Promise.all` fails `MaxInFlight` (expected 1, received 4).
+
+**Smoke** (`PROJECT/2-WORKING/GH-279-smoke/server.js`: the real `WebAPI` on a temp `SLEUTH_DATA_DIR`, with a fake
+live module that removes closed records from disk; the real skill script runs against it, 3 seeded reminders):
+
+| Run | Command | Observed | Verdict |
+|---|---|---|---|
+| dry run | `--complete aaaaaaaa --cancel bbbbbbbb-2222 --reason triaged --dry-run` | backup of 3 records; 2 rows resolved; "nothing was sent"; server log shows no writes | pass |
+| main path | same, without `--dry-run` | `completed` + `canceled`, counts `{completed:1,canceled:1}`, exit 0; server log `api-bulk: triaged` ×2; 1 record left | pass |
+| adjacent: rerun | same batch again | aborts at resolve ("no match" ×2), nothing sent, exit 1 | pass (doc corrected: a rerun stops at resolve rather than reporting `not-found`) |
+| unknown ID | `--complete cccccccc,zzzzzzzz` | aborts at resolve, nothing sent, exit 1 | pass |
+| bad token | `SLEUTH_WEB_API_TOKEN=wrong` | `Forbidden.` on the backup read, exit 1, no backup written | pass |
+
+**Defect found by the smoke and fixed in `7b4c889`:** backup filenames had one-second resolution, so runs in the
+same second overwrote the pre-apply backup (3 records replaced by 1). The stamp now has milliseconds and the write
+uses exclusive create (`wx`). The re-run produced three distinct backups (3, 3, 1 records), each mode 600.
 
 ## Plan QA dispositions (round 1, Approved)
 
