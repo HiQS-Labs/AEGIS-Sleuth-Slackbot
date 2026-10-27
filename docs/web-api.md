@@ -375,6 +375,50 @@ for reminder in payload["data"]["reminders"]:
     print(reminder["shouldPostOn"], reminder["reminderMessageText"])
 ```
 
+## POST /workspace/:name/reminders/bulk
+
+### Description
+Completes or cancels a batch of live reminders in a running workspace (GH-279). Each item goes through the
+reminders module's existing writers, so it behaves exactly like the matching Slack action:
+
+| `action` | Same path as | Effect |
+|---|---|---|
+| `complete` | the ✅ reaction | moves the reminder to completion history; per-user Slack List rows stay, marked done |
+| `cancel` | deleting a Slack List row | removes the reminder without a completion record; list rows are removed |
+
+The whole request is validated before anything is written: `actions` must be a non-empty array of at most 100
+items, each with a non-empty string `reminderId`, an `action` of `complete` or `cancel`, and an optional string
+`reason` (stored as `api-bulk: <reason>`, default `api-bulk: <action>`). Items are then applied one at a time,
+in request order. The workspace must exist **and** be running in this process (`Workspace is not running.`
+otherwise).
+
+`skills/bulk-edit-reminders` wraps this endpoint and takes a backup with `GET /workspace/:name/reminders`
+before every write.
+
+### Mac/Linux (cURL)
+
+```bash
+curl -X POST "http://localhost:2020/workspace/example_workspace/reminders/bulk" -H "Authorization: Bearer $WEB_API_BEARER_TOKEN" -H "Content-Type: application/json" -d '{"actions":[{"reminderId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","action":"complete","reason":"tracked in an issue"}]}'
+```
+
+### Example Response
+
+```json
+{
+    "success": true,
+    "data": {
+        "results": [
+            { "reminderId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "action": "complete", "status": "completed" },
+            { "reminderId": "b2c3d4e5-f6a7-8901-bcde-f12345678901", "action": "cancel", "status": "not-found" }
+        ],
+        "counts": { "completed": 1, "not-found": 1 }
+    }
+}
+```
+
+Per-item `status` is `completed`, `canceled`, `not-found` (not pending, e.g. already closed) or `error` (with an
+`error` message). A request-level failure returns `{ "success": false, "data": "Error: ..." }` and writes nothing.
+
 ## Admin Reminders Dashboard
 
 The read-only reminders dashboard is a static page served at `/admin/reminders.html`. It is backed by

@@ -35,6 +35,22 @@
 
 ## Unreleased
 
+You can now close a whole batch of reminders from an agent session instead of reacting ✅ to each one in
+Slack. A new skill backs up the workspace's reminders first, shows exactly which ones will change, and then
+completes or cancels them through the same paths Slack uses.
+
+**Technical:** GH-279. New bearer-auth `POST /workspace/:name/reminders/bulk` in `src/web-api.js` with body
+`{ actions: [{ reminderId, action: complete|cancel, reason? }] }` (max 100). The whole batch is validated
+before any write, then each item is applied serially via the existing writers
+`RemindersModule.CompleteReminderByIdAsync` (✅ path) or `CancelReminderFromListAsync` (list row delete) with
+reason `api-bulk: …`, so the FSM, completion history and Slack List fan-out are unchanged. Per-item result
+`completed|canceled|not-found|error`. New skill `skills/bulk-edit-reminders/` (Node, no dependencies): backup via
+`GET /workspace/:name/reminders` to `~/secrets/sleuth/backups/` (mode 600, aborts on an empty read) →
+resolve IDs/8+ char prefixes against the backup → `--dry-run` stop → POST. Tests:
+`tests/web-api-reminders.test.js` (auth, unknown/not-running workspace, six validation cases with no write,
+routing/order/reason/per-item outcomes, and at most one write in flight), each verified red against a
+deliberate mutation. Docs: `docs/web-api.md`.
+
 If Slack stops answering while I start up one workspace, I now give up on that workspace after a minute,
 log it as an error and start the others, instead of waiting forever with every workspace offline.
 
