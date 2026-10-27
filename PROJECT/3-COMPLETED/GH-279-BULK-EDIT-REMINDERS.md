@@ -2,7 +2,7 @@
 gh_issue: 279
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/279
 title: "Bulk-close Sleuth reminders from an agent session (Web API endpoint + skill)"
-status: Working (2-WORKING)
+status: Complete
 created: 2026-10-27
 updated: 2026-10-27
 owner: noel
