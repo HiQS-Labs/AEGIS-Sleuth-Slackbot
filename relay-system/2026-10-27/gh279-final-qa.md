@@ -2,7 +2,7 @@
 Goal: Final QA for GH-279 (bulk-close Sleuth reminders via Web API endpoint + skill)
 Date: 2026-10-27
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -36,3 +36,53 @@ Write your verdict below. Set STATUS to Approved if it can ship (Nits allowed); 
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+## Reviewer verdict — Approved
+
+The implementation matches the approved GH-279 plan and is appropriately small. No blocker or
+should-fix finding.
+
+1. Endpoint: `src/web-api.js:143-161` installs the existing JSON parser and bearer middleware before
+the route, and registers the additive POST route. `:1018-1029` validates every action (non-empty
+array, maximum 100, id, action and optional reason) before looking up a workspace or invoking a
+writer; `:1031-1034` requires both an existing and live workspace. `:1038-1052` awaits each item in
+request order and calls only `CompleteReminderByIdAsync` or `CancelReminderFromListAsync`, with
+per-item `completed|canceled|not-found|error` results; `:1054-1059` preserves the `{success,data}`
+envelope. Those writers are the established FSM/write paths (`src/reminders-module.js:1076-1088`,
+`:1119-1129`), so no competing state writer was added.
+
+2. Backup first is enforced by execution order: the GET must return the successful data envelope
+(`skills/bulk-edit-reminders/bulk-edit-reminders.mjs:67-75`), it must be a non-empty array
+(`:104-107`), and its JSON is durably written before resolution or POST (`:108-116`). The mode-600,
+exclusive `wx` write (`:108-113`) refuses a timestamp collision rather than overwriting a prior
+backup. The only POST is after backup and successful complete resolution (`:126-130`). Secrets are
+read as strict `KEY=VALUE` text (`:42-50`); the script has no shell/process-execution surface.
+
+3. Resolution fails closed: only an exact id or an 8+-character prefix can match (`:78-83`); zero
+or multiple matches are accumulated as failures, then abort the entire request before POST
+(`:79-92`). A short non-exact value consequently has zero matches. The `Seen` check (`:85-90`)
+rejects a duplicate resolved reminder, including one supplied once to `--complete` and once to
+`--cancel`.
+
+4. The endpoint tests cover bearer auth, unknown/not-running workspaces, six whole-batch no-write
+validation cases, routing/reason/order, all result classes and single in-flight application
+(`tests/web-api-reminders.test.js:491-550`). The plan records red controls for swapped writers,
+dropped validation, dropped live-workspace checking and `Promise.all`
+(`PROJECT/2-WORKING/GH-279-BULK-EDIT-REMINDERS.md:106-109`). A narrow symbol-surface probe found
+one new route and its intended skill only; the endpoint calls the two pre-existing writers rather
+than introducing another subsystem.
+
+5. `SKILL.md:8-17,55-58`, `docs/web-api.md:378-420`, and the Unreleased changelog entry accurately
+describe the order, envelope, writers, outcomes and corrected rerun behavior: an already-applied
+batch stops at local resolution with no POST, while `not-found` covers a close that races after
+backup. This agrees with the recorded isolated smoke results (`GH-279-BULK-EDIT-REMINDERS.md:111-124`).
+
+6. The recorded `55/35/50/70` rating remains supported: this is a timely operator batch-cleanup
+need with limited severity, neutral appeal and bounded additive effort (`GH-279-BULK-EDIT-REMINDERS.md:131-140`).
+
+Static probes only, per relay constraint (no test/fixture execution in this worktree):
+
+- `node --check skills/bulk-edit-reminders/bulk-edit-reminders.mjs` — exit 0.
+- `node --check src/web-api.js` — exit 0.
+- `rg -n 'CompleteReminderByIdAsync|CancelReminderFromListAsync|reminders/bulk|bulk-edit-reminders' src skills docs tests PROJECT/2-WORKING/GH-279-BULK-EDIT-REMINDERS.md CHANGELOG.md` — exit 0; decisive output showed the new route invokes only the two established writers and one dedicated skill surface.
+- `rg -n 'exec|spawn|child_process|writeFile|appendFile|rename|unlink|rm|fetch' skills/bulk-edit-reminders/bulk-edit-reminders.mjs` — exit 0; decisive output showed only `fetch` and the exclusive backup `writeFileSync`, with no execution primitive.
