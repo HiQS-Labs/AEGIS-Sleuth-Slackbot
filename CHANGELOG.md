@@ -35,6 +35,22 @@
 
 ## Unreleased
 
+You can now close a whole batch of reminders from an agent session instead of reacting ✅ to each one in
+Slack. A new skill backs up the workspace's reminders first, shows exactly which ones will change, and then
+completes or cancels them through the same paths Slack uses.
+
+**Technical:** GH-279. New bearer-auth `POST /workspace/:name/reminders/bulk` in `src/web-api.js` with body
+`{ actions: [{ reminderId, action: complete|cancel, reason? }] }` (max 100). The whole batch is validated
+before any write, then each item is applied serially via the existing writers
+`RemindersModule.CompleteReminderByIdAsync` (✅ path) or `CancelReminderFromListAsync` (list row delete) with
+reason `api-bulk: …`, so the FSM, completion history and Slack List fan-out are unchanged. Per-item result
+`completed|canceled|not-found|error`. New skill `skills/bulk-edit-reminders/` (Node, no dependencies): backup via
+`GET /workspace/:name/reminders` to `~/secrets/sleuth/backups/` (mode 600, aborts on an empty read) →
+resolve IDs/8+ char prefixes against the backup → `--dry-run` stop → POST. Tests:
+`tests/web-api-reminders.test.js` (auth, unknown/not-running workspace, six validation cases with no write,
+routing/order/reason/per-item outcomes, and at most one write in flight), each verified red against a
+deliberate mutation. Docs: `docs/web-api.md`.
+
 If Slack stops answering while I start up one workspace, I now give up on that workspace after a minute,
 log it as an error and start the others, instead of waiting forever with every workspace offline.
 
@@ -65,9 +81,17 @@ log it as an error instead of quietly treating every channel as off. My reminder
 suite now always work in their own scratch data, and my other test harnesses refuse to run against a
 server's data once that server is marked as live.
 
-My documented backup command now backs up the data directory the service really uses, including the event ledger. My first-time-user test harness also refuses to run against a server's data.
+My documented backup command now backs up the data directory the service really uses, including the event
+ledger. Backups now land in `sleuth-backups/<date>/` next to the install directory, and backups older than 30
+days are removed. My first-time-user test harness also refuses to run against a server's data.
 
-**Technical:** GH-272 follow-up. `backup-sleuth-data.sh` (the command AGENTS.md documents) zipped only the install-relative `data/runtime` tree and skipped `events/*.jsonl`; it now hands off to `backup-sleuth-data-fixed.sh`, which resolves `SLEUTH_DATA_DIR` and includes the ledger. `scripts/first-time-user-battery.js` calls `Workspaces.AssertNotLiveRuntimeDir` like the other module-starting harnesses. `tests/test-runtime-isolation.test.js` checks all three harness scripts keep the guard.
+**Technical:** GH-272 follow-up. `backup-sleuth-data.sh` (the command AGENTS.md documents) zipped only the
+install-relative `data/runtime` tree and skipped `events/*.jsonl`; it now hands off to
+`backup-sleuth-data-fixed.sh`, which resolves `SLEUTH_DATA_DIR` and includes the ledger. Output moves from
+`<install>/<date>-backup/` to `<install>/../sleuth-backups/<date>/`, with 30-day pruning; anything reading the
+old location must be repointed. `scripts/first-time-user-battery.js` calls `Workspaces.AssertNotLiveRuntimeDir`
+like the other module-starting harnesses. `tests/test-runtime-isolation.test.js` checks all three harness
+scripts keep the guard.
 
 **Technical:** GH-271/GH-272. `scripts/reminder-thread-battery.js` and `tests/runtime-setup.js`
 always create their own temp data dir, ignoring an inherited `SLEUTH_DATA_DIR` (on 2026-10-21 an

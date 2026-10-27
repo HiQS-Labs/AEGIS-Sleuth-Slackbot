@@ -80,8 +80,8 @@ fi
 # Optional: Remove backups older than 30 days
 echo ""
 echo "Cleaning up old backups..."
+OLD_COUNT=$(find "$BACKUP_ROOT/sleuth-backups" -name "sleuth-config-data-*.zip" -mtime +30 -type f 2>/dev/null | wc -l | tr -d " " || echo 0)
 find "$BACKUP_ROOT/sleuth-backups" -name "sleuth-config-data-*.zip" -mtime +30 -type f -delete 2>/dev/null || true
-OLD_COUNT=$(find "$BACKUP_ROOT/sleuth-backups" -name "sleuth-config-data-*.zip" -mtime +30 -type f 2>/dev/null | wc -l || echo 0)
 if [ "$OLD_COUNT" -gt 0 ]; then
   echo "  Removed $OLD_COUNT backup(s) older than 30 days"
 else

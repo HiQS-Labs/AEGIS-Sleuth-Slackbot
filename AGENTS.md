@@ -423,7 +423,7 @@ After any catalog change run `npm run validate:commands`. If the entry has `Incl
 - Date extraction: `data/static/ai/date-extraction-instructions.md`
 
 ### Backup And Maintenance
-- Data backup: `./backup-sleuth-data.sh`
+- Data backup: `./backup-sleuth-data.sh` (backs up the service's `SLEUTH_DATA_DIR`, ledger included, into `../sleuth-backups/<date>/`; prunes zips older than 30 days)
 - Configuration templates: `config/workspace-template.json`, `config/servers.json`
 
 ## 15) Anti-Patterns To Avoid

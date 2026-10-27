@@ -5,7 +5,8 @@
 //
 // Unlike tests/chat-module.integration.test.js (which hard-mocks WorkspaceAI), this harness uses
 // the live provider so the captured answers are byte-for-byte what a first-time user would see.
-// Run it on a box where the workspace config + OPENAI_API_KEY exist (e.g. the Vultr dev server):
+// Run it on a development checkout where the workspace config + OPENAI_API_KEY exist. It refuses a
+// data dir carrying the `.live-data` marker, so it never runs against a server's data (GH-272):
 //
 //   node scripts/first-time-user-battery.js [WorkspaceName]
 //
