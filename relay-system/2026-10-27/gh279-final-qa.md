@@ -86,3 +86,11 @@ Static probes only, per relay constraint (no test/fixture execution in this work
 - `node --check src/web-api.js` — exit 0.
 - `rg -n 'CompleteReminderByIdAsync|CancelReminderFromListAsync|reminders/bulk|bulk-edit-reminders' src skills docs tests PROJECT/2-WORKING/GH-279-BULK-EDIT-REMINDERS.md CHANGELOG.md` — exit 0; decisive output showed the new route invokes only the two established writers and one dedicated skill surface.
 - `rg -n 'exec|spawn|child_process|writeFile|appendFile|rename|unlink|rm|fetch' skills/bulk-edit-reminders/bulk-edit-reminders.mjs` — exit 0; decisive output showed only `fetch` and the exclusive backup `writeFileSync`, with no execution primitive.
+
+### Attestation · relay-drive — 2026-10-27T16:40:53Z
+task: RELAY-gh279-final-qa-1
+reviewer: codex
+status: Approved
+reviewed-head: 4743697fd7a15cef38ac6ac99fb4450ea31cc186
+added-range: 2657+3830
+added-sha256: 25b3c388e1861f5985020e6916a02fba2701a3046219902e0e84d2dec0c689eb
