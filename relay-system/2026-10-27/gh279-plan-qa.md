@@ -96,3 +96,11 @@ src/reminders-module.js | sed -n '4435,4515p'; nl -ba src/reminders-projection.j
 '115,145p;676,748p'` (exit 0) showed map insertion at app `:319`, module binding at reminders
 `:433-438`, queued durable saves at `:3971-3996`, list fan-out at `:4493-4502`, and a blocked
 projection read returning authoritative JSON at projection `:690-700`.
+
+### Attestation · relay-drive — 2026-10-27T16:26:52Z
+task: RELAY-gh279-plan-qa-1
+reviewer: codex
+status: Approved
+reviewed-head: c5ee2127d95ca32a23011105c9165b4ac4935816
+added-range: 3579+4260
+added-sha256: 267561767139aa1e906cb6eb9f1a4c59a8c52c4a3abfd5b10341b0d4addd0d47
