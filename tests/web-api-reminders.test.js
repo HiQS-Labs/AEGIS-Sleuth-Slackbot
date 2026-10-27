@@ -416,3 +416,137 @@ describe('GET /workspace/:name/reminders', () => {
     expect(Result.data).toContain('activeOnly');
   });
 });
+
+describe('POST /workspace/:name/reminders/bulk (GH-279)', () => {
+  /** @type {WebAPI} */
+  let API;
+  const TestWorkspaceName = 'WebAPIRemindersBulkTest';
+  const BulkPath = `/workspace/${TestWorkspaceName}/reminders/bulk`;
+  const TestSlackApps = new Map();
+  /** @type {Array<[string, string, string]>} writer, reminderId, reason — in call order */
+  let Calls;
+  // highest number of writer calls in flight at once; the endpoint must apply items serially.
+  let MaxInFlight;
+
+  /**
+   * POST a JSON body to the test server.
+   * @param {string} ArgPath Request path.
+   * @param {any} ArgBody JSON body.
+   * @param {string|null} [ArgToken] Bearer token; null sends no Authorization header.
+   * @returns {Promise<{success: boolean, data: any}>}
+   */
+  async function PostAsync(ArgPath, ArgBody, ArgToken = TestBearerToken) {
+    const Headers = { 'Content-Type': 'application/json' };
+    if(ArgToken) Headers.Authorization = `Bearer ${ArgToken}`;
+    const Response = await fetch(`http://127.0.0.1:${TestPort}${ArgPath}`, {
+      method: 'POST', headers: Headers, body: JSON.stringify(ArgBody),
+    });
+    return Response.json();
+  }
+
+  /**
+   * Install a mock live RemindersModule whose writers close only the given pending IDs.
+   * @param {string[]} ArgPendingIds IDs the mock treats as pending.
+   */
+  function InstallMockModule(ArgPendingIds) {
+    const Pending = new Set(ArgPendingIds);
+    let InFlight = 0;
+    const Close = ArgWriter => async (ArgId, ArgReason) => {
+      Calls.push([ArgWriter, ArgId, ArgReason]);
+      InFlight += 1;
+      MaxInFlight = Math.max(MaxInFlight, InFlight);
+      await new Promise(ArgResolve => setImmediate(ArgResolve));
+      InFlight -= 1;
+      if(ArgId === 'boom') throw new Error('writer failed');
+      return Pending.delete(ArgId);
+    };
+    TestSlackApps.set(TestWorkspaceName, {
+      RemindersModule: {
+        CompleteReminderByIdAsync: Close('complete'),
+        CancelReminderFromListAsync: Close('cancel'),
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    API = CreateTestWebAPI(TestSlackApps);
+    await API.StartAsync();
+  });
+
+  afterAll(async () => {
+    await API.StopAsync();
+  });
+
+  beforeEach(() => {
+    Calls = [];
+    MaxInFlight = 0;
+    jest.spyOn(workspaces, 'WorkspaceExistsAsync').mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    TestSlackApps.clear();
+  });
+
+  test('requires the bearer token', async () => {
+    InstallMockModule(['r1']);
+    const Result = await PostAsync(BulkPath, { actions: [{ reminderId: 'r1', action: 'complete' }] }, null);
+    expect(Result).toEqual({ success: false, data: 'Forbidden.' });
+    expect(Calls).toEqual([]);
+  });
+
+  test('rejects an unknown workspace and a workspace that is not running', async () => {
+    const Body = { actions: [{ reminderId: 'r1', action: 'complete' }] };
+    workspaces.WorkspaceExistsAsync.mockResolvedValue(false);
+    expect(await PostAsync(BulkPath, Body)).toEqual({ success: false, data: 'Error: Workspace not found.' });
+
+    workspaces.WorkspaceExistsAsync.mockResolvedValue(true);
+    expect(await PostAsync(BulkPath, Body)).toEqual({ success: false, data: 'Error: Workspace is not running.' });
+  });
+
+  test.each([
+    ['missing actions', {}],
+    ['empty actions', { actions: [] }],
+    ['too many actions', { actions: Array.from({ length: 101 }, (_, i) => ({ reminderId: `r${i}`, action: 'complete' })) }],
+    ['bad action', { actions: [{ reminderId: 'r1', action: 'complete' }, { reminderId: 'r2', action: 'delete' }] }],
+    ['missing reminderId', { actions: [{ action: 'cancel' }] }],
+    ['non-string reason', { actions: [{ reminderId: 'r1', action: 'complete', reason: 5 }] }],
+  ])('rejects %s before any write', async (_Label, ArgBody) => {
+    InstallMockModule(['r1', 'r2']);
+    const Result = await PostAsync(BulkPath, ArgBody);
+    expect(Result.success).toBe(false);
+    expect(Calls).toEqual([]);
+  });
+
+  test('routes each action to its writer in order and reports per-item outcomes', async () => {
+    InstallMockModule(['r1', 'r3']);
+    const Result = await PostAsync(BulkPath, {
+      actions: [
+        { reminderId: 'r1', action: 'complete', reason: 'tracked in issue' },
+        { reminderId: 'r2', action: 'complete' },
+        { reminderId: 'r3', action: 'cancel', reason: 'duplicate' },
+        { reminderId: 'boom', action: 'complete' },
+      ],
+    });
+
+    expect(Calls).toEqual([
+      ['complete', 'r1', 'api-bulk: tracked in issue'],
+      ['complete', 'r2', 'api-bulk: complete'],
+      ['cancel', 'r3', 'api-bulk: duplicate'],
+      ['complete', 'boom', 'api-bulk: complete'],
+    ]);
+    expect(MaxInFlight).toBe(1);
+    expect(Result).toEqual({
+      success: true,
+      data: {
+        results: [
+          { reminderId: 'r1', action: 'complete', status: 'completed' },
+          { reminderId: 'r2', action: 'complete', status: 'not-found' },
+          { reminderId: 'r3', action: 'cancel', status: 'canceled' },
+          { reminderId: 'boom', action: 'complete', status: 'error', error: 'writer failed' },
+        ],
+        counts: { completed: 1, 'not-found': 1, canceled: 1, error: 1 },
+      },
+    });
+  });
+});

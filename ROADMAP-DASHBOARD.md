@@ -67,11 +67,11 @@ Summary: 19 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
 | GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
 | GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
-| GH-277 · Startup hangs when one workspace's Slack connection stalls | — | [GH-277-STARTUP-SLACK-TIMEOUT.md](PROJECT/2-WORKING/GH-277-STARTUP-SLACK-TIMEOUT.md) · [#277](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/277) |
+| GH-279 · Bulk-close Sleuth reminders from an agent session (Web API endpoint + skill) | — | [GH-279-BULK-EDIT-REMINDERS.md](PROJECT/2-WORKING/GH-279-BULK-EDIT-REMINDERS.md) · [#279](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/279) |
 
 ## Completed
 
-Summary: 51 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 10 · 🔮 0 · 🔲 0
+Summary: 52 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 11 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -110,6 +110,7 @@ Summary: 51 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 10 · �
 | GH-249 · Prod: hourly read-only git-pulse mirror for Sleuth scripts | ✅ | [GH-249-GIT-PULSE-MIRROR.md](PROJECT/3-COMPLETED/GH-249-GIT-PULSE-MIRROR.md) · [#249](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/249) |
 | GH-257 · Issue stream review follow-up | ✅ | [GH-257-REVIEW-FIXES.md](PROJECT/3-COMPLETED/GH-257-REVIEW-FIXES.md) · [#257](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/257) |
 | GH-261 · Reminder-pipeline inventory ratchet | ✅ | [GH-261-REMINDER-PIPELINE-RATCHET.md](PROJECT/3-COMPLETED/GH-261-REMINDER-PIPELINE-RATCHET.md) · [#261](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/261) |
+| GH-277 · Startup hangs when one workspace's Slack connection stalls | ✅ | [GH-277-STARTUP-SLACK-TIMEOUT.md](PROJECT/3-COMPLETED/GH-277-STARTUP-SLACK-TIMEOUT.md) · [#277](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/277) |
 | show-me reactable output (GH-338) | — | [PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md](PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md) |
 | Adopt Blend philosophy into GUIDING-PRINCIPLES.md (GH-348) | — | [PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md](PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md) |
 | Hyphen/space command normalization (GH-349) | — | [PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md](PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md) |
