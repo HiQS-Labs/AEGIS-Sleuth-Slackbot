@@ -21,7 +21,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Endpoint, tests, skill and docs implemented; gates green at `7b4c889`; smoke passed after fixing a backup-overwrite defect it found. | Final Codex QA, then a ready PR. After merge + deploy, the operator closes the 7 triaged `neochrome` reminders. |
+| Implemented and verified (gates green at `7b4c889`, smoke passed); final Codex QA Approved (`relay-system/2026-10-27/gh279-final-qa.md`, attested at `4743697`). PR opened against `development`. | Merge, then deploy to production. After that the operator puts the real Web API token in the local secrets file and runs the skill on the 7 triaged `neochrome` reminders. |
 
 ## Problem
 
