@@ -49,6 +49,9 @@ const ActiveReminderStates = new Set([
   'failed',
 ]);
 
+// cap on actions per POST /workspace/:name/reminders/bulk request (GH-279).
+const MaxBulkReminderActions = 100;
+
 /**
  * Implements the Web API used by the Sleuth website.
  */
@@ -155,6 +158,7 @@ class WebAPI {
     this.#ExpressApp.get('/workspace/:name', this.#HandleGetWorkspaceAsync.bind(this));
     this.#ExpressApp.get('/workspace/:name/stats', this.#HandleGetWorkspaceStatsAsync.bind(this));
     this.#ExpressApp.get('/workspace/:name/reminders', this.#HandleGetWorkspaceRemindersAsync.bind(this));
+    this.#ExpressApp.post('/workspace/:name/reminders/bulk', this.#HandlePostWorkspaceRemindersBulkAsync.bind(this));
     this.#ExpressApp.get('/admin/dashboard/workspaces', this.#HandleGetDashboardWorkspacesAsync.bind(this));
     this.#ExpressApp.get('/admin/dashboard/reminders', this.#HandleGetDashboardRemindersAsync.bind(this));
     this.#ExpressApp.delete('/workspace/:name', this.#HandleDeleteWorkspaceAsync.bind(this));
@@ -992,6 +996,65 @@ class WebAPI {
       }
 
       ArgRes.status(200).json({ success: true, data: FilteredReminders });
+    } catch(error) {
+      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}` });
+    }
+  }
+
+  /**
+   * Handle POST /workspace/:name/reminders/bulk request (GH-279). Completes or cancels a batch of
+   * live reminders through the RemindersModule's existing writers (the same paths as the ✅
+   * reaction and a Slack List row delete), so the FSM, completion history and list fan-out all
+   * apply. The whole request is validated before any write; items then run serially and each
+   * reports its own outcome.
+   * Body: { actions: [{ reminderId: string, action: 'complete'|'cancel', reason?: string }] }
+   * @param {import('express').Request} ArgReq Request object.
+   * @param {import('express').Response} ArgRes Response object.
+   */
+  async #HandlePostWorkspaceRemindersBulkAsync(ArgReq, ArgRes) {
+    try {
+      const WorkspaceName = ArgReq.params.name;
+      const Actions = ArgReq.body?.actions;
+      if(!Array.isArray(Actions) || Actions.length === 0)
+        throw new Error('actions must be a non-empty array.');
+      if(Actions.length > MaxBulkReminderActions)
+        throw new Error(`actions must contain at most ${MaxBulkReminderActions} items.`);
+      for(const Item of Actions) {
+        if(typeof Item?.reminderId !== 'string' || Item.reminderId.length === 0)
+          throw new Error('each action needs a reminderId string.');
+        if(Item.action !== 'complete' && Item.action !== 'cancel')
+          throw new Error(`invalid action "${Item.action}" (expected complete or cancel).`);
+        if(Item.reason !== undefined && typeof Item.reason !== 'string')
+          throw new Error('reason must be a string when given.');
+      }
+
+      const WorkspaceExists = await workspaces.WorkspaceExistsAsync(WorkspaceName);
+      if(!WorkspaceExists) throw new Error('Workspace not found.');
+      const RemindersModule = this.#SlackAppsByWorkspace.get(WorkspaceName)?.RemindersModule;
+      if(!RemindersModule) throw new Error('Workspace is not running.');
+
+      // serial on purpose: each writer persists the queue, and per-item order keeps results readable.
+      const Results = [];
+      for(const Item of Actions) {
+        const Reason = `api-bulk: ${Item.reason || Item.action}`;
+        let Status;
+        try {
+          const Closed = Item.action === 'complete'
+            ? await RemindersModule.CompleteReminderByIdAsync(Item.reminderId, Reason)
+            : await RemindersModule.CancelReminderFromListAsync(Item.reminderId, Reason);
+          Status = Closed ? (Item.action === 'complete' ? 'completed' : 'canceled') : 'not-found';
+        } catch(error) {
+          Status = 'error';
+          Results.push({ reminderId: Item.reminderId, action: Item.action, status: Status, error: error.message });
+          continue;
+        }
+        Results.push({ reminderId: Item.reminderId, action: Item.action, status: Status });
+      }
+
+      /** @type {Record<string, number>} */
+      const Counts = {};
+      for(const Result of Results) Counts[Result.status] = (Counts[Result.status] || 0) + 1;
+      ArgRes.status(200).json({ success: true, data: { results: Results, counts: Counts } });
     } catch(error) {
       ArgRes.status(200).json({ success: false, data: `Error: ${error.message}` });
     }
