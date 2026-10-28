@@ -35,6 +35,21 @@
 
 ## Unreleased
 
+If you asked me a question in a thread, such as what a file you just uploaded says, I sometimes answered with
+your open-task list instead. I now run a command on my own only if it was cleared to run that way before
+October's `rmm` update; the newer ones still work when you ask through `rmm`.
+
+**Technical:** Active router takeover reused `CanExecuteWithIfl`, the explicit `rmm ifl` contract (GH-233).
+PR #270 (GH-181) gave `ask-reminders`, `scan-image-for-text`, `make-list-from-image` and
+`convert-text-into-slack-list` canonical builders and put `ask-reminders` in the resolver catalog. Flash Lite then
+read "what is the marker in the uploaded file?" as `ask-reminders` at 0.85, and takeover ran it (dev router
+corpus 2026-10-27; the 2026-10-11 record for the same text has no intent). A new catalog field,
+`CanExecuteFromTakeover`, absent means no, now also gates `RouterShadow.ShouldExecute`. It is set on the 22
+commands takeover could already build and run before #270; those four stay `rmm ifl` only. Tests:
+`tests/router-shadow.test.js` (the new flag fails closed; red with the gate line removed) and
+`tests/chat-module.integration.test.js` (the selftest phrase as `ask-reminders` at 0.85 is skipped; red with
+the flag set true).
+
 You can now close a whole batch of reminders from an agent session instead of reacting ✅ to each one in
 Slack. A new skill backs up the workspace's reminders first, shows exactly which ones will change, and then
 completes or cancels them through the same paths Slack uses.
@@ -80,6 +95,20 @@ If my list of channels with auto-scheduling turned on ever goes missing while re
 log it as an error instead of quietly treating every channel as off. My reminder test battery and test
 suite now always work in their own scratch data, and my other test harnesses refuse to run against a
 server's data once that server is marked as live.
+
+My documented backup command now backs up the data directory the service really uses, including the event
+ledger. Backups now land in `sleuth-backups/<date>/` next to the install directory, and backups older than 30
+days are removed. My first-time-user test harness also refuses to run against a server's data.
+
+**Technical:** GH-272 follow-up. `backup-sleuth-data.sh` (the command AGENTS.md documents) zipped only the
+install-relative `data/runtime` tree and skipped `events/*.jsonl`; it now hands off to
+`backup-sleuth-data-fixed.sh`, which resolves `SLEUTH_DATA_DIR` (the unit's `EnvironmentFile=` now overrides
+`Environment=`, as in systemd) and zips the whole data dir instead of four file patterns, so settings, context
+memory, decisions, lists and the ledger are all included (dotfiles such as `.live-data` are not). Output moves from
+`<install>/<date>-backup/` to `<install>/../sleuth-backups/<date>/`, with 30-day pruning; anything reading the
+old location must be repointed. `scripts/first-time-user-battery.js` calls `Workspaces.AssertNotLiveRuntimeDir`
+like the other module-starting harnesses. `tests/test-runtime-isolation.test.js` checks all three harness
+scripts keep the guard.
 
 **Technical:** GH-271/GH-272. `scripts/reminder-thread-battery.js` and `tests/runtime-setup.js`
 always create their own temp data dir, ignoring an inherited `SLEUTH_DATA_DIR` (on 2026-10-21 an

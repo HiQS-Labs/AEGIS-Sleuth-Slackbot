@@ -80,3 +80,14 @@ describe('GH-271: AssertNotLiveRuntimeDir', () => {
     expect(() => workspaces.AssertNotLiveRuntimeDir('some-harness')).not.toThrow();
   });
 });
+
+describe('GH-272: module-starting harnesses call the live-data guard', () => {
+  test.each([
+    'scripts/lists-harness.js',
+    'scripts/slack-harness-file-upload.js',
+    'scripts/first-time-user-battery.js',
+  ])('%s calls AssertNotLiveRuntimeDir', (ArgScript) => {
+    const Source = fs.readFileSync(path.join(__dirname, '..', ArgScript), 'utf8');
+    expect(Source).toContain('AssertNotLiveRuntimeDir(');
+  });
+});
