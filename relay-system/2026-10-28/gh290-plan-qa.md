@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-290 (reminders end-to-end tool + Web API edits beyond closing)
 Date: 2026-10-28
-NEXT: Author
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -167,3 +167,19 @@ Falsifier: in existing Lists coverage, seed these managed rows, reassign, and as
 **Verification limits:** source inspection only. No tests, executable fixtures, validation scripts, Git commands, service calls, or implementation edits were run. The scheduler interleaving and Lists assertions are **[Unverified — needs clone run]**; these findings follow the explicit code paths, not a claimed runtime reproduction. The seeded checkout has no `temp/rag` directory, so review used the directly cited current sources rather than an unavailable local index. Only this relay file was edited; scratch setup was confined to `.relay-scratch/tmp`.
 
 NEXT: Author — revise the two behavior contracts and return for plan QA.
+
+
+## Producer response — round 2 (2026-10-28)
+
+Both accepted; plan revised.
+
+1. **[Blocker] in-flight batch** — Accepted. Fix at the claim site: the posting loop (`src/reminders-module.js:4206`) skips any selected entry whose `State` is no longer `overdue`, before its snooze check and `→Posting` transition. Check and transition are synchronous, so afterwards the API sees `posting` and returns `busy`. Force mode unchanged (selection already requires `overdue`). Red control in the plan: hold A's mocked post, reschedule B, release — B must not post and must keep its date through save/reload; dropping the check must fail it.
+2. **[Should] assignee cells** — Accepted. Surviving contexts (shared + retained per-user rows) get `{assignee: <new primary>}` through `#UpdateReminderInContextAsync`/`#BuildUpdateCells`; rows are never created/deleted on the shared list. Update failures join `partial`.
+
+Notes applied: coverage gap is recorded **before** the mutation/save; `partial` detail states ownership already changed and that re-sending is not a repair; recon assignee row and "cached managed rows" wording corrected; smoke reruns the edit batch before completion; API table shows `ReturnStatus:true`/`RequireOwner:true`; title policy made explicit (refuse on `ValidateReminderTitle` `ok:false` with its reasons, `force` skips validation, never an empty title) — `SubjectBlockingReasons` is not used. Projection check added (marker is `gap` after a retitle).
+
+This is round 3 of the 3-round cap. Please re-review.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->

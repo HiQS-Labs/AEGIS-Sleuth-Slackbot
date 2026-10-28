@@ -37,10 +37,10 @@ AI re-synthesis of existing titles is a non-goal here (possible follow-up).
 | Seam | Finding |
 |---|---|
 | Bulk endpoint | `POST /workspace/:name/reminders/bulk` — `src/web-api.js:1014` `#HandlePostWorkspaceRemindersBulkAsync`. Validates the whole batch first (≤100, `MaxBulkReminderActions`), runs items serially, returns `{results, counts}`. Calls `CompleteReminderByIdAsync` / `CancelReminderFromListAsync`. |
-| Retitle writer (exists) | `RemindersModule.UpdateReminderSummaryFromListAsync(id, mrkdwn, reason)` `src/reminders-module.js:1141`: finds pending reminder, `SlackFormatUtils.ReplaceReminderSummary`, `#SaveRemindersAsync`. Lists-originated, so it does **not** fan out; its caller (`src/lists-module.js:2625-2631`) then calls `SyncReminderSummaryAcrossListsAsync(id, mrkdwn, sourceCtx)` (`:1685`), which with `sourceCtx=null` updates **every** list row. |
+| Retitle writer (exists) | `RemindersModule.UpdateReminderSummaryFromListAsync(id, mrkdwn, reason)` `src/reminders-module.js:1141`: finds pending reminder, `SlackFormatUtils.ReplaceReminderSummary`, `#SaveRemindersAsync`. Lists-originated, so it does **not** fan out; its caller (`src/lists-module.js:2625-2631`) then calls `SyncReminderSummaryAcrossListsAsync(id, mrkdwn, sourceCtx)` (`:1685`), which with `sourceCtx=null` updates every **cached managed** row of that reminder. |
 | Create writer (exists) | `CreateReminderFromListRowAsync({summary, dueDate, assigneeID, targetChannelID, originalSenderID})` `:1178`: validates, `#MakeScheduledReminder` factory (the only sanctioned constructor, `:746`), `#QueueReminderAsync(info, {SkipListSync:true})`. API create needs list sync **on**. |
 | Due date | `ShouldPostOn` (`Date`). Lists show it in the `created_on` column (`FormatTimestampForDisplay`, `src/lists-module.js:1362`); `due_date` is the \"by …\" phrase extracted from the text (`:1346`). Proven reschedule pattern: retry path `src/reminders-module.js:4359-4373` (set date, reset `IgnoreSnooze`/`DndHeld`, FSM →Rescheduled→Scheduled, which emits `ReminderScheduled`). P2-RESCHEDULE-REMINDER was retired unbuilt. |
-| Assignees | `AssigneeIDs` authoritative, `AssigneeID` mirror; `#NormalizeReminderAssignees` `:898`; per-sender/assignee indexes rebuilt by `#BuildReminderIndexes` `:4508`. Per-user Slack Lists are keyed by assignee, so a reassign must move the row: `ListsModule.HandleReminderRemovedAsync` then `AddReminderToListAsync` (both public, existing). |
+| Assignees | `AssigneeIDs` authoritative, `AssigneeID` mirror; `#NormalizeReminderAssignees` `:898`; per-sender/assignee indexes rebuilt by `#BuildReminderIndexes` `:4508`. Per-user Slack Lists are keyed by assignee; the shared row's `assignee` cell shows the primary owner (`src/lists-module.js:1439`). See Plan §3 for the move. |
 | Title contract | `src/reminder-title-contract.js` exports `NormalizeReminderTitle`, `ValidateReminderTitle`, `FitTitleToBudget` (GH-250). |
 | Backup/resolve | `skills/bulk-edit-reminders/bulk-edit-reminders.mjs`: env-file parse, `GET` raw records → `~/secrets/sleuth/backups/<ws>_reminders_<ms>.json` (mode 600), ID prefix resolve, dry-run. |
 | Tunnel | No script opens one. Docs: `ssh -L 12020:localhost:2020 root@<host>`; secrets `~/secrets/sleuth/sleuth-web-api-<env>.env` (`SLEUTH_WEB_API_BASE_URL` points at the tunnel). Host/user in `~/secrets/sleuth/vultr-sleuth-production.env`. Dev: `ssh sleuth-oracle-dev`. |
@@ -77,10 +77,10 @@ refused by the title contract without `force`. Per-item statuses are reserved fo
 | action | fields | calls | per-item status |
 |---|---|---|---|
 | `complete` / `cancel` | unchanged | unchanged | unchanged |
-| `retitle` | `reminderId`, `title`, optional `force` | `NormalizeReminderTitle` → `ValidateReminderTitle` (blocking = its returned reasons that `SubjectBlockingReasons`/the selector already treat as refusals; `force` skips validation only, never an empty normalized title) → `UpdateReminderSummaryFromListAsync(id, title, reason, {SyncLists:true})` | `updated` · `unchanged` · `not-found` · `error` |
+| `retitle` | `reminderId`, `title`, optional `force` | `NormalizeReminderTitle` → `ValidateReminderTitle` (policy: refuse when `ValidateReminderTitle` returns `ok:false`, reporting its `reasons`; `force:true` skips validation only, never an empty normalized title) → `UpdateReminderSummaryFromListAsync(id, title, reason, {SyncLists:true, ReturnStatus:true})` | `updated` · `unchanged` · `not-found` · `error` |
 | `reschedule` | `reminderId`, `dueDate` (ISO) | `RescheduleReminderAsync` (new) | `updated` · `unchanged` · `not-found` · `busy` (posting) · `error` |
 | `reassign` | `reminderId`, `assigneeIds` | `ReassignReminderAsync` (new) | `updated` · `unchanged` · `partial` (lists move failed, with detail) · `not-found` · `error` |
-| `create` | `title`, `dueDate`, `channelId`, `assigneeIds?`, `senderId?` (≥1 owner) | `CreateReminderFromListRowAsync(row, {SkipListSync:false})` | `created` + `reminderId` · `error` |
+| `create` | `title`, `dueDate`, `channelId`, `assigneeIds?`, `senderId?` (≥1 owner) | `CreateReminderFromListRowAsync(row, {SkipListSync:false, RequireOwner:true})` | `created` + `reminderId` · `error` |
 
 Items in one batch run serially in request order, so `retitle` then `reschedule` of one id is two
 ordered actions in one call.
@@ -92,7 +92,8 @@ ordered actions in one call.
    `this.#ListsModule?.SyncReminderSummaryAcrossListsAsync(id, mrkdwn, null)`) and `ReturnStatus`
    (return `'updated'|'unchanged'|'not-found'` instead of a boolean, so the API can report
    `unchanged` from the existing no-change early return at `:1154`). Every real change, for all
-   callers, also calls `this.#LedgerCoverage?.RecordGapAsync(ws, 'summary-edit')`: no ledger event
+   callers, first awaits `this.#LedgerCoverage?.RecordGapAsync(ws, 'summary-edit')` (before the
+   in-memory mutation and save, so no projection read sees a verified marker with stale data): no ledger event
    carries summaries, so this stops a verified projection serving the old text (and closes the same
    latent gap on the existing Slack List edit path).
 2. **Reschedule** — `RescheduleReminderAsync(id, date, reason)`, mirroring the proven retry
@@ -107,14 +108,24 @@ ordered actions in one call.
    The `due_date` column is the "by …" phrase from the text and is left alone (no prose rewriting).
    Valid only from `scheduled`, `overdue`, `due`, `failed`, `snoozed`, `posted`; this fixes the
    blocker: an overdue reminder moved forward is `scheduled` again and the mark pass (`:4130`) waits.
+   **In-flight batch (plan QA r2):** the posting pass snapshots `RemindersToPost` (`:4153`) and awaits
+   Slack between entries, so an entry can be rescheduled after selection. Fix at the claim site: the
+   loop (`:4206`) skips any entry whose `State` is no longer `overdue` before its snooze check /
+   `→Posting` transition. The check and the transition run synchronously, so after it an edit sees
+   `posting` and is refused `busy`. Force mode is unchanged (it still selects only `overdue`).
 3. **Reassign** — `ReassignReminderAsync(id, ids, reason)`: normalize the new set; same set →
-   `unchanged`; else set `AssigneeIDs`, `#NormalizeReminderAssignees`, `#BuildReminderIndexes`, save,
-   `RecordGapAsync(ws,'reassign')` (no assignee event exists), then
+   `unchanged`; else await `RecordGapAsync(ws,'reassign')` (no assignee event exists), then set `AssigneeIDs`,
+   `#NormalizeReminderAssignees`, `#BuildReminderIndexes`, save, then
    `ListsModule.MoveReminderBetweenUserListsAsync(reminder, removedIds, addedIds)` (new, small): for
    each removed owner's per-user context, the existing `#DeleteReminderFromContextAsync`; for each added
    owner, the existing guarded per-user `#CreateListItemAsync` path (the same `!ItemCache.has` guard as
-   `AddReminderToListAsync:1264`). **The shared list is not touched** (not keyed by owner), so no
-   duplicate shared row. Returns `{ok, failures[]}`; any failure → item status `partial` with detail.
+   `AddReminderToListAsync:1264`). **The shared list row is never created or deleted** (row location is not keyed by owner), but
+   every **surviving** context (shared + retained per-user rows) gets its `assignee` cell updated to
+   the new primary `AssigneeID` through the existing `#UpdateReminderInContextAsync` /
+   `#BuildUpdateCells` (`assignee` key, `src/lists-module.js:1842`), keeping the single-primary-owner
+   display contract. Returns `{ok, failures[]}`; any delete/create/update failure → item status `partial`, whose detail
+   says canonical ownership **already changed** and names the list contexts that did not follow
+   (re-sending the same owners returns `unchanged`; it is not a repair).
    Lifted from `AddReminderToListAsync`: its per-user loop becomes a private
    `#AddToUserContextsAsync(reminder, ids)` used by both, so the guard lives once.
 4. **Create** — `CreateReminderFromListRowAsync(row, options={})`: accept optional `assigneeIDs`
@@ -150,19 +161,24 @@ ordered actions in one call.
 - RemindersModule tests (existing file covering the module with a temp data dir): reschedule of an
   **overdue** reminder forward ends `scheduled`, emits `ReminderScheduled`, and a check cycle at
   "now" posts nothing (red control: skip the transitions → posts); `posting` → `busy`; reassign
-  rebuilds indexes and calls the lists mover with the right removed/added sets; summary edit with
+  rebuilds indexes and calls the lists mover with the right removed/added sets; a two-entry
+  posting batch where entry B is rescheduled while A's mocked Slack post is held → B not posted and
+  keeps its new date after save/reload (red control: drop the claim-site state check → B posts); summary edit with
   `SyncLists` fans out and records the coverage gap; create with two owners keeps both after
   save/reload; `RequireOwner` with no owner → error.
 - Lists tests (existing file): mover deletes from removed owners only, never creates a shared row,
-  and reports a failed delete (red control: unguarded add → duplicate).
+  updates the `assignee` cell on the shared and retained rows (row ids unchanged), and reports a
+  failed delete/update as a failure (red controls: unguarded add → duplicate; no cell update → stale owner).
+- Projection: one module-level check that after a retitle the coverage marker is `gap`, so a
+  projection-enabled read falls back to the authoritative store.
 - Wrapper: tunnel/flag parsing checked manually in the smoke (occupied port refusal, non-loopback
   refusal, `--env dev --tunnel` targets dev); no new suite.
 
 ### Smoke (dev only)
 
 Through `--env dev --tunnel`: `backup`; dry-run of a mixed batch; `create` one test reminder in the dev
-test channel; then one call with retitle + reschedule + reassign on it; then complete it. Adjacent
-path: rerun the non-create edit batch → `unchanged`; occupied-port refusal. Receipt under
+test channel; then one call with retitle + reschedule + reassign on it; adjacent path: rerun that same edit
+batch → all `unchanged` (before completing); occupied-port refusal; then complete it. Receipt under
 `TESTS-RESULTS/2026-10-28+GH-290/`. Never on production. Rollback note: reverting the PR rolls back
 code only; records already edited/created stay; restoring them is the manual operator step from the
 pre-edit backup.
