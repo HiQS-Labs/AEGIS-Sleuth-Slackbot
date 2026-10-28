@@ -1,8 +1,8 @@
 ---
 Goal: Pre-implementation plan QA for GH-290 (reminders end-to-end tool + Web API edits beyond closing)
 Date: 2026-10-28
-NEXT: Reviewer
-STATUS: Open
+NEXT: Author
+STATUS: Approved
 ---
 
 # Context
@@ -183,3 +183,31 @@ This is round 3 of the 3-round cap. Please re-review.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex review — round 3 (2026-10-28)
+
+**Ship — plan approved for implementation.** Both round-2 findings are addressed in the revised artifact. This approves the design, not an implementation or deployment. No further plan revision is required.
+
+### Resolution of the outstanding findings
+
+1. **Selected-batch reschedule:** accepted. The proposed state check at the posting claim site closes the identified A/B interleaving. The current loop has no await between its snooze check and the Posting transition (`src/reminders-module.js:4217–4229`), and `#TransitionReminderState` is synchronous (`:528`). A successful reschedule leaves B Scheduled; the added guard skips it. Once the loop claims B as Posting, the API refuses the edit. The existing snooze guard remains in place, and force selection still uses Overdue records. The held-A/post-B observable check and its red control are proportionate.
+2. **Lists assignee cells:** accepted. Updating shared and retained user rows through the existing context updater preserves row identity while changing the primary-owner cell. `#BuildUpdateCells` already supports the assignee payload (`src/lists-module.js:1842–1848`); the shared context need not be deleted or recreated. The proposed failure aggregation and explicit canonical-change warning make partial results understandable without adding a repair subsystem.
+
+### Overall disposition
+
+- Extending the existing bulk endpoint satisfies the requested edit capability. A separate create route would add no necessary behavior here. Existing whole-batch validation, serial dispatch, bearer auth and workspace-owned module lookup remain appropriate (`src/web-api.js:1014–1068`).
+- Summary reuse with opt-in fan-out is sound. The existing helper enumerates cached managed contexts, supports a null source context, and delegates to the echo-suppressed row updater (`src/lists-module.js:1685–1715`, `:1573–1581`). Recording the coverage gap before mutation addresses the stale-projection concern using the existing read eligibility contract (`src/ledger-coverage.js:220–223`, `:265`).
+- The plural-owner create adapter, explicit owner requirement, empty-array backup, scheduling-date column mapping, and explicit operator-title refusal policy resolve the earlier contract ambiguities. An empty source-message ID remains an established list-created reminder shape, rather than a new creation path.
+- One CLI extended with backup and an optional profile-selected SSH child is appropriately small. The stated occupied-port refusal, loopback requirement, forward-failure option, bounded startup and owned-child cleanup belong in implementation verification. The backup scope and code-only rollback limitation are now explicit.
+- The rating remains an author estimate, not independently measured evidence. The planned extensions to existing coverage and recorded smoke are commensurate; no additional suite or infrastructure is requested.
+
+### Implementation verification notes (non-blocking for this plan)
+
+Preserve the current boolean return contract for existing summary callers, and consume `NormalizeReminderTitle`'s structured result correctly. Implement ordered CLI actions directly from argument order; the current CLI groups complete/cancel actions when assembling its request (`skills/bulk-edit-reminders/bulk-edit-reminders.mjs:94–99`). Update its success-status handling for the new statuses as part of the planned CLI extension.
+
+The coverage-marker assertion is useful, but the implementation receipt should also establish that a projection-enabled read/reload retains edited values. Record tunnel failure/interruption cleanup along with the happy-path smoke. These are verification of the stated contracts, not grounds for another plan round.
+
+**Verification limits:** read-only inspection of the revised plan and cited source paths; no runtime reproduction is claimed. Scheduler interleaving, projection read/reload, Lists fan-out and SSH lifecycle behavior remain **[Unverified — needs clone run]**. No tests, executable fixtures, validation scripts, Git commands, service calls or implementation edits were run. Only this relay file was changed; scratch setup was confined to `.relay-scratch/tmp`.
+
+NEXT: Author — implement the approved plan and collect the planned verification evidence.
