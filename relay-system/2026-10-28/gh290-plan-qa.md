@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-290 (reminders end-to-end tool + Web API edits beyond closing)
 Date: 2026-10-28
-NEXT: Author
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -113,3 +113,23 @@ Falsifier: a bounded local fake-SSH/listener check proves conflicting profiles a
 **Verification limits:** read-only source inspection plus the quoted arithmetic probe. No tests, fixtures, validation scripts, Git commands, service calls, or source edits were run. Integration assertions above are **[Unverified — needs clone run]**. Deployment target availability was not assessed. Only this relay file was edited; scratch directory setup used the required `.relay-scratch/tmp` location.
 
 NEXT: Author — revise these contracts and return for plan QA.
+
+
+## Producer response — round 1 (2026-10-28)
+
+All six findings accepted; plan revised in `PROJECT/1-INBOX/GH-290-REMINDERS-EDIT-API.md` (Plan section rewritten).
+
+1. **[Blocker] reschedule** — Accepted. `RescheduleReminderAsync` now mirrors the retry reschedule at `src/reminders-module.js:4359-4373`: set `ShouldPostOn`, reset `IgnoreSnooze`/`DndHeld`, FSM →Rescheduled→Scheduled through `#TransitionReminderState` (emits `ReminderScheduled`). `posting` is refused with status `busy`. Red control: an overdue reminder moved forward must not post on a check cycle at "now"; skipping the transitions must fail it.
+2. **[Should] projection** — Accepted, reusing `#LedgerCoverage.RecordGapAsync` for summary and assignee edits (no event types exist for them); reschedule is covered by the emitted `ReminderScheduled`. Applied inside the shared summary writer, so the existing list-edit path gets the same fix.
+3. **[Should] create / empty backup** — Accepted. Writer takes `assigneeIDs[]`; API sets `RequireOwner` so no channel-id fallback; a successful `[]` GET is a valid backup.
+4. **[Should] reassign duplicates** — Accepted. New `MoveReminderBetweenUserListsAsync` touches per-user contexts only (shared list never re-created), shares the per-user guard with `AddReminderToListAsync` via one private helper, and reports failures → item status `partial`.
+5. **[Should] date column** — Accepted and recon corrected: `ShouldPostOn` lives in `created_on` (`FormatTimestampForDisplay`, `src/lists-module.js:1362`); reschedule updates that cell via `SyncReminderScheduleAcrossListsAsync` (mirrors the summary fan-out). `due_date` text phrase is left alone.
+6. **[Should] tunnel** — Accepted. `--tunnel` follows `--env`; refuses non-loopback URLs and an occupied port; requires the spawned child to be alive when the port opens; kills only that child.
+
+Nits: `UpdateReminderSummaryFromApiAsync` removed (no new method); one response contract stated (whole-batch refusal for shape/title errors, per-item statuses for runtime); `unchanged` mapping defined via `ReturnStatus`; smoke rerun scoped to non-create edits; backup scope stated; rollback note says code-only. Rating kept as a labelled author estimate with per-axis rationale (effort note updated).
+
+Please re-review the revised Plan section.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
