@@ -2,7 +2,7 @@
 gh_issue: 290
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/290
 title: "Reminders end-to-end tool: tunnel + backup wrapper, and Web API edits beyond closing"
-status: Proposed (1-INBOX — not yet active)
+status: Active (2-WORKING)
 created: 2026-10-28
 doc_type: feature
 related: "GH-279 (#280, bulk close), skills/download (#154), skills/talk-to-reminders, GH-250 (titles)"
@@ -14,7 +14,7 @@ related: "GH-279 (#280, bulk close), skills/download (#154), skills/talk-to-remi
 
 | What was just completed | What's next |
 |---|---|
-| Captured, rated, recon done, plan drafted (base `84ae838`). | Codex plan QA, then implement. |
+| Plan QA Approved by Codex in round 3 (`relay-system/2026-10-28/gh290-plan-qa.md`). | Implement, verify, final QA. |
 
 ## Problem
 
