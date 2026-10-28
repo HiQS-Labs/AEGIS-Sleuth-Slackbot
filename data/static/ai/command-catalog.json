@@ -4,6 +4,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Show the user-facing help and features guide.",
     "SyntaxExamples": [
       "@Sleuth AI help",
@@ -39,6 +40,7 @@
     "Permission": "admin",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Show the full command reference for Sleuth.",
     "SyntaxExamples": [
       "@Sleuth AI commands"
@@ -70,6 +72,7 @@
     "Permission": "admin",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Run workspace diagnostics for config, Slack connectivity, disk access, reminders, stats, OpenAI, and Notion.",
     "SyntaxExamples": [
       "@Sleuth AI run-diagnostics"
@@ -225,6 +228,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Show the current Sleuth version number.",
     "SyntaxExamples": [
       "@Sleuth AI version"
@@ -289,6 +293,7 @@
     "Permission": "admin",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Show the current workspace and channel model configuration.",
     "SyntaxExamples": [
       "@Sleuth AI models"
@@ -320,6 +325,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Show this channel's override and effective chat model.",
     "SyntaxExamples": [
       "@Sleuth AI show-channel-model"
@@ -367,6 +373,7 @@
     "Permission": "admin",
     "Risk": "medium",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Set a chat-model override for only the current channel.",
     "SyntaxExamples": [
       "@Sleuth AI set-channel-model:'gpt-5'",
@@ -400,6 +407,7 @@
     "Permission": "admin",
     "Risk": "medium",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Clear the current channel's override and revert to the workspace default model.",
     "SyntaxExamples": [
       "@Sleuth AI clear-channel-model"
@@ -430,6 +438,7 @@
     "Permission": "admin",
     "Risk": "medium",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Change the workspace default chat model.",
     "SyntaxExamples": [
       "@Sleuth AI switch-models:'gpt-5'",
@@ -510,6 +519,7 @@
     "Permission": "admin",
     "Risk": "medium",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Change only the complex/date-extraction model.",
     "SyntaxExamples": [
       "@Sleuth AI switch-models:complex='gpt-5'",
@@ -543,6 +553,7 @@
     "Permission": "admin",
     "Risk": "medium",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Change both the workspace default chat model and the complex/date-extraction model.",
     "SyntaxExamples": [
       "@Sleuth AI switch-models:default='gpt-5-mini',complex='gpt-5'",
@@ -577,6 +588,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Search the web through OpenAI Responses API and reply with sourced results.",
     "SyntaxExamples": [
       "@Sleuth AI web-search automated web browsers",
@@ -615,6 +627,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Search the web through Google Gemini and reply with sourced results.",
     "SyntaxExamples": [
       "@Sleuth AI gemini-search automated web browsers",
@@ -802,6 +815,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Fetch a public Stratalist list and show it in Slack without creating reminders.",
     "SyntaxExamples": [
       "@Sleuth AI view stratalist jinhui2026",
@@ -1344,6 +1358,7 @@
     "Permission": "mixed",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Toggle Do Not Disturb (DND) / Silent Mode for reminder notifications in the current channel (or workspace-wide with 'workspace on/off').",
     "SyntaxExamples": [
       "@Sleuth AI dnd on",
@@ -1556,6 +1571,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Summarize the latest shipped Sleuth changes from the changelog.",
     "SyntaxExamples": [
       "@Sleuth AI changelog"
@@ -1588,6 +1604,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Translate plain English into the closest exact Sleuth command.",
     "SyntaxExamples": [
       "@Sleuth AI rmm remind me to check invoices"
@@ -1666,6 +1683,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "If the workspace has a registered remote RAG project, query that codebase from Slack by project slug.",
     "SyntaxExamples": [
       "@Sleuth AI ask-code client-b how does delta sync work"
@@ -1766,6 +1784,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Fuzzy-search threads captured with 'remember above' and get ranked results with permalinks.",
     "SyntaxExamples": [
       "@Sleuth AI recall checkout flow"
@@ -1891,6 +1910,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Search reminders assigned to or mentioning a specific user.",
     "SyntaxExamples": [
       "@Sleuth AI search reminders for @jane deploy"
@@ -1924,6 +1944,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "List reminders assigned to or mentioning a specific user.",
     "SyntaxExamples": [
       "@Sleuth AI show reminders for @jane"
@@ -2116,6 +2137,7 @@
     "Permission": "public",
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    "CanExecuteFromTakeover": true,
     "Description": "Ask about Product Compass releases in an administrator-mapped channel.",
     "SyntaxExamples": [
       "@Sleuth AI ask-compass compare releases 1.0 and 1.65"

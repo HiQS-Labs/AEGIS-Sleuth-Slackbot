@@ -227,7 +227,7 @@ describe('RouterShadowModule', () => {
 
   test('ShouldExecute — full takeover only above the confidence floor with a runnable command', () => {
     const Module = MakeModule();
-    const Base = { model: 'm', intentId: 'models', canonicalCommand: 'models', canExecuteWithIfl: true, confidence: 0.9, needsClarification: false, latencyMs: 1, error: null };
+    const Base = { model: 'm', intentId: 'models', canonicalCommand: 'models', canExecuteWithIfl: true, canExecuteFromTakeover: true, confidence: 0.9, needsClarification: false, latencyMs: 1, error: null };
     expect(Module.ShouldExecute(Base)).toBe(true);
     expect(Module.ActiveConfidenceMin()).toBe(DEFAULT_ACTIVE_CONFIDENCE_MIN);
     expect(Module.ShouldExecute({ ...Base, confidence: DEFAULT_ACTIVE_CONFIDENCE_MIN })).toBe(true); // exactly the floor
@@ -238,6 +238,10 @@ describe('RouterShadowModule', () => {
     }
     const { canExecuteWithIfl: _Missing, ...NoFlag } = Base;
     expect(Module.ShouldExecute({ ...NoFlag, confidence: 1.0 })).toBe(false); // flag absent
+    // an `rmm ifl`-runnable command still needs CanExecuteFromTakeover to run unasked, fail closed
+    for(const Flag of [false, null, undefined]) {
+      expect(Module.ShouldExecute({ ...Base, confidence: 1.0, canExecuteFromTakeover: Flag })).toBe(false);
+    }
 
     expect(Module.ShouldExecute({ ...Base, confidence: 0.5 })).toBe(false); // below floor
     expect(Module.ShouldExecute({ ...Base, canonicalCommand: null })).toBe(false); // no runnable command
@@ -255,10 +259,21 @@ describe('RouterShadowModule', () => {
     expect((await Make(null).ResolveCandidateAsync('t')).canExecuteWithIfl).toBeNull();
   });
 
+  test('ResolveCandidateAsync carries CanExecuteFromTakeover only alongside CanExecuteWithIfl (null when there is no entry)', async () => {
+    const Make = (CatalogEntry) => MakeModule({ Resolve: jest.fn().mockResolvedValue({
+      IntentId: 'x', CanonicalCommand: 'x', Confidence: 0.9, NeedsClarification: false, CatalogEntry,
+    }) });
+    const Flag = async (Entry) => (await Make(Entry).ResolveCandidateAsync('t')).canExecuteFromTakeover;
+    expect(await Flag({ CanExecuteWithIfl: true, CanExecuteFromTakeover: true })).toBe(true);
+    expect(await Flag({ CanExecuteWithIfl: true })).toBe(false); // absent means rmm ifl only
+    expect(await Flag({ CanExecuteWithIfl: false, CanExecuteFromTakeover: true })).toBe(false);
+    expect(await Flag(null)).toBeNull();
+  });
+
   test('ROUTER_ACTIVE_CONFIDENCE_MIN tunes the execution floor', () => {
     process.env.ROUTER_ACTIVE_CONFIDENCE_MIN = '0.95';
     const Module = MakeModule();
-    const Cand = { model: 'm', intentId: 'x', canonicalCommand: 'x', canExecuteWithIfl: true, confidence: 0.9, needsClarification: false, latencyMs: 1, error: null };
+    const Cand = { model: 'm', intentId: 'x', canonicalCommand: 'x', canExecuteWithIfl: true, canExecuteFromTakeover: true, confidence: 0.9, needsClarification: false, latencyMs: 1, error: null };
     expect(Module.ShouldExecute(Cand)).toBe(false); // 0.9 < 0.95
     expect(Module.ShouldExecute({ ...Cand, confidence: 0.95 })).toBe(true); // at the tuned floor
     expect(Module.ActiveConfidenceMin()).toBe(0.95);

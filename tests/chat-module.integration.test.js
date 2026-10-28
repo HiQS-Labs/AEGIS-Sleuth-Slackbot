@@ -1882,6 +1882,30 @@ describe('ChatModule integration via MockSlackApp', () => {
       expect(SlackApp.SentMessages.some((ArgM) => /only workspace admins or owners can dump the rebalance reminders export/i.test(ArgM.text))).toBe(true);
     });
 
+    // Live dev selftest, 2026-10-27: Flash Lite read the lookback question as `ask-reminders` at 0.85 and takeover
+    // answered with the open-task list. #270 made it rmm-ifl runnable; an unasked takeover must not run it.
+    test('an rmm-ifl-only command (ask-reminders) never executes from free text', async () => {
+      const SlackApp = await ArmModeAsync('active');
+      mockWorkspaceAIInstances[0].ProcessMessageWithJsonResponseAsync.mockResolvedValueOnce({
+        intent_id: 'ask-reminders', confidence: 0.85, rationale: 'misread',
+        needs_clarification: false, clarification_question: '',
+        default_model_name: '', complex_model_name: '', channel_model_name: '',
+        query_text: 'what is the marker in the uploaded file?', user_mention: '',
+      });
+
+      await SlackApp.SimulateAppMentionAsync({
+        channel: 'C_ROUTER', user: 'U_REGULAR', text: `${SlackApp.AppMentionString} what is the marker in the uploaded file?`,
+      });
+
+      expect(SlackApp.Logger.InfoMessages.filter((ArgM) => /router active takeover skipped: 'ask-reminders'/.test(ArgM))).toHaveLength(1);
+      const IsSkipped = (ArgR) => /^what is the marker in the uploaded file\?$/.test(ArgR.rawText.replace(/^<@[^>]+>\s*/, ''));
+      const Skipped = (await ReadShadowRecordsAsync(IsSkipped)).find(IsSkipped);
+      expect(Skipped.candidate.canonicalCommand).toBe('ask-reminders what is the marker in the uploaded file?');
+      expect(Skipped.candidate.canExecuteWithIfl).toBe(true);
+      expect(Skipped.candidate.canExecuteFromTakeover).toBe(false);
+      expect(Skipped.executed).toBe(false);
+    });
+
     test('shadow mode leaves production behavior unchanged', async () => {
       const SlackApp = await ArmModeAsync('shadow');
       // A real command still routes normally while shadow observes.
