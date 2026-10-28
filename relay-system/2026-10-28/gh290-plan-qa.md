@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-290 (reminders end-to-end tool + Web API edits beyond closing)
 Date: 2026-10-28
-NEXT: Reviewer
+NEXT: Author
 STATUS: Open
 ---
 
@@ -133,3 +133,37 @@ Please re-review the revised Plan section.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex review — round 2 (2026-10-28)
+
+**Block — two concrete corrections remain before implementation.** The revised plan resolves the original simple overdue-state error, plural-owner create adapter, empty backup, projection-gap strategy, date-column mapping, and profile selection. Extending the existing bulk endpoint remains the right scope; no separate create route or new coordination framework is needed.
+
+### 1. [Blocker] The posting-only refusal misses reminders already selected for this cycle
+
+Plan `PROJECT/1-INBOX/GH-290-REMINDERS-EDIT-API.md:98-109` refuses only `posting`, then moves an overdue record back to `scheduled`. But `src/reminders-module.js:4153-4171` snapshots **all** eligible reminder objects into `RemindersToPost`. The loop at `:4217-4229` does not recheck their state or due time before transitioning each to `posting`. It awaits Slack work for earlier entries (`:4241`, `:4267`, and the subsequent post calls). During those awaits, a later selected reminder is still `overdue`, so the API can accept its reschedule. The loop then posts it early and overwrites its requested date in the next-day reschedule at `:4369-4373`.
+
+Observed input: two due reminders A and B; pause A's asynchronous delivery after both have been selected, then reschedule B seven days ahead through the API before A finishes.
+Affected scope: accepted API reschedules during an ordinary scheduler cycle; B's early delivery and loss of its new persisted date. A test that edits before starting the cycle does not cover this window.
+Falsifier: in the disposable clone, hold A's delivery with the existing mocked Slack seam, reschedule B, release A, and assert B is not posted and retains its requested date through save/reload. Removing the correction must fail this check. The smallest correction is to revalidate each selected entry's current eligibility immediately before the loop claims it for posting, preserving the explicit force-processing contract; alternatively refuse edits to already selected entries using existing coordination if available. No distributed lock is called for.
+
+### 2. [Should] Keep existing Lists assignee cells current without recreating shared rows
+
+Plan `:110-119` says the shared list is not touched because it is not keyed by owner. Its **row location** is independent of owner, but its **assignee cell** is not: `src/lists-module.js:1439-1459` populates it from `Reminder.AssigneeID`. The existing update builder already supports `{assignee: ...}` at `:1842-1848`. Moving only removed/added per-user rows leaves the shared row showing the old primary owner; retained per-user rows can also retain that old primary owner when a multi-owner set changes.
+
+Observed input: reassign `[UOLD]` to `[UNEW]` with a cached shared row, or `[UOLD, UKEEP]` to `[UNEW, UKEEP]` with a retained UKEEP row.
+Affected scope: stale owner displayed in the shared list and retained user lists despite a successful API response. Avoiding shared row creation remains correct.
+Falsifier: in existing Lists coverage, seed these managed rows, reassign, and assert their assignee cells match the resulting canonical `AssigneeID`, while the shared row ID stays unchanged and no duplicate is created. Removing the cell update must fail the assertion. Reuse `#UpdateReminderInContextAsync`/`#BuildUpdateCells` for surviving contexts and include update failures in the already-planned `partial` result; keep the existing single-primary-owner display contract rather than redesigning Lists ownership.
+
+### Disposition and implementation notes
+
+- Reschedule's Scheduled transition really does carry `dueAt` and `ignoreSnooze` (`src/reminders-module.js:568-583`); using it for the schedule edit is sound once the selected-batch race above is handled.
+- `RecordGapAsync` is an appropriate reuse for unrepresented summary/owner changes. In implementation, invalidate coverage before exposing/persisting the changed data, rather than leaving the plan's save-then-gap window open to projection reads. Verify projection-enabled read/reload behavior, not only that a mocked gap method was called.
+- The revised per-user mover avoids the prior shared-delete/shared-create failure. Its `partial` outcome should explicitly tell the operator that canonical ownership already changed; repeating the same desired owner set currently short-circuits as `unchanged` and is not a repair operation. No automatic retry subsystem is requested.
+- Small documentation nits: the recon's assignee row still names remove-all/add-all although the Plan replaces it; summary fan-out reaches cached managed rows, not arbitrary Slack rows. Run the smoke's `unchanged` rerun **before** completion; after completion the CLI cannot resolve the reminder from the pending backup. The API table should include `ReturnStatus:true` and `RequireOwner:true` to match the prose.
+- The title helper `SubjectBlockingReasons` is private and specifically describes fallback subjects (`src/reminder-title-contract.js:531-539`). Choose and document the operator-title refusal policy explicitly when wiring `ValidateReminderTitle`; do not duplicate a hidden helper accidentally. The force escape and nonempty-title rule remain proportionate.
+- The rating is now honestly labelled an author estimate. Focused extensions to existing tests and a recorded wrapper smoke are proportionate; no new suite is requested. The two failures above need the stated observable checks rather than more routing-only mocks.
+
+**Verification limits:** source inspection only. No tests, executable fixtures, validation scripts, Git commands, service calls, or implementation edits were run. The scheduler interleaving and Lists assertions are **[Unverified — needs clone run]**; these findings follow the explicit code paths, not a claimed runtime reproduction. The seeded checkout has no `temp/rag` directory, so review used the directly cited current sources rather than an unavailable local index. Only this relay file was edited; scratch setup was confined to `.relay-scratch/tmp`.
+
+NEXT: Author — revise the two behavior contracts and return for plan QA.
