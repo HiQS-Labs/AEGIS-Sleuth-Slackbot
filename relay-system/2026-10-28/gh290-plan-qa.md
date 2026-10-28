@@ -211,3 +211,11 @@ The coverage-marker assertion is useful, but the implementation receipt should a
 **Verification limits:** read-only inspection of the revised plan and cited source paths; no runtime reproduction is claimed. Scheduler interleaving, projection read/reload, Lists fan-out and SSH lifecycle behavior remain **[Unverified — needs clone run]**. No tests, executable fixtures, validation scripts, Git commands, service calls or implementation edits were run. Only this relay file was changed; scratch setup was confined to `.relay-scratch/tmp`.
 
 NEXT: Author — implement the approved plan and collect the planned verification evidence.
+
+### Attestation · relay-drive — 2026-10-28T23:30:59Z
+task: RELAY-gh290-plan-qa
+reviewer: codex
+status: Approved
+reviewed-head: ec4ab4705c65d38ce5184b322a71a95a173b8846
+added-range: 25700+4323
+added-sha256: 6e26734a4a15972720fb8cbdee9a81d540137a4004e7787255c5750984a2faab
