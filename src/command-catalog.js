@@ -11,6 +11,8 @@ const CommandCatalogPath = path.join(__dirname, '..', 'data', 'static', 'ai', 'c
  * @property {'public'|'admin'|'mixed'} Permission
  * @property {'low'|'medium'|'high'} Risk
  * @property {boolean} CanExecuteWithIfl
+ * @property {boolean} [CanExecuteFromTakeover] Active router mode may run it from free text, unasked. Absent means no:
+ *   `CanExecuteWithIfl` alone allows only an explicit `rmm ifl` run.
  * @property {string} Description
  * @property {string[]} SyntaxExamples
  * @property {string[]} Aliases
@@ -56,6 +58,9 @@ function LoadCommandCatalogSync() {
     "Permission": /** @type {'public'|'admin'} */ ("public"),
     "Risk": "low",
     "CanExecuteWithIfl": true,
+    // explicit `rmm ifl` only: the router took "what is the marker in the uploaded file?" for this and
+    // answered with the open-task list instead of the file.
+    "CanExecuteFromTakeover": false,
     "Description": "Query live open reminders and completion history to answer free-form questions about task state.",
     "SyntaxExamples": [
       "@Sleuth AI ask-reminders what's open for Client A?"

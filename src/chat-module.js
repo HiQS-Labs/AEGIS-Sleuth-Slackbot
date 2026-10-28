@@ -952,7 +952,7 @@ class ChatModule {
   /**
    * GH-397 active router mode: let Gemini Flash Lite resolve the command and, above the confidence
    * floor, execute it — only when the catalog entry has CanExecuteWithIfl true, the same contract as
-   * `rmm ifl` (GH-233; this supersedes the 2026-07-16 "any canonical command" decision). Always logs a corpus record. Returns true only when it actually executed a
+   * `rmm ifl`, and CanExecuteFromTakeover true (GH-233; this supersedes the 2026-07-16 "any canonical command" decision). Always logs a corpus record. Returns true only when it actually executed a
    * command; otherwise false so the caller falls back to the normal resolver. Never throws — a
    * resolve/execute/log failure degrades to false (normal pipeline runs).
    *
@@ -1000,8 +1000,8 @@ class ChatModule {
     // that the router deferred.
     // GH-233: a confident candidate whose catalog entry forbids a model-resolved run needs a literal command.
     if(!IncumbentRoute && Candidate && !Candidate.error && !Candidate.needsClarification && Candidate.canonicalCommand
-      && Candidate.canExecuteWithIfl !== true && Candidate.confidence >= this.#RouterShadow.ActiveConfidenceMin()) {
-      ArgSlackApp.Logger.info(`router active takeover skipped: '${Candidate.intentId}' needs a literal command (CanExecuteWithIfl false)`);
+      && Candidate.canExecuteFromTakeover !== true && Candidate.confidence >= this.#RouterShadow.ActiveConfidenceMin()) {
+      ArgSlackApp.Logger.info(`router active takeover skipped: '${Candidate.intentId}' needs a literal command or rmm ifl (CanExecuteWithIfl/CanExecuteFromTakeover false)`);
     }
     if(!IncumbentRoute && this.#RouterShadow.ShouldExecute(Candidate)) {
       try {
