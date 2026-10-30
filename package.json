@@ -84,7 +84,7 @@
     "better-sqlite3": "^12.9.0",
     "express": "^5.0.1",
     "newrelic": "^12.16.1",
-    "nodemailer": "^10.0.9",
+    "nodemailer": "^10.1.4",
     "openai": "^6.9.1",
     "sqlite-vec": "^0.1.9"
   },
