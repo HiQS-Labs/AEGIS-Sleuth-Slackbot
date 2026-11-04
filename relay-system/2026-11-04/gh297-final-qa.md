@@ -1,8 +1,8 @@
 ---
 Goal: Final implementation QA for GH-297 (reminder age label is calendar days in the workspace zone)
 Date: 2026-11-04
-NEXT: Reviewer
-STATUS: Open
+NEXT: Done
+STATUS: Approved
 ---
 
 # Context
@@ -40,5 +40,19 @@ Write your verdict below and set STATUS to Approved if the implementation can sh
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+## Codex final implementation QA — 2026-11-04
+
+**Ship (Approved), with one documentation nit.** No implementation blocker or required behavior change found. Reviewed the seeded source, approved plan, test bodies and verification receipt; no git commands or suites were run during this turn.
+
+1. **Plan match:** `src/date-utils.js:95-102` localizes both real instants, uses UTC year/month/day accessors and midnight ordinals, and returns the signed rounded difference. The three consumers are `src/reminders-display-utils.js:320`, `src/web-api.js:625`, and `src/chat-commands/show-rebalance-reminders-command.js:190`. The latter uses the exported workspace zone with UTC fallback at line 168. `FormatReminderAge` still treats nonpositive values as `created today` (`src/reminders-display-utils.js:233`). The API invalid-createdOn fallback remains zero; the rebalance view retains baked-age-or-zero fallback. No schema, scheduling or persistence writer was added.
+2. **Age inventory:** a source search for `days old|created today|ageDays|DaysOld|CreatedOn.*getTime|GetCurrentDateInTimeZone` found the shared formatter and these three age consumers. Remaining localized-now calls are due-date bucketing, scheduling, digest date formatting or day-name logic; elapsed aging thresholds remain outside this task. No second calendar-age helper found.
+3. **Falsifiability:** `tests/reminders-display-utils.test.js:266-318` freezes Date while leaving async timers real; parity uses fixed noon UTC and a fixed creation instant three calendar dates earlier. The PT incident and same-day control assert rendered suffixes. `tests/web-api-reminders.test.js:230-269` mocks the workspace zone to PT and asserts both exported zone and age. `tests/show-rebalance-reminders-command.test.js:534-546` injects NowMs and checks PT and absent-zone exports. The incident input is under 24 elapsed hours, so the previous elapsed-time call sites produce zero, not one. The tests genuinely distinguish the bug; helper-only coverage is not being substituted for consumer coverage.
+4. **[Nit] Receipt overstates independence:** `TESTS-RESULTS/2026-11-04-GH-297/verification.md:53` says none of the four red suites touches changed code. Both `tests/web-api-dashboard.test.js:5` and `tests/web-api-workspace.test.js:4` import the changed `src/web-api.js`; their teardown invokes `API.StopAsync()` at lines 55 and 56 respectively. Prefer “failures were outside the changed age-calculation paths” over “none touches the changed code.” The teardown-only failures and reported serial passes make the load explanation plausible, but do not prove it. The environmental-key and timeout explanations are consistent with the inspected test bodies. **[Unverified — needs clone run]** Full-suite results, baseline reproductions, red-control runs and validator/PDDA outcomes are author receipts, not independently rerun here; the harness gate remains responsible for execution. This does not justify changing unrelated suites in this PR.
+5. **CHANGELOG:** `CHANGELOG.md:38-53` accurately describes the user-visible fix, starts in first person, then supplies `**Technical:**`, and preserves the Unreleased convention and package-version boundary.
+6. **Acceptance:** previous-local-day reminders reach `1 day old` through the canonical digest/list formatter and rebalance view; the API exports ageDays 1. Same-day remains `created today`. Direct helper probe below also confirms both incident instants, positive offset, DST and signed behavior.
+7. **Rating:** 40/30/50/85 remains proportionate: visible label error, no persisted-data damage, bounded helper plus three consumers. The recurrence-history claim was not independently re-queried.
+
+**Narrow probe:** command `node` with an inline script requiring only `./src/date-utils` and calling `GetCalendarDaysBetween(zone, new Date(from), new Date(to))`; exit **0**. Inputs/results: PT `2026-11-03T23:37:01.631Z` → `2026-11-04T16:30Z`: **1**; PT `2026-11-03T13:39:22.200Z` to the same now: **1**; PT `2026-11-04T08:01Z` to the same now: **0**; Kolkata `2026-11-04T17:00Z` → `19:00Z`: **1**; PT `2026-10-31T19:00Z` → `2026-11-02T19:00Z`: **2**; PT future `2026-11-05T16:30Z` → `2026-11-04T16:30Z`: **-1**. No application modules or executable fixtures started. Graph discovery was attempted first but denied by the tool approval policy; source reads/searches were used as fallback.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
