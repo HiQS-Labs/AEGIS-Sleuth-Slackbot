@@ -531,6 +531,21 @@ describe('BuildDisplayReminderLines (export v1.4.184+ display fields)', () => {
     expect(Lines[4]).toMatch(/^B\.\)/);
   });
 
+  test('recomputes ages as calendar days in the export\'s time zone (GH-297)', () => {
+    const NowMs = Date.parse('2026-11-04T16:30:00.000Z'); // 08:30 PT
+    const Render = (ArgParsedDisplay) => BuildDisplayReminderLines({
+      display: ArgParsedDisplay,
+      reminders: [MakeDisplayReminder(
+        { reminderId: 'y', createdOn: '2026-11-03T23:37:01.631Z' }, // 15:37 PT yesterday, < 24 h ago
+        { label: 'A', sectionKey: 'dueToday', sectionLabel: '📅 Due Today' }
+      )],
+    }, { NowMs }).split('\n')[2];
+
+    expect(Render({ timeZone: 'America/Los_Angeles' }).endsWith(' · 1 day old')).toBe(true);
+    // An older export without display.timeZone falls back to UTC (Nov 3 → Nov 4 there too).
+    expect(Render(undefined).endsWith(' · 1 day old')).toBe(true);
+  });
+
   test('caps globally with an overflow note', () => {
     const NowMs = Date.parse('2026-06-10T12:00:00.000Z');
     const Reminders = Array.from({ length: 5 }, (_, i) =>

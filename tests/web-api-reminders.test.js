@@ -227,6 +227,47 @@ describe('GET /workspace/:name/reminders', () => {
     expect(typeof Result.data.fetchedAt).toBe('string');
   });
 
+  test('display.ageDays counts calendar days in the workspace time zone (GH-297)', async () => {
+    // Production incident: 08:30 PT, reminder created 15:37 PT the day before. Only Date is faked
+    // so the HTTP round trip still runs on real timers.
+    jest.useFakeTimers({
+      now: new Date('2026-11-04T16:30:00.000Z'),
+      doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout',
+        'setInterval', 'clearInterval', 'queueMicrotask', 'hrtime', 'performance'],
+    });
+    try {
+      const ReminderSeed = [{
+        ReminderID: 'api-test-297',
+        CreatedOn: '2026-11-03T23:37:01.631Z',
+        ShouldPostOn: '2026-11-04T16:35:00.000Z',
+        TargetChannelID: 'C_REMINDERS',
+        OriginalChannelID: 'C_GENERAL',
+        OriginalMessageID: '1773990000.297001',
+        OriginalSenderID: 'U_SENDER',
+        AssigneeID: 'U_ASSIGNEE',
+        ReminderMessageText: 'Install the patch locally',
+        IgnoreSnooze: false,
+        State: 'scheduled',
+      }];
+
+      jest.spyOn(workspaces, 'WorkspaceExistsAsync').mockResolvedValue(true);
+      jest.spyOn(workspaces, 'LoadWorkspaceInfoByNameAsync').mockResolvedValue({ MAIN_TIMEZONE: 'America/Los_Angeles' });
+      await fs.mkdir(RemindersDir, { recursive: true });
+      await fs.writeFile(RemindersFilePath, JSON.stringify(ReminderSeed, null, 2), 'utf8');
+
+      const Result = await AuthenticatedGetAsync(
+        ActualPort,
+        `/workspace/${TestWorkspaceName}/reminders?format=rebalance`
+      );
+
+      expect(Result.success).toBe(true);
+      expect(Result.data.display.timeZone).toBe('America/Los_Angeles');
+      expect(Result.data.reminders[0].display.ageDays).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('orders rebalance reminders by due-date section then chronologically, with global labels', async () => {
     const NoonUtcOffsetDays = (ArgDays) => {
       const Day = new Date(Date.now() + ArgDays * 24 * 60 * 60 * 1000);

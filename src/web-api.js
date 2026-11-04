@@ -586,7 +586,7 @@ class WebAPI {
     });
     const Buckets = RemindersDisplayUtils.BucketRemindersByDueDate(Bucketable, ArgTimeZone);
 
-    const NowInTimeZone = DateUtils.GetCurrentDateInTimeZone(ArgTimeZone);
+    const Now = new Date();
     const NameCache = new Map();
     const OrderedReminders = [];
     let Counter = 1;
@@ -623,7 +623,7 @@ class WebAPI {
 
         const CreatedMs = Date.parse(Record.createdOn ?? '');
         const AgeDays = Number.isFinite(CreatedMs)
-          ? Math.floor((NowInTimeZone.getTime() - CreatedMs) / (24 * 60 * 60 * 1000))
+          ? DateUtils.GetCalendarDaysBetween(ArgTimeZone, new Date(CreatedMs), Now) // GH-297
           : 0;
 
         OrderedReminders.push({
