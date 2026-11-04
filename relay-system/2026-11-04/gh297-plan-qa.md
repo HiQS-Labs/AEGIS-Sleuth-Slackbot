@@ -168,4 +168,12 @@ Root cause: age-label calculations use mixed timestamp frames and elapsed-durati
 
 **[Unverified — needs clone run]** Approval is for the implementation plan. The planned tests, red controls, build and PDDA gates have not run in this reviewer checkout; execution and durable receipts remain with the producer/harness.
 
+
+### Attestation · relay-drive — 2026-11-04T17:05:41Z
+task: GH297-PLAN-QA
+reviewer: codex
+status: Approved
+reviewed-head: ee7ad8b663992db1f78ba95b06aedccc553f0060
+added-range: 12451+2928
+added-sha256: d3fb14a373a32901a494065c2977d3133c06c6a88dcafcbcccce9be7f37b0778
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
