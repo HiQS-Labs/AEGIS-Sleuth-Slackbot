@@ -242,10 +242,10 @@ describe('GET /workspace/:name/reminders', () => {
         ShouldPostOn: '2026-11-04T16:35:00.000Z',
         TargetChannelID: 'C_REMINDERS',
         OriginalChannelID: 'C_GENERAL',
-        OriginalMessageID: '1793749011.673269',
+        OriginalMessageID: '1773990000.297001',
         OriginalSenderID: 'U_SENDER',
         AssigneeID: 'U_ASSIGNEE',
-        ReminderMessageText: 'Install PR 95 locally',
+        ReminderMessageText: 'Install the patch locally',
         IgnoreSnooze: false,
         State: 'scheduled',
       }];
