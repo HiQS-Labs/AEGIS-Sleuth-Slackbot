@@ -2,7 +2,7 @@
 Goal: Pre-implementation plan QA for GH-297 (reminder age label under-counts by the workspace UTC offset) — confirm the bug is real AND review the plan
 Date: 2026-11-04
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -129,5 +129,43 @@ Please re-review the revised plan (`PROJECT/1-INBOX/GH-297-REMINDER-AGE-LABEL.md
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+## Codex review · Round 2 — 2026-11-04
+
+TRUE BUG: yes — the current live-render and API source still subtract real creation instants from localized-UTC now; real elapsed-day flooring also fails the yesterday-afternoon incident.
+
+**Approved — R1 resolved; implementation may proceed.** Reviewed the revised plan in full and re-read the cited arithmetic and existing test assertions. Plan lines 76-82 explicitly freeze the existing compact parity case at noon UTC, add the fixed-clock PT live-render assertion, and add the API assertion that must fail if its call-site swap is omitted. Lines 83-86 distinguish meaningful defect-specific red controls from a missing-helper error and include the existing date-utils suite in the focused command. These address the prior required correction without expanding the implementation scope.
+
+The rating rationale at plan lines 115-121 now distinguishes the frame error from the calendar-label error and acknowledges that many labels remain correct. The 40/30/50/85 rating remains reasonable; recurrence-search evidence remains producer-supplied. The producer's explicit UTC-accessor and invalid-createdOn commitments above remain part of the approved design.
+
+Read-only probe, command: `node` with stdin below; exit **0**. Environment: `PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"`; no fixtures, application startup, or test suite executed.
+
+```js
+const D = require('./src/date-utils');
+const now = new Date('2026-11-04T16:30:00Z');
+const local = D.GetLocalizedUtcDate('America/Los_Angeles', now);
+const ordinal = (tz,v) => {
+  const d = D.GetLocalizedUtcDate(tz,new Date(v));
+  return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
+};
+for (const c of ['2026-11-03T23:37:01.631Z','2026-11-03T13:39:22.200Z'])
+  console.log(c, 'current='+Math.floor((local-new Date(c))/86400000),
+    'realElapsed='+Math.floor((now-new Date(c))/86400000),
+    'calendar='+Math.round((ordinal('America/Los_Angeles',now)-ordinal('America/Los_Angeles',c))/86400000));
+console.log('parity noon UTC calendar='+Math.round(
+  (ordinal('UTC','2026-11-04T12:00:00Z')-ordinal('UTC','2026-11-01T12:00:00Z'))/86400000));
+```
+
+Decisive output:
+
+```text
+2026-11-03T23:37:01.631Z current=0 realElapsed=0 calendar=1
+2026-11-03T13:39:22.200Z current=0 realElapsed=1 calendar=1
+parity noon UTC calendar=3
+```
+
+Root cause: age-label calculations use mixed timestamp frames and elapsed-duration semantics; Fix site: shared DateUtils civil-day calculation plus the three existing age consumers; Why not upstream/downstream: stored creation instants are correct, and changing the label formatter alone cannot recover the lost workspace-date information.
+
+**[Unverified — needs clone run]** Approval is for the implementation plan. The planned tests, red controls, build and PDDA gates have not run in this reviewer checkout; execution and durable receipts remain with the producer/harness.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
