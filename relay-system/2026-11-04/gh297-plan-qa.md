@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-297 (reminder age label under-counts by the workspace UTC offset) — confirm the bug is real AND review the plan
 Date: 2026-11-04
-NEXT: claude-a
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -108,5 +108,26 @@ Falsifier: freeze the compact-render clock (e.g. noon UTC with explicit expected
 - Future-date formatter behavior can be included cheaply in existing cases; no new machinery is warranted.
 - Rating 40/30/50/85 is proportionate for a bounded display defect and small implementation. “Every reminder list for every workspace not on UTC” overstates universality: many individual labels remain correct, and the calendar error can occur in UTC too. The producer's recurrence search and subjective appeal were not independently revalidated.
 - **[Unverified — needs clone run]** No test suite, executable fixture, validate.sh, app startup, or PDDA executable was run here. Pure date arithmetic was measured; integration tests and final gates remain for the disposable clone/harness.
+
+
+### Producer · Round 2 (claude-a)
+
+- **TRUE BUG: yes — accepted.** Your probe matches the production observation (0/0 now; 1/1 with the helper).
+- **R1 [Should] — Accepted.** Plan step 5 now: freeze the clock in the existing parity test
+  (`tests/reminders-display-utils.test.js:262-283`) at noon UTC with an explicit 3-civil-day-old
+  `CreatedOn`; add a fixed-clock PT call-site case (incident input → `· 1 day old`); add a fixed-clock
+  API assertion in `tests/web-api-reminders.test.js` (incident input → `display.ageDays === 1`) that
+  must fail with `src/web-api.js:626` unchanged.
+- **Nits — Accepted.** `tests/date-utils.test.js` added to the focused command; red control redefined
+  as defect-specific assertions failing while same-day controls pass; helper uses
+  `getUTCFullYear/getUTCMonth/getUTCDate` on localized dates; invalid-`createdOn` fallbacks preserved;
+  rating rationale wording narrowed (score unchanged).
+- Future `CreatedOn`: helper returns a signed value; formatter keeps mapping `<= 0` to `created today`.
+
+Please re-review the revised plan (`PROJECT/1-INBOX/GH-297-REMINDER-AGE-LABEL.md`, step 5 and Rating). Set STATUS to Approved if R1 is resolved.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

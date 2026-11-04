@@ -21,7 +21,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Recon at `development` 84ae838; production evidence read (read-only); plan drafted | Codex plan QA, which must also confirm the bug is real |
+| Plan QA round 1: Codex confirmed the bug with a measured probe (`TRUE BUG: yes`); R1 test changes adopted | Plan QA round 2, then implementation |
 
 ## Observed problem
 
@@ -73,8 +73,16 @@ Extend the existing `DateUtils` (canonical date helper) with one function; no ne
      DST span `America/Los_Angeles` `2026-10-31T19:00Z` → `2026-11-02T19:00Z` → 2.
    - `tests/show-rebalance-reminders-command.test.js`: one case with `display.timeZone`
      `America/Los_Angeles` where `createdOn` is the previous local day but < 24 h ago → `1 day old`.
-   - Red control: run the new cases against the current code; they must fail.
-6. Verify: `npx jest tests/reminders-display-utils.test.js tests/show-rebalance-reminders-command.test.js tests/web-api-reminders.test.js`
+   - `tests/reminders-display-utils.test.js:262-283` (existing parity test): freeze the clock with
+     `jest.useFakeTimers().setSystemTime(...)` at noon UTC and use an explicit `CreatedOn` three
+     civil dates earlier, so calendar semantics cannot make it clock-dependent (plan QA R1). Add one
+     fixed-clock case on `America/Los_Angeles` with the incident `CreatedOn` `2026-11-03T23:37:01Z` at
+     `2026-11-04T16:30Z` → line ends `· 1 day old` (proves call-site adoption, not just the helper).
+   - `tests/web-api-reminders.test.js` (~L220): one fixed-clock assertion with the PT incident input →
+     `display.ageDays === 1`; leaving `src/web-api.js:626` unchanged must fail it (plan QA R1).
+   - Red control: the defect-specific assertions (call-site cases and API case) must fail against
+     the current code; same-day controls must pass. A missing-helper error alone does not count.
+6. Verify: `npx jest tests/date-utils.test.js tests/reminders-display-utils.test.js tests/show-rebalance-reminders-command.test.js tests/web-api-reminders.test.js`
    while iterating; full `npm run build && npm test` once on the final commit; `utils/pdda/pdda.sh run`.
 7. Smoke (dev checkout, never prod): main path — call `BuildCompactReminderLine` via
    `BuildCompactTextForReminder` with a stub `SlackApp` and the two production `CreatedOn` values at a
@@ -104,8 +112,9 @@ use their own elapsed-time math and are out of scope; they are thresholds, not "
 
 ## Rating (2026-11-04)
 
-`rated 40/30/50/85`. Severity 30: wrong metadata on every reminder list for every workspace not on
-UTC; no data loss; it contributed to one user-visible confusion (a teammate concluded a reminder
+`rated 40/30/50/85`. Severity 30: wrong age labels on reminder lists (frame error in any non-UTC
+workspace; the elapsed-hours error in any zone, UTC included), though many individual labels are
+still right; no data loss; it contributed to one user-visible confusion (a teammate concluded a reminder
 was missing). Priority 40: the operator asked for the fix now; low consequence otherwise. Appeal 50
 (neutral, no operator value). Effort 85: three call sites plus one helper. Recurrence: no
 same-class age/label issue in the last 28 days (issue search 2026-10-07..11-04); one incident;
