@@ -2,6 +2,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const RemindersDisplayUtils = require('../reminders-display-utils');
+const DateUtils = require('../date-utils');
 
 // Debug dump of the *published* rebalance reminders export — the actual file the
 // rebalance-OS dashboard consumes, fetched live from the private git repo via the
@@ -163,6 +164,8 @@ function BuildDisplayReminderLines(ArgParsed, ArgLimits = {}) {
   if(WithDisplay.length !== Reminders.length) return null;
 
   const NowMs = ArgLimits.NowMs ?? Date.now();
+  // GH-297: ages are calendar days in the export's workspace zone; older exports without it use UTC.
+  const AgeTimeZone = (typeof ArgParsed?.display?.timeZone === 'string' && ArgParsed.display.timeZone) || 'UTC';
   const MaxReminders = ArgLimits.MaxReminders ?? Infinity;
   const SectionOrder = (Array.isArray(ArgParsed?.display?.sectionOrder) && ArgParsed.display.sectionOrder.length)
     ? ArgParsed.display.sectionOrder
@@ -185,7 +188,7 @@ function BuildDisplayReminderLines(ArgParsed, ArgLimits = {}) {
       const DueMs = Date.parse(Reminder.shouldPostOn ?? '');
       const CreatedMs = Date.parse(Reminder.createdOn ?? '');
       const AgeDays = Number.isFinite(CreatedMs)
-        ? Math.floor((NowMs - CreatedMs) / (24 * 60 * 60 * 1000))
+        ? DateUtils.GetCalendarDaysBetween(AgeTimeZone, new Date(CreatedMs), new Date(NowMs))
         : (Reminder.display.ageDays ?? 0);
 
       Lines.push(RemindersDisplayUtils.BuildCompactReminderLine({

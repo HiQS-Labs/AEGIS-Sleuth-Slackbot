@@ -162,3 +162,37 @@ describe('DateUtils.GetCalendarWeekRange', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// GetCalendarDaysBetween (GH-297)
+// ---------------------------------------------------------------------------
+
+describe('DateUtils.GetCalendarDaysBetween', () => {
+  const Days = (Tz, From, To) => DateUtils.GetCalendarDaysBetween(Tz, new Date(From), new Date(To));
+  // The 2026-11-04 digest ran at 08:30 PT (16:30Z).
+  const DigestAt = '2026-11-04T16:30:00.000Z';
+
+  test('a reminder created yesterday afternoon is 1 day old, not created today', () => {
+    expect(Days('America/Los_Angeles', '2026-11-03T23:37:01.631Z', DigestAt)).toBe(1); // 15:37 PT
+    expect(Days('America/Los_Angeles', '2026-11-03T13:39:22.200Z', DigestAt)).toBe(1); // 05:39 PT
+  });
+
+  test('counts local midnights, not elapsed hours', () => {
+    expect(Days('America/Los_Angeles', '2026-11-04T08:01:00.000Z', DigestAt)).toBe(0); // 00:01 PT today
+    expect(Days('America/Los_Angeles', '2026-11-04T07:59:00.000Z', DigestAt)).toBe(1); // 23:59 PT yesterday
+  });
+
+  test('a positive-offset zone uses its own calendar', () => {
+    // 17:00Z = 22:30 IST on the 4th; 19:00Z = 00:30 IST on the 5th.
+    expect(Days('Asia/Kolkata', '2026-11-04T17:00:00.000Z', '2026-11-04T19:00:00.000Z')).toBe(1);
+    expect(Days('UTC', '2026-11-04T17:00:00.000Z', '2026-11-04T19:00:00.000Z')).toBe(0);
+  });
+
+  test('stays exact across a DST change (2026-11-01 US fall-back)', () => {
+    expect(Days('America/Los_Angeles', '2026-10-31T19:00:00.000Z', '2026-11-02T19:00:00.000Z')).toBe(2);
+  });
+
+  test('is signed when the start is in the future', () => {
+    expect(Days('America/Los_Angeles', '2026-11-05T16:30:00.000Z', DigestAt)).toBe(-1);
+  });
+});

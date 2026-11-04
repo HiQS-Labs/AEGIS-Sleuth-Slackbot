@@ -260,17 +260,26 @@ describe('ToWebSafeSummary', () => {
 });
 
 describe('BuildCompactTextForReminder (parity with the shared line builder)', () => {
+  // Ages are calendar days (GH-297), so freeze the clock: a relative CreatedOn would make the
+  // expected age depend on the time of day the suite runs. Only Date is faked.
+  afterEach(() => jest.useRealTimers());
+  const FreezeAt = (ArgIso) => jest.useFakeTimers({
+    now: new Date(ArgIso),
+    doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout',
+      'setInterval', 'clearInterval', 'queueMicrotask', 'hrtime', 'performance'],
+  });
+
   test('produces the same canonical line as before the refactor', async () => {
+    FreezeAt('2026-11-04T12:00:00.000Z');
     const SlackApp = {
       WorkspaceInfo: { MAIN_TIMEZONE: 'UTC' },
       GetPermaLinkAsync: jest.fn().mockResolvedValue('https://x.slack.com/archives/C1/p123'),
     };
-    const NowMs = Date.now();
     const Reminder = {
       ReminderMessageText: '<@U123>, please follow up on this:\n• Ship the hotfix',
       OriginalChannelID: 'C1',
       OriginalMessageID: '123.456',
-      CreatedOn: new Date(NowMs - 3 * 24 * 60 * 60 * 1000 - 60 * 60 * 1000), // safely > 3 days
+      CreatedOn: new Date('2026-11-01T12:00:00.000Z'), // three civil dates earlier
       ShouldPostOn: new Date(Date.UTC(2026, 5, 12, 12, 0, 0)),
       AssigneeID: 'U_TARGET',
       OriginalSenderID: 'U_SENDER',
@@ -283,6 +292,28 @@ describe('BuildCompactTextForReminder (parity with the shared line builder)', ()
       '<!date^1781265600^{date_short} {time}|Fri, 12 Jun 2026 12:00:00 GMT> · 3 days old'
     );
     expect(SlackApp.GetPermaLinkAsync).toHaveBeenCalledWith('C1', '123.456');
+  });
+
+  test('labels a reminder created yesterday afternoon (workspace time) as 1 day old (GH-297)', async () => {
+    // Production incident: 08:30 PT digest, reminder created 15:37 PT the day before.
+    FreezeAt('2026-11-04T16:30:00.000Z');
+    const SlackApp = {
+      WorkspaceInfo: { MAIN_TIMEZONE: 'America/Los_Angeles' },
+      GetPermaLinkAsync: jest.fn().mockResolvedValue('https://x.slack.com/archives/C1/p123'),
+    };
+    const Base = {
+      ReminderMessageText: '<@U123>, please follow up on this:\n• Ship the hotfix',
+      OriginalChannelID: 'C1',
+      OriginalMessageID: '123.456',
+      ShouldPostOn: new Date('2026-11-04T16:35:00.000Z'),
+      AssigneeID: 'U_TARGET',
+    };
+
+    const Yesterday = await BuildCompactTextForReminder(SlackApp, { ...Base, CreatedOn: new Date('2026-11-03T23:37:01.631Z') }, 'A');
+    const Today = await BuildCompactTextForReminder(SlackApp, { ...Base, CreatedOn: new Date('2026-11-04T08:01:00.000Z') }, 'B');
+
+    expect(Yesterday.endsWith(' · 1 day old')).toBe(true);
+    expect(Today.endsWith(' · created today')).toBe(true); // same-day control
   });
 });
 

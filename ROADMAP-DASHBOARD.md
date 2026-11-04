@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 26 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -35,7 +35,6 @@ Summary: 26 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
 | GH-230 · selftest: add T4 later-upload and T6 memory-reuse scenarios, and a zero-download assertion for T5 | — | [GH-230-SELFTEST-T4-LATER-UPLOAD.md](PROJECT/2-WORKING/GH-230-SELFTEST-SCENARIOS.md) · [#230](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/230) |
 | GH-289 · Router takeover can still reach takeover-excluded commands through rmm ifl | — | [GH-289-TAKEOVER-RMM-IFL-LOOPHOLE.md](PROJECT/1-INBOX/GH-289-TAKEOVER-RMM-IFL-LOOPHOLE.md) · [#289](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/289) |
-| GH-297 · Reminder age label under-counts by the workspace UTC offset | — | [GH-297-REMINDER-AGE-LABEL.md](PROJECT/1-INBOX/GH-297-REMINDER-AGE-LABEL.md) · [#297](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/297) |
 
 ## Queue
 
@@ -47,7 +46,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 18 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 19 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -69,6 +68,7 @@ Summary: 18 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
 | GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
 | GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
+| GH-297 · Reminder age label under-counts by the workspace UTC offset | — | [GH-297-REMINDER-AGE-LABEL.md](PROJECT/2-WORKING/GH-297-REMINDER-AGE-LABEL.md) · [#297](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/297) |
 
 ## Completed
 

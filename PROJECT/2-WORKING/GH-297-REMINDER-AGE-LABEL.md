@@ -2,7 +2,7 @@
 gh_issue: 297
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/297
 title: "Reminder age label under-counts by the workspace UTC offset"
-status: Proposed (1-INBOX — plan drafted, awaiting plan QA)
+status: Active (2-WORKING — plan approved by Codex plan QA, implementing)
 created: 2026-11-04
 updated: 2026-11-04
 owner: noelsaw1
