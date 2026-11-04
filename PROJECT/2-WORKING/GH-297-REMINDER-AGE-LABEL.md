@@ -21,7 +21,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA round 1: Codex confirmed the bug with a measured probe (`TRUE BUG: yes`); R1 test changes adopted | Plan QA round 2, then implementation |
+| Implemented (`99a5826`): `DateUtils.GetCalendarDaysBetween` + three call sites; focused suites green, red control 3/3, smoke pass, full gate traced (`TESTS-RESULTS/2026-11-04-GH-297/verification.md`). Plan QA approved by Codex in round 2 (TRUE BUG confirmed) | Final Codex QA, then PR |
 
 ## Observed problem
 

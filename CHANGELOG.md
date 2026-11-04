@@ -35,6 +35,20 @@
 
 ## Unreleased
 
+My reminder lists now show the right age. A reminder you made yesterday afternoon used to say "created
+today" in the next morning's list, which made it look like it had just appeared; it now says "1 day old".
+
+**Technical:** GH-297. `BuildCompactTextForReminder` (`src/reminders-display-utils.js`) and the reminders
+export's `display.ageDays` (`src/web-api.js`) subtracted a real-UTC `CreatedOn` from
+`DateUtils.GetCurrentDateInTimeZone()`, a localized-UTC value, so ages fell short by the zone offset (8 h in
+Pacific), and they floored elapsed 24 h blocks. The rebalance view (`show-rebalance-reminders-command.js`)
+had the elapsed-hours part. New `DateUtils.GetCalendarDaysBetween(tz, from, to)` counts local calendar
+days; all three sites use it (rebalance falls back to UTC for exports without `display.timeZone`).
+`display.ageDays` keeps its shape but can change by one for some reminders. Tests: cases added to
+`tests/date-utils.test.js`, `tests/reminders-display-utils.test.js` (parity test now on a frozen clock),
+`tests/show-rebalance-reminders-command.test.js` and `tests/web-api-reminders.test.js`; the three call-site
+cases are red on the previous code. Codex plan QA confirmed the defect with a measured probe.
+
 If you asked me a question in a thread, such as what a file you just uploaded says, I sometimes answered with
 your open-task list instead. I now run a command on my own only if it was cleared to run that way before
 October's `rmm` update; the newer ones still work when you ask through `rmm`.
