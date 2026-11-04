@@ -21,7 +21,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Implemented (`99a5826`): `DateUtils.GetCalendarDaysBetween` + three call sites; focused suites green, red control 3/3, smoke pass, full gate traced (`TESTS-RESULTS/2026-11-04-GH-297/verification.md`). Plan QA approved by Codex in round 2 (TRUE BUG confirmed) | Final Codex QA, then PR |
+| Implemented (`99a5826`): `DateUtils.GetCalendarDaysBetween` + three call sites; focused suites green, red control 3/3, smoke pass, full gate traced (`TESTS-RESULTS/2026-11-04-GH-297/verification.md`). Plan QA approved by Codex in round 2 (TRUE BUG confirmed) | Final Codex QA approved (`relay-system/2026-11-04/gh297-final-qa.md`); PR open, awaiting merge |
 
 ## Observed problem
 

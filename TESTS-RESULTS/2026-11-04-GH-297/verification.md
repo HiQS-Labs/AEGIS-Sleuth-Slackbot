@@ -50,7 +50,7 @@ Verdict: **pass**. The old code reproduces the production labels (`created today
 
 ## Full gate (`npm run build && npm test`, disposable `-verify` clone @ `99a5826`)
 
-Build passed. Jest: **2931 passed, 2 failed, 4 skipped** (146 of 147 suites; 4 suites red). Every red suite was traced and none touches the changed code:
+Build passed. Jest: **2931 passed, 2 failed, 4 skipped** (146 of 147 suites; 4 suites red). Every red suite was traced; the failures are outside the changed age-calculation paths (the two web-api suites import the changed `src/web-api.js` but failed only in `afterAll` teardown, and pass serially):
 
 | Suite | Result on this branch | Same suite on baseline `84ae838` | Cause |
 |---|---|---|---|
