@@ -55,4 +55,12 @@ Write your verdict below and set STATUS to Approved if the implementation can sh
 
 **Narrow probe:** command `node` with an inline script requiring only `./src/date-utils` and calling `GetCalendarDaysBetween(zone, new Date(from), new Date(to))`; exit **0**. Inputs/results: PT `2026-11-03T23:37:01.631Z` → `2026-11-04T16:30Z`: **1**; PT `2026-11-03T13:39:22.200Z` to the same now: **1**; PT `2026-11-04T08:01Z` to the same now: **0**; Kolkata `2026-11-04T17:00Z` → `19:00Z`: **1**; PT `2026-10-31T19:00Z` → `2026-11-02T19:00Z`: **2**; PT future `2026-11-05T16:30Z` → `2026-11-04T16:30Z`: **-1**. No application modules or executable fixtures started. Graph discovery was attempted first but denied by the tool approval policy; source reads/searches were used as fallback.
 
+
+### Attestation · relay-drive — 2026-11-04T17:32:21Z
+task: GH297-FINAL-QA
+reviewer: codex
+status: Approved
+reviewed-head: 638100d4b9ce5ed5af4da23bae3e3baaaa9eeb73
+added-range: 3536+4406
+added-sha256: 553464cf4b0c8d1d459c6d5616b3b3c26e0657221b2ab0bbc4b719ae264af634
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
