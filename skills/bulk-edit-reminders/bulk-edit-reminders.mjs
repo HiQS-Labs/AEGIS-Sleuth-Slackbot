@@ -18,6 +18,8 @@ const USAGE = `usage: bulk-edit-reminders.mjs [backup] [--complete id,...] [--ca
 IDs may be full ReminderIDs or unique prefixes of at least 8 characters.
 --retitle, --reschedule, --reassign and --create are repeatable; edits run in the order given.`;
 
+const CreateFields = ['title', 'dueDate', 'channelId', 'assigneeIds', 'senderId'];
+
 // `id=value` → [id, value]; the value may itself contain '='.
 function SplitPair(ArgFlag, ArgText) {
   const At = ArgText.indexOf('=');
@@ -51,6 +53,10 @@ function ParseArgs(ArgV) {
         let Fields;
         try { Fields = JSON.parse(Raw); } catch { throw new Error(`--create expects a JSON object (got '${Raw}')`); }
         if(!Fields || typeof Fields !== 'object' || Array.isArray(Fields)) throw new Error('--create expects a JSON object');
+        // only create fields: an `action` or `reminderId` here would turn the create into another operation
+        // on an ID that never went through the backup resolve step.
+        const Unknown = Object.keys(Fields).filter(Key => !CreateFields.includes(Key));
+        if(Unknown.length) throw new Error(`--create accepts only ${CreateFields.join(', ')} (got ${Unknown.join(', ')})`);
         Options.edits.push({ id: null, action: 'create', fields: Fields });
         break;
       }

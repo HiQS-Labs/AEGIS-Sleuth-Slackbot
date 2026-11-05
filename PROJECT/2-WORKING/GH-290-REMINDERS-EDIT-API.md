@@ -208,7 +208,8 @@ otherwise unknown trend.
   driven by the real script. The live dev smoke follows after deploy.
 - The bulk response keeps `reminderId` before `action`, so complete/cancel responses stay byte-identical
   to GH-279.
-- Six new lists tests (mover, failure reporting, schedule fan-out). Red controls were checked by hand.
+- Five new lists tests: the move, an update failure, a retained-owner row, a delete failure and the schedule fan-out. Red controls were checked by hand. The count was corrected and the last two tests added after final-QA round 1.
+- `--create` accepts only its five fields (final-QA round 1: an injected `action`/`reminderId` bypassed ID resolution).
 
 ## Lessons Learned
 

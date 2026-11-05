@@ -690,6 +690,38 @@ describe('ListsModule Slack Lists contract', () => {
       await Lists.StopAsync();
     });
 
+    it('a retained owner keeps their row, and it gets the new primary owner too', async () => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+
+      // U_NEW becomes primary, U_ASSIGNEE stays as a second owner: nothing to delete.
+      const Failures = await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW', 'U_ASSIGNEE'] }, [], ['U_NEW']
+      );
+
+      expect(Failures).toEqual([]);
+      expect(ListWrites(ApiCallMock)).toEqual(['create F_USER_2', 'update F_LIST_123', 'update F_USER_1']);
+      const RetainedUpdate = ApiCallMock.mock.calls.find(([ArgMethod, ArgPayload]) =>
+        ArgMethod === 'slackLists.items.update' && ArgPayload.list_id === 'F_USER_1');
+      expect(JSON.stringify(RetainedUpdate[1].cells)).toContain('U_NEW');
+      await Lists.StopAsync();
+    });
+
+    it('a failed delete from a removed owner\'s list is reported', async () => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+      const Real = ApiCallMock.getMockImplementation();
+      ApiCallMock.mockImplementation(async (ArgMethod, ArgParams) => {
+        if(ArgMethod === 'slackLists.items.delete') throw new Error('boom');
+        return Real(ArgMethod, ArgParams);
+      });
+
+      const Failures = await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW'] }, ['U_ASSIGNEE'], ['U_NEW']
+      );
+
+      expect(Failures).toContain('remove from U_ASSIGNEE\'s list');
+      await Lists.StopAsync();
+    });
+
     it('a reschedule rewrites the created_on cell on every row of the reminder', async () => {
       const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
 

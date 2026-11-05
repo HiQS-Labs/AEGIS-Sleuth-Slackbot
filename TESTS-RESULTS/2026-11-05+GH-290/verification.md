@@ -7,7 +7,7 @@ ran on a server.
 ## Focused suites
 
 `npx jest tests/web-api-reminders.test.js tests/reminders-integration.test.js tests/lists-module.test.js` →
-**144 passed**. `npm run build` clean; `validate:fsm`, `validate:reminder-pipeline`, `validate:commands`,
+**146 passed** (final-QA round 1 fixes included). `npm run build` clean; `validate:fsm`, `validate:reminder-pipeline`, `validate:commands`,
 `validate:workspace-isolation`, `validate:changelog-tone`, `utils/sanitize-scan.sh` and `utils/pdda/pdda.sh run`
 all exit 0.
 
@@ -15,7 +15,8 @@ all exit 0.
 
 - `ListsModule.#AddToUserContextsAsync` without the `!ItemCache.has` guard → the reassign-mover test fails
   (a duplicate row is created on the added owner's list).
-- `MoveReminderBetweenUserListsAsync` without the owner-cell update loop → two GH-290 lists tests fail.
+- `MoveReminderBetweenUserListsAsync` without the owner-cell update loop → three of the five GH-290 lists
+  tests fail: the move, the failure report, and the retained-owner row.
 - The 2026-10-28 integration tests carry their own red controls (claim-site state check, FSM transitions),
   listed in the plan.
 
@@ -49,6 +50,17 @@ The real `WebAPI` and a real `RemindersModule` ran in a throwaway `SLEUTH_DATA_D
 
 Harness artefact, not a defect: `execFile` does no shell quote-stripping, so the dry-run's
 `aaaaaaaa="…"` title kept its literal quotes. From a shell, `id="Title"` arrives without them.
+
+## Final-QA round 1 fixes
+
+- **`--create` field allowlist.** Codex showed that a `--create` JSON carrying `action`/`reminderId` posted a
+  cancel for an ID that never went through the backup resolve step. Now:
+  `--create '{"title":"Draft report","dueDate":"2030-01-01T12:00:00Z","channelId":"C1","senderId":"U1","action":"cancel","reminderId":"not-in-backup"}'`
+  → `ERROR: --create accepts only title, dueDate, channelId, assigneeIds, senderId (got action, reminderId)`,
+  exit 1. This happens at argument parsing, before any request.
+- **Lists coverage.** The GH-290 block in `tests/lists-module.test.js` has five tests: the move (with a
+  no-duplicate rerun), an owner-cell update failure, a retained owner's row getting the new primary owner,
+  a failed delete from a removed owner's list, and the schedule fan-out.
 
 ## Not verified here
 
