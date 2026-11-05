@@ -1,7 +1,7 @@
 ---
 Goal: Final QA of the GH-290 implementation (reminders edit actions on the bulk Web API + skill wrapper)
 Date: 2026-11-05
-NEXT: Reviewer
+NEXT: Author
 STATUS: Open
 ---
 
@@ -63,3 +63,53 @@ leave it Open and hand back.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex implementation review — 2026-11-05
+
+**Verdict: Open — one Should to fix before shipping.** The module/API reuse and scope are appropriate for the stated operator envelope. No additional authorization subsystem is requested.
+
+### 1. [Should] Keep `--create` fields from overriding the operation and bypassing ID resolution
+
+`skills/bulk-edit-reminders/bulk-edit-reminders.mjs:231` builds the outgoing item as `{...resolvedId, action, ...fields}`. `--create` accepts an arbitrary JSON object (`:45–50`), and `ResolveIds` deliberately skips resolution for creates (`:167`). Consequently a JSON `action` and `reminderId` overwrite the trusted operation: the preview says create, but the POST can cancel an existing reminder without resolving it against the backup. The server accepts extra create-shaped fields on cancel (`src/web-api.js:1070`, `:1127`). This is an accidental-operation defect in the wrapper, not an authorization issue.
+
+Observed input: `--create '{"title":"Draft report","dueDate":"2030-01-01T12:00:00Z","channelId":"C1","senderId":"U1","action":"cancel","reminderId":"not-in-backup"}'`, with a successful backup response `[]`.
+Affected scope: the wrapper's create path; preview/operation agreement, ID resolution and same-action repeat refusal can all be bypassed by fields carrying an alternate action. Ordinary create requests are unaffected.
+Falsifier: run the wrapper with that input against a disposable mock endpoint. It must either reject before POST or send only a create operation without a supplied existing reminder ID. It must never POST cancel/complete/edit for this input. Whitelist create fields or reject reserved operation fields; merely moving `action` after the spread still leaves an injected `reminderId`.
+
+Non-mutating probe, command below, **exit 0**. It evaluates the actual wrapper source after removing imports and its auto-entrypoint, injecting an in-memory filesystem and mocked HTTP responses; it neither starts app modules nor sends network requests nor writes backups. Decisive output:
+
+```json
+{"exit":0,"backupRecords":0,"posted":[{"actions":[{"action":"cancel","title":"Draft report","dueDate":"2030-01-01T12:00:00Z","channelId":"C1","senderId":"U1","reminderId":"not-in-backup"}]}]}
+```
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node --input-type=module <<'JS'
+import fs from 'node:fs';
+const source=fs.readFileSync('skills/bulk-edit-reminders/bulk-edit-reminders.mjs','utf8').replace(/^#!.*\n/,'').replace(/^import .*;\n/gm,'').split('MainAsync().then(Code')[0];
+const calls=[];
+const mockProcess={argv:['node','wrapper','--create',JSON.stringify({title:'Draft report',dueDate:'2030-01-01T12:00:00Z',channelId:'C1',senderId:'U1',action:'cancel',reminderId:'not-in-backup'})],env:{SLEUTH_WEB_API_BASE_URL:'http://127.0.0.1:1',SLEUTH_WEB_API_TOKEN:'dummy',SLEUTH_WORKSPACE_NAME:'probe'}};
+const fakeFs={existsSync:()=>false,mkdirSync:()=>{},writeFileSync:()=>{}};
+const fetch=async(url,options)=>{if(options.body) calls.push(JSON.parse(options.body));return {json:async()=>({success:true,data:options.body?{results:[{action:'cancel',reminderId:'not-in-backup',status:'canceled'}],counts:{canceled:1}}:[]})}};
+const run=new Function('fs','os','path','process','fetch','console',source+'; return MainAsync();');
+const code=await run(fakeFs,{homedir:()=>'/unused'},{join:(...p)=>p.join('/')},mockProcess,fetch,{log:()=>{}});
+console.log(JSON.stringify({exit:code,backupRecords:0,posted:calls}));
+JS
+```
+
+### 2. [Nit] Reconcile the list-test claims with the seeded files
+
+The plan's execution notes say six new Lists tests. The named GH-290 block at `tests/lists-module.test.js:625` contains three (`:651`, `:677`, `:693`): move/shared-owner update, update failure, and scheduling fan-out. It does not contain the claimed retained-owner-row or delete-failure coverage. The receipt's assertion that removing the owner update loop fails two GH-290 tests is not substantiated by this block: the failure-reporting test fails as described, but the successful-move test also explicitly expects an update, so two failures are plausible; retained-row behavior nevertheless remains uncovered. Correct the count and distinguish observed coverage from planned coverage. The current implementation does iterate retained contexts correctly by inspection.
+
+### Remaining questions — source review and supplied evidence
+
+- **API:** `src/web-api.js:1031` prepares the entire batch before the application loop, then applies serially. The four new actions delegate to the planned writers; complete/cancel retain the existing writer calls and response key order. The new reschedule `partial` result additionally makes list-sync failure explicit, consistent with the operator-facing partial contract. Title normalization/force handling and owner requirements follow the plan.
+- **FSM/posting:** `src/reminders-module.js:1188` uses Rescheduled → Scheduled transitions, clears holds, refuses Posting before mutation, and saves. Selection at `:4261` requires Overdue in both ordinary and force modes; the synchronous guard at `:4326` therefore does not exclude an otherwise eligible state. It prevents a future-rescheduled snapshot entry being claimed. Snooze checks remain in place.
+- **Lists:** `src/lists-module.js:1746` deletes only removed per-user rows, uses the guarded per-user add helper, and updates surviving owner cells without creating/deleting a shared row. Delete/update failures are collected and mapped to partial by `src/web-api.js:1159`. The helper lift retains the existing per-user add guard and shared-row ownership; historical byte equivalence was not independently diffed because this turn forbids git.
+- **Projection:** gap recording precedes summary and owner mutation (`src/reminders-module.js:1165`, `:1231`); marker exceptions are logged and non-blocking (`:1255`). The supplied smoke output records projection-flag GET with edited values, a gap marker, and reload persistence. This addresses the previous plan-QA note at the local-smoke evidence level; it does not establish behavior on a live server.
+- **Wrapper apart from finding 1:** new edit flags preserve their relative order, repeat checks key by action plus resolved ID, successful `[]` is accepted, and only successful statuses exit 0. Complete/cancel remain grouped before the new edit flags. Password SSH uses `SSHPASS` in the child environment rather than argv; no secret logging/writing was seen in the path inspected. The password-auth and direct-dev-URL deviations are reasonable. Actual SSH authentication and shutdown were not exercised this turn.
+- **Verification honesty:** the receipt clearly reports the remaining full-suite failure and the matching development failure, plus local mock-Slack smoke limitations. These are author-supplied results, not fresh reviewer test runs. **[Unverified — needs clone run]** focused/full suites, mutation controls, build and gates; no tests or executable fixture were run here. Real Slack rendering and live dev create/edit/rerun/complete remain explicitly deferred until deployment.
+
+Review containment: only this relay file was edited. No git commands, source changes, test suites or fixture executions were used. The graph query was unavailable under the session approval policy; direct reads of the named artifacts were used instead.
