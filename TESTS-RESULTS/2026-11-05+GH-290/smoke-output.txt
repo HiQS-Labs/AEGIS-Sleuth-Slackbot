@@ -1,0 +1,81 @@
+
+$ backup subcommand
+  args: backup
+  exit: 0
+  | backup: 1 records → <data>/backups/SmokeWorkspace_reminders_20261105T220551730Z.json
+
+$ dry-run mixed batch (no write)
+  args: --retitle aaaaaaaa="Review the smoke report v2" --reschedule aaaaaaaa=2030-01-02T17:00:00Z --create {"title":"Draft the smoke email","dueDate":"2030-01-03T16:00:00Z","channelId":"C_REMINDERS","assigneeIds":["U0SMOKE1"]} --dry-run
+  exit: 0
+  | backup: 1 records → <data>/backups/SmokeWorkspace_reminders_20261105T220551854Z.json
+  |   retitle    aaaaaaaa  overdue  2026-10-01  Review the smoke report  → {"title":"\"Review the smoke report v2\""}
+  |   reschedule aaaaaaaa  overdue  2026-10-01  Review the smoke report  → {"dueDate":"2030-01-02T17:00:00Z"}
+  |   create     (new)  → {"title":"Draft the smoke email","dueDate":"2030-01-03T16:00:00Z","channelId":"C_REMINDERS","assigneeIds":["U0SMOKE1"]}
+  | dry run: 3 reminder(s) would change; nothing was sent.
+  stored after dry-run: 1 record(s), title "Review the smoke report"
+
+$ create
+  args: --create {"title":"Draft the smoke email","dueDate":"2030-01-03T16:00:00Z","channelId":"C_REMINDERS","assigneeIds":["U0SMOKE1"]}
+  exit: 0
+  | backup: 1 records → <data>/backups/SmokeWorkspace_reminders_20261105T220551977Z.json
+  |   create     (new)  → {"title":"Draft the smoke email","dueDate":"2030-01-03T16:00:00Z","channelId":"C_REMINDERS","assigneeIds":["U0SMOKE1"]}
+  |   created   create     c615e500-a21b-4d31-9d39-c60c76694154
+  | result: {"created":1}
+
+$ edit batch: retitle+reschedule+reassign new one, reschedule the overdue one
+  args: --retitle c615e500-a21b-4d31-9d39-c60c76694154=Draft the smoke launch email --reschedule c615e500-a21b-4d31-9d39-c60c76694154=2030-01-04T16:00:00Z --reassign c615e500-a21b-4d31-9d39-c60c76694154=U0SMOKE2,U0SMOKE1 --reschedule aaaaaaaa=2030-01-02T17:00:00Z
+  exit: 0
+  | backup: 2 records → <data>/backups/SmokeWorkspace_reminders_20261105T220552117Z.json
+  |   retitle    c615e500  scheduled  2026-11-05  Draft the smoke email  → {"title":"Draft the smoke launch email"}
+  |   reschedule c615e500  scheduled  2026-11-05  Draft the smoke email  → {"dueDate":"2030-01-04T16:00:00Z"}
+  |   reassign   c615e500  scheduled  2026-11-05  Draft the smoke email  → {"assigneeIds":["U0SMOKE2","U0SMOKE1"]}
+  |   reschedule aaaaaaaa  overdue  2026-10-01  Review the smoke report  → {"dueDate":"2030-01-02T17:00:00Z"}
+  |   updated   retitle    c615e500-a21b-4d31-9d39-c60c76694154
+  |   updated   reschedule c615e500-a21b-4d31-9d39-c60c76694154
+  |   updated   reassign   c615e500-a21b-4d31-9d39-c60c76694154
+  |   updated   reschedule aaaaaaaa-1111-4111-8111-000000000001
+  | result: {"updated":4}
+  stored new: title="Draft the smoke launch email" due=2030-01-04T16:00:00.000Z owners=U0SMOKE2,U0SMOKE1 state=scheduled
+  stored overdue one: due=2030-01-02T17:00:00.000Z state=scheduled
+
+$ ADJACENT: rerun the same edit batch → unchanged
+  args: --retitle c615e500-a21b-4d31-9d39-c60c76694154=Draft the smoke launch email --reschedule c615e500-a21b-4d31-9d39-c60c76694154=2030-01-04T16:00:00Z --reassign c615e500-a21b-4d31-9d39-c60c76694154=U0SMOKE2,U0SMOKE1 --reschedule aaaaaaaa=2030-01-02T17:00:00Z
+  exit: 0
+  | backup: 2 records → <data>/backups/SmokeWorkspace_reminders_20261105T220552286Z.json
+  |   retitle    c615e500  scheduled  2026-11-05  Draft the smoke launch email  → {"title":"Draft the smoke launch email"}
+  |   reschedule c615e500  scheduled  2026-11-05  Draft the smoke launch email  → {"dueDate":"2030-01-04T16:00:00Z"}
+  |   reassign   c615e500  scheduled  2026-11-05  Draft the smoke launch email  → {"assigneeIds":["U0SMOKE2","U0SMOKE1"]}
+  |   reschedule aaaaaaaa  scheduled  2026-10-01  Review the smoke report  → {"dueDate":"2030-01-02T17:00:00Z"}
+  |   unchanged retitle    c615e500-a21b-4d31-9d39-c60c76694154
+  |   unchanged reschedule c615e500-a21b-4d31-9d39-c60c76694154
+  |   unchanged reassign   c615e500-a21b-4d31-9d39-c60c76694154
+  |   unchanged reschedule aaaaaaaa-1111-4111-8111-000000000001
+  | result: {"unchanged":4}
+
+$ refused title without --force-title (whole batch refused)
+  args: --retitle c615e500-a21b-4d31-9d39-c60c76694154=Can you please check this? --complete aaaaaaaa
+  exit: 1
+  | backup: 2 records → <data>/backups/SmokeWorkspace_reminders_20261105T220552416Z.json
+  |   complete   aaaaaaaa  scheduled  2026-10-01  Review the smoke report
+  |   retitle    c615e500  scheduled  2026-11-05  Draft the smoke launch email  → {"title":"Can you please check this?"}
+  | ERROR: /workspace/SmokeWorkspace/reminders/bulk: Error: actions[1]: title "Check this" refused (bare-pointer); pass force: true to keep it.
+  stored after refusal: 2 record(s) (overdue one still pending: true)
+
+$ --tunnel refuses an occupied port (the smoke server holds it)
+  args: backup --tunnel
+  exit: 1
+  | ERROR: --tunnel: port 19877 is already in use; close that tunnel/process or run without --tunnel
+
+$ --tunnel refuses a non-loopback URL
+  args: backup --tunnel
+  exit: 1
+  | ERROR: --tunnel needs SLEUTH_WEB_API_BASE_URL on 127.0.0.1/localhost with a port (got 198.51.100.7:2020); this env already reaches the API directly
+
+$ complete the created reminder
+  args: --complete c615e500-a21b-4d31-9d39-c60c76694154
+  exit: 0
+  | backup: 2 records → <data>/backups/SmokeWorkspace_reminders_20261105T220552648Z.json
+  |   complete   c615e500  scheduled  2026-11-05  Draft the smoke launch email
+  |   completed complete   c615e500-a21b-4d31-9d39-c60c76694154
+  | result: {"completed":1}
+  posts sent to Slack during smoke: 0

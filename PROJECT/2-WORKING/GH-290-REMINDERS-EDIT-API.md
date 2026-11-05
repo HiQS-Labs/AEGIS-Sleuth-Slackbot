@@ -14,7 +14,7 @@ related: "GH-279 (#280, bulk close), skills/download (#154), skills/talk-to-remi
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA Approved by Codex in round 3 (`relay-system/2026-10-28/gh290-plan-qa.md`). | Implement, verify, final QA. |
+| Implemented and verified (2026-11-05): `TESTS-RESULTS/2026-11-05+GH-290/verification.md`. | Final Codex QA, PR. Live dev smoke after deploy. |
 
 ## Problem
 
@@ -192,3 +192,25 @@ ARCHITECTURE note only if the bulk section exists there.
 
 rated 55/40/50/45 (2026-10-28, author estimate on the 1–100 PRS axes; plan QA noted it is not independently measured) — priority 55 (operator tooling, unblocks safe prod edits), severity 40 (workaround is hand-editing live data, the #271/#272 class), appeal 50 neutral, effort 45 (four actions + wrapper; grew after plan QA). See issue #290. Recurrence: one ad-hoc backup incident 2026-10-27;
 otherwise unknown trend.
+
+## Execution notes (2026-11-05)
+
+- The 2026-10-28 session left the module/API work uncommitted. It was recovered, the branch was rebased onto
+  `development` @ `d8f3b15`, and the roadmap row was re-registered through the CLI. The ledger files
+  conflicted, so they were taken from `development` and the row was re-added, rated 55/40/50/45, In progress.
+- **Deviation, tunnel:** the plan assumed key auth for prod. The live secrets show password auth, so
+  `--tunnel` uses `sshpass -e` with `SLEUTH_PROD_PASS` parsed (never sourced) from
+  `vultr-sleuth-production.env`, falling back to `BatchMode` key auth when no password is set. Dev's
+  `SLEUTH_WEB_API_BASE_URL` reaches the API directly, so `--tunnel` refuses there; the dev alias is kept
+  for a loopback dev env.
+- **Deviation, smoke:** the dev server runs deployed `development`, so it cannot exercise the new actions
+  before this lands. The smoke instead ran the real WebAPI and RemindersModule locally (mock Slack),
+  driven by the real script. The live dev smoke follows after deploy.
+- The bulk response keeps `reminderId` before `action`, so complete/cancel responses stay byte-identical
+  to GH-279.
+- Six new lists tests (mover, failure reporting, schedule fan-out). Red controls were checked by hand.
+
+## Lessons Learned
+
+- An approved plan with its implementation left uncommitted for a week cost a rebase plus a ledger
+  re-registration. Commit WIP checkpoints to the task branch at the end of each session.
