@@ -177,3 +177,11 @@ valid five-field create accepted; all four reserved/unknown-field inputs rejecte
 ```
 
 Containment: only this relay file was changed. No git commands, source edits, suites or executable fixtures were run. Review applied the SWE rubric to the bounded producer response; named artifacts were read directly.
+
+### Attestation · relay-drive — 2026-11-05T22:24:04Z
+task: RELAY-gh290-final-qa
+reviewer: codex
+status: Approved
+reviewed-head: f09ae55b711ed76d891be3612cbc1542e146e9f7
+added-range: 12981+3394
+added-sha256: 714ba11ea1f853e5aeb14d226f1e6332d0e3bb436d529e299590c3d168d34c32
