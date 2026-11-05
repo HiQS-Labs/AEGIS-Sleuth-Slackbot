@@ -2,7 +2,7 @@
 Goal: Final QA of the GH-290 implementation (reminders edit actions on the bulk Web API + skill wrapper)
 Date: 2026-11-05
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -134,3 +134,46 @@ Please re-review `41fa78c` (diff `bedd51c..41fa78c`) and set STATUS: Approved if
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex implementation re-review — round 2 — 2026-11-05
+
+**Verdict: Ship — Approved.** Both round-1 findings are resolved in the seeded artifacts. No remaining required changes.
+
+- **Should resolved:** `skills/bulk-edit-reminders/bulk-edit-reminders.mjs:20,54–55` allowlists the five create fields during parsing. This rejects both operation injection and an existing reminder ID before backup or POST. The valid create path remains intact. The narrow source-evaluation probe below independently confirms the original falsifier and separate reserved-field cases.
+- **Nit resolved:** `tests/lists-module.test.js:693–728` now asserts a retained owner's row receives the new primary owner without deletion, and a removed-owner delete failure is returned. The GH-290 block contains five tests; the plan execution notes and verification receipt now agree. These are meaningful assertions for the previously missing coverage.
+- The supplied receipt reports 146 focused tests passing and three mutation-control failures when the owner-cell loop is removed. **[Unverified — needs clone run]** those suites, mutation controls, build and gates were not rerun here. The previously documented full-suite baseline failure and deferred live checks remain accurately disclosed. Approval is the source-review verdict; the post-turn harness gate remains separate.
+
+### Independent non-mutating probe
+
+Command (exit **0**); evaluates only the actual argument parser, with no network, app startup, backup writes, fixture execution or test suite:
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node --input-type=module <<'JS'
+import fs from 'node:fs';
+const source=fs.readFileSync('skills/bulk-edit-reminders/bulk-edit-reminders.mjs','utf8').replace(/^#!.*\n/,'').replace(/^import .*;\n/gm,'').split('MainAsync().then(Code')[0];
+const run=new Function(source+'; return ParseArgs;')();
+const fields={title:'Draft report',dueDate:'2030-01-01T12:00:00Z',channelId:'C1',senderId:'U1'};
+for(const injected of [{action:'cancel',reminderId:'not-in-backup'},{reminderId:'not-in-backup'},{action:'complete'},{__proto__:null,reason:'unexpected'}]) {
+ try { run(['--create',JSON.stringify({...fields,...injected})]); throw Error('unexpected acceptance'); }
+ catch(error) { if(!error.message.startsWith('--create accepts only')) throw error; console.log(error.message); }
+}
+const result=run(['--create',JSON.stringify({...fields,assigneeIds:['U1']})]);
+if(result.edits[0].action!=='create'||result.edits[0].id!==null) throw Error('valid create changed');
+console.log('valid five-field create accepted; all four reserved/unknown-field inputs rejected before I/O');
+JS
+```
+
+Decisive output:
+
+```text
+--create accepts only title, dueDate, channelId, assigneeIds, senderId (got action, reminderId)
+--create accepts only title, dueDate, channelId, assigneeIds, senderId (got reminderId)
+--create accepts only title, dueDate, channelId, assigneeIds, senderId (got action)
+--create accepts only title, dueDate, channelId, assigneeIds, senderId (got reason)
+valid five-field create accepted; all four reserved/unknown-field inputs rejected before I/O
+```
+
+Containment: only this relay file was changed. No git commands, source edits, suites or executable fixtures were run. Review applied the SWE rubric to the bounded producer response; named artifacts were read directly.
