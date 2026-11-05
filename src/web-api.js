@@ -1040,7 +1040,8 @@ class WebAPI {
       for(const Item of Prepared) {
         const Reason = `api-bulk: ${Item.reason || Item.action}`;
         /** @type {Record<string, any>} */
-        const Result = { action: Item.action, ...(Item.reminderId ? { reminderId: Item.reminderId } : {}) };
+        // reminderId first keeps GH-279 complete/cancel responses byte-identical.
+        const Result = { ...(Item.reminderId ? { reminderId: Item.reminderId } : {}), action: Item.action };
         try {
           Object.assign(Result, await WebAPI.#ApplyBulkReminderActionAsync(RemindersModule, Item, Reason));
         } catch(error) {
