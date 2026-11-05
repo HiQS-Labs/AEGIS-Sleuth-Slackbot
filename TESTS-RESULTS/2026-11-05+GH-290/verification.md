@@ -40,6 +40,11 @@ The real `WebAPI` and a real `RemindersModule` ran in a throwaway `SLEUTH_DATA_D
 - **Adjacent path:** rerun the same edit batch → all four items `unchanged`, exit 0.
 - **Refusals:** a contract-refused title refuses the whole batch, so the `complete` in the same batch does
   not run. `--tunnel` refuses an occupied port and refuses a non-loopback base URL.
+- **Plan-QA verification notes:** the server ran with `REMINDERS_READ_SOURCE=projection`. After the edits,
+  `GET /workspace/:name/reminders` returned the new title, date and owners. The ledger coverage marker read
+  `{"state":"gap","reason":"reassign"}`. A fresh `RemindersModule` loaded from disk kept all three values.
+  `--tunnel` whose ssh exits before the port opens fails with `ssh exited before the tunnel came up` and
+  leaves no ssh child behind.
 - No Slack messages were posted during the smoke.
 
 Harness artefact, not a defect: `execFile` does no shell quote-stripping, so the dry-run's
