@@ -505,6 +505,23 @@ describe('POST /workspace/:name/reminders/bulk (GH-279)', () => {
       RemindersModule: {
         CompleteReminderByIdAsync: Close('complete'),
         CancelReminderFromListAsync: Close('cancel'),
+        // GH-290 edit writers: record the arguments the endpoint passes, answer like the real ones.
+        UpdateReminderSummaryFromListAsync: async (ArgId, ArgTitle, ArgReason, ArgOptions) => {
+          Calls.push(['retitle', ArgId, ArgReason, ArgTitle, ArgOptions]);
+          return Pending.has(ArgId) ? 'updated' : 'not-found';
+        },
+        RescheduleReminderAsync: async (ArgId, ArgDate, ArgReason) => {
+          Calls.push(['reschedule', ArgId, ArgReason, ArgDate.toISOString()]);
+          return { status: Pending.has(ArgId) ? 'updated' : 'not-found', listFailures: [] };
+        },
+        ReassignReminderAsync: async (ArgId, ArgIds, ArgReason) => {
+          Calls.push(['reassign', ArgId, ArgReason, ArgIds]);
+          return Pending.has(ArgId) ? { status: 'updated', listFailures: ArgId === 'lagging' ? ['add to U2\'s list'] : [] } : { status: 'not-found' };
+        },
+        CreateReminderFromListRowAsync: async (ArgRow, ArgOptions) => {
+          Calls.push(['create', ArgRow, ArgOptions]);
+          return { ok: true, reminder: { ReminderID: 'new-1' } };
+        },
       },
     });
   }
@@ -552,6 +569,14 @@ describe('POST /workspace/:name/reminders/bulk (GH-279)', () => {
     ['bad action', { actions: [{ reminderId: 'r1', action: 'complete' }, { reminderId: 'r2', action: 'delete' }] }],
     ['missing reminderId', { actions: [{ action: 'cancel' }] }],
     ['non-string reason', { actions: [{ reminderId: 'r1', action: 'complete', reason: 5 }] }],
+    // GH-290: a shape or title error anywhere refuses the whole batch, including valid items before it.
+    ['refused title', { actions: [{ reminderId: 'r1', action: 'complete' }, { reminderId: 'r2', action: 'retitle', title: 'Can you please check this?' }] }],
+    ['empty title', { actions: [{ reminderId: 'r1', action: 'retitle', title: '   ', force: true }] }],
+    ['bad dueDate', { actions: [{ reminderId: 'r1', action: 'reschedule', dueDate: 'next tuesday' }] }],
+    ['bad assigneeIds', { actions: [{ reminderId: 'r1', action: 'reassign', assigneeIds: ['not-a-user'] }] }],
+    ['empty assigneeIds', { actions: [{ reminderId: 'r1', action: 'reassign', assigneeIds: [] }] }],
+    ['create without channel', { actions: [{ action: 'create', title: 'Review the release notes', dueDate: '2026-11-02T17:00:00Z', assigneeIds: ['U1A'] }] }],
+    ['create without owner', { actions: [{ action: 'create', title: 'Review the release notes', dueDate: '2026-11-02T17:00:00Z', channelId: 'C1' }] }],
   ])('rejects %s before any write', async (_Label, ArgBody) => {
     InstallMockModule(['r1', 'r2']);
     const Result = await PostAsync(BulkPath, ArgBody);
@@ -589,5 +614,37 @@ describe('POST /workspace/:name/reminders/bulk (GH-279)', () => {
         counts: { completed: 1, 'not-found': 1, canceled: 1, error: 1 },
       },
     });
+  });
+  test('GH-290: routes edit actions to the existing writers in request order', async () => {
+    InstallMockModule(['r1', 'lagging']);
+    const Result = await PostAsync(BulkPath, {
+      actions: [
+        { reminderId: 'r1', action: 'retitle', title: 'Review the release notes.' },
+        { reminderId: 'r1', action: 'reschedule', dueDate: '2026-11-02T17:00:00Z', reason: 'pushed a week' },
+        { reminderId: 'r1', action: 'reassign', assigneeIds: ['U1A', 'U2B'] },
+        { reminderId: 'lagging', action: 'reassign', assigneeIds: ['U2B'] },
+        { reminderId: 'gone', action: 'retitle', title: 'Ping it', force: true },
+        { action: 'create', title: 'Draft the launch email', dueDate: '2026-11-03T16:00:00Z', channelId: 'C1', assigneeIds: ['U1A', 'U2B'] },
+      ],
+    });
+
+    expect(Calls).toEqual([
+      // normalized by the title contract (trailing punctuation dropped) before the writer sees it
+      ['retitle', 'r1', 'api-bulk: retitle', 'Review the release notes', { SyncLists: true, ReturnStatus: true }],
+      ['reschedule', 'r1', 'api-bulk: pushed a week', '2026-11-02T17:00:00.000Z'],
+      ['reassign', 'r1', 'api-bulk: reassign', ['U1A', 'U2B']],
+      ['reassign', 'lagging', 'api-bulk: reassign', ['U2B']],
+      // force keeps a title the contract would refuse (too short / bare pointer)
+      ['retitle', 'gone', 'api-bulk: retitle', 'Ping it', { SyncLists: true, ReturnStatus: true }],
+      ['create', {
+        summary: 'Draft the launch email', dueDate: '2026-11-03T16:00:00.000Z', assigneeID: null,
+        assigneeIDs: ['U1A', 'U2B'], targetChannelID: 'C1', originalSenderID: null,
+      }, { SkipListSync: false, RequireOwner: true }],
+    ]);
+    expect(Result.success).toBe(true);
+    expect(Result.data.results.map(ArgItem => ArgItem.status)).toEqual(['updated', 'updated', 'updated', 'partial', 'not-found', 'created']);
+    expect(Result.data.results[3].error).toMatch(/did not follow: add to U2's list/);
+    expect(Result.data.results[5]).toEqual({ action: 'create', status: 'created', reminderId: 'new-1' });
+    expect(Result.data.counts).toEqual({ updated: 3, partial: 1, 'not-found': 1, created: 1 });
   });
 });

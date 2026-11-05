@@ -1258,15 +1258,29 @@ class ListsModule {
     const AssigneeIDs = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
       ? [...new Set(ArgReminder.AssigneeIDs)]
       : [ArgReminder.AssigneeID || ArgReminder.OriginalSenderID];
-    for(const AssigneeID of AssigneeIDs) {
+    await this.#AddToUserContextsAsync(ArgReminder, AssigneeIDs);
+
+    return SharedOk;
+  }
+
+  /**
+   * Add a reminder row to each listed owner's per-user list that does not already track it.
+   * @param {ReminderInfo} ArgReminder Reminder to add.
+   * @param {string[]} ArgAssigneeIDs Owners whose lists should carry the row.
+   * @returns {Promise<string[]>} Owners whose row creation failed.
+   */
+  async #AddToUserContextsAsync(ArgReminder, ArgAssigneeIDs) {
+    /** @type {string[]} */
+    const Failed = [];
+    for(const AssigneeID of ArgAssigneeIDs) {
       if(typeof AssigneeID !== 'string' || !AssigneeID || AssigneeID === this.#SlackApp.BotUserID) continue;
       const UserContext = this.#UserContexts.get(AssigneeID);
       if(UserContext && UserContext.IsReady && !UserContext.ItemCache.has(ArgReminder.ReminderID)) {
         await this.#CreateListItemAsync(UserContext, ArgReminder, { UpdateCache: true });
+        if(!UserContext.ItemCache.has(ArgReminder.ReminderID)) Failed.push(AssigneeID);
       }
     }
-
-    return SharedOk;
+    return Failed;
   }
 
   /**
@@ -1696,6 +1710,61 @@ class ListsModule {
       AnySuccess = AnySuccess || Ok;
     }
     return AnySuccess;
+  }
+
+  /**
+   * Fan a reschedule out to every list row tracking the reminder (GH-290). The scheduled time lives
+   * in the `created_on` column, written at add time with the same formatter; the `due_date` column is
+   * the "by …" phrase from the reminder text and is left alone.
+   * @param {string} ArgReminderID Reminder ID to update.
+   * @param {Date} ArgShouldPostOn New scheduled time.
+   * @returns {Promise<string[]>} Context kinds whose row update failed.
+   */
+  async SyncReminderScheduleAcrossListsAsync(ArgReminderID, ArgShouldPostOn) {
+    if(!this.#ListsAvailable) return [];
+    const FormattedDate = SlackFormatUtils.FormatTimestampForDisplay(ArgShouldPostOn);
+    /** @type {string[]} */
+    const Failed = [];
+    for(const Context of this.#ContextsContainingReminder(ArgReminderID)) {
+      if(!Context.Schema?.created_on) continue;
+      const Ok = await this.#UpdateReminderInContextAsync(Context, ArgReminderID, { created_on: FormattedDate });
+      if(!Ok) Failed.push(`${Context.Kind} list ${Context.ListId}`);
+    }
+    return Failed;
+  }
+
+  /**
+   * Follow an owner change on the lists (GH-290): delete the row from each removed owner's per-user
+   * list, add it to each added owner's, and point every surviving row's `assignee` cell at the new
+   * primary owner. The shared list row is never created or deleted — its place does not depend on
+   * the owner — so a reassign can never duplicate it.
+   * @param {ReminderInfo} ArgReminder Reminder after its owners changed.
+   * @param {string[]} ArgRemovedIDs Owners no longer on the reminder.
+   * @param {string[]} ArgAddedIDs Owners newly on the reminder.
+   * @returns {Promise<string[]>} Lists that did not follow the change (empty on full success).
+   */
+  async MoveReminderBetweenUserListsAsync(ArgReminder, ArgRemovedIDs, ArgAddedIDs) {
+    if(!this.#ListsAvailable) return [];
+    const ReminderID = ArgReminder.ReminderID;
+    /** @type {string[]} */
+    const Failed = [];
+    for(const RemovedID of ArgRemovedIDs) {
+      const UserContext = this.#UserContexts.get(RemovedID);
+      if(!UserContext || !UserContext.ItemCache.has(ReminderID)) continue;
+      if(!await this.#DeleteReminderFromContextAsync(UserContext, ReminderID)) Failed.push(`remove from ${RemovedID}'s list`);
+    }
+    for(const AddedID of await this.#AddToUserContextsAsync(ArgReminder, ArgAddedIDs)) Failed.push(`add to ${AddedID}'s list`);
+    if(typeof ArgReminder.AssigneeID === 'string' && ArgReminder.AssigneeID) {
+      const AddedSet = new Set(ArgAddedIDs);
+      for(const Context of this.#ContextsContainingReminder(ReminderID)) {
+        // a row created just now already carries the new owner.
+        if(Context.Kind === 'user' && AddedSet.has(Context.OwnerUserID)) continue;
+        if(!Context.Schema?.assignee) continue;
+        const Ok = await this.#UpdateReminderInContextAsync(Context, ReminderID, { assignee: ArgReminder.AssigneeID });
+        if(!Ok) Failed.push(`update owner on ${Context.Kind} list ${Context.ListId}`);
+      }
+    }
+    return Failed;
   }
 
   /**

@@ -3750,3 +3750,157 @@ describe('GH-264 scheduling effect and failure contracts', () => {
     },
   );
 });
+
+describe('GH-290: Web API edit writers', () => {
+  const { CoverageFilePath } = require('../src/ledger-coverage');
+
+  /**
+   * Seed reminders for a fresh workspace, start the module, run the body, always clean up.
+   * @param {string} ArgSuffix Unique workspace suffix.
+   * @param {object[]} ArgSeed Reminder records to write before start.
+   * @param {(ArgReminders: RemindersModule, ArgSlackApp: MockSlackApp, ArgPaths: ReturnType<typeof GetReminderRuntimePaths>) => Promise<void>} ArgBody
+   */
+  async function WithModuleAsync(ArgSuffix, ArgSeed, ArgBody) {
+    const WorkspaceInfo = MakeWorkspaceInfo(`gh290_${ArgSuffix}`);
+    const Paths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
+    await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+    await fs.rm(CoverageFilePath(workspaces.GetSubdirPath('events'), WorkspaceInfo.WORKSPACE_NAME), { force: true });
+    await fs.writeFile(Paths.remindersFilePath, JSON.stringify(ArgSeed, null, 2), 'utf8');
+    const SlackApp = new MockSlackApp({ WorkspaceInfo });
+    const Reminders = new RemindersModule(SlackApp);
+    try {
+      await Reminders.StartAsync(EmptyWorkspaceStats);
+      await ArgBody(Reminders, SlackApp, Paths);
+    } finally {
+      await Reminders.StopAsync();
+      await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
+      await fs.rm(CoverageFilePath(workspaces.GetSubdirPath('events'), WorkspaceInfo.WORKSPACE_NAME), { force: true });
+    }
+  }
+
+  /**
+   * A pending reminder record as persisted on disk.
+   * @param {string} ArgId Reminder ID.
+   * @param {Date} ArgShouldPostOn Due time.
+   * @param {object} [ArgFields] Overrides.
+   */
+  function Seed(ArgId, ArgShouldPostOn, ArgFields = {}) {
+    return {
+      ReminderID: ArgId, CreatedOn: '2026-10-01T12:00:00.000Z', ShouldPostOn: ArgShouldPostOn.toISOString(),
+      TargetChannelID: 'C_REMINDERS', OriginalChannelID: 'C_REMINDERS', OriginalMessageID: '1790000000.000100',
+      OriginalSenderID: 'U_SENDER', ReminderMessageText: `Review the ${ArgId} report`, IgnoreSnooze: false,
+      OriginalChannelName: 'reminders', AssigneeID: 'U_OWNER', AssigneeIDs: ['U_OWNER'], GitHubUrls: null,
+      State: 'scheduled', ...ArgFields,
+    };
+  }
+
+  const HoursFromNow = ArgHours => new Date(Date.now() + ArgHours * 60 * 60 * 1000);
+  /** @param {MockSlackApp} ArgSlackApp @param {string} ArgId */
+  const PostsFor = (ArgSlackApp, ArgId) => ArgSlackApp.SentMessages.filter(
+    ArgMessage => String(ArgMessage.metadata?.event_payload?.ReminderIDs || '').includes(ArgId));
+
+  test('rescheduling an overdue reminder forward makes it wait for its new time', async () => {
+    await WithModuleAsync('overdue', [Seed('gh290-overdue', HoursFromNow(-2), { State: 'overdue' })], async (Reminders, SlackApp, Paths) => {
+      const NewTime = HoursFromNow(24 * 7);
+      expect(await Reminders.RescheduleReminderAsync('gh290-overdue', NewTime, 'api-bulk: test')).toEqual({ status: 'updated', listFailures: [] });
+      await Reminders.CheckRemindersNowAsync();
+      expect(PostsFor(SlackApp, 'gh290-overdue')).toHaveLength(0);
+      const [Persisted] = JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8'));
+      expect(Persisted.State).toBe('scheduled');
+      expect(new Date(Persisted.ShouldPostOn).getTime()).toBe(NewTime.getTime());
+      expect(await Reminders.RescheduleReminderAsync('gh290-overdue', NewTime, 'again')).toEqual({ status: 'unchanged' });
+      expect(await Reminders.RescheduleReminderAsync('nope', NewTime, 'x')).toEqual({ status: 'not-found' });
+    });
+  });
+
+  test('a reminder rescheduled while an earlier one in the same posting batch is in flight is not posted', async () => {
+    const Seeds = [
+      Seed('gh290-batch-a', HoursFromNow(-1), { State: 'overdue' }),
+      Seed('gh290-batch-b', HoursFromNow(-1), { State: 'overdue' }),
+    ];
+    await WithModuleAsync('batch', Seeds, async (Reminders, SlackApp, Paths) => {
+      let ReleaseA;
+      let SignalA;
+      const AStarted = new Promise(ArgResolve => { SignalA = ArgResolve; });
+      const Post = SlackApp.PostMessageTextAsync.bind(SlackApp);
+      const PostSpy = jest.spyOn(SlackApp, 'PostMessageTextAsync').mockImplementation(async (...ArgArgs) => {
+        if(String(ArgArgs[3]?.event_payload?.ReminderIDs || '').includes('gh290-batch-a') && !ReleaseA) {
+          SignalA();
+          await new Promise(ArgResolve => { ReleaseA = ArgResolve; });
+        }
+        return Post(...ArgArgs);
+      });
+      try {
+        const Cycle = Reminders.CheckRemindersNowAsync();
+        await AStarted;
+        const NewTime = HoursFromNow(24 * 7);
+        // B was selected for this cycle but not yet claimed: the edit is accepted...
+        expect((await Reminders.RescheduleReminderAsync('gh290-batch-b', NewTime, 'api-bulk: test')).status).toBe('updated');
+        // ...and A, already claimed, is refused.
+        expect((await Reminders.RescheduleReminderAsync('gh290-batch-a', NewTime, 'api-bulk: test')).status).toBe('busy');
+        ReleaseA();
+        await Cycle;
+        expect(PostsFor(SlackApp, 'gh290-batch-a').length).toBeGreaterThan(0);
+        expect(PostsFor(SlackApp, 'gh290-batch-b')).toHaveLength(0);
+        const Persisted = JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8'));
+        const B = Persisted.find(ArgRecord => ArgRecord.ReminderID === 'gh290-batch-b');
+        expect(B.State).toBe('scheduled');
+        expect(new Date(B.ShouldPostOn).getTime()).toBe(NewTime.getTime());
+      } finally {
+        PostSpy.mockRestore();
+      }
+    });
+  });
+
+  test('reassign replaces the owners, rebuilds the indexes and moves only the per-user rows', async () => {
+    await WithModuleAsync('reassign', [Seed('gh290-reassign', HoursFromNow(48), { AssigneeID: 'U_OLD', AssigneeIDs: ['U_OLD', 'U_KEEP'] })], async (Reminders, SlackApp, Paths) => {
+      const Lists = { IsListsAvailable: true, MoveReminderBetweenUserListsAsync: jest.fn(async () => []) };
+      Reminders.SetListsModule(Lists);
+      expect(await Reminders.ReassignReminderAsync('gh290-reassign', ['U_NEW', 'U_KEEP'], 'api-bulk: test')).toEqual({ status: 'updated', listFailures: [] });
+      const [Reminder] = Reminders.GetPendingReminders();
+      expect(Reminder.AssigneeIDs).toEqual(['U_NEW', 'U_KEEP']);
+      expect(Reminder.AssigneeID).toBe('U_NEW');
+      expect(Lists.MoveReminderBetweenUserListsAsync).toHaveBeenCalledWith(Reminder, ['U_OLD'], ['U_NEW']);
+      const [Persisted] = JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8'));
+      expect(Persisted.AssigneeIDs).toEqual(['U_NEW', 'U_KEEP']);
+      // the owner index follows: "show my reminders" for the new owner now finds it.
+      await SlackApp.SimulateAppMentionAsync({ channel: 'C_REMINDERS', user: 'U_NEW', text: `${SlackApp.AppMentionString} show my reminders` });
+      expect(SlackApp.SentMessages.some(ArgMessage => /gh290-reassign report/.test(JSON.stringify(ArgMessage)))).toBe(true);
+      expect(await Reminders.ReassignReminderAsync('gh290-reassign', ['U_NEW', 'U_KEEP'], 'again')).toEqual({ status: 'unchanged' });
+    });
+  });
+
+  test('an API retitle fans out to the lists and marks the ledger coverage gapped first', async () => {
+    await WithModuleAsync('retitle', [Seed('gh290-retitle', HoursFromNow(48))], async (Reminders) => {
+      const Order = [];
+      const Lists = { IsListsAvailable: true, SyncReminderSummaryAcrossListsAsync: jest.fn(async () => { Order.push('lists'); return true; }) };
+      Reminders.SetListsModule(Lists);
+      const CoveragePath = CoverageFilePath(workspaces.GetSubdirPath('events'), Reminders.SlackApp.WorkspaceInfo.WORKSPACE_NAME);
+      const Status = await Reminders.UpdateReminderSummaryFromListAsync('gh290-retitle', 'Review the quarterly report', 'api-bulk: retitle', { SyncLists: true, ReturnStatus: true });
+      expect(Status).toBe('updated');
+      expect(Lists.SyncReminderSummaryAcrossListsAsync).toHaveBeenCalledWith('gh290-retitle', 'Review the quarterly report', null);
+      expect(JSON.parse(await fs.readFile(CoveragePath, 'utf8'))).toMatchObject({ state: 'gap', reason: 'summary-edit' });
+      expect(await Reminders.UpdateReminderSummaryFromListAsync('gh290-retitle', 'Review the quarterly report', 'again', { ReturnStatus: true })).toBe('unchanged');
+      // the list caller's contract is unchanged: a boolean, and no fan-out of its own.
+      Lists.SyncReminderSummaryAcrossListsAsync.mockClear();
+      expect(await Reminders.UpdateReminderSummaryFromListAsync('gh290-retitle', 'Review the annual report', 'lists-sync')).toBe(true);
+      expect(Lists.SyncReminderSummaryAcrossListsAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  test('an API create keeps every owner, syncs the lists, and refuses a row with no owner', async () => {
+    await WithModuleAsync('create', [], async (Reminders, _SlackApp, Paths) => {
+      const Lists = { IsListsAvailable: true, AddReminderToListAsync: jest.fn(async () => true) };
+      Reminders.SetListsModule(Lists);
+      const Row = { summary: 'Draft the launch email', dueDate: HoursFromNow(24).toISOString(), assigneeID: null, assigneeIDs: ['U_ONE', 'U_TWO'], targetChannelID: 'C_REMINDERS', originalSenderID: null };
+      const Created = await Reminders.CreateReminderFromListRowAsync(Row, { SkipListSync: false, RequireOwner: true });
+      expect(Created.ok).toBe(true);
+      expect(Lists.AddReminderToListAsync).toHaveBeenCalledTimes(1);
+      const [Persisted] = JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8'));
+      expect(Persisted.AssigneeIDs).toEqual(['U_ONE', 'U_TWO']);
+      expect(Persisted.OriginalSenderID).toBe('U_ONE');
+      const NoOwner = await Reminders.CreateReminderFromListRowAsync({ ...Row, assigneeIDs: [] }, { SkipListSync: false, RequireOwner: true });
+      expect(NoOwner).toEqual({ ok: false, error: 'missing owner (assignee or sender)' });
+    });
+  });
+});
