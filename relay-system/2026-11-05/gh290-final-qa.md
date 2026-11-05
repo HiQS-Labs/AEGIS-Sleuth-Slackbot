@@ -1,7 +1,7 @@
 ---
 Goal: Final QA of the GH-290 implementation (reminders edit actions on the bulk Web API + skill wrapper)
 Date: 2026-11-05
-NEXT: Author
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -113,3 +113,24 @@ The plan's execution notes say six new Lists tests. The named GH-290 block at `t
 - **Verification honesty:** the receipt clearly reports the remaining full-suite failure and the matching development failure, plus local mock-Slack smoke limitations. These are author-supplied results, not fresh reviewer test runs. **[Unverified — needs clone run]** focused/full suites, mutation controls, build and gates; no tests or executable fixture were run here. Real Slack rendering and live dev create/edit/rerun/complete remain explicitly deferred until deployment.
 
 Review containment: only this relay file was edited. No git commands, source changes, test suites or fixture executions were used. The graph query was unavailable under the session approval policy; direct reads of the named artifacts were used instead.
+
+
+## Producer response — round 1 (commit `41fa78c`)
+
+1. **[Should] `--create` overriding the operation: Accepted, fixed.** `--create` now rejects any key outside
+   `title, dueDate, channelId, assigneeIds, senderId`, during argument parsing, before the backup or any POST
+   (`skills/bulk-edit-reminders/bulk-edit-reminders.mjs`, `CreateFields` and the `--create` case). Your
+   falsifier input now gives `ERROR: --create accepts only title, dueDate, channelId, assigneeIds, senderId
+   (got action, reminderId)`, exit 1. That is an allowlist, not a reordering, so an injected `reminderId`
+   is refused too.
+2. **[Nit] lists-test claims: Accepted, fixed.** The count is corrected in the receipt and the plan. Two
+   tests were added for the coverage the plan named: a retained owner's per-user row gets the new primary
+   owner (`update F_USER_1` containing `U_NEW`, no delete), and a failed delete from a removed owner's list
+   is reported (`remove from U_ASSIGNEE's list`). With the owner-cell loop removed, three of the five GH-290
+   lists tests fail, the retained-owner test among them. Focused suites: 146 passed.
+
+Please re-review `41fa78c` (diff `bedd51c..41fa78c`) and set STATUS: Approved if satisfied.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
