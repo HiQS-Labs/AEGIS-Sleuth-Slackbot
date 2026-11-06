@@ -1,4 +1,5 @@
-// GH-301 Phase 2 smoke: the real WebAPI + a real RemindersModule (test MockSlackApp) in an empty throwaway
+
+// gh-301 phase 2 smoke: the real WebAPI + a real RemindersModule (test MockSlackApp) in an empty throwaway
 // SLEUTH_DATA_DIR, driven over HTTP as a bot principal. Usage: node gh301-phase2-smoke.cjs <repo> <empty temp dir>
 'use strict';
 global.jest = { fn: (ArgImpl = () => undefined) => { const Fn = (...ArgArgs) => { Fn.mock.calls.push(ArgArgs); return ArgImpl(...ArgArgs); }; Fn.mock = { calls: [] }; Fn.mockResolvedValue = ArgValue => { ArgImpl = async () => ArgValue; return Fn; }; Fn.mockImplementation = ArgNew => { ArgImpl = ArgNew; return Fn; }; return Fn; } };
@@ -72,4 +73,5 @@ async function StartAsync() {
     console.log(`Slack posts during smoke: ${Posts}`);
   } finally { await Live.Api.StopAsync(); await Live.Reminders.StopAsync(); }
   process.exit(0);
-})().catch(error => { console.error(error); process.exit(1); });
+})().catch(ArgError => { console.error(ArgError); process.exit(1); });
+

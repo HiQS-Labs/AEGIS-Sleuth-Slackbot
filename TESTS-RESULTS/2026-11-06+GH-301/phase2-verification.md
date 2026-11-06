@@ -72,3 +72,26 @@ Full gate rerun on the approved commit `8d114cc`: `npm test` gave 3005 passed an
 - A real external bot, and the dev pilot with Phase 2 actions (dev still runs Phase 1 until this merges and
   deploys).
 - Editing GitHub links (deferred).
+
+## PR #306 review fixes (after final QA approval; Codex re-check round 3)
+
+CI (GitHub Actions) and the bot reviewers (Greptile, CodeRabbit) found the following. All are fixed here.
+- **CI flake:** the durable-create test restarted the API on the same port, and a pooled keep-alive socket to
+  the stopped server failed (`other side closed`). The test now uses a second API instance on its own port.
+- **Replay persisted before success:** a create whose first save failed stays in memory, stamped. The durable
+  replay now calls `SaveRemindersNowAsync` before reporting `created`; if that save fails, the response is
+  `save-failed` and is not cached.
+- **Mutation-time versions:** the retitle, reschedule and create writers report, through `OnVersion`, the
+  version their change produced **at the moment of mutation**. The API returns that one, not a live version
+  sampled after the writers' later awaits, which could cover a concurrent human edit. `partial` items now carry
+  their version too.
+- **Tests:**
+  - a version captured at mutation while a concurrent edit lands, after which the bot's next edit conflicts;
+  - a partial reschedule returning its version;
+  - a missing reminder returning `not-found` beside a valid item;
+  - a replay save failure that is not cached, followed by a successful replay.
+  
+  Web API file: **76/76** (twice); integration GH-301 block: 5/5.
+- **Red controls:** dropping the replay save, and replacing the mutation-time version with the live one, each
+  turn their test red.
+- The smoke harness follows the naming and format conventions.

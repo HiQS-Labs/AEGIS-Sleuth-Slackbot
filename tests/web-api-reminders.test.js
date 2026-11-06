@@ -12,14 +12,15 @@ const TestPort = 19876; // fixed test port to avoid conflicts with dev server (2
 /**
  * Create a minimal WebAPI instance for testing.
  * @param {Map<string, any>} [ArgSlackAppsByWorkspace] Optional workspace → mock SlackApp map.
+ * @param {number} [ArgPort] Port (default TestPort).
  * @returns {WebAPI}
  */
-function CreateTestWebAPI(ArgSlackAppsByWorkspace) {
+function CreateTestWebAPI(ArgSlackAppsByWorkspace, ArgPort = TestPort) {
   const StatsMap = new Map();
   const MockSettingsModule = { GetLastManualFilePath: () => null, SetLastManualFilePathAsync: async () => {} };
   const MockAdminAuth = new AdminAuth();
   const MockAdminMailer = { SendPasswordResetEmailAsync: async () => {} };
-  return new WebAPI(TestPort, TestBearerToken, StatsMap, MockSettingsModule, MockAdminAuth, MockAdminMailer, ArgSlackAppsByWorkspace);
+  return new WebAPI(ArgPort, TestBearerToken, StatsMap, MockSettingsModule, MockAdminAuth, MockAdminMailer, ArgSlackAppsByWorkspace);
 }
 
 /**
@@ -687,14 +688,14 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   /**
    * @param {string} ArgMethod
    * @param {string} ArgPath
-   * @param {{ token?: string, key?: string, body?: any, headers?: Record<string, string> }} [ArgOptions]
+   * @param {{ token?: string, key?: string, body?: any, headers?: Record<string, string>, port?: number }} [ArgOptions]
    */
   async function CallAsync(ArgMethod, ArgPath, ArgOptions = {}) {
     /** @type {Record<string, string>} */
     const Headers = { 'Content-Type': 'application/json', ...(ArgOptions.headers ?? {}) };
     Headers.Authorization = `Bearer ${ArgOptions.token ?? Tokens.a}`;
     if(ArgOptions.key) Headers['Idempotency-Key'] = ArgOptions.key;
-    const Response = await fetch(`http://127.0.0.1:${TestPort}${ArgPath}`, {
+    const Response = await fetch(`http://127.0.0.1:${ArgOptions.port ?? TestPort}${ArgPath}`, {
       method: ArgMethod, headers: Headers, body: ArgOptions.body === undefined ? undefined : JSON.stringify(ArgOptions.body),
     });
     return ArgMethod === 'HEAD' ? { status: Response.status } : { json: await Response.json(), total: Response.headers.get('x-total-count') };
@@ -704,6 +705,10 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   const { GetReminderVersion } = require('../src/reminders-module');
   /** @type {Map<string, any>} the mock module's pending reminders, by id */
   let Seeds;
+  let SaveNowFails = false;
+  /** @type {null | ((ArgId: string) => void)} runs inside a mock writer after it mutates, like a concurrent edit */
+  let AfterMutation = null;
+  const R3 = 'aaaaaaaa-1111-4111-8111-000000000003';
   const MakeSeed = ArgId => ({ ReminderID: ArgId, ReminderMessageText: `Task ${ArgId.slice(-1)}`, ShouldPostOn: new Date('2030-01-02T17:00:00Z'), AssigneeIDs: ['U0TESTA1'], State: 'scheduled' });
   const V = ArgId => GetReminderVersion(Seeds.get(ArgId));
   const Complete = ArgIds => ({ actions: ArgIds.map(ArgId => ({ action: 'complete', reminderId: ArgId, ifMatch: V(ArgId) })) });
@@ -727,8 +732,10 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     jest.spyOn(workspaces, 'WorkspaceExistsAsync').mockResolvedValue(true);
     await WritePrincipalsAsync();
     Seeds = new Map([[R1, MakeSeed(R1)], [R2, MakeSeed(R2)]]);
+    SaveNowFails = false;
     const Writer = ArgName => async (ArgId, ArgReason) => {
       Calls.push([ArgName, ArgId, ArgReason]);
+      if(ArgId === R3) return false;
       if(HoldNext) {
         HoldNext = false;
         await new Promise(ArgResolve => { HoldRelease = ArgResolve; });
@@ -740,23 +747,28 @@ describe('Bot principals (GH-301 Phase 1)', () => {
         CompleteReminderByIdAsync: Writer('complete'),
         CancelReminderFromListAsync: Writer('cancel'),
         GetAllReminders: () => [...Seeds.values()],
+        SaveRemindersNowAsync: async () => { if(SaveNowFails) throw new Error('disk full'); },
         AreRemindersEnabledForChannel: ArgChannel => ArgChannel === 'C0ENABLED',
         FindPendingReminderByApiCreateKey: ArgKey => [...Seeds.values()].find(ArgR => ArgR.ApiCreateKey === ArgKey) ?? null,
         // GH-301 Phase 2 writers: record, and change the seed the way the real writer would.
         UpdateReminderSummaryFromListAsync: async (ArgId, ArgTitle, ArgReason, ArgOptions) => {
           Calls.push(['retitle', ArgId, ArgReason, ArgTitle, ArgOptions?.ExpectedVersion]);
           Seeds.get(ArgId).ReminderMessageText = ArgTitle;
+          ArgOptions?.OnVersion?.(GetReminderVersion(Seeds.get(ArgId)));
+          AfterMutation?.(ArgId);
           return 'updated';
         },
         RescheduleReminderAsync: async (ArgId, ArgDate, ArgReason, ArgOptions) => {
           Calls.push(['reschedule', ArgId, ArgReason, ArgDate.toISOString(), ArgOptions?.ExpectedVersion]);
           Seeds.get(ArgId).ShouldPostOn = ArgDate;
-          return { status: 'updated', listFailures: [] };
+          ArgOptions?.OnVersion?.(GetReminderVersion(Seeds.get(ArgId)));
+          return { status: 'updated', listFailures: ArgDate.getUTCFullYear() === 2031 ? ['shared list'] : [] };
         },
         CreateReminderFromListRowAsync: async (ArgRow, ArgOptions) => {
           Calls.push(['create', ArgRow.summary, ArgRow.targetChannelID, Boolean(ArgOptions.ApiCreateKey)]);
           const Created = { ...MakeSeed('cccccccc-1111-4111-8111-00000000000c'), ReminderMessageText: ArgRow.summary, ApiCreateKey: ArgOptions.ApiCreateKey, ApiCreateFingerprint: ArgOptions.ApiCreateFingerprint };
           Seeds.set(Created.ReminderID, Created);
+          ArgOptions.OnVersion?.(GetReminderVersion(Created));
           return { ok: true, reminder: Created };
         },
       } });
@@ -767,6 +779,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     delete process.env.WEB_API_BOT_PRINCIPALS;
     jest.restoreAllMocks();
     TestSlackApps.clear();
+    AfterMutation = null;
   });
 
   test('flag off: a principal token is refused like any unknown token', async () => {
@@ -990,15 +1003,25 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     const First = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body });
     expect(First.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c' });
     expect(Calls).toEqual([['create', 'Draft the launch email', 'C0ENABLED', true]]);
-    // a fresh API has an empty in-memory store, like a restart; the module still holds the stamped reminder.
-    await API.StopAsync();
-    API = CreateTestWebAPI(TestSlackApps);
-    await API.StartAsync();
-    const Retry = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body });
-    expect(Retry.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c', replayed: true });
-    const Changed = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: { actions: [{ ...Body.actions[0], title: 'Draft the launch post' }] } });
-    expect(Changed.json.code).toBe('idempotency-key-reused');
-    expect(Calls).toHaveLength(1);
+    // a second API instance has an empty in-memory store, like a restart; the module still holds the stamped
+    // reminder. (A second port, not a restart on the same port: a pooled keep-alive socket to a stopped server
+    // fails on CI.)
+    const Fresh = CreateTestWebAPI(TestSlackApps, TestPort + 7);
+    await Fresh.StartAsync();
+    try {
+      // a replay whose save fails is refused and not cached ...
+      SaveNowFails = true;
+      expect((await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body, port: TestPort + 7 })).json.code).toBe('save-failed');
+      // ... so once the save works, the same key replays the stamped reminder (no second create).
+      SaveNowFails = false;
+      const Retry = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body, port: TestPort + 7 });
+      expect(Retry.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c', replayed: true });
+      const Changed = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: { actions: [{ ...Body.actions[0], title: 'Draft the launch post' }] }, port: TestPort + 7 });
+      expect(Changed.json.code).toBe('idempotency-key-reused');
+      expect(Calls).toHaveLength(1);
+    } finally {
+      await Fresh.StopAsync();
+    }
   });
 
   test('Phase 2: a create that failed at the writer is not cached, so the same key retries it', async () => {
@@ -1017,6 +1040,24 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     expect(Second.json.data.results[0]).toMatchObject({ status: 'created' });
     expect(Attempts).toBe(2);
     expect([...Seeds.values()].filter(ArgR => ArgR.ReminderMessageText === 'Draft the launch email')).toHaveLength(1);
+  });
+
+  test('Phase 2: the returned version is the one the bot\'s change produced, not a later concurrent edit', async () => {
+    // a human edits the same reminder while the bot's writer is still awaiting (simulated right after the mutation).
+    AfterMutation = ArgId => { Seeds.get(ArgId).ReminderMessageText = 'edited by a human meanwhile'; };
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-produced', body: { actions: [{ action: 'retitle', reminderId: R1, ifMatch: V(R1), title: 'Review the release notes' }] } });
+    const Produced = Result.json.data.results[0].version;
+    expect(Produced).not.toBe(V(R1)); // the live version already includes the human edit
+    // the bot's next edit with its version conflicts instead of silently overwriting the human edit.
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-produced-2', body: { actions: [{ action: 'complete', reminderId: R1, ifMatch: Produced }] } })).json.code).toBe('version-conflict');
+  });
+
+  test('Phase 2: a partial reschedule still returns its new version; a missing reminder is not-found beside a valid item', async () => {
+    const Partial = await CallAsync('POST', Bulk(WsA), { key: 'k-partial', body: { actions: [{ action: 'reschedule', reminderId: R1, ifMatch: V(R1), dueDate: '2031-01-01T17:00:00Z' }] } });
+    expect(Partial.json.data.results[0]).toMatchObject({ status: 'partial', version: V(R1) });
+    const Mixed = await CallAsync('POST', Bulk(WsA), { key: 'k-missing', body: { actions: [
+      { action: 'complete', reminderId: R2, ifMatch: V(R2) }, { action: 'cancel', reminderId: R3, ifMatch: '0123456789abcdef' }] } });
+    expect(Mixed.json.data.results.map(ArgR => ArgR.status)).toEqual(['completed', 'not-found']);
   });
 
   test.each([

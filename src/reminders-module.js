@@ -873,6 +873,17 @@ class RemindersModule {
   }
 
   /**
+   * Durably save the pending queue now, through the same serialized save chain every writer uses. Rejects when
+   * the save fails. Used before a durable create replay reports success (GH-301), so an in-memory reminder
+   * whose first save failed is never acknowledged unsaved.
+   * Unlike FlushRemindersAsync (which only waits for queued saves), this performs a save and rejects on failure.
+   * @returns {Promise<void>}
+   */
+  SaveRemindersNowAsync() {
+    return this.#SaveRemindersAsync();
+  }
+
+  /**
    * Return a reminder's canonical set of human assignees without mutating the record.
    * An AssigneeIDs array with at least one valid ID is authoritative. Otherwise (no array, an empty
    * one, or one holding only invalid/bot IDs) fall back to AssigneeID, then OriginalSenderID — an
@@ -1181,7 +1192,7 @@ class RemindersModule {
    * @param {string} ArgReminderID Reminder ID to update.
    * @param {string} ArgSummaryMrkdwn New summary in Slack mrkdwn format.
    * @param {string} ArgReason Reason for the edit.
-   * @param {{ SyncLists?: boolean, ReturnStatus?: boolean, ExpectedVersion?: string }} [ArgOptions] `SyncLists` fans
+   * @param {{ SyncLists?: boolean, ReturnStatus?: boolean, ExpectedVersion?: string, OnVersion?: (ArgVersion: string) => void }} [ArgOptions] `SyncLists` fans
    *   the new summary out to every list row (a list-originated edit already did its own row). `ReturnStatus`
    *   returns `'updated'|'unchanged'|'not-found'` instead of a boolean. `ExpectedVersion` (GH-301) returns
    *   `'conflict'` when the reminder changed or left the queue, including across the internal await.
@@ -1221,6 +1232,8 @@ class RemindersModule {
       Reminder.ReminderMessageText,
       NewSummary
     );
+    // GH-301: the version this edit produced, captured before the awaits below can interleave other edits.
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(Reminder));
     await this.#SaveRemindersAsync();
     if(ArgOptions.SyncLists && this.#ListsModule && this.#ListsModule.IsListsAvailable)
       await this.#ListsModule.SyncReminderSummaryAcrossListsAsync(ArgReminderID, NewSummary, null);
@@ -1237,7 +1250,8 @@ class RemindersModule {
    * @param {string} ArgReminderID Reminder ID to move.
    * @param {Date} ArgShouldPostOn New time.
    * @param {string} ArgReason Reason for the change.
-   * @param {{ ExpectedVersion?: string }} [ArgOptions] GH-301 version check.
+   * @param {{ ExpectedVersion?: string, OnVersion?: (ArgVersion: string) => void }} [ArgOptions] GH-301 version check;
+   *   `OnVersion` receives the version this change produced, at the moment of mutation.
    * @returns {Promise<{status: 'updated'|'unchanged'|'not-found'|'busy'|'conflict', listFailures?: string[]}>}
    */
   async RescheduleReminderAsync(ArgReminderID, ArgShouldPostOn, ArgReason, ArgOptions = {}) {
@@ -1259,6 +1273,7 @@ class RemindersModule {
     Reminder.DndHeld = false;
     this.#TransitionReminderState(Reminder, State.Rescheduled, ArgReason);
     this.#TransitionReminderState(Reminder, State.Scheduled, ArgReason);
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(Reminder));
     await this.#SaveRemindersAsync();
     const ListFailures = this.#ListsModule && this.#ListsModule.IsListsAvailable
       ? await this.#ListsModule.SyncReminderScheduleAcrossListsAsync(ArgReminderID, Reminder.ShouldPostOn)
@@ -1328,7 +1343,7 @@ class RemindersModule {
    * the usual Slack List fan-out — the list caller adopts the existing authored row instead.
    * @param {{summary: string, dueDate: string, assigneeID: string|null, assigneeIDs?: string[], targetChannelID: string, originalSenderID: string|null}} ArgRowData
    *   Minimum column contract extracted from the list row; `assigneeIDs` adds further owners.
-   * @param {{ SkipListSync?: boolean, RequireOwner?: boolean, ApiCreateKey?: string, ApiCreateFingerprint?: string }} [ArgOptions] `SkipListSync`
+   * @param {{ SkipListSync?: boolean, RequireOwner?: boolean, ApiCreateKey?: string, ApiCreateFingerprint?: string, OnVersion?: (ArgVersion: string) => void }} [ArgOptions] `SkipListSync`
    *   (default true) skips the list fan-out; `RequireOwner` refuses a row with no owner and no
    *   sender instead of falling back to the channel id.
    * @returns {Promise<{ok: boolean, reminder?: ReminderInfo, error?: string}>}
@@ -1381,6 +1396,7 @@ class RemindersModule {
       /** @type {any} */ (NewReminderInfo).ApiCreateKey = ArgOptions.ApiCreateKey;
       /** @type {any} */ (NewReminderInfo).ApiCreateFingerprint = ArgOptions.ApiCreateFingerprint ?? null;
     }
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(NewReminderInfo));
     await this.#QueueReminderAsync(NewReminderInfo, { SkipListSync: ArgOptions.SkipListSync !== false });
     this.#SlackApp.Logger.info(`[lists-sync] created reminder ${NewReminderInfo.ReminderID} from ${ArgOptions.SkipListSync === false ? 'the Web API' : 'a hand-authored list row'}`);
     return { ok: true, reminder: NewReminderInfo };

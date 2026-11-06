@@ -511,7 +511,7 @@ characters), which its next edit of that reminder must send back.
     whole batch with `version-conflict` and lists the current versions under `conflicts`. Re-read and retry.
   - Each writer checks again at the moment it changes the reminder. If something changed in between, that item
     reports `conflict` and changes nothing; items before it in the batch stay applied.
-  - Each item that leaves its reminder pending returns its new `version`.
+  - Each item that changed its reminder (`created`, `updated`, or `partial`) returns the `version` its own change produced, captured when it wrote, so it never covers someone else's later edit.
 - **Create.**
   - It must be the only action in its request.
   - It is allowed only in a channel where auto-scheduling is enabled, else `channel-not-enabled`.
@@ -547,6 +547,7 @@ checking the token.
 | `action-not-allowed` · `unknown-field` · `invalid-reminder-id` · `invalid-request` | batch refused before any write |
 | `if-match-required` · `duplicate-reminder` · `create-must-be-alone` · `title-refused` · `channel-not-enabled` | batch refused before any write |
 | `version-conflict` | a reminder changed since it was read; `conflicts` lists the current versions |
+| `save-failed` | a create replay could not confirm the earlier create is saved; retry (nothing is cached) |
 | `invalid-pagination` · `pagination-unsupported` | bad `limit`/`offset`, or paging a rebalance export |
 
 ### Audit

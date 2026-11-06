@@ -1274,6 +1274,12 @@ class WebAPI {
       if(Existing) {
         if(Existing.ApiCreateFingerprint !== ArgFingerprint)
           return { success: false, data: 'Error: Idempotency-Key was already used with a different request body.', code: 'idempotency-key-reused' };
+        // the first attempt may have failed at its save after queueing; persist before acknowledging the replay.
+        try {
+          await RemindersModule.SaveRemindersNowAsync();
+        } catch {
+          return { success: false, data: 'Error: the earlier create is not saved yet; retry.', code: 'save-failed' };
+        }
         return { success: true, data: { results: [{ action: 'create', status: 'created', reminderId: Existing.ReminderID, replayed: true, version: GetReminderVersion(Existing) }], counts: { created: 1 } } };
       }
       if(!RemindersModule.AreRemindersEnabledForChannel(Create.channelId))
@@ -1291,13 +1297,16 @@ class WebAPI {
         return { success: false, data: 'Error: some reminders changed since you read them; re-read and retry.', code: 'version-conflict', conflicts: Conflicts };
     }
 
+    // each writer reports the version its change produced at the moment of mutation (OnVersion), so a bot never
+    // receives a version that silently includes someone else's later edit.
+    ArgPrepared.forEach(ArgItem => { ArgItem.OnVersion = (/** @type {string} */ ArgVersion) => { ArgItem.ProducedVersion = ArgVersion; }; });
     const Payload = await this.#RunBulkAsync(ArgWorkspaceName, ArgPrepared, ArgItem => `api-bot:${ArgPrincipal.Id}:${ArgItem.action}`);
     if(Payload.success === true) {
-      // each item that left its reminder pending reports the new version.
-      for(const Result of Payload.data.results) {
-        const Current = Result.reminderId ? RemindersModule.GetAllReminders().find((/** @type {any} */ ArgR) => ArgR.ReminderID === Result.reminderId) : null;
-        if(Current && ['created', 'updated', 'unchanged'].includes(Result.status)) Result.version = GetReminderVersion(Current);
-      }
+      Payload.data.results.forEach((/** @type {any} */ ArgResult, /** @type {number} */ ArgIndex) => {
+        const Item = ArgPrepared[ArgIndex];
+        if(['created', 'updated', 'partial'].includes(ArgResult.status) && Item.ProducedVersion) ArgResult.version = Item.ProducedVersion;
+        else if(ArgResult.status === 'unchanged') ArgResult.version = Item.ExpectedVersion; // nothing changed: the version the bot sent still stands
+      });
     }
     return Payload;
   }
@@ -1475,11 +1484,11 @@ class WebAPI {
       }
       case 'retitle':
         return { status: await ArgModule.UpdateReminderSummaryFromListAsync(ArgItem.reminderId, ArgItem.title, ArgReason, {
-          SyncLists: true, ReturnStatus: true, ...(ArgItem.ExpectedVersion ? { ExpectedVersion: ArgItem.ExpectedVersion } : {}),
+          SyncLists: true, ReturnStatus: true, ...(ArgItem.ExpectedVersion ? { ExpectedVersion: ArgItem.ExpectedVersion, OnVersion: ArgItem.OnVersion } : {}),
         }) };
       case 'reschedule':
         return WebAPI.#WithListFailures(ArgItem.ExpectedVersion
-          ? await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason, { ExpectedVersion: ArgItem.ExpectedVersion })
+          ? await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason, { ExpectedVersion: ArgItem.ExpectedVersion, OnVersion: ArgItem.OnVersion })
           : await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason));
       case 'reassign':
         return WebAPI.#WithListFailures(await ArgModule.ReassignReminderAsync(ArgItem.reminderId, ArgItem.assigneeIds, ArgReason));
@@ -1491,7 +1500,7 @@ class WebAPI {
           assigneeIDs: ArgItem.assigneeIds ?? [],
           targetChannelID: ArgItem.channelId,
           originalSenderID: ArgItem.senderId,
-        }, { SkipListSync: false, RequireOwner: true, ...(ArgItem.ApiCreateKey ? { ApiCreateKey: ArgItem.ApiCreateKey, ApiCreateFingerprint: ArgItem.ApiCreateFingerprint } : {}) });
+        }, { SkipListSync: false, RequireOwner: true, ...(ArgItem.ApiCreateKey ? { ApiCreateKey: ArgItem.ApiCreateKey, ApiCreateFingerprint: ArgItem.ApiCreateFingerprint, OnVersion: ArgItem.OnVersion } : {}) });
         return Created.ok
           ? { status: 'created', reminderId: Created.reminder?.ReminderID }
           : { status: 'error', error: Created.error };
