@@ -917,18 +917,33 @@ describe('Bot principals (GH-301 Phase 1)', () => {
 
   test('every refused principal write logs exactly one redacted denial record', async () => {
     const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const Log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const RunningApp = TestSlackApps.get(WsA);
     const Cases = [
       [{ body: Complete([R1]) }, 'idempotency-key-required'],
       [{ key: 'k-den-1', body: { actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1), secretField: 'sk-proj-LEAK' }] } }, 'unknown-field'],
+      [{ key: 'k-den-stale', body: { actions: [{ action: 'complete', reminderId: R1, ifMatch: '0000000000000000' }] } }, 'version-conflict'],
+      [{ key: 'k-den-channel', body: { actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0OTHER', assigneeIds: ['U0TESTA1'] }] } }, 'channel-not-enabled'],
+      [{ key: 'k-den-missing', body: Complete([R1]) }, 'invalid-request', () => workspaces.WorkspaceExistsAsync.mockResolvedValue(false)],
+      [{ key: 'k-den-stopped', body: Complete([R1]) }, 'invalid-request', () => TestSlackApps.delete(WsA)],
     ];
-    for(const [Options, Code] of Cases) {
+    for(const [Options, Code, Prepare] of Cases) {
+      workspaces.WorkspaceExistsAsync.mockResolvedValue(true);
+      TestSlackApps.set(WsA, RunningApp);
+      if(Prepare) Prepare();
       Warn.mockClear();
-      expect((await CallAsync('POST', Bulk(WsA), Options)).json.code).toBe(Code);
+      Log.mockClear();
+      const Payload = (await CallAsync('POST', Bulk(WsA), Options)).json;
+      expect(Payload.success).toBe(false);
+      expect(Payload.code ?? 'invalid-request').toBe(Code);
       const Lines = Warn.mock.calls.map(([ArgLine]) => String(ArgLine)).filter(ArgLine => ArgLine.includes('principal-denied'));
       expect(Lines).toHaveLength(1);
       expect(JSON.parse(Lines[0].slice(Lines[0].indexOf('{')))).toEqual({ code: Code, id: 'bot-a', method: 'POST', route: 'bulk' });
       expect(Lines[0]).not.toMatch(/LEAK|secretField|k-den|slp_/);
+      expect(Log.mock.calls.filter(([ArgLine]) => String(ArgLine).includes('principal-write'))).toHaveLength(0);
+      expect(Calls).toEqual([]);
     }
+    TestSlackApps.set(WsA, RunningApp);
     // a key conflict is audited too
     await CallAsync('POST', Bulk(WsA), { key: 'k-den-2', body: Complete([R1]) });
     Warn.mockClear();
@@ -999,6 +1014,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   });
 
   test('Phase 2: a create is stamped with its key; a retry after the in-memory cache is gone finds it', async () => {
+    const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const Body = { actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED', assigneeIds: ['U0TESTA1'] }] };
     const First = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body });
     expect(First.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c' });
@@ -1012,6 +1028,9 @@ describe('Bot principals (GH-301 Phase 1)', () => {
       // a replay whose save fails is refused and not cached ...
       SaveNowFails = true;
       expect((await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body, port: TestPort + 7 })).json.code).toBe('save-failed');
+      const Denials = Warn.mock.calls.map(([ArgLine]) => String(ArgLine)).filter(ArgLine => ArgLine.includes('principal-denied'));
+      expect(Denials).toHaveLength(1);
+      expect(JSON.parse(Denials[0].slice(Denials[0].indexOf('{')))).toEqual({ code: 'save-failed', id: 'bot-a', method: 'POST', route: 'bulk' });
       // ... so once the save works, the same key replays the stamped reminder (no second create).
       SaveNowFails = false;
       const Retry = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body, port: TestPort + 7 });

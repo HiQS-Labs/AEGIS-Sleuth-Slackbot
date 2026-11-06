@@ -454,6 +454,9 @@ proxy on the same host. `X-Forwarded-*` headers are never trusted. Anything else
 - The proxy must accept HTTPS only and overwrite any forwarding headers.
 - Configure bots with an `https://` URL. A refusal cannot un-send a token already sent in plain text.
 - Remote bot use needs such an HTTPS front end in place; deployment details are kept in private ops notes.
+- Send an explicit `User-Agent`, for example `AEGIS-Reminder-Client/1.0`, on reads and writes.
+  An HTTPS front end may block a library default such as `Python-urllib/*` before Sleuth receives it;
+  such a refusal can be a plain HTTP 403 rather than Sleuth's JSON error envelope.
 
 ### Creating, revoking and expiring a principal
 

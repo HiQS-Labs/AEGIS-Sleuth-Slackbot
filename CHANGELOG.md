@@ -35,6 +35,25 @@
 
 ## Unreleased
 
+Bot setup notes now explain how to identify the client on every request and recognize a refusal from the HTTPS front end. When I refuse a bot change, my audit log now records the refusal and its code.
+
+**Technical:** GH-301 follow-up: document an explicit `User-Agent` on reads and writes, including the
+plain-403 behavior possible before Sleuth receives a request. `WebAPI.#HandlePrincipalBulkAsync` now
+logs request-level `success:false` outcomes through the existing redacted `principal-denied` logger
+instead of `principal-write`; failures without a code use `invalid-request` in the audit only.
+Responses and mutation behavior are unchanged. Extended existing audit coverage for stale versions,
+disabled channels, missing/stopped workspaces and create-replay save failure. Web API suite: 76 passed;
+build passed. Refreshed the project status to reflect merged Phases 0–2 and remaining follow-ups.
+
+I also stopped warning that a newly created Slack List row lost its scheduled time when its date cell was correct. Missing or changed date cells still produce a warning.
+
+**Technical:** GH-301 Lists follow-up. The row schema writes `created_on` as display text, while
+`CompareReminderData` still compared a numeric `scheduledTime` that `#ValidateListItem` deliberately
+leaves null. The validator now passes the parsed display cell to the comparator, which compares it
+with the same formatter used at write time. Extended the existing row create/update/delete test for
+records with and without source messages, including missing and altered date readbacks. Lists,
+formatting and Web API suites: 188 passed; build passed. No persistence or scheduling changes.
+
 The bots your team trusts can now also add reminders and fix their wording or time, not just close them. If a
 reminder changed after the bot last looked, I refuse the change instead of overwriting it, and a bot that
 retries a create while that reminder is still open gets the same reminder back instead of a second one.

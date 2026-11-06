@@ -22,7 +22,16 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Phase 0–1 shipped in #305. Phase 2 plan approved by Codex (round 2) and implemented on the phase2 branch (2026-11-06). | Phase 2 smoke, final QA and PR. Link editing follow-up; Phase 3 (MCP); Phase 4 pilot running on dev. |
+| Phases 0–1 (#305) and 2 (#306) merged to development; outgoing handoff records passing dev smoke. AgentChorus handoff completed (2026-11-06). | Client User-Agent notes, refusal-audit fix and Lists display-cell check verified locally; see follow-up evidence below. Review/PR for the bounded follow-ups (full Jest run: 3008 passed, known thread-memory failure). Links and Phase 3 MCP remain open; Phase 4 awaits external-bot sign-off. |
+
+## Follow-up findings (2026-11-06)
+
+- Outgoing AgentChorus handoff confirms all code and review receipts are on origin; no retired checkout is needed.
+- Explicit User-Agent setup guidance is in `docs/web-api.md`.
+- Request-level bulk refusals now use the existing redacted denial audit; response envelopes and writers are unchanged.
+- Local Lists reproduction disproved a source-message-specific or remote date-serialization cause: both message-backed and list-authored records warn with a faithful readback. `#ValidateListItem` intentionally leaves numeric `scheduledTime` null, while the writer emits a formatted `created_on` cell. The comparison was using the obsolete numeric representation. It now compares the parsed cell with the existing write formatter; missing/altered cells still warn. This does not recover an exact instant from display text or change scheduling.
+- Focused suites: 188 passed; build passed. Full Jest: 3008 passed, one thread-memory failure matching the outgoing handoff; separate Node suite passed. Evidence and remaining scope: [follow-up verification](../../TESTS-RESULTS/2026-11-06+GH-301/followup-verification.md).
+- Link policy remains unresolved: already-dispatched public posts cannot be retracted; thread-wide relay stops and repo reach need an explicit decision. MCP client shape and external-bot pilot sign-off remain open.
 
 ## Problem
 
