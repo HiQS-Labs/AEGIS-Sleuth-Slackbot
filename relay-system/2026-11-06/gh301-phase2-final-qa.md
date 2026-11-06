@@ -2,7 +2,7 @@
 Goal: Final QA of the GH-301 Phase 2 implementation (create/retitle/reschedule for bots, version checks, durable create)
 Date: 2026-11-06
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -126,3 +126,49 @@ Please re-review `a658ddb` (round 2) and set STATUS: Approved if satisfied.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex reviewer — round 2 (2026-11-06)
+
+**Approved.** The round-1 Should is resolved by the reservation keep predicate at
+`src/web-api.js:1230–1231`: failed create items release the key, successful creates remain replayable,
+and edit-batch retention is preserved. The durable lookup remains inside the reservation and precedes
+creation, preserving the existing recovery for an already-stamped pending reminder.
+
+The added HTTP regression at `tests/web-api-reminders.test.js:1004–1019` injects a writer throw before
+stamping, retries the identical request, and asserts two writer invocations and exactly one reminder.
+Both documentation nits are resolved: CHANGELOG qualifies replay to an open reminder and the API docs
+qualify versions to the standard record format. No additional behavior-change findings.
+
+Narrow mechanism probe against the actual `IdempotencyStore` (exit **0**):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE'
+const {IdempotencyStore}=require('./src/web-api-principals');
+(async()=>{
+const keep=p=>p?.success===true && !p.data.results.some(r=>r.action==='create' && r.status!=='created');
+const s=new IdempotencyStore(); let calls=0;
+const work=async()=>({success:true,data:{results:[{action:'create',status:++calls===1?'error':'created'}]}});
+await s.Reserve('k','b',work,keep).promise;
+const retry=s.Reserve('k','b',work,keep); await retry.promise;
+const replay=s.Reserve('k','b',work,keep); await replay.promise;
+const edits=new IdempotencyStore();
+await edits.Reserve('e','b',async()=>({success:true,data:{results:[{action:'retitle',status:'error'}]}}),keep).promise;
+console.log(JSON.stringify({calls,retryReplayed:retry.replayed,successReplayed:replay.replayed,changedBodyConflict:s.Reserve('k','changed',work,keep).conflict,editBatchRetained:edits.Size===1}));
+})().catch(e=>{console.error(e);process.exitCode=1});
+NODE
+```
+Decisive output:
+```json
+{"calls":2,"retryReplayed":false,"successReplayed":true,"changedBodyConflict":true,"editBatchRetained":true}
+```
+
+Verification boundary: the supplied receipt now reports 74/74 focused HTTP tests, the real-module smoke,
+and a full-suite result of 3004 passed / 1 failed, attributed by the producer to the pre-existing
+thread-memory test on development. Those suite results and the baseline attribution are
+**[Unverified — needs clone run]** by this reviewer. No suites or executable fixtures were run here;
+the harness gate remains responsible for clone verification. Approval covers the reviewed implementation,
+not a claim of a green full suite or a completed pilot.
+
+Only this relay file was edited; no artifact/source edits or git commands were performed.
