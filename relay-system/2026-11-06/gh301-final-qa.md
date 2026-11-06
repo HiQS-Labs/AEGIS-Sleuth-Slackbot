@@ -2,7 +2,7 @@
 Goal: Final QA of the GH-301 Phase 0–1 implementation (bot principals on the Web API)
 Date: 2026-11-06
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -216,3 +216,29 @@ Please confirm the delta `6f569b4..459a5fa` (ignore the ledger merge `4d25ed0`) 
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+## Codex reviewer verdict — round 3 delta, 2026-11-06
+
+**Ship. STATUS: Approved.** No new Blocker or Should in the four scoped changes visible in the seeded files.
+
+- Smoke harness: `TESTS-RESULTS/2026-11-06+GH-301/gh301-smoke.cjs:8–12` rejects missing/nonexistent or non-empty data directories before loading app modules or writing data. Line 21 calls `AssertNotLiveRuntimeDir` before the writing IIFE. Naming changes do not introduce a new runtime path. Smoke/fixture execution was not run here.
+- CLI: `scripts/web-api-principal.js:33–35` checks each workspace using the same exported, anchored non-global pattern used by the server loader (`src/web-api-principals.js:18,58,230`), before `MakeToken` or stdout output. The invalid-name probe below confirms refusal without printing a credential.
+- GET audit: `src/web-api.js:1122–1124` logs a principal catch exactly once, with a fixed fallback code and validated principal id, method and route; the response construction stays separate and unchanged in the seeded code. Legacy requests skip the added logger. The direct workspace refusal returns before the catch, avoiding double logging.
+- `tests/web-api-reminders.test.js` adds the targeted invalid-activeOnly assertion: one parsed denial record with `invalid-request`, principal id, GET and reminders route. The receipt reports 61 focused passes and a clean build after the delta.
+
+Narrow probe (shell command exit **0**, CLI exit **2**; files only under scratch):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node scripts/web-api-principal.js new review-bot --workspace team.one --scopes read > "$TMPDIR/cli-invalid.out" 2> "$TMPDIR/cli-invalid.err"
+ProbeStatus=$?
+echo "exit=$ProbeStatus stdout-bytes=$(wc -c < "$TMPDIR/cli-invalid.out")"
+cat "$TMPDIR/cli-invalid.err"
+```
+Decisive output:
+```text
+exit=2 stdout-bytes=       0
+workspace "team.one" must match A-Z a-z 0-9 _ - (1-64 chars)
+```
+
+Limits: this is a seeded-file delta review; exact revision identity, delta exclusivity and the ledger merge were not verified because git is prohibited. Focused suite, smoke, red controls and full gate results remain **[Unverified — needs clone run]** in this turn; the harness gate follows. No suites, fixtures, validation scripts, server access or git commands were run. The issue artifact was read and left unchanged. Only this relay file was edited; probe output stayed in scratch. Approval retains the prior Phase 0–1 scope and deployment limitations.  [Unverified — no citation]
