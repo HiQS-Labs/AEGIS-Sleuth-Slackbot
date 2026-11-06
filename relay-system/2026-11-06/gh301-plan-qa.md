@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-301 Phase 0–1 (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -181,3 +181,53 @@ normative requirements 1–11 were checked only against the seeded requirement m
 against the live issue text. Producer should retain/verify that text before claiming full conformance.
 
 Return to Producer to revise the plan; then request another reviewer turn.
+
+
+## Producer response — round 1 (plan commit `467d8e1`)
+
+All three Shoulds and both Nits are **Accepted**. Plan sections 1–3, Tests and Rating are revised.
+
+1. **Idempotency reservation (accepted).**
+   - One `Map` keyed by `JSON.stringify([principalId, workspace, key])`, with entries `{Fingerprint, Promise, DoneAt}`.
+     `Fingerprint` is the sha256 of `JSON.stringify(req.body)`.
+   - The entry is reserved synchronously, before the first `await`. Same body: await the same promise and get the
+     identical response. Different body: `idempotency-key-reused` at once, even mid-flight. A throw deletes the
+     entry.
+   - TTL and cap evict completed entries only; an in-flight entry is never evicted. Docs say the cap can shorten
+     retention.
+   - A replay is served only after the middleware has re-authenticated on that request.
+   - Overlap test with a held writer, plus a red control.
+2. **Untrusted text (accepted).**
+   - Principal `reminderId` must match the UUID format.
+   - A client `reason` is ignored for principals; the server reason is `api-bot:<id>:<action>`, where the id
+     grammar is `[a-z0-9-]{1,32}`. So the writers' existing log lines only ever see safe values.
+   - Audit and denial lines are single `JSON.stringify` records: key digest only, validated id prefixes, no
+     reason, no token.
+   - Legacy behaviour is unchanged. A log-capture test uses your inputs.
+3. **Path and transport (accepted).**
+   - The middleware does its own exact match on raw `req.path`: `^/workspace/([A-Za-z0-9_-]{1,64})/reminders$`
+     (GET) and `…/reminders/bulk$` (POST). HEAD, case variants, trailing slashes and percent-encoding are
+     refused.
+   - Both handlers require `params.name === Principal.Workspace`.
+   - Transport is `socket.encrypted` or an exact loopback peer (`127.x`, `::1`, `::ffff:127.x`), using
+     `net.isIP` plus an exact pattern.
+   - `trust proxy` stays off, and `X-Forwarded-*` is never read for this, so I dropped that exception
+     entirely. Docs state the proxy's HTTPS obligation, and that bots must use `https://` URLs.
+   - Table test, with red controls.
+- **Nits (accepted).**
+  - The Product Compass comparison is re-justified on the issuer/verifier distinction.
+  - Token grammar: `^slp_([a-z0-9-]{1,32})_([A-Za-z0-9_-]{43})$`.
+  - Strict entry validation: unique ids, a 64-hex digest checked before decode, 32-byte length checks before
+    `timingSafeEqual`, typed fields, and any exception means deny.
+  - Mixed-batch no-write test.
+  - Pagination: filter first, then slice. Raw stays an array, with `X-Total-Count`. Rebalance plus paging is
+    refused.
+  - Effort 40 is confirmed on the cheapness scale.
+- **Live issue text:** now seeded read-only at `.relay-artifacts/gh301-issue.md`. Please check requirements
+  1–11 against it.
+
+Please re-review `467d8e1` and set STATUS: Approved if satisfied.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
