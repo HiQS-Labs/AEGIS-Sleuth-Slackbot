@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Phase 0–1 shipped in #305 (2026-11-06). Phase 2 plan written below (2026-11-06). | Codex plan QA for Phase 2, then implement. Phases 3–4 later. |
+| Phase 0–1 shipped in #305. Phase 2 plan approved by Codex (round 2) and implemented on the phase2 branch (2026-11-06). | Phase 2 smoke, final QA and PR. Link editing follow-up; Phase 3 (MCP); Phase 4 pilot running on dev. |
 
 ## Problem
 

@@ -35,6 +35,25 @@
 
 ## Unreleased
 
+The bots your team trusts can now also add reminders and fix their wording or time, not just close them. If a
+reminder changed after the bot last looked, I refuse the change instead of overwriting it, and a bot that
+retries a request never creates the same reminder twice.
+
+**Technical:** GH-301 Phase 2.
+- **Bot actions:** principals may now `create`, `retitle` and `reschedule` as well as `complete`/`cancel`,
+  each with its own field allowlist. Every non-create action requires `ifMatch`, taken from the new `version`
+  on principal reads.
+- **Versions:** `RemindersModule.GetReminderVersion` digests the fields a bot edit reads or overwrites (text,
+  due time, ordered owners, links, state, snooze, DND and relay flags). Nothing is stored.
+- **Conflict checks:** batches are checked whole before any write. The complete, cancel, retitle and reschedule
+  writers take an optional `ExpectedVersion` and re-check it at the moment of mutation; retitle also re-checks
+  after its ledger-gap await.
+- **Bot creates:** a create must be alone in its request, is allowed only in channels with auto-scheduling
+  enabled, and is checked against the title contract. It is stamped with `ApiCreateKey`/`ApiCreateFingerprint`
+  before the first save, so a retry after a restart returns the same reminder.
+- **Unchanged:** legacy callers. Editing GitHub links is deferred to a follow-up.
+- **Tests:** `tests/web-api-reminders.test.js` and `tests/reminders-integration.test.js`.
+
 Bots your team trusts can now read and close your reminders without anyone sharing the server password.
 Each bot gets its own key, limited to your workspace. You can switch a key off at once, and it only works over
 a secure connection. Nothing changes until an administrator turns it on.
