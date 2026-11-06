@@ -315,12 +315,10 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
     ArgReminder.OriginalMessageID
   );
 
-  const CurrentDate = DateUtils.GetCurrentDateInTimeZone(
-    ArgSlackApp.WorkspaceInfo.MAIN_TIMEZONE
-  );
-  const DaysOld = Math.floor(
-    (CurrentDate.getTime() - ArgReminder.CreatedOn.getTime()) /
-      (24 * 60 * 60 * 1000)
+  // Calendar days in the workspace zone (GH-297): subtracting CreatedOn from the localized "now"
+  // mixed frames and counted elapsed 24 h blocks, so yesterday's reminders read "created today".
+  const DaysOld = DateUtils.GetCalendarDaysBetween(
+    ArgSlackApp.WorkspaceInfo.MAIN_TIMEZONE, ArgReminder.CreatedOn, new Date()
   );
 
   // AssigneeIDs is normalized by RemindersModule before display. Keep the singular legacy fallback

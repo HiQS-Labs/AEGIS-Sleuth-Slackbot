@@ -1130,52 +1130,152 @@ class RemindersModule {
   }
 
   /**
-   * Update a reminder's editable task summary from a synced Slack List row.
+   * Update a reminder's editable task summary from a synced Slack List row — or, with
+   * `SyncLists`, from the Web API (GH-290).
    * Preserves the original reminder envelope when possible, only rewriting the mutable
    * task-summary section that backs the Slack List title.
    * @param {string} ArgReminderID Reminder ID to update.
    * @param {string} ArgSummaryMrkdwn New summary in Slack mrkdwn format.
    * @param {string} ArgReason Reason for the edit.
-   * @returns {Promise<boolean>}
+   * @param {{ SyncLists?: boolean, ReturnStatus?: boolean }} [ArgOptions] `SyncLists` fans the new
+   *   summary out to every list row (a list-originated edit already did its own row). `ReturnStatus`
+   *   returns `'updated'|'unchanged'|'not-found'` instead of a boolean.
+   * @returns {Promise<boolean|'updated'|'unchanged'|'not-found'>}
    */
-  async UpdateReminderSummaryFromListAsync(ArgReminderID, ArgSummaryMrkdwn, ArgReason) {
+  async UpdateReminderSummaryFromListAsync(ArgReminderID, ArgSummaryMrkdwn, ArgReason, ArgOptions = {}) {
     const Reminder = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
     if(!Reminder) {
       this.#SlackApp.Logger.warn(`[lists-sync] reminder ${ArgReminderID} not found for summary update`);
-      return false;
+      return ArgOptions.ReturnStatus ? 'not-found' : false;
     }
 
     const NewSummary = typeof ArgSummaryMrkdwn === 'string' ? ArgSummaryMrkdwn.trim() : '';
     if(!NewSummary) {
       this.#SlackApp.Logger.warn(`[lists-sync] reminder ${ArgReminderID} summary update ignored because the new summary was empty`);
-      return false;
+      return ArgOptions.ReturnStatus ? 'not-found' : false;
     }
 
     const CurrentSummary = SlackFormatUtils.ExtractKeyTasks(Reminder.ReminderMessageText);
     if(CurrentSummary === NewSummary) {
-      return true;
+      return ArgOptions.ReturnStatus ? 'unchanged' : true;
     }
 
+    // no ledger event carries a summary, so a verified projection would keep serving the old text.
+    // Mark the gap BEFORE the change, so no projection read sees a verified marker with stale data.
+    await this.#RecordLedgerGapAsync('summary-edit');
     Reminder.ReminderMessageText = SlackFormatUtils.ReplaceReminderSummary(
       Reminder.ReminderMessageText,
       NewSummary
     );
     await this.#SaveRemindersAsync();
+    if(ArgOptions.SyncLists && this.#ListsModule && this.#ListsModule.IsListsAvailable)
+      await this.#ListsModule.SyncReminderSummaryAcrossListsAsync(ArgReminderID, NewSummary, null);
     this.#SlackApp.Logger.info(`[lists-sync] updated reminder ${ArgReminderID} summary (${ArgReason})`);
-    return true;
+    return ArgOptions.ReturnStatus ? 'updated' : true;
   }
 
   /**
-   * Create a new reminder from a row a user authored directly in a synced Slack List.
+   * Move a pending reminder to a new time (GH-290, Web API). Mirrors the proven retry reschedule in
+   * the posting pass: set the date, clear the snooze/DND holds, and go Rescheduled → Scheduled
+   * through the FSM, whose Scheduled transition emits ReminderScheduled{dueAt} for the ledger. An
+   * overdue reminder moved forward is therefore scheduled again and the mark pass waits for it.
+   * A reminder the posting pass has already claimed (`posting`) is refused as `busy`.
+   * @param {string} ArgReminderID Reminder ID to move.
+   * @param {Date} ArgShouldPostOn New time.
+   * @param {string} ArgReason Reason for the change.
+   * @returns {Promise<{status: 'updated'|'unchanged'|'not-found'|'busy', listFailures?: string[]}>}
+   */
+  async RescheduleReminderAsync(ArgReminderID, ArgShouldPostOn, ArgReason) {
+    const Reminder = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
+    if(!Reminder) return { status: 'not-found' };
+    const State = RemindersModule.ReminderState;
+    /** @type {string[]} */
+    const ReschedulableStates = [State.Scheduled, State.Overdue, State.Due, State.Failed, State.Snoozed, State.Posted];
+    if(!ReschedulableStates.includes(Reminder.State ?? State.Scheduled))
+      return { status: 'busy' };
+    if(Reminder.ShouldPostOn instanceof Date && Reminder.ShouldPostOn.getTime() === ArgShouldPostOn.getTime())
+      return { status: 'unchanged' };
+
+    Reminder.ShouldPostOn = new Date(ArgShouldPostOn.getTime());
+    Reminder.IgnoreSnooze = false;
+    Reminder.DndHeld = false;
+    this.#TransitionReminderState(Reminder, State.Rescheduled, ArgReason);
+    this.#TransitionReminderState(Reminder, State.Scheduled, ArgReason);
+    await this.#SaveRemindersAsync();
+    const ListFailures = this.#ListsModule && this.#ListsModule.IsListsAvailable
+      ? await this.#ListsModule.SyncReminderScheduleAcrossListsAsync(ArgReminderID, Reminder.ShouldPostOn)
+      : [];
+    this.#SlackApp.Logger.info(`[reminders] rescheduled reminder ${ArgReminderID} for ${Reminder.ShouldPostOn.toUTCString()} (${ArgReason})`);
+    return { status: 'updated', listFailures: ListFailures };
+  }
+
+  /**
+   * Replace a pending reminder's owners (GH-290, Web API). The lists follow through
+   * ListsModule.MoveReminderBetweenUserListsAsync; when any list does not, the canonical owners have
+   * still changed and the caller reports which lists lag.
+   * @param {string} ArgReminderID Reminder ID to reassign.
+   * @param {string[]} ArgAssigneeIDs New owners, primary first.
+   * @param {string} ArgReason Reason for the change.
+   * @returns {Promise<{status: 'updated'|'unchanged'|'not-found', listFailures?: string[]}>}
+   */
+  async ReassignReminderAsync(ArgReminderID, ArgAssigneeIDs, ArgReason) {
+    const Reminder = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
+    if(!Reminder) return { status: 'not-found' };
+    const NewIDs = RemindersModule.GetAssigneeIDs({ AssigneeIDs: ArgAssigneeIDs, AssigneeID: ArgAssigneeIDs[0] }, this.#SlackApp.BotUserID);
+    const OldIDs = RemindersModule.GetAssigneeIDs(Reminder, this.#SlackApp.BotUserID);
+    if(NewIDs.length === 0) return { status: 'not-found' };
+    if(NewIDs.length === OldIDs.length && NewIDs.every((ArgID, ArgIndex) => ArgID === OldIDs[ArgIndex]))
+      return { status: 'unchanged' };
+
+    // no ledger event carries owners; mark the gap before the change (see the summary edit).
+    await this.#RecordLedgerGapAsync('reassign');
+    Reminder.AssigneeIDs = NewIDs;
+    Reminder.AssigneeID = NewIDs[0];
+    this.#NormalizeReminderAssignees(Reminder);
+    this.#BuildReminderIndexes();
+    await this.#SaveRemindersAsync();
+    const ListFailures = this.#ListsModule && this.#ListsModule.IsListsAvailable
+      ? await this.#ListsModule.MoveReminderBetweenUserListsAsync(
+        Reminder,
+        OldIDs.filter(ArgID => !NewIDs.includes(ArgID)),
+        NewIDs.filter(ArgID => !OldIDs.includes(ArgID))
+      )
+      : [];
+    this.#SlackApp.Logger.info(`[reminders] reassigned reminder ${ArgReminderID} to ${NewIDs.join(',')} (${ArgReason})`);
+    return { status: 'updated', listFailures: ListFailures };
+  }
+
+  /**
+   * Mark the event ledger's coverage as gapped for an edit no ledger event represents, so a
+   * projection-backed read falls back to the authoritative store. Best-effort: a marker failure is
+   * logged and never blocks the edit.
+   * @param {string} ArgReason Short reason recorded on the marker.
+   * @returns {Promise<void>}
+   */
+  async #RecordLedgerGapAsync(ArgReason) {
+    if(!this.#LedgerCoverage || !this.#EventWorkspace) return;
+    try {
+      await this.#LedgerCoverage.RecordGapAsync(this.#EventWorkspace, ArgReason);
+    } catch(error) {
+      this.#SlackApp.Logger.warn(`[reminders] could not record ledger coverage gap (${ArgReason})`, error);
+    }
+  }
+
+  /**
+   * Create a new reminder from a row a user authored directly in a synced Slack List — or, with
+   * options, from the Web API (GH-290).
    *
    * A list row carries no source-message context, so OriginalMessageID is left empty and
-   * OriginalChannelID falls back to the target channel. The reminder is queued without the
-   * usual Slack List fan-out — the caller adopts the existing authored row instead.
-   * @param {{summary: string, dueDate: string, assigneeID: string|null, targetChannelID: string, originalSenderID: string|null}} ArgRowData
-   *   Minimum column contract extracted from the list row.
+   * OriginalChannelID falls back to the target channel. By default the reminder is queued without
+   * the usual Slack List fan-out — the list caller adopts the existing authored row instead.
+   * @param {{summary: string, dueDate: string, assigneeID: string|null, assigneeIDs?: string[], targetChannelID: string, originalSenderID: string|null}} ArgRowData
+   *   Minimum column contract extracted from the list row; `assigneeIDs` adds further owners.
+   * @param {{ SkipListSync?: boolean, RequireOwner?: boolean }} [ArgOptions] `SkipListSync`
+   *   (default true) skips the list fan-out; `RequireOwner` refuses a row with no owner and no
+   *   sender instead of falling back to the channel id.
    * @returns {Promise<{ok: boolean, reminder?: ReminderInfo, error?: string}>}
    */
-  async CreateReminderFromListRowAsync(ArgRowData) {
+  async CreateReminderFromListRowAsync(ArgRowData, ArgOptions = {}) {
     const Summary = typeof ArgRowData.summary === 'string' ? ArgRowData.summary.trim() : '';
     if(!Summary) {
       return { ok: false, error: 'missing summary' };
@@ -1190,10 +1290,18 @@ class RemindersModule {
       return { ok: false, error: 'missing target channel' };
     }
 
+    const Owners = [...new Set([
+      ...(Array.isArray(ArgRowData.assigneeIDs) ? ArgRowData.assigneeIDs : []),
+      ArgRowData.assigneeID,
+    ].filter(ArgID => typeof ArgID === 'string' && ArgID.length > 0))];
+    if(ArgOptions.RequireOwner && Owners.length === 0 && !ArgRowData.originalSenderID) {
+      return { ok: false, error: 'missing owner (assignee or sender)' };
+    }
+
     // a list row has no authoring user when created_by is unavailable; fall back so the
     // sender/assignee indexes stay populated.
-    const SenderID = ArgRowData.originalSenderID || ArgRowData.assigneeID || ArgRowData.targetChannelID;
-    const AssigneeID = ArgRowData.assigneeID || SenderID;
+    const SenderID = ArgRowData.originalSenderID || Owners[0] || ArgRowData.targetChannelID;
+    const AssigneeIDs = Owners.length > 0 ? Owners : [SenderID];
 
     const NewReminderInfo = this.#MakeScheduledReminder({
       ShouldPostOn: ParsedDate,
@@ -1204,14 +1312,14 @@ class RemindersModule {
       OriginalThreadTs: null,
       OriginalSenderID: SenderID,
       ReminderMessageText: Summary,
-      AssigneeID: AssigneeID,
-      AssigneeIDs: [AssigneeID],
+      AssigneeID: AssigneeIDs[0],
+      AssigneeIDs: AssigneeIDs,
       GitHubUrls: null,
     });
 
-    // SkipListSync: the caller adopts the existing authored row rather than creating a duplicate.
-    await this.#QueueReminderAsync(NewReminderInfo, { SkipListSync: true });
-    this.#SlackApp.Logger.info(`[lists-sync] created reminder ${NewReminderInfo.ReminderID} from a hand-authored list row`);
+    // SkipListSync (default): the list caller adopts the existing authored row rather than creating a duplicate.
+    await this.#QueueReminderAsync(NewReminderInfo, { SkipListSync: ArgOptions.SkipListSync !== false });
+    this.#SlackApp.Logger.info(`[lists-sync] created reminder ${NewReminderInfo.ReminderID} from ${ArgOptions.SkipListSync === false ? 'the Web API' : 'a hand-authored list row'}`);
     return { ok: true, reminder: NewReminderInfo };
   }
 
@@ -4212,6 +4320,11 @@ class RemindersModule {
     //   bot not member →  overdue → posting → dead-letter (terminal, deleted)
     // If you add a new exit path from this loop, add a corresponding #TransitionReminderState call.
     for(const ReminderToPost of RemindersToPost) {
+      // RemindersToPost is a snapshot and the loop awaits Slack between entries, so a later entry can
+      // be edited (rescheduled to the future via the Web API, GH-290) after it was selected. Claim
+      // only entries that are still overdue; this check and the →posting transition below run
+      // synchronously, so once an entry is claimed an edit sees `posting` and is refused.
+      if(ReminderToPost.State !== RemindersModule.ReminderState.Overdue) continue;
       if(this.#ShouldSuppressForSnooze(ReminderToPost, ArgForceProcessAll)) {
         this.#TransitionReminderState(ReminderToPost, RemindersModule.ReminderState.Snoozed, 'snooze-day');
         this.#AdvanceToNextNonSnoozeDay(ReminderToPost.ShouldPostOn);

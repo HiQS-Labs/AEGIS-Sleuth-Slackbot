@@ -81,6 +81,25 @@ class DateUtils {
   }
 
   /**
+   * Number of calendar days between two real-UTC instants, counted on the wall calendar of the
+   * given time zone (GH-297). 15:37 yesterday → 08:30 today is 1, not 0. Both instants are
+   * localized first, so this never mixes a localized-UTC Date with a real one. Localized-UTC has no
+   * DST, so the two local midnights are an exact multiple of 24 h apart. Signed: a `To` earlier than
+   * `From` gives a negative result.
+   * @param {string} ArgTimeZone Time zone whose calendar defines a day.
+   * @param {Date} ArgFromUtcDate Earlier instant (e.g. a reminder's CreatedOn).
+   * @param {Date} ArgToUtcDate Later instant (e.g. now).
+   * @returns {number}
+   */
+  static GetCalendarDaysBetween(ArgTimeZone, ArgFromUtcDate, ArgToUtcDate) {
+    const LocalMidnightMs = (/** @type {Date} */ ArgUtcDate) => {
+      const Localized = this.GetLocalizedUtcDate(ArgTimeZone, ArgUtcDate);
+      return Date.UTC(Localized.getUTCFullYear(), Localized.getUTCMonth(), Localized.getUTCDate());
+    };
+    return Math.round((LocalMidnightMs(ArgToUtcDate) - LocalMidnightMs(ArgFromUtcDate)) / (24 * 60 * 60 * 1000));
+  }
+
+  /**
    * Returns the calendar-week window (Sunday 00:00 through the following Sunday 00:00) that
    * contains the reference instant, expressed in the given time zone.
    *

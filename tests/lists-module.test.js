@@ -622,6 +622,117 @@ describe('ListsModule Slack Lists contract', () => {
     await Lists.StopAsync();
   });
 
+  describe('GH-290: owner and schedule changes follow onto the lists', () => {
+    /**
+     * Shared list + per-user lists for U_ASSIGNEE (F_USER_1) and U_NEW (F_USER_2), with R123 on the
+     * shared list and U_ASSIGNEE's list.
+     */
+    async function CreateTwoOwnerHarnessAsync() {
+      jest.useFakeTimers();
+      const Harness = await CreateHarnessAsync({ SeedCache: true, UseFakeTimers: true });
+      for(const UserID of ['U_ASSIGNEE', 'U_NEW']) {
+        const EnsurePromise = Harness.Lists.EnsureUserListAsync(UserID, [], 'C_GENERATION');
+        await jest.advanceTimersByTimeAsync(ListsModule.LIST_PROPAGATION_DELAY_MS);
+        await EnsurePromise;
+      }
+      await Harness.Lists.AddReminderToListAsync(MakeReminder());
+      Harness.ApiCallMock.mockClear();
+      return Harness;
+    }
+
+    /** @returns {string[]} `method list_id` for every list write the mock saw. */
+    function ListWrites(ArgApiCallMock) {
+      return ArgApiCallMock.mock.calls
+        .filter(([ArgMethod]) => /^slackLists\.items\.(create|update|delete)$/.test(ArgMethod))
+        .map(([ArgMethod, ArgPayload]) => `${ArgMethod.split('.').pop()} ${ArgPayload.list_id}`)
+        .sort();
+    }
+
+    it('a reassign moves only the per-user rows and repoints the shared row owner', async () => {
+      const { Lists, ApiCallMock, ListStore } = await CreateTwoOwnerHarnessAsync();
+      const SharedRowsBefore = [...ListStore.get('F_LIST_123').items.keys()];
+
+      const Failures = await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW'] }, ['U_ASSIGNEE'], ['U_NEW']
+      );
+
+      expect(Failures).toEqual([]);
+      // removed owner's row deleted, added owner's row created, shared row updated in place only.
+      expect(ListWrites(ApiCallMock)).toEqual(['create F_USER_2', 'delete F_USER_1', 'update F_LIST_123']);
+      expect([...ListStore.get('F_LIST_123').items.keys()]).toEqual(SharedRowsBefore);
+      const SharedUpdate = ApiCallMock.mock.calls.find(([ArgMethod, ArgPayload]) =>
+        ArgMethod === 'slackLists.items.update' && ArgPayload.list_id === 'F_LIST_123');
+      expect(JSON.stringify(SharedUpdate[1].cells)).toContain('U_NEW');
+
+      // the same move again (red control for the add guard): no duplicate row on U_NEW's list.
+      ApiCallMock.mockClear();
+      await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW'] }, [], ['U_NEW']
+      );
+      expect(ListWrites(ApiCallMock).filter(ArgWrite => ArgWrite.startsWith('create'))).toEqual([]);
+
+      await Lists.StopAsync();
+    });
+
+    it('a list that does not follow the reassign is reported', async () => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+      const Real = ApiCallMock.getMockImplementation();
+      ApiCallMock.mockImplementation(async (ArgMethod, ArgParams) => {
+        if(ArgMethod === 'slackLists.items.update' && ArgParams.list_id === 'F_LIST_123') throw new Error('boom');
+        return Real(ArgMethod, ArgParams);
+      });
+
+      const Failures = await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW'] }, ['U_ASSIGNEE'], ['U_NEW']
+      );
+
+      expect(Failures).toEqual(['update owner on shared list F_LIST_123']);
+      await Lists.StopAsync();
+    });
+
+    it('a retained owner keeps their row, and it gets the new primary owner too', async () => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+
+      // U_NEW becomes primary, U_ASSIGNEE stays as a second owner: nothing to delete.
+      const Failures = await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW', 'U_ASSIGNEE'] }, [], ['U_NEW']
+      );
+
+      expect(Failures).toEqual([]);
+      expect(ListWrites(ApiCallMock)).toEqual(['create F_USER_2', 'update F_LIST_123', 'update F_USER_1']);
+      const RetainedUpdate = ApiCallMock.mock.calls.find(([ArgMethod, ArgPayload]) =>
+        ArgMethod === 'slackLists.items.update' && ArgPayload.list_id === 'F_USER_1');
+      expect(JSON.stringify(RetainedUpdate[1].cells)).toContain('U_NEW');
+      await Lists.StopAsync();
+    });
+
+    it('a failed delete from a removed owner\'s list is reported', async () => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+      const Real = ApiCallMock.getMockImplementation();
+      ApiCallMock.mockImplementation(async (ArgMethod, ArgParams) => {
+        if(ArgMethod === 'slackLists.items.delete') throw new Error('boom');
+        return Real(ArgMethod, ArgParams);
+      });
+
+      const Failures = await Lists.MoveReminderBetweenUserListsAsync(
+        { ...MakeReminder(), AssigneeID: 'U_NEW', AssigneeIDs: ['U_NEW'] }, ['U_ASSIGNEE'], ['U_NEW']
+      );
+
+      expect(Failures).toContain('remove from U_ASSIGNEE\'s list');
+      await Lists.StopAsync();
+    });
+
+    it('a reschedule rewrites the created_on cell on every row of the reminder', async () => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+
+      const Failures = await Lists.SyncReminderScheduleAcrossListsAsync('R123', new Date('2026-06-01T17:00:00.000Z'));
+
+      expect(Failures).toEqual([]);
+      expect(ListWrites(ApiCallMock)).toEqual(['update F_LIST_123', 'update F_USER_1']);
+      await Lists.StopAsync();
+    });
+  });
+
   it('inbound completion: a checked per-user row completes the reminder, and the creation echo is suppressed', async () => {
     jest.useFakeTimers();
     const Reminders = MakeFakeRemindersModule();
