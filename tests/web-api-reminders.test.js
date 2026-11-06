@@ -648,3 +648,249 @@ describe('POST /workspace/:name/reminders/bulk (GH-279)', () => {
     expect(Result.data.counts).toEqual({ updated: 3, partial: 1, 'not-found': 1, created: 1 });
   });
 });
+
+describe('Bot principals (GH-301 Phase 1)', () => {
+  const Principals = require('../src/web-api-principals');
+  /** @type {WebAPI} */
+  let API;
+  const WsA = 'BotPrincipalWsA';
+  const WsB = 'BotPrincipalWsB';
+  const R1 = 'aaaaaaaa-1111-4111-8111-000000000001';
+  const R2 = 'aaaaaaaa-1111-4111-8111-000000000002';
+  const TestSlackApps = new Map();
+  const FilePath = Principals.PrincipalsFilePath();
+  const RemindersDir = workspaces.GetSubdirPath('reminders');
+  const Tokens = {
+    a: Principals.MakeToken('bot-a'),
+    reader: Principals.MakeToken('bot-reader'),
+    old: Principals.MakeToken('bot-old'),
+    gone: Principals.MakeToken('bot-gone'),
+  };
+  /** @type {any[]} writer calls in order */
+  let Calls;
+  /** @type {null | (() => void)} release for a held writer */
+  let HoldRelease;
+  let HoldNext;
+
+  /** @param {any[]} [ArgOverride] */
+  async function WritePrincipalsAsync(ArgOverride) {
+    const Entries = ArgOverride ?? [
+      { id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read', 'reminders:write'] },
+      { id: 'bot-reader', sha256: Principals.HashToken(Tokens.reader), workspaces: [WsA], scopes: ['reminders:read'] },
+      { id: 'bot-old', sha256: Principals.HashToken(Tokens.old), workspaces: [WsA], scopes: ['reminders:read'], expiresAt: '2020-01-01T00:00:00Z' },
+      { id: 'bot-gone', sha256: Principals.HashToken(Tokens.gone), workspaces: [WsA], scopes: ['reminders:read'], revoked: true },
+    ];
+    await fs.mkdir(path.dirname(FilePath), { recursive: true });
+    await fs.writeFile(FilePath, typeof Entries === 'string' ? Entries : JSON.stringify(Entries));
+  }
+
+  /**
+   * @param {string} ArgMethod
+   * @param {string} ArgPath
+   * @param {{ token?: string, key?: string, body?: any, headers?: Record<string, string> }} [ArgOptions]
+   */
+  async function CallAsync(ArgMethod, ArgPath, ArgOptions = {}) {
+    /** @type {Record<string, string>} */
+    const Headers = { 'Content-Type': 'application/json', ...(ArgOptions.headers ?? {}) };
+    Headers.Authorization = `Bearer ${ArgOptions.token ?? Tokens.a}`;
+    if(ArgOptions.key) Headers['Idempotency-Key'] = ArgOptions.key;
+    const Response = await fetch(`http://127.0.0.1:${TestPort}${ArgPath}`, {
+      method: ArgMethod, headers: Headers, body: ArgOptions.body === undefined ? undefined : JSON.stringify(ArgOptions.body),
+    });
+    return ArgMethod === 'HEAD' ? { status: Response.status } : { json: await Response.json(), total: Response.headers.get('x-total-count') };
+  }
+  const Bulk = ArgWs => `/workspace/${ArgWs}/reminders/bulk`;
+  const List = ArgWs => `/workspace/${ArgWs}/reminders`;
+  const Complete = ArgIds => ({ actions: ArgIds.map(ArgId => ({ action: 'complete', reminderId: ArgId })) });
+
+  beforeAll(async () => {
+    API = CreateTestWebAPI(TestSlackApps);
+    await API.StartAsync();
+  });
+
+  afterAll(async () => {
+    await API.StopAsync();
+    await fs.rm(FilePath, { force: true });
+    for(const Ws of [WsA, WsB]) await fs.rm(path.join(RemindersDir, `${Ws}_reminders.json`), { force: true });
+  });
+
+  beforeEach(async () => {
+    process.env.WEB_API_BOT_PRINCIPALS = '1';
+    Calls = [];
+    HoldRelease = null;
+    HoldNext = false;
+    jest.spyOn(workspaces, 'WorkspaceExistsAsync').mockResolvedValue(true);
+    await WritePrincipalsAsync();
+    const Writer = ArgName => async (ArgId, ArgReason) => {
+      Calls.push([ArgName, ArgId, ArgReason]);
+      if(HoldNext) {
+        HoldNext = false;
+        await new Promise(ArgResolve => { HoldRelease = ArgResolve; });
+      }
+      return true;
+    };
+    for(const Ws of [WsA, WsB]) {
+      TestSlackApps.set(Ws, { RemindersModule: { CompleteReminderByIdAsync: Writer('complete'), CancelReminderFromListAsync: Writer('cancel') } });
+    }
+  });
+
+  afterEach(() => {
+    delete process.env.WEB_API_BOT_PRINCIPALS;
+    jest.restoreAllMocks();
+    TestSlackApps.clear();
+  });
+
+  test('flag off: a principal token is refused like any unknown token', async () => {
+    delete process.env.WEB_API_BOT_PRINCIPALS;
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k1', body: Complete([R1]) });
+    expect(Result.json).toEqual({ success: false, data: 'Forbidden.' });
+    expect(Calls).toEqual([]);
+  });
+
+  test('a valid principal reads its workspace and completes with a server-owned reason', async () => {
+    await fs.mkdir(RemindersDir, { recursive: true });
+    await fs.writeFile(path.join(RemindersDir, `${WsA}_reminders.json`), JSON.stringify([]));
+    expect((await CallAsync('GET', List(WsA))).json).toEqual({ success: true, data: [] });
+
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-valid', body: { actions: [{ action: 'complete', reminderId: R1, reason: 'client text' }] } });
+    expect(Result.json.success).toBe(true);
+    expect(Calls).toEqual([['complete', R1, 'api-bot:bot-a:complete']]);
+  });
+
+  test('cross-workspace access is denied and no writer runs', async () => {
+    expect((await CallAsync('GET', List(WsB))).json.code).toBe('forbidden-workspace');
+    expect((await CallAsync('POST', Bulk(WsB), { key: 'k-x', body: Complete([R1]) })).json.code).toBe('forbidden-workspace');
+    expect(Calls).toEqual([]);
+  });
+
+  test('expired, revoked, unknown and wrong-secret tokens are denied; revocation needs no restart', async () => {
+    expect((await CallAsync('GET', List(WsA), { token: Tokens.old })).json.code).toBe('expired');
+    expect((await CallAsync('GET', List(WsA), { token: Tokens.gone })).json.code).toBe('revoked');
+    expect((await CallAsync('GET', List(WsA), { token: Principals.MakeToken('bot-nobody') })).json.code).toBe('unknown');
+    expect((await CallAsync('GET', List(WsA), { token: `${Tokens.a.slice(0, -1)}${Tokens.a.endsWith('A') ? 'B' : 'A'}` })).json.code).toBe('invalid');
+
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-r1', body: Complete([R1]) })).json.success).toBe(true);
+    await WritePrincipalsAsync([{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:write'], revoked: true }]);
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-r2', body: Complete([R2]) })).json.code).toBe('revoked');
+    // a replay of the earlier, cached request is also refused once the principal is revoked
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-r1', body: Complete([R1]) })).json.code).toBe('revoked');
+    expect(Calls).toEqual([['complete', R1, 'api-bot:bot-a:complete']]);
+  });
+
+  test('scopes and the route allowlist', async () => {
+    const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await CallAsync('POST', Bulk(WsA), { token: Tokens.reader, key: 'k-s', body: Complete([R1]) })).json.code).toBe('forbidden');
+    for(const [Method, Path] of [
+      ['GET', '/workspaces'], ['DELETE', `/workspace/${WsA}`], ['GET', `/workspace/${WsA}/stats`],
+      ['GET', `/Workspace/${WsA}/reminders`], ['GET', `/workspace/${WsA}/reminders/`], ['GET', `/workspace/Bot%2FPrincipalWsA/reminders`],
+      ['POST', `/workspace/${WsA}/reminders/bulk/`],
+    ]) {
+      expect([Method, Path, (await CallAsync(Method, Path, { key: 'k-p', body: Method === 'GET' ? undefined : Complete([R1]) })).json.code])
+        .toEqual([Method, Path, 'forbidden']);
+    }
+    // HEAD has no body: the structured denial line proves it was refused.
+    expect((await CallAsync('HEAD', List(WsA))).status).toBe(200);
+    expect(Warn.mock.calls.some(([ArgLine]) => /principal-denied .*"code":"forbidden".*"method":"HEAD"/.test(ArgLine))).toBe(true);
+    // admin routes stay behind the admin session
+    expect((await CallAsync('GET', '/admin/dashboard/reminders')).json.success).toBe(false);
+    expect(Calls).toEqual([]);
+  });
+
+  test.each([
+    ['a mixed batch with retitle', { actions: [{ action: 'complete', reminderId: R1 }, { action: 'retitle', reminderId: R2 }] }, 'action-not-allowed'],
+    ['an unknown field on the second action', { actions: [{ action: 'complete', reminderId: R1 }, { action: 'cancel', reminderId: R2, hardDelete: true }] }, 'unknown-field'],
+    ['an unknown envelope field', { actions: [{ action: 'complete', reminderId: R1 }], dryRun: false }, 'unknown-field'],
+    ['a non-UUID id', { actions: [{ action: 'complete', reminderId: 'x\nFAKE=1' }] }, 'invalid-reminder-id'],
+  ])('refuses %s whole, before any write', async (_Label, ArgBody, ArgCode) => {
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-shape', body: ArgBody });
+    expect(Result.json).toMatchObject({ success: false, code: ArgCode });
+    expect(Calls).toEqual([]);
+  });
+
+  test('Idempotency-Key is required and must be well formed', async () => {
+    expect((await CallAsync('POST', Bulk(WsA), { body: Complete([R1]) })).json.code).toBe('idempotency-key-required');
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'audit result=completed', body: Complete([R1]) })).json.code).toBe('idempotency-key-required');
+    expect(Calls).toEqual([]);
+  });
+
+  test('a replay returns the cached response without running the writer again', async () => {
+    const First = await CallAsync('POST', Bulk(WsA), { key: 'k-replay', body: Complete([R1]) });
+    const Second = await CallAsync('POST', Bulk(WsA), { key: 'k-replay', body: Complete([R1]) });
+    expect(Second.json).toEqual(First.json);
+    expect(Calls).toHaveLength(1);
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-replay', body: Complete([R2]) })).json.code).toBe('idempotency-key-reused');
+    expect(Calls).toHaveLength(1);
+  });
+
+  test('overlapping requests with one key run the writer once; a different body conflicts mid-flight', async () => {
+    HoldNext = true;
+    const First = CallAsync('POST', Bulk(WsA), { key: 'k-overlap', body: Complete([R1]) });
+    while(!HoldRelease) await new Promise(ArgResolve => setTimeout(ArgResolve, 5));
+    const Second = CallAsync('POST', Bulk(WsA), { key: 'k-overlap', body: Complete([R1]) });
+    const Changed = await CallAsync('POST', Bulk(WsA), { key: 'k-overlap', body: Complete([R2]) });
+    expect(Changed.json.code).toBe('idempotency-key-reused');
+    HoldRelease();
+    const [FirstResult, SecondResult] = await Promise.all([First, Second]);
+    expect(SecondResult.json).toEqual(FirstResult.json);
+    expect(Calls).toEqual([['complete', R1, 'api-bot:bot-a:complete']]);
+  });
+
+  test('the audit line is one JSON record with no reason, raw key or token', async () => {
+    const Log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await CallAsync('POST', Bulk(WsA), {
+      key: 'k-audit.1', body: { actions: [{ action: 'cancel', reminderId: R2, reason: 'line one\nline two sk-proj-SECRET' }] },
+    });
+    const Lines = Log.mock.calls.map(ArgArgs => ArgArgs.join(' ')).filter(ArgLine => ArgLine.includes('principal-write'));
+    expect(Lines).toHaveLength(1);
+    const Record = JSON.parse(Lines[0].slice(Lines[0].indexOf('{')));
+    expect(Record).toMatchObject({ id: 'bot-a', workspace: WsA, replayed: false, actions: { cancel: 1 }, ids: [R2], counts: { canceled: 1 } });
+    expect(Lines[0]).not.toMatch(/SECRET|line two|k-audit\.1|slp_/);
+    expect(Calls).toEqual([['cancel', R2, 'api-bot:bot-a:cancel']]);
+  });
+
+  test('plain HTTP from a remote peer is refused, even with X-Forwarded-Proto', async () => {
+    jest.spyOn(Principals, 'IsLoopbackAddress').mockReturnValue(false);
+    for(const Headers of [{}, { 'X-Forwarded-Proto': 'https' }]) {
+      expect((await CallAsync('POST', Bulk(WsA), { key: 'k-t', body: Complete([R1]), headers: Headers })).json.code).toBe('insecure-transport');
+    }
+    expect(Calls).toEqual([]);
+  });
+
+  test.each([
+    ['127.0.0.1', true], ['127.4.5.6', true], ['::1', true], ['::ffff:127.0.0.1', true],
+    ['10.0.0.1', false], ['::ffff:10.0.0.1', false], ['1270.0.0.1', false], ['127.0.0.1.evil', false], [undefined, false],
+  ])('IsLoopbackAddress(%s) is %s', (ArgAddress, ArgExpected) => {
+    expect(Principals.IsLoopbackAddress(ArgAddress)).toBe(ArgExpected);
+  });
+
+  test.each([
+    ['duplicate ids', () => [
+      { id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read'] },
+      { id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read'] }]],
+    ['invalid hex', () => [{ id: 'bot-a', sha256: 'zz'.repeat(32), workspaces: [WsA], scopes: ['reminders:read'] }]],
+    ['a 63-char digest', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a).slice(1), workspaces: [WsA], scopes: ['reminders:read'] }]],
+    ['an unknown scope', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['admin'] }]],
+    ['a bad expiresAt', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read'], expiresAt: 'soon' }]],
+    ['a non-JSON file', () => 'not json'],
+  ])('a principals file with %s admits no one for that entry', async (_Label, ArgEntries) => {
+    const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await WritePrincipalsAsync(ArgEntries());
+    expect((await CallAsync('GET', List(WsA))).json.code).toBe('unknown');
+    // the malformed-entry warnings name the array index and the rule, never the entry's unvalidated id
+    const EntryWarnings = Warn.mock.calls.map(([ArgLine]) => String(ArgLine)).filter(ArgLine => /principals (entry|file)/.test(ArgLine));
+    expect(EntryWarnings.length).toBeGreaterThan(0);
+    expect(EntryWarnings.some(ArgLine => ArgLine.includes('bot-a'))).toBe(false);
+  });
+
+  test('principals can page the filtered list; bad bounds and rebalance paging are refused', async () => {
+    const Seed = [1, 2, 3].map(ArgN => ({ ReminderID: `p${ArgN}`, CreatedOn: '2026-08-01T12:00:00.000Z', ShouldPostOn: '2026-08-02T12:00:00.000Z', ReminderMessageText: `r${ArgN}`, State: ArgN === 2 ? 'completed' : 'scheduled' }));
+    await fs.mkdir(RemindersDir, { recursive: true });
+    await fs.writeFile(path.join(RemindersDir, `${WsA}_reminders.json`), JSON.stringify(Seed));
+    const Page = await CallAsync('GET', `${List(WsA)}?activeOnly=true&limit=1&offset=1`);
+    expect(Page.json.data.map(ArgR => ArgR.ReminderID)).toEqual(['p3']);
+    expect(Page.total).toBe('2');
+    expect((await CallAsync('GET', `${List(WsA)}?limit=0`)).json.code).toBe('invalid-pagination');
+    expect((await CallAsync('GET', `${List(WsA)}?offset=-1`)).json.code).toBe('invalid-pagination');
+    expect((await CallAsync('GET', `${List(WsA)}?format=rebalance&limit=5`)).json.code).toBe('pagination-unsupported');
+  });
+});
