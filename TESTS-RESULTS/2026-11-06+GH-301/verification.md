@@ -5,7 +5,7 @@ Code under test: branch `feat/AEGIS-Sleuth-Slackbot-gh301-bot-remote-crud-2026-1
 
 ## Focused suite
 
-`npx jest tests/web-api-reminders.test.js` → **58 passed**: the 28 existing tests, unchanged, plus 30 new ones in
+`npx jest tests/web-api-reminders.test.js` → **60 passed**: the 28 existing tests, unchanged, plus 32 new ones in
 `Bot principals (GH-301 Phase 1)`. `npm run build` is clean.
 
 ## Red controls (by hand; source restored from the commit after each)
@@ -17,6 +17,8 @@ Code under test: branch `feat/AEGIS-Sleuth-Slackbot-gh301-bot-remote-crud-2026-1
 | synchronous idempotency reservation (deferred by 50 ms) | replay test **and** overlap test (2 failed) |
 | per-action field allowlist | unknown field on the second action is refused whole |
 | middleware workspace check | cross-workspace access is denied |
+| capacity eviction before the key lookup (pre-fix order, final QA r1) | at the cap, a held key still replays or conflicts |
+| denial audit on batch-validation refusals (final QA r1) | every refused principal write logs exactly one redacted denial record |
 
 The handler-level `params.name === Principal.Workspace` check is defence in depth. The strict path regex
 captures a name that equals Express's decoded `params.name`, so no request reaches that check alone and no
@@ -31,8 +33,19 @@ red control can isolate it.
 - `npm run build`, `validate:fsm`, `validate:reminder-pipeline`, `validate:commands`,
   `validate:workspace-isolation` and `validate:changelog-tone` all exit 0.
 - `utils/sanitize-scan.sh`: the first run found 1 `generic-assigned-secret` false positive. It matched
-  `token: Principals.MakeToken(...)`, a runtime-generated test token, in the test file. The test now assigns the
+  an inline call that generated a test token inside a request-options object. The test now assigns the
   token to a variable first. Rescan: **CLEAN**.
+
+## Final QA round 1 fixes
+
+Codex (final QA round 1) found two Shoulds:
+- `IdempotencyStore.Reserve` ran capacity eviction before the key lookup, so at the cap a retry of the oldest key
+  ran again and a changed body didn't conflict. Fixed: expire, then look up, then make room only for a new key.
+- Batch-validation refusals and key conflicts were not audited. Fixed: each now logs one `principal-denied` record.
+
+The docs were also corrected: shared validation errors carry no `code`; a missing file means `unknown`; admin
+refusals stay with the admin session. The file passes 60/60 after the fixes; the full suite was not rerun for
+this change, which touches only these two files and their tests.
 
 ## Smoke (`gh301-smoke.cjs`, output in `smoke-output.txt`)
 

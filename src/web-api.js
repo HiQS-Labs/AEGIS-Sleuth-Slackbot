@@ -294,8 +294,20 @@ class WebAPI {
    * @param {string} ArgRoute `reminders` | `bulk` | `other`.
    */
   static #DenyPrincipal(ArgRes, ArgCode, ArgId, ArgMethod, ArgRoute) {
-    console.warn(`[web-api] principal-denied ${JSON.stringify({ code: ArgCode, id: ArgId, method: ArgMethod, route: ArgRoute })}`);
+    WebAPI.#LogPrincipalDenied(ArgCode, ArgId, ArgMethod, ArgRoute);
     ArgRes.status(200).json({ success: false, data: 'Forbidden.', code: ArgCode });
+  }
+
+  /**
+   * One structured denial record for a refused principal request. Fixed fields only: never the token, key,
+   * body, reason or response text.
+   * @param {string} ArgCode Stable code.
+   * @param {string|null} ArgId Principal id when known (already grammar-checked).
+   * @param {string} ArgMethod HTTP method.
+   * @param {string} ArgRoute `reminders` | `bulk` | `other`.
+   */
+  static #LogPrincipalDenied(ArgCode, ArgId, ArgMethod, ArgRoute) {
+    console.warn(`[web-api] principal-denied ${JSON.stringify({ code: ArgCode, id: ArgId, method: ArgMethod, route: ArgRoute })}`);
   }
 
   /**
@@ -1107,7 +1119,9 @@ class WebAPI {
       }
       ArgRes.status(200).json({ success: true, data: FilteredReminders });
     } catch(error) {
-      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(WebAPI.#PrincipalOf(ArgReq) && error.code ? { code: error.code } : {}) });
+      const Principal = WebAPI.#PrincipalOf(ArgReq);
+      if(Principal && error.code) WebAPI.#LogPrincipalDenied(error.code, Principal.Id, ArgReq.method, 'reminders');
+      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(Principal && error.code ? { code: error.code } : {}) });
     }
   }
 
@@ -1178,6 +1192,7 @@ class WebAPI {
       WebAPI.#CheckPrincipalBulkShape(ArgReq.body);
       Prepared = WebAPI.#PrepareBulkRequest(ArgReq.body);
     } catch(error) {
+      WebAPI.#LogPrincipalDenied(error.code || 'invalid-request', Principal.Id, ArgReq.method, 'bulk');
       ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(error.code ? { code: error.code } : {}) });
       return;
     }
@@ -1191,6 +1206,7 @@ class WebAPI {
       ArgPayload => ArgPayload?.success === true
     ));
     if(Reservation.conflict) {
+      WebAPI.#LogPrincipalDenied('idempotency-key-reused', Principal.Id, ArgReq.method, 'bulk');
       ArgRes.status(200).json({ success: false, data: 'Error: Idempotency-Key was already used with a different request body.', code: 'idempotency-key-reused' });
       return;
     }

@@ -849,6 +849,49 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     expect(Calls).toEqual([['cancel', R2, 'api-bot:bot-a:cancel']]);
   });
 
+  test('at the cap, a held key still replays or conflicts; only a new key evicts, and never an in-flight one', async () => {
+    const Store = new Principals.IdempotencyStore({ Cap: 3 });
+    let Writes = 0;
+    const Work = async () => ({ success: true, n: ++Writes });
+    for(const Key of ['k0', 'k1', 'k2']) await Store.Reserve(Key, 'body', Work, () => true).promise;
+    const Replay = Store.Reserve('k0', 'body', Work, () => true);
+    expect(Replay.replayed).toBe(true);
+    expect(await Replay.promise).toEqual({ success: true, n: 1 });
+    expect(Store.Reserve('k0', 'changed', Work, () => true).conflict).toBe(true);
+    expect(Writes).toBe(3);
+    // a held in-flight entry survives eviction; a new key then pushes out the oldest completed one (k0)
+    let Release;
+    const Held = Store.Reserve('k1-held', 'body', () => new Promise(ArgResolve => { Release = ArgResolve; }), () => true);
+    expect(Store.Reserve('k-new', 'body', Work, () => true).replayed).toBe(false);
+    expect(Store.Reserve('k1-held', 'body', Work, () => true).replayed).toBe(true);
+    expect(Store.Reserve('k0', 'changed', Work, () => true).conflict).toBe(false); // k0 was evicted
+    await new Promise(ArgResolve => setImmediate(ArgResolve)); // the work starts on a later tick
+    Release({ success: true });
+    await Held.promise;
+  });
+
+  test('every refused principal write logs exactly one redacted denial record', async () => {
+    const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const Cases = [
+      [{ body: Complete([R1]) }, 'idempotency-key-required'],
+      [{ key: 'k-den-1', body: { actions: [{ action: 'complete', reminderId: R1, secretField: 'sk-proj-LEAK' }] } }, 'unknown-field'],
+    ];
+    for(const [Options, Code] of Cases) {
+      Warn.mockClear();
+      expect((await CallAsync('POST', Bulk(WsA), Options)).json.code).toBe(Code);
+      const Lines = Warn.mock.calls.map(([ArgLine]) => String(ArgLine)).filter(ArgLine => ArgLine.includes('principal-denied'));
+      expect(Lines).toHaveLength(1);
+      expect(JSON.parse(Lines[0].slice(Lines[0].indexOf('{')))).toEqual({ code: Code, id: 'bot-a', method: 'POST', route: 'bulk' });
+      expect(Lines[0]).not.toMatch(/LEAK|secretField|k-den|slp_/);
+    }
+    // a key conflict is audited too
+    await CallAsync('POST', Bulk(WsA), { key: 'k-den-2', body: Complete([R1]) });
+    Warn.mockClear();
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-den-2', body: Complete([R2]) })).json.code).toBe('idempotency-key-reused');
+    expect(Warn.mock.calls.filter(([ArgLine]) => String(ArgLine).includes('"code":"idempotency-key-reused"'))).toHaveLength(1);
+    expect(Calls).toEqual([['complete', R1, 'api-bot:bot-a:complete']]);
+  });
+
   test('plain HTTP from a remote peer is refused, even with X-Forwarded-Proto', async () => {
     jest.spyOn(Principals, 'IsLoopbackAddress').mockReturnValue(false);
     for(const Headers of [{}, { 'X-Forwarded-Proto': 'https' }]) {

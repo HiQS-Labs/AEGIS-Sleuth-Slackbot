@@ -181,12 +181,14 @@ class IdempotencyStore {
    * @returns {{conflict: true} | {conflict: false, replayed: boolean, promise: Promise<any>}}
    */
   Reserve(ArgKey, ArgFingerprint, ArgWork, ArgKeep) {
-    this.#Evict(Date.now());
+    this.#Expire(Date.now());
+    // look the key up before any capacity eviction: a retry of a held key must replay or conflict, never run again.
     const Held = this.#Entries.get(ArgKey);
     if(Held) {
       if(Held.Fingerprint !== ArgFingerprint) return { conflict: true };
       return { conflict: false, replayed: true, promise: Held.Promise };
     }
+    this.#MakeRoom();
     /** @type {{Fingerprint: string, Promise: Promise<any>, DoneAt: number|null}} */
     const Entry = { Fingerprint: ArgFingerprint, Promise: Promise.resolve(), DoneAt: null };
     // set before the work starts: the synchronous part of this method is the reservation.
@@ -202,11 +204,15 @@ class IdempotencyStore {
     return { conflict: false, replayed: false, promise: Entry.Promise };
   }
 
-  /** @param {number} ArgNow */
-  #Evict(ArgNow) {
+  /** Drop completed entries older than the TTL. @param {number} ArgNow */
+  #Expire(ArgNow) {
     for(const [Key, Entry] of this.#Entries) {
       if(Entry.DoneAt !== null && ArgNow - Entry.DoneAt > this.#TtlMs) this.#Entries.delete(Key);
     }
+  }
+
+  /** Before admitting a new key at the cap, evict the oldest completed entries (never an in-flight one). */
+  #MakeRoom() {
     if(this.#Entries.size < this.#Cap) return;
     for(const [Key, Entry] of this.#Entries) {
       if(this.#Entries.size < this.#Cap) break;
