@@ -68,11 +68,11 @@ Summary: 19 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-243 · Long reminders: ignore automatic notes, concise explicit tasks | — | [GH-243-LONG-REMINDERS.md](PROJECT/2-WORKING/GH-243-LONG-REMINDERS.md) · [#243](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/243) |
 | GH-264 · Reminder core: bounded semi-clean-room rewrite with API and function compatibility | — | [GH-264-REMINDER-CORE-REWRITE.md](PROJECT/2-WORKING/GH-264-REMINDER-CORE-REWRITE.md) · [#264](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/264) |
 | GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
-| GH-297 · Reminder age label under-counts by the workspace UTC offset | — | [GH-297-REMINDER-AGE-LABEL.md](PROJECT/2-WORKING/GH-297-REMINDER-AGE-LABEL.md) · [#297](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/297) |
+| GH-301 · Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH) | — | [GH-301-BOT-REMOTE-CRUD.md](PROJECT/2-WORKING/GH-301-BOT-REMOTE-CRUD.md) · [#301](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301) |
 
 ## Completed
 
-Summary: 53 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 12 · 🔮 0 · 🔲 0
+Summary: 55 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 14 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -114,6 +114,8 @@ Summary: 53 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 12 · �
 | GH-277 · Startup hangs when one workspace's Slack connection stalls | ✅ | [GH-277-STARTUP-SLACK-TIMEOUT.md](PROJECT/3-COMPLETED/GH-277-STARTUP-SLACK-TIMEOUT.md) · [#277](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/277) |
 | GH-279 · Bulk-close Sleuth reminders from an agent session (Web API endpoint + skill) | ✅ | [GH-279-BULK-EDIT-REMINDERS.md](PROJECT/3-COMPLETED/GH-279-BULK-EDIT-REMINDERS.md) · [#279](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/279) |
 | show-me reactable output (GH-338) | — | [PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md](PROJECT/3-COMPLETED/GH-338-SHOWME-COMMAND.md) |
+| GH-297 · Reminder age label under-counts by the workspace UTC offset | ✅ | [GH-297-REMINDER-AGE-LABEL.md](PROJECT/2-WORKING/GH-297-REMINDER-AGE-LABEL.md) · [#297](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/297) |
+| GH-290 · Reminders end-to-end tool: tunnel + backup wrapper, and Web API edits beyond closing | ✅ | [GH-290-REMINDERS-EDIT-API.md](PROJECT/3-COMPLETED/GH-290-REMINDERS-EDIT-API.md) · [#290](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/290) |
 | Adopt Blend philosophy into GUIDING-PRINCIPLES.md (GH-348) | — | [PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md](PROJECT/3-COMPLETED/GH-348-ADOPT-BLEND-PHILOSOPHY.md) |
 | Hyphen/space command normalization (GH-349) | — | [PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md](PROJECT/3-COMPLETED/GH-349-HYPHEN-COMMAND-NORMALIZATION.md) |
 | Flaky fixed-port test (GH-351) | — | [PROJECT/3-COMPLETED/GH-351-FLAKY-PORT-TEST.md](PROJECT/3-COMPLETED/GH-351-FLAKY-PORT-TEST.md) |
