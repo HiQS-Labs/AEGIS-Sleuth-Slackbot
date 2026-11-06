@@ -185,3 +185,11 @@ Decisive output:
 ```
 
 Limits retained: suite/red-control/smoke execution and baseline full-suite attribution are **[Unverified — needs clone run]** in this reviewer turn; the harness gate follows. No suites, executable fixtures, validation scripts, server access or git commands were run. Revision identity and exact base-byte comparison remain unverified under the no-git constraint. Approval is for the scoped Phase 0–1 code review, not TLS deployment or Phases 2–4. Graph lookup again returned approval-policy denial, so explicitly named files were read directly. Only this relay file was edited; artifact and source files were not changed.
+
+### Attestation · relay-drive — 2026-11-06T05:08:38Z
+task: RELAY-gh301-final-qa
+reviewer: codex
+status: Approved
+reviewed-head: 3d3daac6cb515fb1a85bd7c763b47b07d697a755
+added-range: 11893+3455
+added-sha256: b185fccc539b58f3178176b00cc2dfad59aaf90414c76375d138f869a8aac65d
