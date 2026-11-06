@@ -892,6 +892,14 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     expect(Calls).toEqual([['complete', R1, 'api-bot:bot-a:complete']]);
   });
 
+  test('a refused principal read without a specific code is still audited (invalid-request)', async () => {
+    const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await CallAsync('GET', `${List(WsA)}?activeOnly=maybe`)).json.success).toBe(false);
+    const Lines = Warn.mock.calls.map(([ArgLine]) => String(ArgLine)).filter(ArgLine => ArgLine.includes('principal-denied'));
+    expect(Lines).toHaveLength(1);
+    expect(JSON.parse(Lines[0].slice(Lines[0].indexOf('{')))).toEqual({ code: 'invalid-request', id: 'bot-a', method: 'GET', route: 'reminders' });
+  });
+
   test('plain HTTP from a remote peer is refused, even with X-Forwarded-Proto', async () => {
     jest.spyOn(Principals, 'IsLoopbackAddress').mockReturnValue(false);
     for(const Headers of [{}, { 'X-Forwarded-Proto': 'https' }]) {

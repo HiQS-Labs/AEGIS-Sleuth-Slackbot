@@ -1120,7 +1120,7 @@ class WebAPI {
       ArgRes.status(200).json({ success: true, data: FilteredReminders });
     } catch(error) {
       const Principal = WebAPI.#PrincipalOf(ArgReq);
-      if(Principal && error.code) WebAPI.#LogPrincipalDenied(error.code, Principal.Id, ArgReq.method, 'reminders');
+      if(Principal) WebAPI.#LogPrincipalDenied(error.code || 'invalid-request', Principal.Id, ArgReq.method, 'reminders');
       ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(Principal && error.code ? { code: error.code } : {}) });
     }
   }

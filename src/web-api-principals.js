@@ -227,6 +227,7 @@ class IdempotencyStore {
 }
 
 module.exports = {
+  WorkspaceNamePattern,
   AuthenticatePrincipalAsync,
   HashToken,
   IdempotencyStore,

@@ -6,7 +6,7 @@
 // usage: node scripts/web-api-principal.js new <id> --workspace <name> [--workspace <name> ...]
 //          --scopes read,write [--expires <ISO date>]
 'use strict';
-const { HashToken, MakeToken } = require('../src/web-api-principals');
+const { HashToken, MakeToken, WorkspaceNamePattern } = require('../src/web-api-principals');
 
 const USAGE = 'usage: node scripts/web-api-principal.js new <id> --workspace <name> [--workspace <name> ...] --scopes read[,write] [--expires <ISO date>]';
 
@@ -26,6 +26,10 @@ function Main(ArgV) {
     else throw new Error(`unknown argument: ${Flag}\n${USAGE}`);
   }
   if(Workspaces.length === 0 || !Scopes) throw new Error(USAGE);
+  // the server drops an entry whose workspace names break this rule, so never print a token it would ignore.
+  for(const Name of Workspaces) {
+    if(!WorkspaceNamePattern.test(Name)) throw new Error(`workspace "${Name}" must match A-Z a-z 0-9 _ - (1-64 chars)`);
+  }
   if(!Scopes.every(ArgScope => ArgScope === 'reminders:read' || ArgScope === 'reminders:write')) throw new Error('scopes are read and/or write');
   if(ExpiresAt !== undefined && isNaN(Date.parse(ExpiresAt))) throw new Error('--expires must be an ISO date');
 

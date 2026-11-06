@@ -1,4 +1,4 @@
-data dir: <tmp>/gh301.ieKQ (throwaway); principals file mode 600
+data dir: <tmp>/gh301c.HOhv (throwaway); principals file mode 600
 
 $ MAIN: read own workspace
   GET /workspace/SmokeBotWs/reminders?limit=10

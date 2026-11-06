@@ -48,6 +48,22 @@ refusals stay with the admin session. The file passes 60/60 after the fixes. The
 `npm test` gave 2986 passed and 1 failed (the same pre-existing `thread-memory` test); build, every
 `validate:*` and the sanitize scan exit 0.
 
+## PR #305 bot-review fixes (after final QA approval)
+
+Greptile on #305 raised four points, all accepted:
+- **Smoke credential overwrite:** the smoke now refuses any `SLEUTH_DATA_DIR` that is missing or not empty, and
+  calls `workspaces.AssertNotLiveRuntimeDir`. Checked: a non-empty dir and a `.live-data` dir are both refused
+  with the usage line.
+- **CLI:** workspace names are checked against the server's rule (`WorkspaceNamePattern`, now exported) before a
+  token is printed. Checked: `team.one` is refused with exit 2; `team_one` is accepted.
+- **Audit:** every principal GET refusal now logs `principal-denied`, with `invalid-request` when no specific code
+  applies. New test: `?activeOnly=maybe` gives exactly one record.
+- **Naming:** the smoke harness follows the naming conventions (`CallAsync`, `Arg*` parameters, `error`).
+
+After the fixes, the focused file passes 61/61, the build is clean, and the smoke was rerun in a fresh empty dir
+with the same results. The branch was also brought up to date with `development` after #304 merged: the ledger
+was taken from `development`, the GH-301 row was re-added through the CLI, and the dashboard was regenerated.
+
 ## Smoke (`gh301-smoke.cjs`, output in `smoke-output.txt`)
 
 The real `WebAPI` and a real `RemindersModule` (test `MockSlackApp`) ran in a **throwaway `SLEUTH_DATA_DIR`**
