@@ -2,9 +2,9 @@
 gh_issue: 290
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/290
 title: "Reminders end-to-end tool: tunnel + backup wrapper, and Web API edits beyond closing"
-status: Active (2-WORKING)
+status: Complete
 created: 2026-10-28
-updated: 2026-11-05
+updated: 2026-11-06
 owner: noel
 goal: "An agent session can back up, then retitle, reschedule, reassign, create or close live reminders through the app's own writers, with the tunnel handled for it."
 doc_type: feature
