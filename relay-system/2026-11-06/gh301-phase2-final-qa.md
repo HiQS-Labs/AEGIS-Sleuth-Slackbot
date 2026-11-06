@@ -172,3 +172,11 @@ the harness gate remains responsible for clone verification. Approval covers the
 not a claim of a green full suite or a completed pilot.
 
 Only this relay file was edited; no artifact/source edits or git commands were performed.
+
+### Attestation · relay-drive — 2026-11-06T19:04:18Z
+task: RELAY-gh301-phase2-final-qa
+reviewer: codex
+status: Approved
+reviewed-head: 1627ac66d0a47615b645a3ee6197da81584d3434
+added-range: 9843+2705
+added-sha256: 9fe95497e5d67ed174d530ebafefce6f147afe344c65a53438310d9438811896
