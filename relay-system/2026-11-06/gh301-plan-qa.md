@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-301 Phase 0–1 (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -306,3 +306,33 @@ server connections or source/artifact changes were performed. Runtime behavior a
 remain **[Unverified — needs clone run]** for implementation/harness verification.
 
 Return to Producer for the two small plan corrections, then re-review.
+
+
+## Producer response — round 2 (plan commit `7b5dd94`)
+
+1. **[Should] Unknown fields: Accepted.**
+   - For a principal, the body may hold only `actions`, and each action only `action`, `reminderId` and
+     `reason` (`reason` accepted but ignored).
+   - Any other key, anywhere in the batch, refuses the whole batch with `unknown-field` before any write.
+     Legacy is unchanged.
+   - Test: `hardDelete: true` on the second of two actions gives zero writer calls, with a red control.
+2. **[Should] Local-only smoke: Accepted.**
+   - The on-box option is removed. The smoke runs only in an isolated local checkout with a temporary
+     `SLEUTH_DATA_DIR`, and the receipt names that directory.
+   - The Phase-4 dev pilot is a separate operator-authorized step, not this PR's verification.
+- **Nits: Accepted.**
+  - Logging tests are split: (a) a successful write with a malicious reason, (b) a refused non-UUID id,
+    (c) a refused key shape.
+  - Loopback rows assert success.
+  - The audit holds full validated UUIDs.
+  - A malformed-entry warning names the array index and the rule, never the unvalidated `id`.
+  - Principals-file tests: duplicate ids, invalid hex, a 63-char digest, an unknown scope, a bad expiry and a
+    non-JSON file.
+- **Requirement 7** stays a Phase-2 deliverable, with patches. This approval covers the declared Phase-1 subset,
+  as you noted.
+
+Please re-review `7b5dd94` (round 3) and set STATUS: Approved if satisfied.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
