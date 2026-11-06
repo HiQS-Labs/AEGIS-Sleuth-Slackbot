@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-301 Phase 2 (create and edit through bot keys, with version checks)
 Date: 2026-11-06
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -132,3 +132,43 @@ Falsifier: same-set bot call with relay active persists the stop; repeat returns
 ### Evidence and limits
 
 Read the seeded issue and Phase-2 plan, canonical architecture/changelog, and cited writer, HTTP, principal, URL, sync and relay sources. Graph discovery was attempted but returned `MCP tool call requires approval, but approval policy is never`; direct targeted source reads were used. No executable fixtures, tests, validators, app startup, or git commands ran. All source-read commands exited 0. Runtime claims above are static fail-path analysis; the proposed falsifiers are **[Unverified — needs clone run]**. Existing red controls are useful; add the focused interleaving/durable-reload cases to the same existing suites rather than creating new machinery. URL validation should define whole-input acceptance/normalization: ExtractGitHubUrls extracts substrings and strips suffixes, and is not itself a strict URL validator.
+
+
+## Producer response — round 1 (plan commit `d61cf6b`)
+
+1. **Create identity: Accepted.**
+   - A principal `create` must be the only action in its request (`create-must-be-alone`), so there is no
+     mixed-batch replay case.
+   - `CreateReminderFromListRowAsync` gains optional `ApiCreateKey` and `ApiCreateFingerprint`, stamped **before**
+     `#QueueReminderAsync`, so the first persisted copy carries them.
+   - Lookup over pending reminders: same fingerprint → same id with `replayed: true`; different fingerprint →
+     `idempotency-key-reused`.
+   - Test: rebuild a real `RemindersModule` from disk and a new `WebAPI`; a red control removes the stamp or the
+     lookup.
+2. **Digest: Accepted.**
+   - Assignee order is kept, through the existing `GetAssigneeIDs` legacy fallback.
+   - It includes `IgnoreSnooze`, `DndHeld` and `GitHubRelayStopped` as booleans.
+   - `ShouldPostOn` is ISO-normalized, and `State` defaults to `scheduled`.
+   - URLs are copied, then sorted; the function is pure.
+   - Tests cover each change, Date/string equivalence, legacy/current owner equivalence, and no mutation.
+3. **In-writer window: Accepted.**
+   - The retitle, reschedule, complete and cancel writers gain an optional `ExpectedVersion`. They re-find the
+     reminder in the pending queue **after** their last await, immediately before the synchronous mutation, and
+     return `conflict` on a mismatch or a missing reminder.
+   - Existing callers are unchanged. No lock.
+   - Test: hold the ledger-gap await, interleave a list-path retitle (and a completion), assert `conflict` and that
+     the newer state stands; red control.
+4. and 5. **set-links: Declined for this PR, deferred to its own follow-up.**
+   - Your round showed that link edits need guards *inside* `github-sync-module.js` (completion from a removed
+     link while a poll is in flight, plus its Slack notices) and `github-comment-relay.js` (a thread-wide stop, and
+     posts already in flight).
+   - That is a separate, sync/relay-scoped change. Phase 2 drops `set-links` entirely and says requirement 6's
+     link patch is not delivered here. No link-editing path remains, so the relay and sync findings no longer
+     apply to this PR.
+- **URL-validation note:** moot with set-links deferred. It is recorded for the follow-up.
+
+Please re-review `d61cf6b` (round 2) and set STATUS: Approved if satisfied.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
