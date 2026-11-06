@@ -44,8 +44,9 @@ Codex (final QA round 1) found two Shoulds:
 - Batch-validation refusals and key conflicts were not audited. Fixed: each now logs one `principal-denied` record.
 
 The docs were also corrected: shared validation errors carry no `code`; a missing file means `unknown`; admin
-refusals stay with the admin session. The file passes 60/60 after the fixes; the full suite was not rerun for
-this change, which touches only these two files and their tests.
+refusals stay with the admin session. The file passes 60/60 after the fixes. The full gate was rerun on the approved commit `735d5e8`:
+`npm test` gave 2986 passed and 1 failed (the same pre-existing `thread-memory` test); build, every
+`validate:*` and the sanitize scan exit 0.
 
 ## Smoke (`gh301-smoke.cjs`, output in `smoke-output.txt`)
 
