@@ -64,6 +64,9 @@ be `created`. A failure after the stamp is still found by the durable lookup, so
 The docs and CHANGELOG were also qualified: durable create replay covers pending reminders only, and versions come
 with the standard record format. The smoke was rerun with the renamed channels; same results.
 
+Full gate rerun on the approved commit `8d114cc`: `npm test` gave 3005 passed and 1 failed (the same pre-existing
+`thread-memory` test). Build, every `validate:*` and the sanitize scan exit 0.
+
 ## Not verified here
 
 - A real external bot, and the dev pilot with Phase 2 actions (dev still runs Phase 1 until this merges and
