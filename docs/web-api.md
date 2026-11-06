@@ -452,7 +452,7 @@ proxy on the same host. `X-Forwarded-*` headers are never trusted. Anything else
 
 - The proxy must accept HTTPS only and overwrite any forwarding headers.
 - Configure bots with an `https://` URL. A refusal cannot un-send a token already sent in plain text.
-- Today neither server terminates TLS in front of `:2020`. Remote bot use needs that proxy first.
+- Remote bot use needs such an HTTPS front end in place; deployment details are kept in private ops notes.
 
 ### Creating, revoking and expiring a principal
 

@@ -41,7 +41,7 @@ for a revocable, workspace-scoped, read/write-scoped principal, reached over HTT
 | Credential prior art | `src/product-compass.js` `ReadCredentialAsync`: per-request read from systemd `CREDENTIALS_DIRECTORY` or macOS Keychain, fail-closed; workspace JSON holds only credential *names*. Adding a credential needs a unit edit and restart; revocation is "on the next request". |
 | Data dir | `workspaces.GetRuntimeDirPath()` (`SLEUTH_DATA_DIR`), included whole in the nightly backup (GH-272). |
 | Logging | `WebAPI` logs to `console` (journald on servers). |
-| Exposure | Prod: Web API on loopback, reached by SSH tunnel. Dev: `:2020` open to the internet over **plain HTTP** (SOP §1b). Neither terminates TLS today. |
+| Exposure | At planning time neither environment had an HTTPS front end for the Web API; deployment details are kept in private ops notes (not in this public repo). |
 
 ## Plan
 
