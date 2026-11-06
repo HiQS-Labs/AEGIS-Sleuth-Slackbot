@@ -15,6 +15,8 @@ const { createEventStore } = require('./event-store');
 const { createLedgerCoverage } = require('./ledger-coverage');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 const { NormalizeReminderTitle, ValidateReminderTitle } = require('./reminder-title-contract');
+const Principals = require('./web-api-principals');
+const crypto = require('crypto');
 
 // add typedefs for our own types.
 /**
@@ -55,6 +57,24 @@ const MaxBulkReminderActions = 100;
 const BulkReminderActionNames = ['complete', 'cancel', 'retitle', 'reschedule', 'reassign', 'create'];
 const SlackUserIdPattern = /^[UW][A-Z0-9]{2,}$/;
 
+// GH-301 Phase 1: what a bot principal may send to the bulk route.
+const PrincipalBulkActions = ['complete', 'cancel'];
+const PrincipalBulkEnvelopeKeys = ['actions'];
+const PrincipalBulkActionKeys = ['action', 'reminderId', 'reason'];
+const ReminderIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const IdempotencyKeyPattern = /^[A-Za-z0-9._:-]{1,128}$/;
+const MaxPrincipalPageSize = 500;
+
+/**
+ * Error carrying a stable `code` for principal responses (GH-301).
+ * @param {string} ArgCode
+ * @param {string} ArgMessage
+ * @returns {Error & {code: string}}
+ */
+function CodedError(ArgCode, ArgMessage) {
+  return Object.assign(new Error(ArgMessage), { code: ArgCode });
+}
+
 /**
  * Implements the Web API used by the Sleuth website.
  */
@@ -70,6 +90,12 @@ class WebAPI {
    * @type {string}
    */
   #BearerToken;
+
+  /**
+   * In-memory idempotency store for bot principal writes (GH-301).
+   * @type {Principals.IdempotencyStore}
+   */
+  #PrincipalIdempotency = new Principals.IdempotencyStore();
 
   /**
    * Server instance for the express app.
@@ -202,7 +228,86 @@ class WebAPI {
       return;
     }
 
+    // bot principals (GH-301), only when the operator turned the feature on.
+    const Token = this.#ExtractBearerToken(AuthHeader);
+    if(process.env.WEB_API_BOT_PRINCIPALS === '1' && Token && Token.startsWith('slp_')) {
+      this.#AuthorizePrincipalAsync(ArgReq, ArgRes, ArgNext, Token);
+      return;
+    }
+
     ArgRes.status(200).json({ success: false, data: 'Forbidden.' });
+  }
+
+  /**
+   * Admit a bot principal to one of its two allowed routes (GH-301), or refuse with a stable code.
+   * Order: transport (socket TLS or loopback peer; X-Forwarded-* is never read), token, route, scope,
+   * workspace. On success sets `ArgReq.Principal = { Id, Scopes, Workspace }`.
+   * @param {import('express').Request} ArgReq Request object.
+   * @param {import('express').Response} ArgRes Response object.
+   * @param {import('express').NextFunction} ArgNext Next function.
+   * @param {string} ArgToken Bearer token (`slp_…`).
+   * @returns {Promise<void>}
+   */
+  async #AuthorizePrincipalAsync(ArgReq, ArgRes, ArgNext, ArgToken) {
+    const RouteMatch = Principals.MatchPrincipalRoute(ArgReq.method, ArgReq.path);
+    const RouteLabel = RouteMatch?.Route ?? 'other';
+    // `encrypted` is set on a TLSSocket; this server is plain HTTP today, so in practice only loopback passes.
+    if(!/** @type {any} */ (ArgReq.socket)?.encrypted && !Principals.IsLoopbackAddress(ArgReq.socket?.remoteAddress)) {
+      WebAPI.#DenyPrincipal(ArgRes, 'insecure-transport', null, ArgReq.method, RouteLabel);
+      return;
+    }
+    const Auth = /** @type {any} */ (await Principals.AuthenticatePrincipalAsync(ArgToken));
+    if(!Auth.ok) {
+      WebAPI.#DenyPrincipal(ArgRes, Auth.code, Auth.id, ArgReq.method, RouteLabel);
+      return;
+    }
+    /** @type {{Id: string, Workspaces: string[], Scopes: string[]}} */
+    const Principal = Auth.principal;
+    if(!RouteMatch || !Principal.Scopes.includes(RouteMatch.Scope)) {
+      WebAPI.#DenyPrincipal(ArgRes, 'forbidden', Principal.Id, ArgReq.method, RouteLabel);
+      return;
+    }
+    if(!Principal.Workspaces.includes(RouteMatch.Workspace)) {
+      WebAPI.#DenyPrincipal(ArgRes, 'forbidden-workspace', Principal.Id, ArgReq.method, RouteLabel);
+      return;
+    }
+    /** @type {any} */ (ArgReq).Principal = { Id: Principal.Id, Scopes: Principal.Scopes, Workspace: RouteMatch.Workspace };
+    ArgNext();
+  }
+
+  /**
+   * The bot principal admitted for this request (GH-301), or null for legacy/admin requests.
+   * @param {import('express').Request} ArgReq Request object.
+   * @returns {{Id: string, Scopes: string[], Workspace: string}|null}
+   */
+  static #PrincipalOf(ArgReq) {
+    return /** @type {any} */ (ArgReq).Principal ?? null;
+  }
+
+  /**
+   * Refuse a principal request: one structured audit line (never the token or raw path) and the existing
+   * Forbidden envelope plus a stable `code`.
+   * @param {import('express').Response} ArgRes Response object.
+   * @param {string} ArgCode Stable denial code.
+   * @param {string|null} ArgId Principal id when known.
+   * @param {string} ArgMethod HTTP method.
+   * @param {string} ArgRoute `reminders` | `bulk` | `other`.
+   */
+  static #DenyPrincipal(ArgRes, ArgCode, ArgId, ArgMethod, ArgRoute) {
+    WebAPI.#LogPrincipalDenied(ArgCode, ArgId, ArgMethod, ArgRoute);
+    ArgRes.status(200).json({ success: false, data: 'Forbidden.', code: ArgCode });
+  }
+
+  /**
+   * One structured denial record for a refused principal request. Fixed fields only: never the token, key,
+   * body, reason or response text.
+   * @param {string} ArgCode Stable code.
+   * @param {string|null} ArgId Principal id when known (already grammar-checked).
+   * @param {string} ArgMethod HTTP method.
+   * @param {string} ArgRoute `reminders` | `bulk` | `other`.
+   */
+  static #LogPrincipalDenied(ArgCode, ArgId, ArgMethod, ArgRoute) {
+    console.warn(`[web-api] principal-denied ${JSON.stringify({ code: ArgCode, id: ArgId, method: ArgMethod, route: ArgRoute })}`);
   }
 
   /**
@@ -966,9 +1071,18 @@ class WebAPI {
   async #HandleGetWorkspaceRemindersAsync(ArgReq, ArgRes) {
     try {
       const WorkspaceName = ArgReq.params.name;
+      const Principal = WebAPI.#PrincipalOf(ArgReq);
+      if(Principal && WorkspaceName !== Principal.Workspace) {
+        WebAPI.#DenyPrincipal(ArgRes, 'forbidden-workspace', Principal.Id, ArgReq.method, 'reminders');
+        return;
+      }
       const ResponseFormat = this.#ParseReminderFormatQueryValue(ArgReq.query.format);
       const ActiveOnly = this.#ParseBooleanQueryValue(ArgReq.query.activeOnly, false, 'activeOnly');
       const StateFilter = this.#ParseReminderStateQueryValue(ArgReq.query.state);
+      // GH-301: principals may page the reminder list; legacy requests ignore these parameters.
+      const Page = Principal ? WebAPI.#ParsePrincipalPage(ArgReq.query) : null;
+      if(Page && ResponseFormat === 'rebalance')
+        throw CodedError('pagination-unsupported', 'limit/offset are not supported with format=rebalance.');
 
       // verify the workspace exists before attempting to read reminders.
       const WorkspaceExists = await workspaces.WorkspaceExistsAsync(WorkspaceName);
@@ -998,10 +1112,31 @@ class WebAPI {
         return;
       }
 
+      if(Page) {
+        ArgRes.set('X-Total-Count', String(FilteredReminders.length));
+        ArgRes.status(200).json({ success: true, data: FilteredReminders.slice(Page.Offset, Page.Offset + Page.Limit) });
+        return;
+      }
       ArgRes.status(200).json({ success: true, data: FilteredReminders });
     } catch(error) {
-      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}` });
+      const Principal = WebAPI.#PrincipalOf(ArgReq);
+      if(Principal) WebAPI.#LogPrincipalDenied(error.code || 'invalid-request', Principal.Id, ArgReq.method, 'reminders');
+      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(Principal && error.code ? { code: error.code } : {}) });
     }
+  }
+
+  /**
+   * Parse principal paging (GH-301). Returns null when neither `limit` nor `offset` is given.
+   * @param {Record<string, any>} ArgQuery Request query.
+   * @returns {{Limit: number, Offset: number}|null}
+   */
+  static #ParsePrincipalPage(ArgQuery) {
+    if(ArgQuery.limit === undefined && ArgQuery.offset === undefined) return null;
+    const Limit = ArgQuery.limit === undefined ? MaxPrincipalPageSize : Number(ArgQuery.limit);
+    const Offset = ArgQuery.offset === undefined ? 0 : Number(ArgQuery.offset);
+    if(!Number.isInteger(Limit) || Limit < 1 || Limit > MaxPrincipalPageSize || !Number.isInteger(Offset) || Offset < 0)
+      throw CodedError('invalid-pagination', `limit must be 1-${MaxPrincipalPageSize} and offset a non-negative integer.`);
+    return { Limit, Offset };
   }
 
   /**
@@ -1021,24 +1156,134 @@ class WebAPI {
    * @param {import('express').Response} ArgRes Response object.
    */
   async #HandlePostWorkspaceRemindersBulkAsync(ArgReq, ArgRes) {
+    if(WebAPI.#PrincipalOf(ArgReq)) {
+      await this.#HandlePrincipalBulkAsync(ArgReq, ArgRes);
+      return;
+    }
+    let Prepared;
     try {
-      const WorkspaceName = ArgReq.params.name;
-      const Actions = ArgReq.body?.actions;
-      if(!Array.isArray(Actions) || Actions.length === 0)
-        throw new Error('actions must be a non-empty array.');
-      if(Actions.length > MaxBulkReminderActions)
-        throw new Error(`actions must contain at most ${MaxBulkReminderActions} items.`);
-      const Prepared = Actions.map((ArgItem, ArgIndex) => WebAPI.#PrepareBulkReminderAction(ArgItem, ArgIndex));
+      Prepared = WebAPI.#PrepareBulkRequest(ArgReq.body);
+    } catch(error) {
+      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}` });
+      return;
+    }
+    ArgRes.status(200).json(await this.#RunBulkAsync(ArgReq.params.name, Prepared, ArgItem => `api-bulk: ${ArgItem.reason || ArgItem.action}`));
+  }
 
-      const WorkspaceExists = await workspaces.WorkspaceExistsAsync(WorkspaceName);
+  /**
+   * Bulk request from a bot principal (GH-301 Phase 1): stricter validation, server-owned reasons, a
+   * required Idempotency-Key reserved before any await, and one structured audit line per outcome.
+   * @param {import('express').Request} ArgReq Request object (carries `Principal`).
+   * @param {import('express').Response} ArgRes Response object.
+   * @returns {Promise<void>}
+   */
+  async #HandlePrincipalBulkAsync(ArgReq, ArgRes) {
+    const Principal = /** @type {{Id: string, Scopes: string[], Workspace: string}} */ (WebAPI.#PrincipalOf(ArgReq));
+    const WorkspaceName = ArgReq.params.name;
+    if(WorkspaceName !== Principal.Workspace) {
+      WebAPI.#DenyPrincipal(ArgRes, 'forbidden-workspace', Principal.Id, ArgReq.method, 'bulk');
+      return;
+    }
+    let Prepared;
+    const Key = ArgReq.get('Idempotency-Key');
+    try {
+      if(typeof Key !== 'string' || !IdempotencyKeyPattern.test(Key))
+        throw CodedError('idempotency-key-required', 'Idempotency-Key header required (1-128 of A-Z a-z 0-9 . _ : -).');
+      WebAPI.#CheckPrincipalBulkShape(ArgReq.body);
+      Prepared = WebAPI.#PrepareBulkRequest(ArgReq.body);
+    } catch(error) {
+      WebAPI.#LogPrincipalDenied(error.code || 'invalid-request', Principal.Id, ArgReq.method, 'bulk');
+      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(error.code ? { code: error.code } : {}) });
+      return;
+    }
+
+    // reserve synchronously: nothing above awaited, so an overlapping same-key request sees this entry.
+    const Fingerprint = crypto.createHash('sha256').update(JSON.stringify(ArgReq.body), 'utf8').digest('hex');
+    const Reservation = /** @type {any} */ (this.#PrincipalIdempotency.Reserve(
+      JSON.stringify([Principal.Id, WorkspaceName, Key]),
+      Fingerprint,
+      () => this.#RunBulkAsync(WorkspaceName, Prepared, ArgItem => `api-bot:${Principal.Id}:${ArgItem.action}`),
+      ArgPayload => ArgPayload?.success === true
+    ));
+    if(Reservation.conflict) {
+      WebAPI.#LogPrincipalDenied('idempotency-key-reused', Principal.Id, ArgReq.method, 'bulk');
+      ArgRes.status(200).json({ success: false, data: 'Error: Idempotency-Key was already used with a different request body.', code: 'idempotency-key-reused' });
+      return;
+    }
+    const Payload = await Reservation.promise;
+    /** @type {Record<string, number>} */
+    const ActionCounts = {};
+    for(const Item of Prepared) ActionCounts[Item.action] = (ActionCounts[Item.action] || 0) + 1;
+    console.log(`[web-api] principal-write ${JSON.stringify({
+      id: Principal.Id,
+      workspace: WorkspaceName,
+      keySha256: crypto.createHash('sha256').update(Key, 'utf8').digest('hex').slice(0, 16),
+      replayed: Reservation.replayed,
+      actions: ActionCounts,
+      ids: Prepared.map(ArgItem => ArgItem.reminderId),
+      counts: Payload?.success === true ? Payload.data.counts : null,
+    })}`);
+    ArgRes.status(200).json(Payload);
+  }
+
+  /**
+   * Principal-only request shape (GH-301): only `actions` on the body, only `action`/`reminderId`/`reason` on
+   * each action, only complete/cancel, and reminder ids in UUID form. Throws a coded error; the whole batch
+   * is refused before any write.
+   * @param {any} ArgBody Request body.
+   */
+  static #CheckPrincipalBulkShape(ArgBody) {
+    if(!ArgBody || typeof ArgBody !== 'object' || Array.isArray(ArgBody))
+      throw CodedError('invalid-request', 'body must be a JSON object.');
+    for(const Key of Object.keys(ArgBody)) {
+      if(!PrincipalBulkEnvelopeKeys.includes(Key)) throw CodedError('unknown-field', `unknown field "${Key}".`);
+    }
+    if(!Array.isArray(ArgBody.actions)) return; // the shared check reports the missing array
+    ArgBody.actions.forEach((/** @type {any} */ ArgItem, /** @type {number} */ ArgIndex) => {
+      const At = `actions[${ArgIndex}]`;
+      if(!ArgItem || typeof ArgItem !== 'object' || Array.isArray(ArgItem)) throw CodedError('invalid-request', `${At}: must be an object.`);
+      for(const Key of Object.keys(ArgItem)) {
+        if(!PrincipalBulkActionKeys.includes(Key)) throw CodedError('unknown-field', `${At}: unknown field "${Key}".`);
+      }
+      if(!PrincipalBulkActions.includes(ArgItem.action))
+        throw CodedError('action-not-allowed', `${At}: bots may only complete or cancel.`);
+      if(typeof ArgItem.reminderId !== 'string' || !ReminderIdPattern.test(ArgItem.reminderId))
+        throw CodedError('invalid-reminder-id', `${At}: reminderId must be a reminder UUID.`);
+    });
+  }
+
+  /**
+   * Shared request validation for the bulk route: the actions array and every item. Throws on any error.
+   * @param {any} ArgBody Request body.
+   * @returns {Record<string, any>[]} Prepared actions.
+   */
+  static #PrepareBulkRequest(ArgBody) {
+    const Actions = ArgBody?.actions;
+    if(!Array.isArray(Actions) || Actions.length === 0)
+      throw new Error('actions must be a non-empty array.');
+    if(Actions.length > MaxBulkReminderActions)
+      throw new Error(`actions must contain at most ${MaxBulkReminderActions} items.`);
+    return Actions.map((ArgItem, ArgIndex) => WebAPI.#PrepareBulkReminderAction(ArgItem, ArgIndex));
+  }
+
+  /**
+   * Apply validated bulk actions serially through the workspace's writers and build the response payload.
+   * @param {string} ArgWorkspaceName Workspace name.
+   * @param {Record<string, any>[]} ArgPrepared Prepared actions.
+   * @param {(ArgItem: Record<string, any>) => string} ArgReasonFor Reason recorded for each item.
+   * @returns {Promise<{success: boolean, data: any}>}
+   */
+  async #RunBulkAsync(ArgWorkspaceName, ArgPrepared, ArgReasonFor) {
+    try {
+      const WorkspaceExists = await workspaces.WorkspaceExistsAsync(ArgWorkspaceName);
       if(!WorkspaceExists) throw new Error('Workspace not found.');
-      const RemindersModule = this.#SlackAppsByWorkspace.get(WorkspaceName)?.RemindersModule;
+      const RemindersModule = this.#SlackAppsByWorkspace.get(ArgWorkspaceName)?.RemindersModule;
       if(!RemindersModule) throw new Error('Workspace is not running.');
 
       // serial on purpose: each writer persists the queue, and per-item order keeps results readable.
       const Results = [];
-      for(const Item of Prepared) {
-        const Reason = `api-bulk: ${Item.reason || Item.action}`;
+      for(const Item of ArgPrepared) {
+        const Reason = ArgReasonFor(Item);
         /** @type {Record<string, any>} */
         // reminderId first keeps GH-279 complete/cancel responses byte-identical.
         const Result = { ...(Item.reminderId ? { reminderId: Item.reminderId } : {}), action: Item.action };
@@ -1054,9 +1299,9 @@ class WebAPI {
       /** @type {Record<string, number>} */
       const Counts = {};
       for(const Result of Results) Counts[Result.status] = (Counts[Result.status] || 0) + 1;
-      ArgRes.status(200).json({ success: true, data: { results: Results, counts: Counts } });
+      return { success: true, data: { results: Results, counts: Counts } };
     } catch(error) {
-      ArgRes.status(200).json({ success: false, data: `Error: ${error.message}` });
+      return { success: false, data: `Error: ${error.message}` };
     }
   }
 

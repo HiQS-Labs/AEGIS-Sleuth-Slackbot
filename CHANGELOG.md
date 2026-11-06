@@ -35,6 +35,23 @@
 
 ## Unreleased
 
+Bots your team trusts can now read and close your reminders without anyone sharing the server password.
+Each bot gets its own key, limited to your workspace. You can switch a key off at once, and it only works over
+a secure connection. Nothing changes until an administrator turns it on.
+
+**Technical:** GH-301 Phase 1. New `src/web-api-principals.js` handles bot principals:
+- `slp_<id>_<secret>` tokens, checked against `<data dir>/web-api-principals.json`, which holds SHA-256 hashes
+  and grants and is re-read on every request;
+- strict entry validation; socket TLS or a loopback peer only, never `X-Forwarded-*`;
+- exact matching for the two allowed routes;
+- an in-memory idempotency store that reserves the key before any write.
+
+`#AuthorizationMiddleware` admits principals only with `WEB_API_BOT_PRINCIPALS=1`, workspace- and scope-bound.
+For principals, the bulk route allows only complete/cancel. It rejects unknown fields and non-UUID ids, uses a
+server-owned reason, requires `Idempotency-Key`, and logs one JSON audit line. The reminders GET gains principal
+paging (`limit`/`offset`, `X-Total-Count`). Legacy bearer behaviour is unchanged. New CLI:
+`scripts/web-api-principal.js`. Tests: `tests/web-api-reminders.test.js`. Docs: `docs/web-api.md` → Bot principals.
+
 Your team's tools can now fix reminders without anyone touching my files by hand: they can rename one, move
 it to another day, hand it to someone else, or add a new one, and my Slack Lists follow along. They also take
 a backup first and can open the server connection themselves.
