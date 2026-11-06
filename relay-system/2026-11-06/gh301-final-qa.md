@@ -1,7 +1,7 @@
 ---
 Goal: Final QA of the GH-301 Phase 0–1 implementation (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: Reviewer
+NEXT: claude
 STATUS: Open
 ---
 
@@ -63,3 +63,58 @@ leave it Open and hand back.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex reviewer verdict — 2026-11-06
+
+**Return for changes. STATUS: Open.** Two Should findings; no Blocker claimed.
+Reviewed the seeded issue, approved Phase 0–1 plan, named implementation, tests, docs and verification/smoke receipts. Only this relay file was edited.
+
+### 1. [Should] Check an existing idempotency key before capacity eviction
+
+`src/web-api-principals.js:183–185,206–214`: `Reserve` performs capacity eviction before looking up the requested key. At exactly the cap, merely retrying the oldest completed key deletes it and executes work again; changing its fingerprint also bypasses the expected conflict. Capacity pressure should evict completed entries when admitting a **new** key, after expiration cleanup and existing-key lookup. This does not require expanding the accepted TTL/restart/eviction guarantees.
+
+Observed input: fill the default store with 1000 completed keys, then reserve `k0` with a changed body, without introducing any new key or advancing time.
+Affected scope: principal bulk retries at cache capacity; same-body replay can become a second writer invocation and a different response, and changed-body reuse can execute instead of conflicting. Existing writers still prevent double completion; this is not a claim of duplicate persisted completion.
+Falsifier: after filling the store, same-key/same-body returns the original result without work, same-key/different-body conflicts, and a genuinely new key still evicts a completed entry while preserving in-flight entries.
+
+Read-only probe command (exit **0**, no files generated):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+node <<'NODE'
+const {IdempotencyStore}=require('./src/web-api-principals');
+(async()=>{
+ const s=new IdempotencyStore(); let writes=0;
+ for(let i=0;i<1000;i++) await s.Reserve('k'+i,'body',async()=>({success:true,n:++writes}),()=>true).promise;
+ const r=s.Reserve('k0','changed-body',async()=>({success:true,n:++writes}),()=>true);
+ console.log(JSON.stringify({sizeBeforeAwait:s.Size,conflict:r.conflict,replayed:r.replayed,result:await r.promise,writes}));
+})().catch(e=>{console.error(e);process.exitCode=1});
+NODE
+```
+Decisive output:
+```json
+{"sizeBeforeAwait":1000,"conflict":false,"replayed":false,"result":{"success":true,"n":1001},"writes":1001}
+```
+A separate `Cap:1` probe with the same body also exited 0 and printed `replay {"success":true,"n":2} replayed false calls 2` immediately after the first completion.
+
+### 2. [Should] Audit principal batch refusals as promised
+
+`src/web-api.js:1180–1182,1193–1195`: validation failures and idempotency conflicts return directly without either `principal-denied` or `principal-write`. The approved plan requires a denial audit for each refused principal request; `docs/web-api.md` likewise says each refusal logs a line. Successful authentication emits no log, so these branches are silent. Add a bounded structured denial record containing only validated actor information and fixed code/method/route fields. Do not log the response message, raw unknown field, body, key or reason.
+
+Observed input: an authenticated, scoped principal POST with no Idempotency-Key; alternatively a valid key plus an unknown action field, or a conflicting held fingerprint.
+Affected scope: refused bot writes, including attempted disallowed fields and conflicting retries; successful-write audit remains present.
+Falsifier: capture console output for each refusal and assert exactly one parseable redacted denial record, zero writer calls for validation failures, and no token/raw key/free text. Legacy responses must remain unchanged.
+
+Evidence: `nl -ba src/web-api.js | sed -n '1166,1212p'` exited **0**. Decisive lines 1181–1182 and 1194–1195 contain only response + return; the sole `principal-write` emission is below the awaited reservation at line 1201. This finding is static control-flow evidence, not a claimed HTTP execution.
+
+### Other conclusions and verification limits
+
+- Token grammar, digest validation and timing-safe comparison, duplicate-id rejection, per-request revoke/expiry checks, strict route/scope/workspace binding, server-owned reasons and full-batch field/action validation follow the intended design. Socket checks ignore forwarding headers. In-flight reservation is synchronous; cached replays pass middleware authentication again.
+- Keeping only top-level `success:true` results is appropriate here: pre-workspace failures can retry, while per-item errors still live inside a successful batch envelope and are retained. The cache cap finding above is separate.
+- No additional provider, persistence path or command framework was introduced. Phase 2 patches/versioning, MCP and TLS deployment remain explicitly deferred. The footprint fits the stated operator-owned-bot envelope.
+- Legacy paths preserve the visible response construction and validation-before-workspace lookup. Exact byte-for-byte comparison with base `65210c1` is **unverified** because this turn prohibits git. No base diff or revision identity is claimed.
+- Receipts report 58 focused passes, build/structural gates, red controls and isolated real-writer smoke. The full-suite failure is explicitly disclosed with a claimed prior development reproduction, rather than presented as green. These execution claims and the baseline attribution are **[Unverified — needs clone run]** here; no suites, executable fixtures, smoke harnesses or validation scripts were run.
+- Existing tests cover the main auth, overlap, redaction and paging paths, but contain no capacity-eviction check or refusal-audit assertions for the findings above. The transport test mocks `IsLoopbackAddress` false; direct unit rows cover address classification, while actual socket TLS remains unexercised as disclosed.
+- Minor documentation mismatches: ordinary shared validation errors (e.g. empty actions) lack the generally promised stable `code`; missing/unreadable principal files normally map to `unknown`, not `unavailable`, because the loader returns an empty map. Admin-session refusal also bypasses the principal denial record. These do not demonstrate an authorization bypass.
+
+Graph discovery was attempted and returned `MCP tool call requires approval, but approval policy is never`; explicit named-file reads were used. No git commands, server access, source/artifact edits or tracked-file creation occurred. NEXT is claude for the producer response.
