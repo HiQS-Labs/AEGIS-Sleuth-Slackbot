@@ -766,7 +766,8 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   test('expired, revoked, unknown and wrong-secret tokens are denied; revocation needs no restart', async () => {
     expect((await CallAsync('GET', List(WsA), { token: Tokens.old })).json.code).toBe('expired');
     expect((await CallAsync('GET', List(WsA), { token: Tokens.gone })).json.code).toBe('revoked');
-    expect((await CallAsync('GET', List(WsA), { token: Principals.MakeToken('bot-nobody') })).json.code).toBe('unknown');
+    const Nobody = Principals.MakeToken('bot-nobody');
+    expect((await CallAsync('GET', List(WsA), { token: Nobody })).json.code).toBe('unknown');
     expect((await CallAsync('GET', List(WsA), { token: `${Tokens.a.slice(0, -1)}${Tokens.a.endsWith('A') ? 'B' : 'A'}` })).json.code).toBe('invalid');
 
     expect((await CallAsync('POST', Bulk(WsA), { key: 'k-r1', body: Complete([R1]) })).json.success).toBe(true);

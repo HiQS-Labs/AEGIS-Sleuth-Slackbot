@@ -1,0 +1,32 @@
+data dir: <tmp>/gh301.ieKQ (throwaway); principals file mode 600
+
+$ MAIN: read own workspace
+  GET /workspace/SmokeBotWs/reminders?limit=10
+  → {"success":true,"data":[{"ReminderID":"aaaaaaaa-1111-4111-8111-000000000301","CreatedOn":"2026-11-01T12:00:00.000Z","ShouldPostOn":"2030-01-02T17:00:00.000Z","TargetChannelID":"C_REMINDERS","OriginalChannelID":"C_REMINDE
+
+$ MAIN: complete with Idempotency-Key
+  POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-1
+  → {"success":true,"data":{"results":[{"reminderId":"aaaaaaaa-1111-4111-8111-000000000301","action":"complete","status":"completed"}],"counts":{"completed":1}}}
+  stored pending after complete: 0
+
+$ ADJACENT: replay the same request (no second write)
+  POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-1
+  → {"success":true,"data":{"results":[{"reminderId":"aaaaaaaa-1111-4111-8111-000000000301","action":"complete","status":"completed"}],"counts":{"completed":1}}}
+
+$ ADJACENT: same key, different body
+  POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-1
+  → {"success":false,"data":"Error: Idempotency-Key was already used with a different request body.","code":"idempotency-key-reused"}
+
+$ ADJACENT: second workspace
+  GET /workspace/SmokeOtherWs/reminders
+  → {"success":false,"data":"Forbidden.","code":"forbidden-workspace"}
+
+$ ADJACENT: operator-only route
+  GET /workspaces
+  → {"success":false,"data":"Forbidden.","code":"forbidden"}
+
+$ ADJACENT: after revoking in the file (no restart)
+  GET /workspace/SmokeBotWs/reminders
+  → {"success":false,"data":"Forbidden.","code":"revoked"}
+
+Slack posts during smoke: 0
