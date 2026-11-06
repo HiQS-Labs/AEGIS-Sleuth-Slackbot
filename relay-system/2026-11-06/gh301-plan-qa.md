@@ -1,7 +1,7 @@
 ---
 Goal: Pre-implementation plan QA for GH-301 Phase 0–1 (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ---
 
@@ -231,3 +231,78 @@ Please re-review `467d8e1` and set STATUS: Approved if satisfied.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex reviewer verdict — round 2, 2026-11-06
+
+**Ship with conditions; STATUS remains Open.** The round-1 Shoulds are resolved at plan level:
+reservation precedes awaits, replay reauthenticates, writer reasons are server-owned, and canonical
+path/workspace and socket-peer checks are explicit. The credential-store deviation is now justified
+on the issuer/verifier distinction. No implementation failure is claimed.
+
+I read the seeded issue `.relay-artifacts/gh301-issue.md`, including normative requirements 1–11.
+Requirements 1, 2, 3, 5, 8, 10 and 11 have proportionate Phase-1 delivery paths. Requirement 4 and
+create/patch portions of 6 are explicitly deferred. Requirement 7 says all mutating calls in its
+normative wording, while the issue's Phase-2 sketch and this relay explicitly defer If-Match to
+patches: approval here concerns that declared Phase-1 subset, not full requirement-7 conformance.
+Requirement 9 has a structured audit design, with the identification caveat below. The 24-hour
+cache is bounded replay retention, not durable same-result replay across restart or eviction.
+
+### Remaining corrections
+
+1. **[Should] Specify principal request-field rejection, not just an action-name allowlist.**
+   Plan `PROJECT/1-INBOX/GH-301-BOT-REMOTE-CRUD.md:142–149,197` adds three rules but no field
+   allowlist. The seeded issue's requirement 6 explicitly says “Reject unknown fields.” Existing
+   `src/web-api.js:1070–1081` constructs a prepared subset and silently ignores unrelated properties;
+   extending it with only the three planned checks preserves that behavior for principals.
+   Define allowed envelope/action keys for principal requests (including the deliberately ignored
+   `reason`, if retained) and reject other keys across the whole batch before writes. Legacy stays
+   unchanged. This is a small validation addition in the existing preparation path.
+   **Observed input:** a valid principal sends an otherwise valid complete action with an extra
+   `hardDelete: true` or misspelled field; the plan's three rules do not reject it.
+   **Affected scope:** principal complete/cancel validation and requirement 6, not Phase-2 patches.
+   **Falsifier:** add an extra field to the second action of a valid two-action batch and assert
+   whole-batch refusal with zero writer calls; removing the field check must fail that assertion.
+   **[Unverified — needs clone run]** Source/contract comparison only; no API fixture executed.
+
+2. **[Should] Keep the module-starting smoke on an isolated local checkout.**
+   Plan `:228–235` first specifies local execution, then permits running the dev bot test “on the box
+   over loopback.” AGENTS.md's non-negotiable server rule explicitly covers deployed prod **and dev**:
+   checks are read-only, and module-starting harnesses/tests must run on a development checkout.
+   Remove the on-box harness option and distinguish any later authorized pilot from this PR's smoke.
+   TLS or loopback does not isolate the service data directory.
+   **Observed input:** an implementer follows `:235` by starting the real-module smoke on deployed dev.
+   **Affected scope:** smoke execution safety; no claim about current deployment state is made.
+   **Falsifier:** the revised instructions must place the smoke in an isolated local checkout with
+   temporary data and offer no deployed-server execution alternative; its receipt should identify
+   that isolated data directory. This is a documentation check, not a new test.
+
+### Nits and implementation cautions
+
+- Plan `:204–209` should describe separate logging cases: the invalid key/UUID case cannot also
+  exercise a successful writer. Use a valid key and UUID with the malicious reason for downstream
+  logging coverage. At `:210–213`, accepted loopback rows need success assertions rather than the
+  table's blanket “all asserting denial.” The intended behavior is otherwise clear.
+- Requirement 9 asks for reminder identity in the audit. Eight-character UUID prefixes (`:168`)
+  can collide; full validated UUIDs are already bounded and contain no reminder text. Prefer full
+  UUIDs, or explicitly document that audit correlation currently uses prefixes. Likewise never
+  print a malformed file entry's unvalidated `id` verbatim in its warning (`:85–87`).
+- Keep malformed-file/digest checks concrete in the existing test file, including duplicate IDs
+  and invalid hex. The planned auth checks cannot be treated as verified merely because they are  [Unverified — no citation]
+  specified. The small CLI and existing bulk preparation/application seam remain warranted;
+  no additional service framework, database or suite is requested.
+
+### Evidence and handoff
+
+Read-only source inspection: `nl -ba src/web-api.js | sed -n '1070,1095p'`, exit **0**,
+showed preparation copies recognized values without an unknown-key check. Plan inspection:
+`nl -ba PROJECT/1-INBOX/GH-301-BOT-REMOTE-CRUD.md | sed -n '140,265p'`, exit **0**,
+showed the three checks, test criteria and on-box smoke wording cited above. These are static
+observations, not execution of proposed code. Graph discovery was attempted first and returned
+`MCP tool call requires approval, but approval policy is never`; direct source reads were used.
+
+Only this relay file was changed. No git commands, tests, executable fixtures, validation scripts,
+server connections or source/artifact changes were performed. Runtime behavior and red controls
+remain **[Unverified — needs clone run]** for implementation/harness verification.
+
+Return to Producer for the two small plan corrections, then re-review.
