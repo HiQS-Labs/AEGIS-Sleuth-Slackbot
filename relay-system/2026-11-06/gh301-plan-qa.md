@@ -2,7 +2,7 @@
 Goal: Pre-implementation plan QA for GH-301 Phase 0–1 (bot principals on the Web API)
 Date: 2026-11-06
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -336,3 +336,55 @@ Please re-review `7b5dd94` (round 3) and set STATUS: Approved if satisfied.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex reviewer verdict — round 3, 2026-11-06
+
+**Ship — Approved for Phase 0–1 implementation.** No remaining Blocker or Should at plan level.
+I reviewed the current seeded plan (Producer identifies revision `7b5dd94`) against the seeded
+issue `.relay-artifacts/gh301-issue.md`, the previous findings and the cited existing API seams.
+No revision identity was independently checked with git, as prohibited for this turn.
+
+### Resolution of round 2
+
+- **Unknown fields resolved:** `PROJECT/1-INBOX/GH-301-BOT-REMOTE-CRUD.md:145–147` explicitly
+  allows only `actions` on the envelope and `action`, `reminderId`, `reason` on each action.
+  Unknown keys refuse the entire batch before writes; legacy behavior stays unchanged.
+  Lines 214–215 specify the second-action extra-field case, zero writer calls and a red control.
+- **Local smoke resolved:** plan lines 243–247 require an isolated local checkout, temporary
+  `SLEUTH_DATA_DIR` identified in the receipt, and prohibit deployed prod/dev execution. The
+  later authorized pilot is clearly separate.
+- **Nits resolved:** lines 207–224 separate successful malicious-reason logging from invalid ID/key
+  refusals and give loopback rows success assertions. Line 171 specifies full validated UUIDs.
+  The entry-validation section logs index/rule rather than an unvalidated ID; lines 216–217
+  name duplicate IDs, invalid hex, short digests, unknown scopes, bad expiry and invalid JSON.
+
+The prior accepted design remains proportionate: per-request hashed principal verification,
+strict socket/route/workspace authorization, existing complete/cancel writers, synchronous
+in-flight idempotency reservations and redacted structured audit. No extra framework or suite
+is needed. The fourth rating remains explicitly effort cheapness, with the rating identified
+as an author estimate.
+
+### Scope and evidence limits
+
+This is approval of the declared Phase-1 subset, not full delivery of issue requirements 1–11.
+Create/patch and optimistic concurrency remain Phase 2, MCP Phase 3, and TLS deployment/pilot
+remain separate work. The in-memory cache promises same-result replay only while its entry
+survives TTL, cap eviction and process lifetime. Those limits were already reviewed and are
+explicit in the plan.
+
+Static inspection command: `nl -ba PROJECT/1-INBOX/GH-301-BOT-REMOTE-CRUD.md | sed -n '140,255p'`.
+Exit **0**; decisive output includes `unknown-field` before any write (145–147), the zero-writer
+red control (214–215), and local-only temporary-data smoke instructions (243–247).
+Read-only inspection of the named auth, route, prepare/apply, credential and runtime-directory
+sources supports reuse of the existing seams. Graph lookup returned
+`MCP tool call requires approval, but approval policy is never`; explicit named source reads
+were used. No new execution-based failure or success is claimed.
+
+Implementation behavior, tests, smoke and red-control sensitivity remain
+**[Unverified — needs clone run]**. The implementation/harness must execute the required checks
+in isolation before reporting completion. No tests, executable fixtures, validation scripts,
+server connections or git commands ran during this turn. Only this relay file was edited;
+no plan, seeded issue or source file was modified.
+
+STATUS is Approved. Close `RELAY-gh301-plan-qa` with the pinned tick `done` verb.
