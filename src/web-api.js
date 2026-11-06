@@ -14,6 +14,7 @@ const { ResolveClientIdentity } = require('./client-mapping');
 const { createEventStore } = require('./event-store');
 const { createLedgerCoverage } = require('./ledger-coverage');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
+const { NormalizeReminderTitle, ValidateReminderTitle } = require('./reminder-title-contract');
 
 // add typedefs for our own types.
 /**
@@ -51,6 +52,8 @@ const ActiveReminderStates = new Set([
 
 // cap on actions per POST /workspace/:name/reminders/bulk request (GH-279).
 const MaxBulkReminderActions = 100;
+const BulkReminderActionNames = ['complete', 'cancel', 'retitle', 'reschedule', 'reassign', 'create'];
+const SlackUserIdPattern = /^[UW][A-Z0-9]{2,}$/;
 
 /**
  * Implements the Web API used by the Sleuth website.
@@ -1002,12 +1005,18 @@ class WebAPI {
   }
 
   /**
-   * Handle POST /workspace/:name/reminders/bulk request (GH-279). Completes or cancels a batch of
-   * live reminders through the RemindersModule's existing writers (the same paths as the ✅
-   * reaction and a Slack List row delete), so the FSM, completion history and list fan-out all
-   * apply. The whole request is validated before any write; items then run serially and each
-   * reports its own outcome.
-   * Body: { actions: [{ reminderId: string, action: 'complete'|'cancel', reason?: string }] }
+   * Handle POST /workspace/:name/reminders/bulk request (GH-279, GH-290). Applies a batch of edits to
+   * live reminders through the RemindersModule's existing writers, so the FSM, completion history,
+   * ledger coverage and Slack List fan-out all apply:
+   *   complete / cancel — the ✅ reaction and Slack List row-delete paths;
+   *   retitle    — the Slack List summary-edit path, fanned out to every list, title normalized and
+   *                checked against the reminder title contract (`force` skips the check);
+   *   reschedule — FSM reschedule to `dueDate`;
+   *   reassign   — replace the owners with `assigneeIds`;
+   *   create     — the Slack List row-create path, with list sync on.
+   * The whole request is validated before any write, and a shape or title error refuses it all.
+   * Items then run serially in request order and each reports its own outcome.
+   * Body: { actions: [{ action, reminderId?, reason?, title?, force?, dueDate?, assigneeIds?, channelId?, senderId? }] }
    * @param {import('express').Request} ArgReq Request object.
    * @param {import('express').Response} ArgRes Response object.
    */
@@ -1019,14 +1028,7 @@ class WebAPI {
         throw new Error('actions must be a non-empty array.');
       if(Actions.length > MaxBulkReminderActions)
         throw new Error(`actions must contain at most ${MaxBulkReminderActions} items.`);
-      for(const Item of Actions) {
-        if(typeof Item?.reminderId !== 'string' || Item.reminderId.length === 0)
-          throw new Error('each action needs a reminderId string.');
-        if(Item.action !== 'complete' && Item.action !== 'cancel')
-          throw new Error(`invalid action "${Item.action}" (expected complete or cancel).`);
-        if(Item.reason !== undefined && typeof Item.reason !== 'string')
-          throw new Error('reason must be a string when given.');
-      }
+      const Prepared = Actions.map((ArgItem, ArgIndex) => WebAPI.#PrepareBulkReminderAction(ArgItem, ArgIndex));
 
       const WorkspaceExists = await workspaces.WorkspaceExistsAsync(WorkspaceName);
       if(!WorkspaceExists) throw new Error('Workspace not found.');
@@ -1035,20 +1037,18 @@ class WebAPI {
 
       // serial on purpose: each writer persists the queue, and per-item order keeps results readable.
       const Results = [];
-      for(const Item of Actions) {
+      for(const Item of Prepared) {
         const Reason = `api-bulk: ${Item.reason || Item.action}`;
-        let Status;
+        /** @type {Record<string, any>} */
+        // reminderId first keeps GH-279 complete/cancel responses byte-identical.
+        const Result = { ...(Item.reminderId ? { reminderId: Item.reminderId } : {}), action: Item.action };
         try {
-          const Closed = Item.action === 'complete'
-            ? await RemindersModule.CompleteReminderByIdAsync(Item.reminderId, Reason)
-            : await RemindersModule.CancelReminderFromListAsync(Item.reminderId, Reason);
-          Status = Closed ? (Item.action === 'complete' ? 'completed' : 'canceled') : 'not-found';
+          Object.assign(Result, await WebAPI.#ApplyBulkReminderActionAsync(RemindersModule, Item, Reason));
         } catch(error) {
-          Status = 'error';
-          Results.push({ reminderId: Item.reminderId, action: Item.action, status: Status, error: error.message });
-          continue;
+          Result.status = 'error';
+          Result.error = error.message;
         }
-        Results.push({ reminderId: Item.reminderId, action: Item.action, status: Status });
+        Results.push(Result);
       }
 
       /** @type {Record<string, number>} */
@@ -1058,6 +1058,112 @@ class WebAPI {
     } catch(error) {
       ArgRes.status(200).json({ success: false, data: `Error: ${error.message}` });
     }
+  }
+
+  /**
+   * Validate one bulk action and return it in the shape the apply step uses. Throws on any error, so
+   * the caller refuses the whole batch before any write.
+   * @param {any} ArgItem Raw action from the request body.
+   * @param {number} ArgIndex Its position, for error messages.
+   * @returns {Record<string, any>}
+   */
+  static #PrepareBulkReminderAction(ArgItem, ArgIndex) {
+    const At = `actions[${ArgIndex}]`;
+    const Action = ArgItem?.action;
+    if(!BulkReminderActionNames.includes(Action))
+      throw new Error(`${At}: invalid action "${Action}" (expected ${BulkReminderActionNames.join(', ')}).`);
+    if(ArgItem.reason !== undefined && typeof ArgItem.reason !== 'string')
+      throw new Error(`${At}: reason must be a string when given.`);
+    if(Action !== 'create' && (typeof ArgItem.reminderId !== 'string' || ArgItem.reminderId.length === 0))
+      throw new Error(`${At}: each action needs a reminderId string.`);
+
+    /** @type {Record<string, any>} */
+    const Prepared = { action: Action, reason: ArgItem.reason, reminderId: Action === 'create' ? undefined : ArgItem.reminderId };
+    if(Action === 'retitle' || Action === 'create') {
+      if(typeof ArgItem.title !== 'string') throw new Error(`${At}: title must be a string.`);
+      const Title = NormalizeReminderTitle(ArgItem.title).text;
+      if(!Title) throw new Error(`${At}: title is empty after normalization.`);
+      if(Action === 'retitle' && ArgItem.force !== true) {
+        const Check = ValidateReminderTitle(Title);
+        if(!Check.ok) throw new Error(`${At}: title "${Title}" refused (${Check.reasons.join(', ')}); pass force: true to keep it.`);
+      }
+      Prepared.title = Title;
+    }
+    if(Action === 'reschedule' || Action === 'create') {
+      const DueDate = typeof ArgItem.dueDate === 'string' ? new Date(ArgItem.dueDate) : null;
+      if(!DueDate || isNaN(DueDate.getTime())) throw new Error(`${At}: dueDate must be an ISO date string.`);
+      Prepared.dueDate = DueDate;
+    }
+    if(Action === 'reassign' || (Action === 'create' && ArgItem.assigneeIds !== undefined)) {
+      const Ids = ArgItem.assigneeIds;
+      if(!Array.isArray(Ids) || Ids.length === 0 || !Ids.every(ArgId => typeof ArgId === 'string' && SlackUserIdPattern.test(ArgId)))
+        throw new Error(`${At}: assigneeIds must be a non-empty array of Slack user ids.`);
+      Prepared.assigneeIds = Ids;
+    }
+    if(Action === 'create') {
+      if(typeof ArgItem.channelId !== 'string' || ArgItem.channelId.length === 0)
+        throw new Error(`${At}: create needs a channelId.`);
+      if(ArgItem.senderId !== undefined && (typeof ArgItem.senderId !== 'string' || !SlackUserIdPattern.test(ArgItem.senderId)))
+        throw new Error(`${At}: senderId must be a Slack user id.`);
+      if(!Prepared.assigneeIds && !ArgItem.senderId)
+        throw new Error(`${At}: create needs an owner (assigneeIds or senderId).`);
+      Prepared.channelId = ArgItem.channelId;
+      Prepared.senderId = ArgItem.senderId ?? null;
+    }
+    return Prepared;
+  }
+
+  /**
+   * Apply one validated bulk action through the module's writer.
+   * @param {import('./reminders-module')} ArgModule Live RemindersModule of the workspace.
+   * @param {Record<string, any>} ArgItem Prepared action.
+   * @param {string} ArgReason Reason recorded with the change.
+   * @returns {Promise<Record<string, any>>} `status` plus any detail.
+   */
+  static async #ApplyBulkReminderActionAsync(ArgModule, ArgItem, ArgReason) {
+    switch(ArgItem.action) {
+      case 'complete':
+        return { status: await ArgModule.CompleteReminderByIdAsync(ArgItem.reminderId, ArgReason) ? 'completed' : 'not-found' };
+      case 'cancel':
+        return { status: await ArgModule.CancelReminderFromListAsync(ArgItem.reminderId, ArgReason) ? 'canceled' : 'not-found' };
+      case 'retitle':
+        return { status: await ArgModule.UpdateReminderSummaryFromListAsync(ArgItem.reminderId, ArgItem.title, ArgReason, { SyncLists: true, ReturnStatus: true }) };
+      case 'reschedule':
+        return WebAPI.#WithListFailures(await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason));
+      case 'reassign':
+        return WebAPI.#WithListFailures(await ArgModule.ReassignReminderAsync(ArgItem.reminderId, ArgItem.assigneeIds, ArgReason));
+      case 'create': {
+        const Created = await ArgModule.CreateReminderFromListRowAsync({
+          summary: ArgItem.title,
+          dueDate: ArgItem.dueDate.toISOString(),
+          assigneeID: null,
+          assigneeIDs: ArgItem.assigneeIds ?? [],
+          targetChannelID: ArgItem.channelId,
+          originalSenderID: ArgItem.senderId,
+        }, { SkipListSync: false, RequireOwner: true });
+        return Created.ok
+          ? { status: 'created', reminderId: Created.reminder?.ReminderID }
+          : { status: 'error', error: Created.error };
+      }
+      default:
+        throw new Error(`unhandled action ${ArgItem.action}`);
+    }
+  }
+
+  /**
+   * Turn a writer result that lists lagging Slack Lists into a `partial` item: the reminder itself
+   * changed, but those lists did not follow.
+   * @param {{status: string, listFailures?: string[]}} ArgResult Writer result.
+   * @returns {Record<string, any>}
+   */
+  static #WithListFailures(ArgResult) {
+    if(ArgResult.status === 'updated' && Array.isArray(ArgResult.listFailures) && ArgResult.listFailures.length > 0) {
+      return {
+        status: 'partial',
+        error: `reminder updated, but these Slack Lists did not follow: ${ArgResult.listFailures.join('; ')}. Sending the same change again reports unchanged; fix the lists by hand.`,
+      };
+    }
+    return { status: ArgResult.status };
   }
 
   /**

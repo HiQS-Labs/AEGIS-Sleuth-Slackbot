@@ -35,6 +35,22 @@
 
 ## Unreleased
 
+Your team's tools can now fix reminders without anyone touching my files by hand: they can rename one, move
+it to another day, hand it to someone else, or add a new one, and my Slack Lists follow along. They also take
+a backup first and can open the server connection themselves.
+
+**Technical:** GH-290. `POST /workspace/:name/reminders/bulk` gains `retitle`, `reschedule`, `reassign` and
+`create` beside `complete`/`cancel`; the whole batch is validated first (title contract, ISO dates, Slack user
+ids, create owner) and refused on any error. Writers: `UpdateReminderSummaryFromListAsync` gains
+`SyncLists`/`ReturnStatus` options; new `RescheduleReminderAsync` (FSM Rescheduled→Scheduled, emits
+`ReminderScheduled`) and `ReassignReminderAsync`; `CreateReminderFromListRowAsync` takes several owners,
+`SkipListSync:false` and `RequireOwner`. Summary and owner edits record a ledger coverage gap first. The
+posting pass now skips a snapshotted entry that is no longer `overdue`, so a reminder rescheduled mid-batch is
+not posted. `ListsModule` adds `SyncReminderScheduleAcrossListsAsync` and `MoveReminderBetweenUserListsAsync`
+(per-user rows move, the shared row is updated in place). `skills/bulk-edit-reminders` adds the matching flags,
+a `backup` subcommand and `--tunnel`. Complete/cancel responses are unchanged. Tests in
+`tests/web-api-reminders.test.js`, `tests/reminders-integration.test.js` and `tests/lists-module.test.js`.
+
 My reminder lists now show the right age. A reminder you made yesterday afternoon used to say "created
 today" in the next morning's list, which made it look like it had just appeared; it now says "1 day old".
 

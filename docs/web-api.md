@@ -378,19 +378,35 @@ for reminder in payload["data"]["reminders"]:
 ## POST /workspace/:name/reminders/bulk
 
 ### Description
-Completes or cancels a batch of live reminders in a running workspace (GH-279). Each item goes through the
-reminders module's existing writers, so it behaves exactly like the matching Slack action:
+Closes or edits a batch of live reminders in a running workspace (GH-279, GH-290). Each item goes through the
+reminders module's existing writers, so it behaves like the matching Slack action:
 
-| `action` | Same path as | Effect |
-|---|---|---|
-| `complete` | the ✅ reaction | moves the reminder to completion history; per-user Slack List rows stay, marked done |
-| `cancel` | deleting a Slack List row | removes the reminder without a completion record; list rows are removed |
+| `action` | Fields | Same path as | Effect | Item `status` |
+|---|---|---|---|---|
+| `complete` | `reminderId` | the ✅ reaction | moves the reminder to completion history; per-user Slack List rows stay, marked done | `completed` · `not-found` |
+| `cancel` | `reminderId` | deleting a Slack List row | removes the reminder without a completion record; list rows are removed | `canceled` · `not-found` |
+| `retitle` | `reminderId`, `title`, `force?` | editing a Slack List row title | replaces the task summary and updates every Slack List row of the reminder | `updated` · `unchanged` · `not-found` |
+| `reschedule` | `reminderId`, `dueDate` (ISO) | the posting pass's retry reschedule | sets the next post time (an overdue reminder moved forward waits again) and updates the lists' created/scheduled cell | `updated` · `unchanged` · `busy` · `partial` · `not-found` |
+| `reassign` | `reminderId`, `assigneeIds` | — | replaces the owners (first is primary); per-user list rows move, the shared row's owner cell follows | `updated` · `unchanged` · `partial` · `not-found` |
+| `create` | `title`, `dueDate`, `channelId`, `assigneeIds?`, `senderId?` | adding a Slack List row | creates a scheduled reminder and adds it to the Slack Lists | `created` (+ `reminderId`) |
 
-The whole request is validated before anything is written: `actions` must be a non-empty array of at most 100
-items, each with a non-empty string `reminderId`, an `action` of `complete` or `cancel`, and an optional string
-`reason` (stored as `api-bulk: <reason>`, default `api-bulk: <action>`). Items are then applied one at a time,
-in request order. The workspace must exist **and** be running in this process (`Workspace is not running.`
-otherwise).
+Any item can also fail with `error` (with an `error` message). `busy` means the posting pass is sending that
+reminder right now; retry shortly. `partial` means the reminder itself changed but some Slack Lists did not follow
+(the `error` text names them); sending the same change again answers `unchanged`, so fix those lists by hand.
+
+The whole request is validated before anything is written; any problem refuses the whole batch with nothing
+changed. `actions` must be a non-empty array of at most 100 items; every item but `create` needs a non-empty
+string `reminderId`; `reason` is an optional string (stored as `api-bulk: <reason>`, default
+`api-bulk: <action>`). `title` is normalized with the reminder title contract (`src/reminder-title-contract.js`)
+and a `retitle` title the contract refuses (for example a bare question or pointer) is rejected unless
+`force: true`; an empty title is always rejected. `dueDate` must parse as a date. `assigneeIds` must be a
+non-empty array of Slack user ids (`U…`/`W…`). `create` needs a `channelId` and an owner (`assigneeIds` or
+`senderId`). Items are then applied one at a time, in request order, so a `retitle` then a `reschedule` of the
+same reminder in one request is fine. The workspace must exist **and** be running in this process
+(`Workspace is not running.` otherwise).
+
+Edits with no event-ledger record (`retitle`, `reassign`) mark the ledger's coverage as gapped first, so
+projection-backed reads fall back to the stored reminders. None of these actions posts a Slack message.
 
 `skills/bulk-edit-reminders` wraps this endpoint and takes a backup with `GET /workspace/:name/reminders`
 before every write.
