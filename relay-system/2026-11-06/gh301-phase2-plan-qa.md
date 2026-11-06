@@ -2,7 +2,7 @@
 Goal: Pre-implementation plan QA for GH-301 Phase 2 (create and edit through bot keys, with version checks)
 Date: 2026-11-06
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -172,3 +172,18 @@ Please re-review `d61cf6b` (round 2) and set STATUS: Approved if satisfied.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex review — round 2, 2026-11-06
+
+**Verdict: Approved for implementation.** The revised Phase 2 plan resolves the five round-1 findings within the stated operational envelope. This approves the plan, not implementation or runtime acceptance of GH-301 as a whole.
+
+- **Create identity:** plan `PROJECT/2-WORKING/GH-301-BOT-REMOTE-CRUD.md:324–344` makes create a sole-action request, stamps both identity and fingerprint before queueing, rejects changed-body key reuse, and bounds durable replay to pending reminders. This fits the existing synchronous reservation (`src/web-api.js:1200–1206`, `src/web-api-principals.js:183–204`) and first persistence in `src/reminders-module.js:4536–4556`. The real module/API reconstruction test (`plan:364–371`) measures durability rather than cache reuse. Keep the existing reservation around the durable lookup/create work.
+- **Digest:** plan `:295–303` preserves owner order and legacy fallback, includes the mutable scheduling flags, normalizes dates, and sorts a copy of URLs. Those choices match ownership semantics (`src/reminders-module.js:842–878`), title mutation (`:1165–1169`) and reschedule mutations (`:1199–1203`). A computed digest is proportionate; a stored counter is unnecessary here.
+- **Conflicts:** plan `:305–315` now puts the optional expected-version and pending-membership check immediately before mutation, including after retitle's ledger-gap await (`src/reminders-module.js:1163–1169`). Complete/cancel and reschedule currently mutate before their first await (`:1083–1086`, `:1126–1127`, `:1199–1204`); their check belongs before that mutation, not after their later persistence/list awaits. The plan's moment-of-mutation rule supplies this contract. Whole-batch preflight plus explicit per-item conflicts after earlier successes is adequate for this process; no lock is required. Preserve conflict as a distinct result through the complete/cancel adapters, whose current boolean coercion is at `src/web-api.js:1370–1373`.
+- **Link scope:** plan `:271–279` explicitly defers link patches and the in-flight sync/relay guards. That removes the proposed set-links behavior that caused findings 4–5; the overall issue's requirement 6 remains partially outstanding, as the revised requirement map acknowledges (`:382`). This is a sound PR boundary, not completion of the link requirement.
+- **Create scope and side effects:** the enabled-channel check uses the existing API (`src/reminders-module.js:1624–1625`). Excluding senderId leaves the proven first-owner fallback (`:1293–1316`); the existing create adapter enables List fan-out (`src/web-api.js:1380–1388`) and queueing persists before List sync (`src/reminders-module.js:4555–4560`). The title contract on principal create is explicitly required (`plan:345`), rather than relying on today's shared validator, which only validates retitle (`src/web-api.js:1327–1335`). Existing scheduling, List updates and lifecycle effects remain the documented writer behavior.
+
+The proposed digest, interleaving and durable-reload assertions are falsifiable and fit the existing suites. The retitle interleaving red control directly targets the newly required guard; the durable-create controls target first-save stamping and restart lookup. No additional subsystem, test file or gate is requested.
+
+**Evidence and limits:** reread the seeded issue, revised Phase-2 section and targeted current writer, bulk, principal, GET, sync and relay source. Targeted `nl -ba … | sed -n …` reads exited 0; no runtime probe was executed. Graph discovery was attempted with `search_graph(project="AEGIS-Sleuth-Slackbot", name_pattern=".*(CreateReminderFromListRowAsync|CompleteReminderByIdAsync|IdempotencyStore).*")` and returned `MCP tool call requires approval, but approval policy is never`; direct targeted reads were the fallback. All runtime tests and red controls remain **[Unverified — needs clone run]**. No git, app startup, executable fixtures, tests or validators were run. Only this relay file was edited.
