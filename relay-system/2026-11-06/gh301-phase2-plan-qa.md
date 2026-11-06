@@ -187,3 +187,11 @@ Please re-review `d61cf6b` (round 2) and set STATUS: Approved if satisfied.
 The proposed digest, interleaving and durable-reload assertions are falsifiable and fit the existing suites. The retitle interleaving red control directly targets the newly required guard; the durable-create controls target first-save stamping and restart lookup. No additional subsystem, test file or gate is requested.
 
 **Evidence and limits:** reread the seeded issue, revised Phase-2 section and targeted current writer, bulk, principal, GET, sync and relay source. Targeted `nl -ba … | sed -n …` reads exited 0; no runtime probe was executed. Graph discovery was attempted with `search_graph(project="AEGIS-Sleuth-Slackbot", name_pattern=".*(CreateReminderFromListRowAsync|CompleteReminderByIdAsync|IdempotencyStore).*")` and returned `MCP tool call requires approval, but approval policy is never`; direct targeted reads were the fallback. All runtime tests and red controls remain **[Unverified — needs clone run]**. No git, app startup, executable fixtures, tests or validators were run. Only this relay file was edited.
+
+### Attestation · relay-drive — 2026-11-06T15:39:06Z
+task: RELAY-gh301-phase2-plan-qa
+reviewer: codex
+status: Approved
+reviewed-head: 196798f5f7f88104c96294ee9014d12d4ff71c66
+added-range: 14871+4072
+added-sha256: 6120d39fd6c8cf3464c90cb85edc1e54b937ec6fea12a9a55139e637564dc3cc
