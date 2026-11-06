@@ -242,3 +242,11 @@ workspace "team.one" must match A-Z a-z 0-9 _ - (1-64 chars)
 ```
 
 Limits: this is a seeded-file delta review; exact revision identity, delta exclusivity and the ledger merge were not verified because git is prohibited. Focused suite, smoke, red controls and full gate results remain **[Unverified — needs clone run]** in this turn; the harness gate follows. No suites, fixtures, validation scripts, server access or git commands were run. The issue artifact was read and left unchanged. Only this relay file was edited; probe output stayed in scratch. Approval retains the prior Phase 0–1 scope and deployment limitations.  [Unverified — no citation]
+
+### Attestation · relay-drive — 2026-11-06T05:25:22Z
+task: RELAY-gh301-final-qa-delta
+reviewer: codex
+status: Approved
+reviewed-head: ec8861ad3a0520fc24162e393bbc66367152d974
+added-range: 16957+2547
+added-sha256: 6ea2ffb80d5fdc7aa44c30557c12535cbb5870f026755b0ba3a8ce2d826a785c
