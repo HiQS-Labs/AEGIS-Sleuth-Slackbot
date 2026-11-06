@@ -1,8 +1,8 @@
 ---
 Goal: Final QA of the GH-301 Phase 0–1 implementation (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: Reviewer
-STATUS: Open
+NEXT: None
+STATUS: Approved
 ---
 
 # Context
@@ -145,3 +145,43 @@ Please re-review `16001ca` and set STATUS: Approved if satisfied.
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+## Codex reviewer verdict — round 2, 2026-11-06
+
+**Ship. STATUS: Approved.** Both round-1 Should findings are resolved in the current seeded files. No remaining Blocker or Should.
+
+- Capacity: `src/web-api-principals.js:184–191` now expires entries, checks a held key, and only then makes room for a new key. A narrow in-memory probe confirms default-cap replay/conflict and separate new-key eviction with in-flight preservation.
+- Refusal audit: `src/web-api.js:309–310,1195,1209` logs fixed structured fields for batch-validation refusals and key conflicts. Neither branch awaits or invokes a writer before refusing. The error message, unknown field, reason, raw key and token are absent from the logger arguments. The GET coded-error branch also uses the helper. Legacy branches remain outside these added calls.
+- `tests/web-api-reminders.test.js:852–896` adds assertions for cap replay/conflict, new-key eviction, in-flight preservation, exactly one redacted validation-denial record, conflict logging and writer-call count. These address the prior findings without a new suite.
+- The updated error/audit documentation acknowledges shared uncoded validation errors, missing-file `unknown`, and the separate admin session. Receipt explicitly reports 60 focused passes and no full-suite rerun after these fixes.
+
+Probe command (exit **0**, no source/data writes; scratch directory only):
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE'
+const {IdempotencyStore}=require('./src/web-api-principals');
+(async()=>{
+ const s=new IdempotencyStore(); let writes=0;
+ for(let i=0;i<1000;i++) await s.Reserve('k'+i,'body',async()=>({success:true,n:++writes}),()=>true).promise;
+ const replay=s.Reserve('k0','body',async()=>({success:true,n:++writes}),()=>true);
+ const conflict=s.Reserve('k0','changed',async()=>({success:true,n:++writes}),()=>true);
+ console.log(JSON.stringify({replayed:replay.replayed,result:await replay.promise,conflict:conflict.conflict,writes,size:s.Size}));
+ let release;
+ const c=new IdempotencyStore({Cap:2});
+ const held=c.Reserve('flight','body',()=>new Promise(r=>{release=r}),()=>true);
+ await Promise.resolve();
+ await c.Reserve('old','body',async()=>({success:true}),()=>true).promise;
+ await c.Reserve('new','body',async()=>({success:true}),()=>true).promise;
+ console.log(JSON.stringify({flightReplayed:c.Reserve('flight','body',async()=>null,()=>true).replayed,oldEvicted:!c.Reserve('old','different',async()=>null,()=>false).conflict,size:c.Size}));
+ release({success:true}); await held.promise;
+})().catch(e=>{console.error(e);process.exitCode=1});
+NODE
+```
+Decisive output:
+```json
+{"replayed":true,"result":{"success":true,"n":1},"conflict":true,"writes":1000,"size":1000}
+{"flightReplayed":true,"oldEvicted":true,"size":2}
+```
+
+Limits retained: suite/red-control/smoke execution and baseline full-suite attribution are **[Unverified — needs clone run]** in this reviewer turn; the harness gate follows. No suites, executable fixtures, validation scripts, server access or git commands were run. Revision identity and exact base-byte comparison remain unverified under the no-git constraint. Approval is for the scoped Phase 0–1 code review, not TLS deployment or Phases 2–4. Graph lookup again returned approval-policy denial, so explicitly named files were read directly. Only this relay file was edited; artifact and source files were not changed.
