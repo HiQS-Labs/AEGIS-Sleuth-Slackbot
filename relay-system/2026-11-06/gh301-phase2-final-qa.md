@@ -2,7 +2,7 @@
 Goal: Final QA of the GH-301 Phase 2 implementation (create/retitle/reschedule for bots, version checks, durable create)
 Date: 2026-11-06
 NEXT: Reviewer
-STATUS: Open
+STATUS: Approved
 ---
 
 # Context
@@ -197,7 +197,7 @@ accepted. Please confirm the delta `abc1c63..7ffc4fe`.
    during the writer's later save or Lists awaits is never covered by it. `partial` now carries its version;
    `unchanged` echoes the sent version.
 4. **Tests:** a produced version with a concurrent edit that then conflicts; a partial version; a missing reminder
-   beside a valid one; a failed replay save that is not cached. Red controls for 2 and 3 are confirmed. The smoke
+   beside a valid one; a failed replay save that is not cached. Red controls for 2 and 3 are confirmed. The smoke  [Unverified — no citation]
    harness follows the conventions.
 
 Focused: web-api 76/76 (twice), integration GH-301 block 5/5, build clean, sanitize clean.
@@ -205,3 +205,37 @@ Focused: web-api 76/76 (twice), integration GH-301 block 5/5, build clean, sanit
 <!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
 ▶ TAKE YOUR TURN (codex)
 <!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
+
+
+## Codex reviewer — post-approval delta, round 3 (2026-11-06)
+
+**Ship — Approved.** Reviewed the supplied post-approval changes in the current seeded files against the
+approved Phase 2 plan and issue artifact. No new Blocker or Should findings.
+
+- Persistence: `src/web-api.js:1273–1285` checks the stamped fingerprint before replay, awaits
+  `SaveRemindersNowAsync()`, and returns outer `success:false/code:save-failed` on rejection. The reservation
+  keep predicate therefore discards that failure. `src/reminders-module.js:882–883` delegates to the existing
+  serialized save chain (`:4158–4162`), which recovers from a prior rejection and propagates the new failure.
+  Fresh creates still await the queue's durable save (`:4635`) before success; no second storage path was added.
+- Versions: retitle (`src/reminders-module.js:1236`) and reschedule (`:1276`) capture their produced digest
+  synchronously after mutation and before save/List awaits. Create captures before entering the synchronous
+  queue insertion (`:1399–1400`). The API threads the callback into those writers and uses the captured value
+  for created/updated/partial results (`src/web-api.js:1302–1308`), while unchanged echoes the checked input.
+  This avoids acknowledging a later human edit as the bot's own produced version.
+- Tests inspected: the fresh-API durable replay case uses another port and cleans it up in finally
+  (`tests/web-api-reminders.test.js:1008–1025`); its failed-save retry asserts refusal followed by same-ID
+  replay with one create. The produced-version case asserts a subsequent conflict, and the partial/missing
+  case checks both response contracts (`:1045–1065`). The adapter tests use mocked writers; callback
+  placement in the real writers was reviewed directly rather than inferred from those mocks.
+- Scope remains the approved create/retitle/reschedule delta. Existing writer ownership, FSM transitions,
+  and scheduling/snooze paths are retained. No new automatic channel-post path is introduced.
+
+Verification boundary: the receipt reports 76/76 focused HTTP tests twice, 5/5 integration cases, build,
+sanitize, and two red controls. These execution claims are **[Unverified — needs clone run]** by this reviewer.
+No suites, executable fixtures, smoke harness, or runtime module probes were executed here. The earlier
+full-suite failure remains a reported limitation; this approval does not assert a green full suite or pilot.
+The harness gate must perform the permitted disposable-clone verification.
+
+Graph discovery was attempted but returned “MCP tool call requires approval, but approval policy is never”;
+review fell back to the explicitly named source, tests, plan and evidence files. Only this relay file was
+edited. No artifact/source edits or git commands were performed.
