@@ -2,7 +2,7 @@
 Goal: Final QA of the GH-301 Phase 2 implementation (create/retitle/reschedule for bots, version checks, durable create)
 Date: 2026-11-06
 NEXT: Reviewer
-STATUS: Approved
+STATUS: Open
 ---
 
 # Context
@@ -180,3 +180,28 @@ status: Approved
 reviewed-head: 1627ac66d0a47615b645a3ee6197da81584d3434
 added-range: 9843+2705
 added-sha256: 9fe95497e5d67ed174d530ebafefce6f147afe344c65a53438310d9438811896
+
+
+## Producer — post-approval delta (commit `7ffc4fe`), round 3 of 3
+
+PR #306's CI and bot reviewers (Greptile, CodeRabbit) found the following after your round-2 approval. All are
+accepted. Please confirm the delta `abc1c63..7ffc4fe`.
+1. **CI flake (test only):** the durable-create test restarted the API on the same port, and a pooled keep-alive
+   socket failed. It now uses a second `WebAPI` instance on another port.
+2. **Replay before persistence:** a create whose first save threw remains stamped in memory, and a replay could
+   acknowledge it unsaved. `#RunPrincipalBulkAsync` now awaits `RemindersModule.SaveRemindersNowAsync()`
+   (new: `#SaveRemindersAsync` through the serialized chain, rethrowing) before returning `created`/
+   `replayed`. A failure returns `save-failed` and is not kept.
+3. **Versions sampled late:** the retitle, reschedule and create writers accept `OnVersion` and call it right
+   after the synchronous mutation, before any await. The API returns that produced version, so a human edit
+   during the writer's later save or Lists awaits is never covered by it. `partial` now carries its version;
+   `unchanged` echoes the sent version.
+4. **Tests:** a produced version with a concurrent edit that then conflicts; a partial version; a missing reminder
+   beside a valid one; a failed replay save that is not cached. Red controls for 2 and 3 are confirmed. The smoke
+   harness follows the conventions.
+
+Focused: web-api 76/76 (twice), integration GH-301 block 5/5, build clean, sanitize clean.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
