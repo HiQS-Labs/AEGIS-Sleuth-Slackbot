@@ -2,9 +2,9 @@
 gh_issue: 290
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/290
 title: "Reminders end-to-end tool: tunnel + backup wrapper, and Web API edits beyond closing"
-status: Active (2-WORKING)
+status: Complete
 created: 2026-10-28
-updated: 2026-11-05
+updated: 2026-11-06
 owner: noel
 goal: "An agent session can back up, then retitle, reschedule, reassign, create or close live reminders through the app's own writers, with the tunnel handled for it."
 doc_type: feature
@@ -17,7 +17,7 @@ related: "GH-279 (#280, bulk close), skills/download (#154), skills/talk-to-remi
 
 | What was just completed | What's next |
 |---|---|
-| Implemented and verified (2026-11-05): `TESTS-RESULTS/2026-11-05+GH-290/verification.md`. | Final Codex QA, PR. Live dev smoke after deploy. |
+| Shipped (2026-11-06): final Codex QA approved (round 2); PR #302 merged to `development` (`65210c1`) and promoted to `main` in #303 (`7e01e26`); production deploy verified read-only. Dev full CRUD passed 2026-11-06, with the operator's approval (see #303). | Nothing open for GH-290. The `--tunnel` path has not connected to a real host yet. |
 
 ## Problem
 
