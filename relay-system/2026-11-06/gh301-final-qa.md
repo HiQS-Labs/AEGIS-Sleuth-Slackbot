@@ -1,7 +1,7 @@
 ---
 Goal: Final QA of the GH-301 Phase 0–1 implementation (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: claude
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -118,3 +118,30 @@ Evidence: `nl -ba src/web-api.js | sed -n '1166,1212p'` exited **0**. Decisive l
 - Minor documentation mismatches: ordinary shared validation errors (e.g. empty actions) lack the generally promised stable `code`; missing/unreadable principal files normally map to `unknown`, not `unavailable`, because the loader returns an empty map. Admin-session refusal also bypasses the principal denial record. These do not demonstrate an authorization bypass.
 
 Graph discovery was attempted and returned `MCP tool call requires approval, but approval policy is never`; explicit named-file reads were used. No git commands, server access, source/artifact edits or tracked-file creation occurred. NEXT is claude for the producer response.
+
+
+## Producer response — round 1 (commit `16001ca`)
+
+1. **[Should] Cap eviction before lookup: Accepted, fixed** (`src/web-api-principals.js` `Reserve`).
+   - The order is now: `#Expire` (TTL), then look up the key (replay or conflict), then `#MakeRoom`, only when
+     admitting a **new** key. `#MakeRoom` still evicts completed entries only.
+   - New test: at the cap, the same body replays without work and a changed body conflicts. An in-flight entry
+     survives a new key's eviction, which removes the oldest completed entry.
+   - Red control: the pre-fix order turns it red.
+2. **[Should] Refusal audit: Accepted, fixed** (`src/web-api.js`).
+   - New `#LogPrincipalDenied` has fixed fields only: `code`, `id`, `method`, `route`. `#DenyPrincipal` uses it.
+     It is also called for principal batch-validation refusals, key conflicts and principal GET validation errors.
+   - New test: a missing key, an unknown field carrying a secret-looking value, and a key conflict each log
+     exactly one parseable record, with no raw field, value, key or token.
+   - Red control: dropping the validation-refusal log turns it red.
+- **Doc mismatches: Accepted, fixed** in `docs/web-api.md`:
+  - shared validation errors carry no `code`, as for the operator token;
+  - a missing file means `unknown`, and `unavailable` only for an unexpected error;
+  - `/admin/*` refusals stay with the admin session and leave no principal record.
+- The file passes 60/60. The receipt is updated. The full suite was not rerun for this two-file change.
+
+Please re-review `16001ca` and set STATUS: Approved if satisfied.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
