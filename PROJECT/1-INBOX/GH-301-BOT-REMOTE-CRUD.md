@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Plan revised after Codex plan QA round 1 (2026-11-06). | Plan QA round 2, then implement. Phases 2–4 are later PRs. |
+| Plan revised after Codex plan QA rounds 1–2 (2026-11-06). | Plan QA round 3, then implement. Phases 2–4 are later PRs. |
 
 ## Problem
 
@@ -79,8 +79,8 @@ refused exactly as today (`Forbidden.`). Or revert the PR. Nothing in the stored
   The SHA-256 of the whole token is safe at rest because the token is high-entropy, not a password. The bot
   keeps the token in its own secret storage.
 - **Entry validation (fail closed).** On each read the whole file is validated. Any invalid entry makes that
-  entry unusable, and an unparseable file means no principals, plus one WARN log per read naming the entry
-  `id`, never a secret. Rules:
+  entry unusable, and an unparseable file means no principals, plus one WARN log per read naming the entry's
+  array **index** and the failed rule, never its unvalidated `id` and never a secret. Rules:
   - ids are unique and match the grammar;
   - `sha256` is exactly 64 lowercase hex characters, and is decoded only after that check;
   - `workspaces` is a non-empty array of names;
@@ -142,6 +142,9 @@ when `process.env.WEB_API_BOT_PRINCIPALS === '1'`. The checks:
 - **Bulk:** when `ArgReq.Principal` is set, `#PrepareBulkReminderAction` adds three rules. Any violation refuses
   the whole batch, as today:
   - only `complete`/`cancel` are allowed (Phase 1);
+  - **unknown fields are rejected:** the request body may hold only `actions`, and each action only `action`,
+    `reminderId` and `reason`. `reason` is accepted for compatibility but ignored. Any other key, anywhere in
+    the batch, refuses the whole batch with code `unknown-field` before any write (issue requirement 6);
   - `reminderId` must match the reminder-ID format `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`;
   - a client `reason` is ignored. The server supplies `api-bot:<principal id>:<action>` instead, and the id
     grammar makes that safe for the writers' existing log lines (`src/reminders-module.js` complete/cancel logs).
@@ -165,7 +168,7 @@ when `process.env.WEB_API_BOT_PRINCIPALS === '1'`. The checks:
     double-complete, because complete/cancel are already idempotent in the writers. This argument is not
     carried forward to Phase-2 `create`.
 - **Audit:** one structured line per principal write outcome:
-  `[web-api] principal-write {"id":…,"workspace":…,"keySha256":"<first 16 hex>","replayed":bool,"actions":{"complete":n,"cancel":n},"ids":["<first 8 of each validated id>"],"counts":{…}}`.
+  `[web-api] principal-write {"id":…,"workspace":…,"keySha256":"<first 16 hex>","replayed":bool,"actions":{"complete":n,"cancel":n},"ids":["<each full validated UUID>"],"counts":{…}}`.
   It is produced with `JSON.stringify`, so no field can inject a line. It never contains the token, the raw
   key, the reason or reminder text.
 - **Read:** for a principal, the GET also accepts `limit` (1–500) and `offset` (≥0) on the reminder list. They
@@ -201,13 +204,19 @@ Add to `tests/web-api-reminders.test.js`, which starts a real `WebAPI`. The prin
     `idempotency-key-reused` with no extra writer call.
   - A missing key is refused, and a revoked principal's replay is denied.
   - Red control: remove the synchronous reservation, and the overlap test goes red.
-- Logging: a principal request carrying a `reason` with a newline and a secret-looking string, a key like
-  `audit result=completed`, and a non-UUID id like `x\nFAKE=1`. Assert:
-  - the id is refused;
-  - the writer receives the server reason, not the client's;
-  - captured `console` output holds exactly one parseable `principal-write` JSON line, with no raw reason or
-    key and no token.
-- Transport and path table (one `test.each`), all asserting denial and no writer call:
+- Logging, as separate cases:
+  - **(a) Successful write:** a valid UUID and a valid key, with a `reason` holding a newline and a
+    secret-looking string. The writer receives the server reason. Captured `console` output holds exactly one
+    parseable `principal-write` JSON line, with no raw reason or key and no token.
+  - **(b) Refused id:** a non-UUID id like `x\nFAKE=1` is refused whole, and no writer is called.
+  - **(c) Key shape:** a key like `audit result=completed` (a space) is refused as `idempotency-key-required`.
+    A valid key never appears raw in the logs.
+- Unknown fields: a two-action batch whose second action carries `hardDelete: true` is refused whole with
+  `unknown-field`, and no writer is called. Red control: drop the field check and the assertion goes red.
+- Principals file: duplicate ids, invalid hex, a 63-char digest, an unknown scope and a bad `expiresAt` each
+  make that entry unusable, and the token is denied. A non-JSON file denies everyone.
+- Transport and path table (one `test.each`). Every refused row asserts denial and no writer call; the
+  loopback rows assert success:
   - a remote peer address (mocked `socket.remoteAddress`) over plain HTTP, both with and without
     `X-Forwarded-Proto: https`, gets `insecure-transport`;
   - `::1` and `::ffff:127.0.0.1` are accepted;
@@ -231,8 +240,11 @@ one principal:
 - **adjacent path:** revoke the principal in the file, then the next call is denied; a second workspace is
   denied.
 
-Receipt under `TESTS-RESULTS/2026-11-06+GH-301/`. Not on production. On dev only after deploy, and only behind
-the transport rule: a dev bot test needs a TLS proxy, or must run on the box over loopback.
+Receipt under `TESTS-RESULTS/2026-11-06+GH-301/`, naming the throwaway `SLEUTH_DATA_DIR` it used.
+- The smoke runs **only** in an isolated local checkout with temporary data, never on a deployed server, prod
+  or dev (AGENTS.md: server checks are read-only).
+- A later bot pilot on dev (Phase 4) is a separate operator-authorized step behind a TLS proxy. It is not
+  part of this PR's verification.
 
 ## Rating
 
