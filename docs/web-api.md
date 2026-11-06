@@ -437,9 +437,10 @@ Per-item `status` is `completed`, `canceled`, `not-found` (not pending, e.g. alr
 
 ## Bot principals (GH-301)
 
-A **bot principal** lets an external bot (for example a Cursor agent) read reminders and complete or cancel
-them in its own workspace, with no SSH, Slack token or server files. It is separate from the operator's
-`WEB_API_BEARER_TOKEN`. Phase 1 of #301: create/patch, version checks and an MCP adapter come later.
+A **bot principal** lets an external bot (for example a Cursor agent) read, create, retitle, reschedule,
+complete and cancel reminders in its own workspace, with no SSH, Slack token or server files. It is separate
+from the operator's `WEB_API_BEARER_TOKEN`. Phases 1–2 of #301; editing GitHub links and an MCP adapter come
+later.
 
 **Off by default.** Set `WEB_API_BOT_PRINCIPALS=1` on the service and restart. With the flag off, a bot token
 is refused like any unknown token (`Forbidden.`).
@@ -452,7 +453,7 @@ proxy on the same host. `X-Forwarded-*` headers are never trusted. Anything else
 
 - The proxy must accept HTTPS only and overwrite any forwarding headers.
 - Configure bots with an `https://` URL. A refusal cannot un-send a token already sent in plain text.
-- Today neither server terminates TLS in front of `:2020`. Remote bot use needs that proxy first.
+- Remote bot use needs such an HTTPS front end in place; deployment details are kept in private ops notes.
 
 ### Creating, revoking and expiring a principal
 
@@ -489,14 +490,32 @@ no percent-encoding, and no `HEAD`. Every other route is refused, including `/wo
 create/delete, stats, settings and `/admin/*`.
 
 **Reads:** principals may add `limit` (1–500) and `offset` (≥0). These apply after `activeOnly`/`state`
-filtering, and the total is in `X-Total-Count`. Paging is refused with `format=rebalance`.
+filtering, and the total is in `X-Total-Count`. Paging is refused with `format=rebalance`. In the standard
+reminder-record format (not `format=rebalance`), every record a principal reads carries a `version` (16 hex
+characters), which its next edit of that reminder must send back.
 
 **Writes** follow the bulk contract above, with these extra rules for principals:
-- only `complete` and `cancel`;
-- each action may contain only `action`, `reminderId` (a reminder UUID) and `reason`. `reason` is ignored: the
-  server records `api-bot:<id>:<action>`;
-- the body may contain only `actions`;
-- any other field refuses the whole batch with `unknown-field`.
+
+| action | fields allowed |
+|---|---|
+| `complete` · `cancel` | `action`, `reminderId`, `ifMatch` |
+| `retitle` | `action`, `reminderId`, `ifMatch`, `title` (title contract applies; no `force`) |
+| `reschedule` | `action`, `reminderId`, `ifMatch`, `dueDate` |
+| `create` | `action`, `title`, `dueDate`, `channelId`, `assigneeIds` (1–10 Slack user ids) |
+
+- `reason` is also accepted and ignored: the server records `api-bot:<id>:<action>`. The body may contain only
+  `actions`. Any other field refuses the whole batch with `unknown-field`.
+- **Version checks.** Every action except `create` must send `ifMatch` = the `version` it last read.
+  - Each reminder may appear once per request.
+  - Before anything is written, every `ifMatch` is compared with the live reminder. Any mismatch refuses the
+    whole batch with `version-conflict` and lists the current versions under `conflicts`. Re-read and retry.
+  - Each writer checks again at the moment it changes the reminder. If something changed in between, that item
+    reports `conflict` and changes nothing; items before it in the batch stay applied.
+  - Each item that changed its reminder (`created`, `updated`, or `partial`) returns the `version` its own change produced, captured when it wrote, so it never covers someone else's later edit.
+- **Create.**
+  - It must be the only action in its request.
+  - It is allowed only in a channel where auto-scheduling is enabled, else `channel-not-enabled`.
+  - A title the contract refuses gets `title-refused`. The first assignee becomes the sender.
 
 **`Idempotency-Key` is required** (1–128 of `A-Z a-z 0-9 . _ : -`).
 - A repeat with the same body returns the first response without writing again, even while the first is still
@@ -505,6 +524,10 @@ filtering, and the total is in `X-Total-Count`. Paging is refused with `format=r
 - Keys live in memory for 24 h, capped at 1000; the cap can shorten retention, and a restart forgets them.
   A completed or canceled reminder replayed after that answers `not-found`, which still never closes it twice.
 - Unsuccessful responses are not kept, so they can be retried.
+- A `create` is also stamped with its key before it is first saved. A retry with the same key and body finds
+  that reminder even after a restart and returns it with `replayed: true`; a different body gets
+  `idempotency-key-reused`. This covers reminders that are still pending; a retry after the created reminder
+  was completed would create a new one.
 
 ### Responses and codes
 
@@ -522,6 +545,9 @@ checking the token.
 | `forbidden-workspace` | workspace not granted |
 | `idempotency-key-required` · `idempotency-key-reused` | key missing/malformed, or reused with another body |
 | `action-not-allowed` · `unknown-field` · `invalid-reminder-id` · `invalid-request` | batch refused before any write |
+| `if-match-required` · `duplicate-reminder` · `create-must-be-alone` · `title-refused` · `channel-not-enabled` | batch refused before any write |
+| `version-conflict` | a reminder changed since it was read; `conflicts` lists the current versions |
+| `save-failed` | a create replay could not confirm the earlier create is saved; retry (nothing is cached) |
 | `invalid-pagination` · `pagination-unsupported` | bad `limit`/`offset`, or paging a rebalance export |
 
 ### Audit

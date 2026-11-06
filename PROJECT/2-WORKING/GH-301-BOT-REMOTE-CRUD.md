@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Plan revised after Codex plan QA rounds 1–2 (2026-11-06). | Plan QA round 3, then implement. Phases 2–4 are later PRs. |
+| Phase 0–1 shipped in #305. Phase 2 plan approved by Codex (round 2) and implemented on the phase2 branch (2026-11-06). | Phase 2 smoke, final QA and PR. Link editing follow-up; Phase 3 (MCP); Phase 4 pilot running on dev. |
 
 ## Problem
 
@@ -41,7 +41,7 @@ for a revocable, workspace-scoped, read/write-scoped principal, reached over HTT
 | Credential prior art | `src/product-compass.js` `ReadCredentialAsync`: per-request read from systemd `CREDENTIALS_DIRECTORY` or macOS Keychain, fail-closed; workspace JSON holds only credential *names*. Adding a credential needs a unit edit and restart; revocation is "on the next request". |
 | Data dir | `workspaces.GetRuntimeDirPath()` (`SLEUTH_DATA_DIR`), included whole in the nightly backup (GH-272). |
 | Logging | `WebAPI` logs to `console` (journald on servers). |
-| Exposure | Prod: Web API on loopback, reached by SSH tunnel. Dev: `:2020` open to the internet over **plain HTTP** (SOP §1b). Neither terminates TLS today. |
+| Exposure | At planning time neither environment had an HTTPS front end for the Web API; deployment details are kept in private ops notes (not in this public repo). |
 
 ## Plan
 
@@ -245,6 +245,144 @@ Receipt under `TESTS-RESULTS/2026-11-06+GH-301/`, naming the throwaway `SLEUTH_D
   or dev (AGENTS.md: server checks are read-only).
 - A later bot pilot on dev (Phase 4) is a separate operator-authorized step behind a TLS proxy. It is not
   part of this PR's verification.
+
+## Phase 2 plan: create and edit through bot keys, with version checks (2026-11-06)
+
+Phase 0–1 shipped in #305 (`39760d7`). This section is the plan for the next PR, on branch
+`feat/AEGIS-Sleuth-Slackbot-gh301-bot-remote-crud-2026-11-06-phase2`.
+
+### Recon (base `39760d7`)
+
+| Seam | Finding |
+|---|---|
+| Edit writers (GH-290) | `UpdateReminderSummaryFromListAsync(…, {SyncLists, ReturnStatus})` (retitle), `RescheduleReminderAsync` (reschedule), `CreateReminderFromListRowAsync(row, {SkipListSync:false, RequireOwner:true})` (create). Reached through the bulk route's `#ApplyBulkReminderActionAsync`. Principals are limited to complete/cancel by `PrincipalBulkActions` and `#CheckPrincipalBulkShape` (`src/web-api.js`). |
+| Links | `ReminderInfo.GitHubUrls` (`src/reminders-module.js:114`) is set only at extraction (`:2225`). There is no edit writer. Consumers: `github-sync-module.js` reads linked issue/PR state and completes the reminder when it closes; `github-comment-relay.js` posts Slack thread replies as **public GitHub comments**, gated by `GitHubRelayStopped`/`GitHubRelayStarted` (`:176`, `:248`, `:336`, `:372`). URL shape: `ExtractGitHubUrls` (`src/github-url-utils.js:12–16`). |
+| Channels | `RemindersModule.AreRemindersEnabledForChannel(id)` (`src/reminders-module.js:1624`). A created reminder posts in its channel when it falls due. |
+| Idempotency | Phase 1's `IdempotencyStore` is in memory. A restart forgets keys, which is safe for complete/cancel but not for create (a duplicate reminder). |
+| Versions | No stored revision field. The reminder fields a bot can change are `ReminderMessageText`, `ShouldPostOn`, `GitHubUrls` and `State` (plus `AssigneeIDs` from a create). |
+
+### Plan (revised after Codex plan QA round 1)
+
+**Outcome sought:** a bot can create a reminder and fix its title and due time without overwriting a change it
+has not seen, without duplicate creates, and without new public side effects.
+**Smallest viable bet:** open `retitle`, `reschedule` and `create` to principals on the same bulk route. Every
+principal edit, `complete`/`cancel` included, carries a version computed from stored fields, and the writers
+re-check it at the moment of mutation.
+**Not built (this PR):**
+- **`set-links`: deferred to its own follow-up.** Plan QA round 1 showed that editing `GitHubUrls` reaches into
+  `github-sync-module.js` and `github-comment-relay.js`:
+  - an in-flight sync poll can complete a reminder from a link that was just removed, then post Slack notices
+    (`:247–281`, `:395–406`, `:659–679`);
+  - the relay stop is thread-wide and doesn't stop a post already in flight (`:147–156`, `:336–364`).
+  
+  Doing it safely needs guards inside those modules, beyond an edit API. Requirement 6's link patch is therefore
+  **not** delivered here; the follow-up owns it.
+- `reassign` for bots (not in the issue's patch allowlist), hard delete, a stored revision counter, per-principal
+  channel lists, MCP (Phase 3), and TLS and pilot (Phase 4).
+
+**Alternatives rejected:**
+- *A stored `Revision` integer:* every writer path would have to bump it, and a missed path lets a stale write
+  through. A digest of the fields themselves cannot miss a writer.
+- *A separate PATCH route:* a second validation, serial and result path, already rejected in GH-290.
+- *A process-wide lock for conflicts:* the writers re-check at the point of mutation instead, which is enough
+  for one process.
+
+**Rollback:** revert the PR. Phase 1 behaviour stays. Two optional fields are stored only on bot-created
+reminders (`ApiCreateKey`, `ApiCreateFingerprint`); older code ignores them.
+
+#### 1. Versions (requirement 7)
+
+- **`RemindersModule.GetReminderVersion(reminder)`** (new, static, pure, never mutates its input) returns the
+  first 16 hex characters of the sha256 of a JSON array of:
+  - `ReminderMessageText`, or `''`;
+  - `ShouldPostOn`, normalized to ISO (a `Date` and its ISO string give the same digest);
+  - assignee IDs **in order**, from the existing `RemindersModule.GetAssigneeIDs` (so a legacy single `AssigneeID`
+    and `AssigneeIDs` hash the same, and reordering owners changes the version);
+  - a **copied, sorted** `GitHubUrls`, or `[]`;
+  - `State`, defaulting to `scheduled`;
+  - `IgnoreSnooze === true`, `DndHeld === true` and `GitHubRelayStopped === true`, as booleans.
+- **Read:** for principals only, each record in `GET …/reminders` gains `version`. Legacy responses are unchanged.
+- **Write:** every principal action except `create` must carry `ifMatch` (16 hex), else `if-match-required`. A
+  principal batch may touch each `reminderId` once (`duplicate-reminder`).
+- **Before any write:** all `ifMatch` values are checked against live reminders, and any mismatch refuses the
+  whole batch with `version-conflict`, listing the current versions.
+- **At the moment of mutation:** the affected writers (`UpdateReminderSummaryFromListAsync`,
+  `RescheduleReminderAsync`, `CompleteReminderByIdAsync`, `CancelReminderFromListAsync`) gain an optional
+  `ExpectedVersion`. When it is given, the writer re-finds the reminder in the pending queue **after** its last
+  await and immediately before the synchronous mutation. If the reminder is gone or its version differs, it
+  returns `conflict` and changes nothing. Existing callers pass nothing and behave exactly as today.
+- An item that hits `conflict` mid-batch leaves earlier items applied. The response says which items applied.
+  Each successful item returns its new `version`.
+
+#### 2. Actions opened to principals
+
+| action | fields (anything else → `unknown-field`) | writer | notes |
+|---|---|---|---|
+| `retitle` | `action`, `reminderId`, `ifMatch`, `title` | existing + `ExpectedVersion` | title contract applies; no `force` for bots |
+| `reschedule` | `action`, `reminderId`, `ifMatch`, `dueDate` | existing + `ExpectedVersion` | `busy` while posting, as today |
+| `complete` / `cancel` | `action`, `reminderId`, `ifMatch` | existing + `ExpectedVersion` | `ifMatch` is new for bots; legacy callers unaffected |
+| `create` | `action`, `title`, `dueDate`, `channelId`, `assigneeIds` (1–10) | existing + create key | **only action in its request** (`create-must-be-alone`) |
+
+`reason` stays accepted and ignored. The server reason is `api-bot:<id>:<action>`.
+
+#### 3. `create` for principals
+
+- **Channel:** `channelId` must have auto-scheduling enabled (`AreRemindersEnabledForChannel`,
+  `src/reminders-module.js:1624`), else `channel-not-enabled`.
+- **Owners:** `assigneeIds` is required (1–10). `senderId` is not accepted from bots; the existing writer then
+  uses the first assignee as sender.
+- **Durable idempotency, stamped before the first save:**
+  - `CreateReminderFromListRowAsync` gains optional `ApiCreateKey` and `ApiCreateFingerprint`, stamped on the
+    reminder object **before** `#QueueReminderAsync`, so the first persisted copy already carries them.
+  - Key: hex sha256 of `principalId \n workspace \n Idempotency-Key`. Fingerprint: the same request-body hash
+    Phase 1 already computes.
+  - Before creating, the API searches **pending** reminders for that key:
+    - same fingerprint → `created` with that id and `replayed: true`, no write;
+    - different fingerprint → `idempotency-key-reused`.
+  - This survives a restart or cache eviction, because the reminders file is the store. It doesn't cover a retry
+    that arrives after the first reminder was already completed; the docs say so.
+  - Because a create is always alone in its request, a replay has exactly one item and no mixed-batch case.
+- The title contract applies, with no `force`.
+
+#### 4. Tests (existing files only) and smoke
+
+In `tests/web-api-reminders.test.js` (GH-301 block, mock module):
+- `version` for principals only;
+- `if-match-required`, `duplicate-reminder`;
+- whole-batch `version-conflict`, with current versions and no writes;
+- new version returned, and the old one then conflicts;
+- `create-must-be-alone`; `channel-not-enabled`; `senderId` and `force` → `unknown-field`;
+- a contract-refused title is refused.
+
+In `tests/reminders-integration.test.js` (real `RemindersModule`, temp data dir):
+- **Digest:** owner reordering, `IgnoreSnooze`/`DndHeld`/`GitHubRelayStopped` changes and a title change each
+  change the version; a Date and its ISO string, and legacy and current owner forms, hash the same; the input
+  arrays are not mutated.
+- **Writer race:** start a retitle with `ExpectedVersion`, hold its ledger-gap await, retitle the same reminder
+  through the list path (and in a second case complete it), then release. The held call returns `conflict`, and
+  the newer text, or the completion, stands. Red control: drop the post-await re-check.
+- **Durable create:**
+  1. create with a key through the real module;
+  2. read the reminders file and assert the key and fingerprint are on disk;
+  3. stop, start a **new** `RemindersModule` from disk, and a new `WebAPI` with a fresh `IdempotencyStore`;
+  4. retry with the same body → same id, one reminder;
+  5. retry with a changed body → `idempotency-key-reused`.
+  
+  Red control: drop the stamp or the lookup.
+
+Smoke: the same isolated local harness.
+- **Main path:** a bot creates, retitles with `ifMatch`, then reschedules.
+- **Adjacent path:** a stale `ifMatch` gets `version-conflict`; the create is replayed after rebuilding the module
+  and API, and returns the same id; then complete.
+
+### Requirement map additions
+
+| Req | Phase 2 |
+|---|---|
+| 6 allowlisted patches | title, due, create; lifecycle from Phase 1; unknown fields rejected. **Links deferred** to a follow-up (sync/relay guards). |
+| 7 optimistic concurrency | `version` on read, `ifMatch` on every principal mutation, conflict before writes and again at the moment of mutation |
+| 8 idempotency | create made durable (key + fingerprint stamped before first save); edits keep in-memory replay + version checks |
+| 10 side effects | create only in enabled channels; no link edits, so no new GitHub relay or sync paths |
 
 ## Rating
 
