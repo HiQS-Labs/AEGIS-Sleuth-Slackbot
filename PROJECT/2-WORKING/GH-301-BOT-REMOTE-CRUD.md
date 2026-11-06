@@ -2,7 +2,7 @@
 gh_issue: 301
 source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301
 title: "Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH)"
-status: Inbox
+status: Active (2-WORKING)
 created: 2026-11-06
 updated: 2026-11-06
 owner: noel
