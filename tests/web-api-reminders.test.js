@@ -1001,6 +1001,24 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     expect(Calls).toHaveLength(1);
   });
 
+  test('Phase 2: a create that failed at the writer is not cached, so the same key retries it', async () => {
+    const Module = TestSlackApps.get(WsA).RemindersModule;
+    const RealCreate = Module.CreateReminderFromListRowAsync;
+    let Attempts = 0;
+    Module.CreateReminderFromListRowAsync = async (ArgRow, ArgOptions) => {
+      Attempts += 1;
+      if(Attempts === 1) throw new Error('transient failure before stamp');
+      return RealCreate(ArgRow, ArgOptions);
+    };
+    const Body = { actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED', assigneeIds: ['U0TESTA1'] }] };
+    const First = await CallAsync('POST', Bulk(WsA), { key: 'k-create-retry', body: Body });
+    expect(First.json.data.results[0].status).toBe('error');
+    const Second = await CallAsync('POST', Bulk(WsA), { key: 'k-create-retry', body: Body });
+    expect(Second.json.data.results[0]).toMatchObject({ status: 'created' });
+    expect(Attempts).toBe(2);
+    expect([...Seeds.values()].filter(ArgR => ArgR.ReminderMessageText === 'Draft the launch email')).toHaveLength(1);
+  });
+
   test.each([
     ['127.0.0.1', true], ['127.4.5.6', true], ['::1', true], ['::ffff:127.0.0.1', true],
     ['10.0.0.1', false], ['::ffff:10.0.0.1', false], ['1270.0.0.1', false], ['127.0.0.1.evil', false], [undefined, false],

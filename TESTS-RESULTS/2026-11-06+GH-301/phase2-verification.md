@@ -6,7 +6,7 @@ Everything ran locally; nothing ran on a server.
 
 ## Tests
 
-- `tests/web-api-reminders.test.js`: **73 passed**. The Phase 1 bot tests were updated to send `ifMatch`. New
+- `tests/web-api-reminders.test.js`: **74 passed** (73 before final-QA round 1, plus the failed-create retry case). The Phase 1 bot tests were updated to send `ifMatch`. New
   Phase 2 cases cover:
   - `version` on principal reads only;
   - `if-match-required`, `duplicate-reminder`, and `force` → `unknown-field`;
@@ -47,7 +47,22 @@ auto-scheduling enabled, driven over HTTP by a bot principal.
 
 ## Full suite
 
-FULL_SUITE_PLACEHOLDER
+- Full `npm test` on `fb7e251`: **3004 passed, 1 failed**. The failure is the pre-existing `thread-memory` test,
+  which also fails on `development`; this branch does not touch it. Build and every `validate:*` exit 0.
+- `utils/sanitize-scan.sh`: the first run flagged the smoke harness's made-up channel id (`C0SMOKE…`, which is
+  shaped like a Slack id). The harness now uses `smoke-channel-on`/`-off`. Rescan: **CLEAN**.
+
+## Final QA round 1 fix
+
+Codex found that a `create` whose writer failed still returned an outer `success: true`, so the idempotency store
+cached the failure and a same-key retry replayed the error. The keep rule now also requires every `create` item to
+be `created`. A failure after the stamp is still found by the durable lookup, so a retry cannot duplicate it.
+- New test: the writer throws once and then succeeds; the same key retries, the writer runs twice, and there is
+  one reminder.
+- Red control: drop the rule and the test goes red.
+
+The docs and CHANGELOG were also qualified: durable create replay covers pending reminders only, and versions come
+with the standard record format. The smoke was rerun with the renamed channels; same results.
 
 ## Not verified here
 

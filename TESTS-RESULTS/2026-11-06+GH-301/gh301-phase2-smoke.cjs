@@ -17,7 +17,7 @@ const RemindersModule = require(path.join(Repo, 'src/reminders-module'));
 const Principals = require(path.join(Repo, 'src/web-api-principals'));
 const { MockSlackApp } = require(path.join(Repo, 'tests/mocks/mock-slack-app'));
 workspaces.AssertNotLiveRuntimeDir('gh301-phase2-smoke');
-const WS = 'SmokeBotWs'; const Port = 19880; const Channel = 'C0SMOKEON';
+const WS = 'SmokeBotWs'; const Port = 19880; const Channel = 'smoke-channel-on';
 const Token = Principals.MakeToken('smoke-bot');
 const Stats = { IncomingMessageCount: 0, IncomingMessageLength: 0, OutgoingMessageCount: 0, OutgoingMessageLength: 0 };
 
@@ -65,7 +65,7 @@ async function StartAsync() {
     console.log('\n(module and API rebuilt from disk: the in-memory idempotency store is empty)');
     await CallAsync('ADJACENT: replay the create after the rebuild', 'POST', Bulk, 'smoke-create-1', CreateBody);
     await CallAsync('ADJACENT: same create key, different body', 'POST', Bulk, 'smoke-create-1', { actions: [{ ...CreateBody.actions[0], title: 'Draft something else entirely' }] });
-    await CallAsync('ADJACENT: create in a channel without auto-scheduling', 'POST', Bulk, 'smoke-create-2', { actions: [{ ...CreateBody.actions[0], channelId: 'C0SMOKEOFF' }] });
+    await CallAsync('ADJACENT: create in a channel without auto-scheduling', 'POST', Bulk, 'smoke-create-2', { actions: [{ ...CreateBody.actions[0], channelId: 'smoke-channel-off' }] });
     await CallAsync('MAIN: complete with the current version', 'POST', Bulk, 'smoke-close-1', { actions: [{ action: 'complete', reminderId: Id, ifMatch: V3 }] });
     console.log(`\npending reminders left: ${Live.Reminders.GetAllReminders().length}`);
     Posts += Live.SlackApp.SentMessages.length;

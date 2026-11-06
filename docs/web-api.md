@@ -490,8 +490,9 @@ no percent-encoding, and no `HEAD`. Every other route is refused, including `/wo
 create/delete, stats, settings and `/admin/*`.
 
 **Reads:** principals may add `limit` (1–500) and `offset` (≥0). These apply after `activeOnly`/`state`
-filtering, and the total is in `X-Total-Count`. Paging is refused with `format=rebalance`. Every record a
-principal reads carries a `version` (16 hex characters), which its next edit of that reminder must send back.
+filtering, and the total is in `X-Total-Count`. Paging is refused with `format=rebalance`. In the standard
+reminder-record format (not `format=rebalance`), every record a principal reads carries a `version` (16 hex
+characters), which its next edit of that reminder must send back.
 
 **Writes** follow the bulk contract above, with these extra rules for principals:
 

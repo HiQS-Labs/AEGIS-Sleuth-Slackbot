@@ -37,7 +37,7 @@
 
 The bots your team trusts can now also add reminders and fix their wording or time, not just close them. If a
 reminder changed after the bot last looked, I refuse the change instead of overwriting it, and a bot that
-retries a request never creates the same reminder twice.
+retries a create while that reminder is still open gets the same reminder back instead of a second one.
 
 **Technical:** GH-301 Phase 2.
 - **Bot actions:** principals may now `create`, `retitle` and `reschedule` as well as `complete`/`cancel`,

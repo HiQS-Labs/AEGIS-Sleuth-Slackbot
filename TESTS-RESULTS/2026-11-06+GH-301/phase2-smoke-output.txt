@@ -1,26 +1,26 @@
-data dir: <tmp>/p2.O04y (throwaway)
+data dir: <tmp>/p2b.Ftia (throwaway)
 
 $ MAIN: create
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-create-1
-  → {"success":true,"data":{"results":[{"action":"create","status":"created","reminderId":"69029e07-d58f-447d-bce7-110442c7ccb1","version":"b92cf44c071ad8da"}],"counts":{"created":1}}}
+  → {"success":true,"data":{"results":[{"action":"create","status":"created","reminderId":"46157eb2-950b-4fdd-ba5b-c1bc1229fcf0","version":"b92cf44c071ad8da"}],"counts":{"created":1}}}
 
 $ MAIN: retitle with ifMatch
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-edit-1
-  → {"success":true,"data":{"results":[{"reminderId":"69029e07-d58f-447d-bce7-110442c7ccb1","action":"retitle","status":"updated","version":"57b76825d934b112"}],"counts":{"updated":1}}}
+  → {"success":true,"data":{"results":[{"reminderId":"46157eb2-950b-4fdd-ba5b-c1bc1229fcf0","action":"retitle","status":"updated","version":"57b76825d934b112"}],"counts":{"updated":1}}}
 
 $ ADJACENT: stale ifMatch (the version before the retitle)
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-edit-2
-  → {"success":false,"data":"Error: some reminders changed since you read them; re-read and retry.","code":"version-conflict","conflicts":[{"reminderId":"69029e07-d58f-447d-bce7-110442c7ccb1","version":"57b76825d934b112"}]}
+  → {"success":false,"data":"Error: some reminders changed since you read them; re-read and retry.","code":"version-conflict","conflicts":[{"reminderId":"46157eb2-950b-4fdd-ba5b-c1bc1229fcf0","version":"57b76825d934b112"}]}
 
 $ MAIN: reschedule with the current version
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-edit-3
-  → {"success":true,"data":{"results":[{"reminderId":"69029e07-d58f-447d-bce7-110442c7ccb1","action":"reschedule","status":"updated","version":"616059894780bda4"}],"counts":{"updated":1}}}
+  → {"success":true,"data":{"results":[{"reminderId":"46157eb2-950b-4fdd-ba5b-c1bc1229fcf0","action":"reschedule","status":"updated","version":"616059894780bda4"}],"counts":{"updated":1}}}
 
 (module and API rebuilt from disk: the in-memory idempotency store is empty)
 
 $ ADJACENT: replay the create after the rebuild
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-create-1
-  → {"success":true,"data":{"results":[{"action":"create","status":"created","reminderId":"69029e07-d58f-447d-bce7-110442c7ccb1","replayed":true,"version":"616059894780bda4"}],"counts":{"created":1}}}
+  → {"success":true,"data":{"results":[{"action":"create","status":"created","reminderId":"46157eb2-950b-4fdd-ba5b-c1bc1229fcf0","replayed":true,"version":"616059894780bda4"}],"counts":{"created":1}}}
 
 $ ADJACENT: same create key, different body
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-create-1
@@ -32,7 +32,7 @@ $ ADJACENT: create in a channel without auto-scheduling
 
 $ MAIN: complete with the current version
   POST /workspace/SmokeBotWs/reminders/bulk  Idempotency-Key: smoke-close-1
-  → {"success":true,"data":{"results":[{"reminderId":"69029e07-d58f-447d-bce7-110442c7ccb1","action":"complete","status":"completed"}],"counts":{"completed":1}}}
+  → {"success":true,"data":{"results":[{"reminderId":"46157eb2-950b-4fdd-ba5b-c1bc1229fcf0","action":"complete","status":"completed"}],"counts":{"completed":1}}}
 
 pending reminders left: 0
 Slack posts during smoke: 0

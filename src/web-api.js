@@ -1224,7 +1224,10 @@ class WebAPI {
       JSON.stringify([Principal.Id, WorkspaceName, Key]),
       Fingerprint,
       () => this.#RunPrincipalBulkAsync(Principal, WorkspaceName, Key, Fingerprint, Prepared),
+      // keep only successful outcomes; a create whose item failed must stay retryable (a failure after its
+      // stamp is still found by the durable lookup, so a retry cannot duplicate it).
       ArgPayload => ArgPayload?.success === true
+        && !ArgPayload.data.results.some((/** @type {any} */ ArgResult) => ArgResult.action === 'create' && ArgResult.status !== 'created')
     ));
     if(Reservation.conflict) {
       WebAPI.#LogPrincipalDenied('idempotency-key-reused', Principal.Id, ArgReq.method, 'bulk');
