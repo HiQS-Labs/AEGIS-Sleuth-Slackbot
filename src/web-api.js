@@ -16,6 +16,7 @@ const { createLedgerCoverage } = require('./ledger-coverage');
 const { FoldReminderReadModels, ReadWithProjectionFallbackAsync } = require('./reminders-projection');
 const { NormalizeReminderTitle, ValidateReminderTitle } = require('./reminder-title-contract');
 const Principals = require('./web-api-principals');
+const { GetReminderVersion } = require('./reminders-module');
 const crypto = require('crypto');
 
 // add typedefs for our own types.
@@ -58,9 +59,18 @@ const BulkReminderActionNames = ['complete', 'cancel', 'retitle', 'reschedule', 
 const SlackUserIdPattern = /^[UW][A-Z0-9]{2,}$/;
 
 // GH-301 Phase 1: what a bot principal may send to the bulk route.
-const PrincipalBulkActions = ['complete', 'cancel'];
 const PrincipalBulkEnvelopeKeys = ['actions'];
-const PrincipalBulkActionKeys = ['action', 'reminderId', 'reason'];
+// GH-301 Phase 2: the actions a bot may send, and the fields each may carry (`reason` is accepted and ignored).
+/** @type {Record<string, string[]>} */
+const PrincipalBulkActionKeys = {
+  complete: ['action', 'reminderId', 'ifMatch', 'reason'],
+  cancel: ['action', 'reminderId', 'ifMatch', 'reason'],
+  retitle: ['action', 'reminderId', 'ifMatch', 'title', 'reason'],
+  reschedule: ['action', 'reminderId', 'ifMatch', 'dueDate', 'reason'],
+  create: ['action', 'title', 'dueDate', 'channelId', 'assigneeIds', 'reason'],
+};
+const VersionPattern = /^[0-9a-f]{16}$/;
+const MaxPrincipalCreateAssignees = 10;
 const ReminderIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const IdempotencyKeyPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const MaxPrincipalPageSize = 500;
@@ -1112,12 +1122,14 @@ class WebAPI {
         return;
       }
 
+      // GH-301 Phase 2: principals get each record's `version` (for ifMatch); legacy output is unchanged.
+      const Versioned = Principal ? FilteredReminders.map((/** @type {any} */ ArgR) => ({ ...ArgR, version: GetReminderVersion(ArgR) })) : FilteredReminders;
       if(Page) {
-        ArgRes.set('X-Total-Count', String(FilteredReminders.length));
-        ArgRes.status(200).json({ success: true, data: FilteredReminders.slice(Page.Offset, Page.Offset + Page.Limit) });
+        ArgRes.set('X-Total-Count', String(Versioned.length));
+        ArgRes.status(200).json({ success: true, data: Versioned.slice(Page.Offset, Page.Offset + Page.Limit) });
         return;
       }
-      ArgRes.status(200).json({ success: true, data: FilteredReminders });
+      ArgRes.status(200).json({ success: true, data: Versioned });
     } catch(error) {
       const Principal = WebAPI.#PrincipalOf(ArgReq);
       if(Principal) WebAPI.#LogPrincipalDenied(error.code || 'invalid-request', Principal.Id, ArgReq.method, 'reminders');
@@ -1191,6 +1203,15 @@ class WebAPI {
         throw CodedError('idempotency-key-required', 'Idempotency-Key header required (1-128 of A-Z a-z 0-9 . _ : -).');
       WebAPI.#CheckPrincipalBulkShape(ArgReq.body);
       Prepared = WebAPI.#PrepareBulkRequest(ArgReq.body);
+      Prepared.forEach((ArgItem, ArgIndex) => {
+        if(ArgItem.action === 'create') {
+          // the shared path only normalizes a create title; bots get the full title contract, as for retitle.
+          const Check = ValidateReminderTitle(ArgItem.title);
+          if(!Check.ok) throw CodedError('title-refused', `actions[${ArgIndex}]: title "${ArgItem.title}" refused (${Check.reasons.join(', ')}).`);
+        } else {
+          ArgItem.ExpectedVersion = ArgReq.body.actions[ArgIndex].ifMatch;
+        }
+      });
     } catch(error) {
       WebAPI.#LogPrincipalDenied(error.code || 'invalid-request', Principal.Id, ArgReq.method, 'bulk');
       ArgRes.status(200).json({ success: false, data: `Error: ${error.message}`, ...(error.code ? { code: error.code } : {}) });
@@ -1202,7 +1223,7 @@ class WebAPI {
     const Reservation = /** @type {any} */ (this.#PrincipalIdempotency.Reserve(
       JSON.stringify([Principal.Id, WorkspaceName, Key]),
       Fingerprint,
-      () => this.#RunBulkAsync(WorkspaceName, Prepared, ArgItem => `api-bot:${Principal.Id}:${ArgItem.action}`),
+      () => this.#RunPrincipalBulkAsync(Principal, WorkspaceName, Key, Fingerprint, Prepared),
       ArgPayload => ArgPayload?.success === true
     ));
     if(Reservation.conflict) {
@@ -1227,6 +1248,58 @@ class WebAPI {
   }
 
   /**
+   * The work a principal bulk request runs inside its idempotency reservation (GH-301 Phase 2): durable create
+   * replay, the enabled-channel rule, a version check of every item before any write, then the shared serial
+   * apply with each writer re-checking the version at the moment of mutation.
+   * @param {{Id: string}} ArgPrincipal Principal.
+   * @param {string} ArgWorkspaceName Workspace.
+   * @param {string} ArgKey Idempotency-Key.
+   * @param {string} ArgFingerprint Request-body hash.
+   * @param {Record<string, any>[]} ArgPrepared Prepared actions.
+   * @returns {Promise<Record<string, any>>} Response payload.
+   */
+  async #RunPrincipalBulkAsync(ArgPrincipal, ArgWorkspaceName, ArgKey, ArgFingerprint, ArgPrepared) {
+    const WorkspaceExists = await workspaces.WorkspaceExistsAsync(ArgWorkspaceName);
+    if(!WorkspaceExists) return { success: false, data: 'Error: Workspace not found.' };
+    const RemindersModule = this.#SlackAppsByWorkspace.get(ArgWorkspaceName)?.RemindersModule;
+    if(!RemindersModule) return { success: false, data: 'Error: Workspace is not running.' };
+
+    const Create = ArgPrepared.find(ArgItem => ArgItem.action === 'create');
+    if(Create) {
+      const ApiCreateKey = crypto.createHash('sha256').update(`${ArgPrincipal.Id}\n${ArgWorkspaceName}\n${ArgKey}`, 'utf8').digest('hex');
+      const Existing = /** @type {any} */ (RemindersModule.FindPendingReminderByApiCreateKey(ApiCreateKey));
+      if(Existing) {
+        if(Existing.ApiCreateFingerprint !== ArgFingerprint)
+          return { success: false, data: 'Error: Idempotency-Key was already used with a different request body.', code: 'idempotency-key-reused' };
+        return { success: true, data: { results: [{ action: 'create', status: 'created', reminderId: Existing.ReminderID, replayed: true, version: GetReminderVersion(Existing) }], counts: { created: 1 } } };
+      }
+      if(!RemindersModule.AreRemindersEnabledForChannel(Create.channelId))
+        return { success: false, data: 'Error: create is only allowed in a channel with auto-scheduling enabled.', code: 'channel-not-enabled' };
+      Create.ApiCreateKey = ApiCreateKey;
+      Create.ApiCreateFingerprint = ArgFingerprint;
+    } else {
+      /** @type {{reminderId: string, version: string}[]} */
+      const Conflicts = [];
+      for(const Item of ArgPrepared) {
+        const Current = RemindersModule.GetAllReminders().find((/** @type {any} */ ArgR) => ArgR.ReminderID === Item.reminderId);
+        if(Current && GetReminderVersion(Current) !== Item.ExpectedVersion) Conflicts.push({ reminderId: Item.reminderId, version: GetReminderVersion(Current) });
+      }
+      if(Conflicts.length > 0)
+        return { success: false, data: 'Error: some reminders changed since you read them; re-read and retry.', code: 'version-conflict', conflicts: Conflicts };
+    }
+
+    const Payload = await this.#RunBulkAsync(ArgWorkspaceName, ArgPrepared, ArgItem => `api-bot:${ArgPrincipal.Id}:${ArgItem.action}`);
+    if(Payload.success === true) {
+      // each item that left its reminder pending reports the new version.
+      for(const Result of Payload.data.results) {
+        const Current = Result.reminderId ? RemindersModule.GetAllReminders().find((/** @type {any} */ ArgR) => ArgR.ReminderID === Result.reminderId) : null;
+        if(Current && ['created', 'updated', 'unchanged'].includes(Result.status)) Result.version = GetReminderVersion(Current);
+      }
+    }
+    return Payload;
+  }
+
+  /**
    * Principal-only request shape (GH-301): only `actions` on the body, only `action`/`reminderId`/`reason` on
    * each action, only complete/cancel, and reminder ids in UUID form. Throws a coded error; the whole batch
    * is refused before any write.
@@ -1239,16 +1312,33 @@ class WebAPI {
       if(!PrincipalBulkEnvelopeKeys.includes(Key)) throw CodedError('unknown-field', `unknown field "${Key}".`);
     }
     if(!Array.isArray(ArgBody.actions)) return; // the shared check reports the missing array
+    const HasCreate = ArgBody.actions.some((/** @type {any} */ ArgItem) => ArgItem?.action === 'create');
+    if(HasCreate && ArgBody.actions.length > 1)
+      throw CodedError('create-must-be-alone', 'a bot create must be the only action in its request.');
+    /** @type {Set<string>} */
+    const Seen = new Set();
     ArgBody.actions.forEach((/** @type {any} */ ArgItem, /** @type {number} */ ArgIndex) => {
       const At = `actions[${ArgIndex}]`;
       if(!ArgItem || typeof ArgItem !== 'object' || Array.isArray(ArgItem)) throw CodedError('invalid-request', `${At}: must be an object.`);
+      const AllowedKeys = Object.prototype.hasOwnProperty.call(PrincipalBulkActionKeys, ArgItem.action) ? PrincipalBulkActionKeys[ArgItem.action] : null;
+      if(!AllowedKeys)
+        throw CodedError('action-not-allowed', `${At}: bots may create, retitle, reschedule, complete or cancel.`);
       for(const Key of Object.keys(ArgItem)) {
-        if(!PrincipalBulkActionKeys.includes(Key)) throw CodedError('unknown-field', `${At}: unknown field "${Key}".`);
+        if(!AllowedKeys.includes(Key)) throw CodedError('unknown-field', `${At}: unknown field "${Key}".`);
       }
-      if(!PrincipalBulkActions.includes(ArgItem.action))
-        throw CodedError('action-not-allowed', `${At}: bots may only complete or cancel.`);
+      if(ArgItem.action === 'create') {
+        const Ids = ArgItem.assigneeIds;
+        if(!Array.isArray(Ids) || Ids.length === 0 || Ids.length > MaxPrincipalCreateAssignees)
+          throw CodedError('invalid-request', `${At}: create needs assigneeIds (1-${MaxPrincipalCreateAssignees} Slack user ids).`);
+        return;
+      }
       if(typeof ArgItem.reminderId !== 'string' || !ReminderIdPattern.test(ArgItem.reminderId))
         throw CodedError('invalid-reminder-id', `${At}: reminderId must be a reminder UUID.`);
+      if(typeof ArgItem.ifMatch !== 'string' || !VersionPattern.test(ArgItem.ifMatch))
+        throw CodedError('if-match-required', `${At}: ifMatch must be the reminder's current version (16 hex characters).`);
+      if(Seen.has(ArgItem.reminderId))
+        throw CodedError('duplicate-reminder', `${At}: a bot request may touch each reminder only once.`);
+      Seen.add(ArgItem.reminderId);
     });
   }
 
@@ -1367,14 +1457,27 @@ class WebAPI {
    */
   static async #ApplyBulkReminderActionAsync(ArgModule, ArgItem, ArgReason) {
     switch(ArgItem.action) {
-      case 'complete':
-        return { status: await ArgModule.CompleteReminderByIdAsync(ArgItem.reminderId, ArgReason) ? 'completed' : 'not-found' };
-      case 'cancel':
-        return { status: await ArgModule.CancelReminderFromListAsync(ArgItem.reminderId, ArgReason) ? 'canceled' : 'not-found' };
+      case 'complete': {
+        // GH-301: a version-checked (bot) call keeps `conflict` distinct; legacy calls pass no options.
+        const Closed = ArgItem.ExpectedVersion
+          ? await ArgModule.CompleteReminderByIdAsync(ArgItem.reminderId, ArgReason, { ExpectedVersion: ArgItem.ExpectedVersion })
+          : await ArgModule.CompleteReminderByIdAsync(ArgItem.reminderId, ArgReason);
+        return { status: Closed === 'conflict' ? 'conflict' : Closed ? 'completed' : 'not-found' };
+      }
+      case 'cancel': {
+        const Closed = ArgItem.ExpectedVersion
+          ? await ArgModule.CancelReminderFromListAsync(ArgItem.reminderId, ArgReason, { ExpectedVersion: ArgItem.ExpectedVersion })
+          : await ArgModule.CancelReminderFromListAsync(ArgItem.reminderId, ArgReason);
+        return { status: Closed === 'conflict' ? 'conflict' : Closed ? 'canceled' : 'not-found' };
+      }
       case 'retitle':
-        return { status: await ArgModule.UpdateReminderSummaryFromListAsync(ArgItem.reminderId, ArgItem.title, ArgReason, { SyncLists: true, ReturnStatus: true }) };
+        return { status: await ArgModule.UpdateReminderSummaryFromListAsync(ArgItem.reminderId, ArgItem.title, ArgReason, {
+          SyncLists: true, ReturnStatus: true, ...(ArgItem.ExpectedVersion ? { ExpectedVersion: ArgItem.ExpectedVersion } : {}),
+        }) };
       case 'reschedule':
-        return WebAPI.#WithListFailures(await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason));
+        return WebAPI.#WithListFailures(ArgItem.ExpectedVersion
+          ? await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason, { ExpectedVersion: ArgItem.ExpectedVersion })
+          : await ArgModule.RescheduleReminderAsync(ArgItem.reminderId, ArgItem.dueDate, ArgReason));
       case 'reassign':
         return WebAPI.#WithListFailures(await ArgModule.ReassignReminderAsync(ArgItem.reminderId, ArgItem.assigneeIds, ArgReason));
       case 'create': {
@@ -1385,7 +1488,7 @@ class WebAPI {
           assigneeIDs: ArgItem.assigneeIds ?? [],
           targetChannelID: ArgItem.channelId,
           originalSenderID: ArgItem.senderId,
-        }, { SkipListSync: false, RequireOwner: true });
+        }, { SkipListSync: false, RequireOwner: true, ...(ArgItem.ApiCreateKey ? { ApiCreateKey: ArgItem.ApiCreateKey, ApiCreateFingerprint: ArgItem.ApiCreateFingerprint } : {}) });
         return Created.ok
           ? { status: 'created', reminderId: Created.reminder?.ReminderID }
           : { status: 'error', error: Created.error };

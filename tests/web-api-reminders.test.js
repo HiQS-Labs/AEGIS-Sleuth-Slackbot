@@ -701,7 +701,12 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   }
   const Bulk = ArgWs => `/workspace/${ArgWs}/reminders/bulk`;
   const List = ArgWs => `/workspace/${ArgWs}/reminders`;
-  const Complete = ArgIds => ({ actions: ArgIds.map(ArgId => ({ action: 'complete', reminderId: ArgId })) });
+  const { GetReminderVersion } = require('../src/reminders-module');
+  /** @type {Map<string, any>} the mock module's pending reminders, by id */
+  let Seeds;
+  const MakeSeed = ArgId => ({ ReminderID: ArgId, ReminderMessageText: `Task ${ArgId.slice(-1)}`, ShouldPostOn: new Date('2030-01-02T17:00:00Z'), AssigneeIDs: ['U0TESTA1'], State: 'scheduled' });
+  const V = ArgId => GetReminderVersion(Seeds.get(ArgId));
+  const Complete = ArgIds => ({ actions: ArgIds.map(ArgId => ({ action: 'complete', reminderId: ArgId, ifMatch: V(ArgId) })) });
 
   beforeAll(async () => {
     API = CreateTestWebAPI(TestSlackApps);
@@ -721,6 +726,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     HoldNext = false;
     jest.spyOn(workspaces, 'WorkspaceExistsAsync').mockResolvedValue(true);
     await WritePrincipalsAsync();
+    Seeds = new Map([[R1, MakeSeed(R1)], [R2, MakeSeed(R2)]]);
     const Writer = ArgName => async (ArgId, ArgReason) => {
       Calls.push([ArgName, ArgId, ArgReason]);
       if(HoldNext) {
@@ -730,7 +736,30 @@ describe('Bot principals (GH-301 Phase 1)', () => {
       return true;
     };
     for(const Ws of [WsA, WsB]) {
-      TestSlackApps.set(Ws, { RemindersModule: { CompleteReminderByIdAsync: Writer('complete'), CancelReminderFromListAsync: Writer('cancel') } });
+      TestSlackApps.set(Ws, { RemindersModule: {
+        CompleteReminderByIdAsync: Writer('complete'),
+        CancelReminderFromListAsync: Writer('cancel'),
+        GetAllReminders: () => [...Seeds.values()],
+        AreRemindersEnabledForChannel: ArgChannel => ArgChannel === 'C0ENABLED',
+        FindPendingReminderByApiCreateKey: ArgKey => [...Seeds.values()].find(ArgR => ArgR.ApiCreateKey === ArgKey) ?? null,
+        // GH-301 Phase 2 writers: record, and change the seed the way the real writer would.
+        UpdateReminderSummaryFromListAsync: async (ArgId, ArgTitle, ArgReason, ArgOptions) => {
+          Calls.push(['retitle', ArgId, ArgReason, ArgTitle, ArgOptions?.ExpectedVersion]);
+          Seeds.get(ArgId).ReminderMessageText = ArgTitle;
+          return 'updated';
+        },
+        RescheduleReminderAsync: async (ArgId, ArgDate, ArgReason, ArgOptions) => {
+          Calls.push(['reschedule', ArgId, ArgReason, ArgDate.toISOString(), ArgOptions?.ExpectedVersion]);
+          Seeds.get(ArgId).ShouldPostOn = ArgDate;
+          return { status: 'updated', listFailures: [] };
+        },
+        CreateReminderFromListRowAsync: async (ArgRow, ArgOptions) => {
+          Calls.push(['create', ArgRow.summary, ArgRow.targetChannelID, Boolean(ArgOptions.ApiCreateKey)]);
+          const Created = { ...MakeSeed('cccccccc-1111-4111-8111-00000000000c'), ReminderMessageText: ArgRow.summary, ApiCreateKey: ArgOptions.ApiCreateKey, ApiCreateFingerprint: ArgOptions.ApiCreateFingerprint };
+          Seeds.set(Created.ReminderID, Created);
+          return { ok: true, reminder: Created };
+        },
+      } });
     }
   });
 
@@ -752,7 +781,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     await fs.writeFile(path.join(RemindersDir, `${WsA}_reminders.json`), JSON.stringify([]));
     expect((await CallAsync('GET', List(WsA))).json).toEqual({ success: true, data: [] });
 
-    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-valid', body: { actions: [{ action: 'complete', reminderId: R1, reason: 'client text' }] } });
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-valid', body: { actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1), reason: 'client text' }] } });
     expect(Result.json.success).toBe(true);
     expect(Calls).toEqual([['complete', R1, 'api-bot:bot-a:complete']]);
   });
@@ -798,12 +827,15 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   });
 
   test.each([
-    ['a mixed batch with retitle', { actions: [{ action: 'complete', reminderId: R1 }, { action: 'retitle', reminderId: R2 }] }, 'action-not-allowed'],
-    ['an unknown field on the second action', { actions: [{ action: 'complete', reminderId: R1 }, { action: 'cancel', reminderId: R2, hardDelete: true }] }, 'unknown-field'],
-    ['an unknown envelope field', { actions: [{ action: 'complete', reminderId: R1 }], dryRun: false }, 'unknown-field'],
-    ['a non-UUID id', { actions: [{ action: 'complete', reminderId: 'x\nFAKE=1' }] }, 'invalid-reminder-id'],
+    ['a mixed batch with reassign', () => ({ actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1) }, { action: 'reassign', reminderId: R2, ifMatch: V(R2) }] }), 'action-not-allowed'],
+    ['an unknown field on the second action', () => ({ actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1) }, { action: 'cancel', reminderId: R2, ifMatch: V(R2), hardDelete: true }] }), 'unknown-field'],
+    ['an unknown envelope field', () => ({ actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1) }], dryRun: false }), 'unknown-field'],
+    ['a non-UUID id', () => ({ actions: [{ action: 'complete', reminderId: 'x\nFAKE=1', ifMatch: '0000000000000000' }] }), 'invalid-reminder-id'],
+    ['a missing ifMatch', () => ({ actions: [{ action: 'complete', reminderId: R1 }] }), 'if-match-required'],
+    ['the same reminder twice', () => ({ actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1) }, { action: 'cancel', reminderId: R1, ifMatch: V(R1) }] }), 'duplicate-reminder'],
+    ['force on a bot retitle', () => ({ actions: [{ action: 'retitle', reminderId: R1, ifMatch: V(R1), title: 'Review the release notes', force: true }] }), 'unknown-field'],
   ])('refuses %s whole, before any write', async (_Label, ArgBody, ArgCode) => {
-    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-shape', body: ArgBody });
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-shape', body: ArgBody() });
     expect(Result.json).toMatchObject({ success: false, code: ArgCode });
     expect(Calls).toEqual([]);
   });
@@ -839,7 +871,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
   test('the audit line is one JSON record with no reason, raw key or token', async () => {
     const Log = jest.spyOn(console, 'log').mockImplementation(() => {});
     await CallAsync('POST', Bulk(WsA), {
-      key: 'k-audit.1', body: { actions: [{ action: 'cancel', reminderId: R2, reason: 'line one\nline two sk-proj-SECRET' }] },
+      key: 'k-audit.1', body: { actions: [{ action: 'cancel', reminderId: R2, ifMatch: V(R2), reason: 'line one\nline two sk-proj-SECRET' }] },
     });
     const Lines = Log.mock.calls.map(ArgArgs => ArgArgs.join(' ')).filter(ArgLine => ArgLine.includes('principal-write'));
     expect(Lines).toHaveLength(1);
@@ -874,7 +906,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     const Warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const Cases = [
       [{ body: Complete([R1]) }, 'idempotency-key-required'],
-      [{ key: 'k-den-1', body: { actions: [{ action: 'complete', reminderId: R1, secretField: 'sk-proj-LEAK' }] } }, 'unknown-field'],
+      [{ key: 'k-den-1', body: { actions: [{ action: 'complete', reminderId: R1, ifMatch: V(R1), secretField: 'sk-proj-LEAK' }] } }, 'unknown-field'],
     ];
     for(const [Options, Code] of Cases) {
       Warn.mockClear();
@@ -906,6 +938,67 @@ describe('Bot principals (GH-301 Phase 1)', () => {
       expect((await CallAsync('POST', Bulk(WsA), { key: 'k-t', body: Complete([R1]), headers: Headers })).json.code).toBe('insecure-transport');
     }
     expect(Calls).toEqual([]);
+  });
+
+  test('Phase 2: principals read a version per reminder; legacy reads do not', async () => {
+    await fs.mkdir(RemindersDir, { recursive: true });
+    await fs.writeFile(path.join(RemindersDir, `${WsA}_reminders.json`), JSON.stringify([MakeSeed(R1)]));
+    const Bot = (await CallAsync('GET', List(WsA))).json.data;
+    expect(Bot[0].version).toBe(GetReminderVersion(MakeSeed(R1)));
+    const Legacy = (await CallAsync('GET', List(WsA), { token: TestBearerToken })).json.data;
+    expect(Legacy[0]).not.toHaveProperty('version');
+  });
+
+  test('Phase 2: a stale ifMatch refuses the whole batch before any write and reports current versions', async () => {
+    const Stale = V(R2);
+    Seeds.get(R2).ReminderMessageText = 'changed elsewhere';
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-stale', body: { actions: [
+      { action: 'complete', reminderId: R1, ifMatch: V(R1) }, { action: 'cancel', reminderId: R2, ifMatch: Stale }] } });
+    expect(Result.json).toMatchObject({ success: false, code: 'version-conflict', conflicts: [{ reminderId: R2, version: V(R2) }] });
+    expect(Calls).toEqual([]);
+  });
+
+  test('Phase 2: retitle and reschedule pass the version to the writer and return the new one', async () => {
+    const Before = V(R1);
+    const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-edit', body: { actions: [
+      { action: 'retitle', reminderId: R1, ifMatch: Before, title: 'Review the release notes' },
+      { action: 'reschedule', reminderId: R2, ifMatch: V(R2), dueDate: '2030-03-01T17:00:00Z' }] } });
+    expect(Result.json.success).toBe(true);
+    expect(Calls).toEqual([
+      ['retitle', R1, 'api-bot:bot-a:retitle', 'Review the release notes', Before],
+      ['reschedule', R2, 'api-bot:bot-a:reschedule', '2030-03-01T17:00:00.000Z', expect.any(String)],
+    ]);
+    expect(Result.json.data.results[0].version).toBe(V(R1));
+    expect(Result.json.data.results[0].version).not.toBe(Before);
+    // the old version now conflicts
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-edit-2', body: { actions: [{ action: 'complete', reminderId: R1, ifMatch: Before }] } })).json.code).toBe('version-conflict');
+  });
+
+  test.each([
+    ['create with another action', () => ({ actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED', assigneeIds: ['U0TESTA1'] }, { action: 'complete', reminderId: R1, ifMatch: V(R1) }] }), 'create-must-be-alone'],
+    ['create with senderId', () => ({ actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED', assigneeIds: ['U0TESTA1'], senderId: 'U0TESTA1' }] }), 'unknown-field'],
+    ['create without assignees', () => ({ actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED' }] }), 'invalid-request'],
+    ['create with a contract-refused title', () => ({ actions: [{ action: 'create', title: 'Can you please check this?', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED', assigneeIds: ['U0TESTA1'] }] }), 'title-refused'],
+    ['create in a channel without auto-scheduling', () => ({ actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0OTHER', assigneeIds: ['U0TESTA1'] }] }), 'channel-not-enabled'],
+  ])('Phase 2: refuses %s', async (_Label, ArgBody, ArgCode) => {
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'k-create-bad', body: ArgBody() })).json).toMatchObject({ success: false, code: ArgCode });
+    expect(Calls).toEqual([]);
+  });
+
+  test('Phase 2: a create is stamped with its key; a retry after the in-memory cache is gone finds it', async () => {
+    const Body = { actions: [{ action: 'create', title: 'Draft the launch email', dueDate: '2030-01-03T16:00:00Z', channelId: 'C0ENABLED', assigneeIds: ['U0TESTA1'] }] };
+    const First = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body });
+    expect(First.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c' });
+    expect(Calls).toEqual([['create', 'Draft the launch email', 'C0ENABLED', true]]);
+    // a fresh API has an empty in-memory store, like a restart; the module still holds the stamped reminder.
+    await API.StopAsync();
+    API = CreateTestWebAPI(TestSlackApps);
+    await API.StartAsync();
+    const Retry = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body });
+    expect(Retry.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c', replayed: true });
+    const Changed = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: { actions: [{ ...Body.actions[0], title: 'Draft the launch post' }] } });
+    expect(Changed.json.code).toBe('idempotency-key-reused');
+    expect(Calls).toHaveLength(1);
   });
 
   test.each([
