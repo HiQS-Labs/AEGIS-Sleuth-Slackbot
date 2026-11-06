@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Recon and plan for Phase 0–1 (2026-11-06). | Codex plan QA, then implement. Phases 2–4 are later PRs. |
+| Plan revised after Codex plan QA round 1 (2026-11-06). | Plan QA round 2, then implement. Phases 2–4 are later PRs. |
 
 ## Problem
 
@@ -54,8 +54,11 @@ a middleware branch that admits a principal to exactly two routes, and a Phase-1
 pilot (Phase 4), TLS termination (deploy), pagination beyond a simple `limit`/`offset`.
 **Alternatives rejected:**
 - *A second token in an env var:* not per-workspace, not revocable without a restart.
-- *Secrets in systemd-creds, as Product Compass does:* adding a bot then needs a unit edit and restart, and
-  revocation needs a restart too. The issue requires "revoke without redeploy".
+- *Secrets in systemd-creds/Keychain, as Product Compass does:* Product Compass reads its token per request,
+  and revokes at the issuer (Product Compass itself). Here Sleuth *is* the issuer and verifier, and each bot
+  needs editable grants (workspaces, scopes, expiry, revoked) beside its secret. Adding a bot through
+  `LoadCredentialEncrypted` would also need a unit edit and restart. So a hashed verifier file with its
+  grants fits this case better, without a second secret store.
 - *A new `/v1` router:* a second request path beside the existing routes. Additive checks on the two existing
   routes are enough.
 
@@ -68,9 +71,25 @@ refused exactly as today (`Forbidden.`). Or revert the PR. Nothing in the stored
   includes it. An array of principal records:
   `{ "id": "cursor-grok", "sha256": "<hex of sha256(token)>", "workspaces": ["neochrome"], "scopes": ["reminders:read","reminders:write"], "expiresAt": "2027-01-01T00:00:00Z", "revoked": false }`.
   `expiresAt` and `revoked` are optional.
-- **Only a hash is stored.** The token is `slp_<id>_<43 chars base64url of 32 random bytes>`. Its SHA-256
-  is safe at rest because the token is high-entropy, not a password. The bot keeps the token in its own
-  secret storage.
+- **Only a hash is stored.** The token is `slp_<id>_<secret>`:
+  - `id` matches `^[a-z0-9-]{1,32}$`, so it contains no underscore;
+  - `secret` is 43 base64url chars (32 random bytes);
+  - the whole token must match `^slp_([a-z0-9-]{1,32})_([A-Za-z0-9_-]{43})$`, so it parses unambiguously.
+  
+  The SHA-256 of the whole token is safe at rest because the token is high-entropy, not a password. The bot
+  keeps the token in its own secret storage.
+- **Entry validation (fail closed).** On each read the whole file is validated. Any invalid entry makes that
+  entry unusable, and an unparseable file means no principals, plus one WARN log per read naming the entry
+  `id`, never a secret. Rules:
+  - ids are unique and match the grammar;
+  - `sha256` is exactly 64 lowercase hex characters, and is decoded only after that check;
+  - `workspaces` is a non-empty array of names;
+  - `scopes` is a non-empty subset of `reminders:read` and `reminders:write`;
+  - `expiresAt`, if present, parses as a date;
+  - `revoked`, if present, is a boolean.
+  
+  The digest comparison checks both lengths are 32 bytes before `timingSafeEqual`, and any exception means
+  "deny".
 - `AuthenticatePrincipalAsync(token)` re-reads the file on **every** request; it is small. That makes edits
   take effect at once: set `revoked: true`, remove the entry, or let it expire. Steps:
   1. Parse `id` from the token and find the entry.
@@ -89,35 +108,71 @@ refused exactly as today (`Forbidden.`). Or revert the PR. Nothing in the stored
 The legacy bearer is checked first, so operator tools are unchanged. A `Bearer slp_…` token is checked only
 when `process.env.WEB_API_BOT_PRINCIPALS === '1'`. The checks:
 
-- **Transport:** refused unless the request is loopback (`req.socket.remoteAddress`) or `req.secure`.
-  `X-Forwarded-Proto: https` counts only when the TCP peer is loopback, which means a local TLS proxy.
-  Plain HTTP from a remote host is refused with code `insecure-transport`, before the token is even
-  looked up.
-- **Route allowlist:** a principal reaches only `GET /workspace/:name/reminders` (needs `reminders:read`) and
-  `POST /workspace/:name/reminders/bulk` (needs `reminders:write`). Every other route is refused with code
-  `forbidden`. That includes `/workspaces`, workspace create/delete, stats, settings and admin.
-- **Workspace:** `:name` must be in `principal.workspaces`, otherwise `forbidden-workspace`. This is
-  cross-workspace denial.
-- The principal is attached to the request (`ArgReq.Principal = { id, workspaces, scopes }`) for the handlers.
+- **Transport:** a principal is admitted only if the socket itself is TLS (`req.socket.encrypted`) or the TCP
+  peer is loopback. Loopback means `req.socket.remoteAddress` exactly matches `127.0.0.1`, any other
+  `127.x.y.z`, `::1`, or `::ffff:127.x.y.z`, checked with `net.isIP` plus an exact pattern, not a string
+  prefix.
+  - `trust proxy` stays **off**, and `X-Forwarded-*` headers are never read for this decision. A remote
+    spoofed `X-Forwarded-Proto: https` therefore changes nothing.
+  - Anything else gets code `insecure-transport` before the token is looked up.
+  - A loopback peer does not prove the hop before it was HTTPS. The docs state the reverse proxy's obligation
+    to accept only HTTPS, and say bot configs must use `https://` URLs, because a server refusal cannot
+    un-send a cleartext token.
+- **Route allowlist, strict canonical paths:** Express matches routes case-insensitively and with optional
+  trailing slashes, so the middleware does its own exact match against the raw `req.path`:
+  - `GET  ^/workspace/([A-Za-z0-9_-]{1,64})/reminders$` needs `reminders:read`;
+  - `POST ^/workspace/([A-Za-z0-9_-]{1,64})/reminders/bulk$` needs `reminders:write`.
+  
+  The method must match exactly; **HEAD is refused** for principals. Case variants, trailing slashes,
+  percent-encoding (`%2F`, `%2E`) and every other route get code `forbidden`. That covers `/workspaces`,
+  workspace create/delete, stats, settings and `/admin/*`.
+- **Workspace:** the captured name must be in `principal.workspaces`, otherwise `forbidden-workspace`. This is
+  cross-workspace denial. The middleware stores the captured name as `ArgReq.Principal.Workspace`. Both
+  handlers refuse (`forbidden-workspace`) unless `ArgReq.params.name === ArgReq.Principal.Workspace`, so the
+  workspace checked is exactly the workspace used.
+- The principal is attached to the request (`ArgReq.Principal = { Id, Scopes, Workspace }`) for the handlers.
+- **Denial audit:** each refused principal request logs one JSON line:
+  `[web-api] principal-denied {"code":…,"id":…|null,"method":…,"route":"reminders"|"bulk"|"other"}`.
+  It never contains the token or the raw path.
 - Failure keeps the existing envelope and adds a stable `code`: `200 {success:false, data:'Forbidden.', code}`.
   Legacy responses are unchanged.
 
 ### 3. Handlers (existing, small additive checks)
 
-- **Bulk:** when `ArgReq.Principal` is set, `#PrepareBulkReminderAction` also refuses any action other than
-  `complete`/`cancel` (Phase 1). It refuses the whole batch, as today.
-- **Idempotency:** a principal's write must send `Idempotency-Key` (1–128 chars), else validation error code
-  `idempotency-key-required`. Results are cached in memory, keyed by `principalId + workspace + key`, with a
-  24 h TTL and a 1000-entry cap (oldest evicted).
-  - A replay with the **same body** returns the cached response and does not call any writer.
-  - The same key with a **different body** gets code `idempotency-key-reused`.
-  - After a restart the cache is empty. A replayed complete then reports `not-found`, which is still no
-    double-complete, because complete/cancel are already idempotent in the writers.
-- **Audit:** every principal write logs one line per batch:
-  `[web-api] principal=<id> workspace=<w> key=<idempotency key> actions=<complete:2,cancel:1> ids=<first 8 chars of each id> result=<counts>`.
-  It never logs the token, titles or other free text.
-- **Read:** for a principal, the GET also accepts `limit` (1–500) and `offset` (≥0) on the reminder list. The
-  response gains `total` only when `limit` is used. A legacy GET is unchanged.
+- **Bulk:** when `ArgReq.Principal` is set, `#PrepareBulkReminderAction` adds three rules. Any violation refuses
+  the whole batch, as today:
+  - only `complete`/`cancel` are allowed (Phase 1);
+  - `reminderId` must match the reminder-ID format `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`;
+  - a client `reason` is ignored. The server supplies `api-bot:<principal id>:<action>` instead, and the id
+    grammar makes that safe for the writers' existing log lines (`src/reminders-module.js` complete/cancel logs).
+  
+  Legacy bearer requests keep today's behaviour.
+- **Idempotency, reserved before any write:** a principal's write must send `Idempotency-Key` matching
+  `^[A-Za-z0-9._:-]{1,128}$`, else code `idempotency-key-required`. Mechanics:
+  - One `Map`, keyed by `JSON.stringify([principalId, workspace, key])`. Each entry holds
+    `{ Fingerprint, Promise, DoneAt }`, where `Fingerprint` is the sha256 of `JSON.stringify(req.body)`.
+  - The entry is created **synchronously**, before the handler's first `await`. A concurrent request with the
+    same key and the same fingerprint awaits the same promise and returns the identical response.
+  - A different fingerprint gets `idempotency-key-reused` at once, even while the first request is running.
+  - If the work throws, the entry is deleted, so a retry can run. A completed response that holds per-item
+    `error` results is still cached as the response.
+  - Completed entries expire after 24 h. A 1000-entry cap evicts the oldest *completed* entries only; an
+    in-flight entry is never evicted. When the cap bites, replay retention is shorter than 24 h, and the docs
+    say so.
+  - A replay is served only after the middleware has re-authenticated the principal and re-checked scope and
+    workspace on that request, so revoking a principal also stops replays.
+  - After a restart the map is empty. A replayed complete then reports `not-found`, which is still no
+    double-complete, because complete/cancel are already idempotent in the writers. This argument is not
+    carried forward to Phase-2 `create`.
+- **Audit:** one structured line per principal write outcome:
+  `[web-api] principal-write {"id":…,"workspace":…,"keySha256":"<first 16 hex>","replayed":bool,"actions":{"complete":n,"cancel":n},"ids":["<first 8 of each validated id>"],"counts":{…}}`.
+  It is produced with `JSON.stringify`, so no field can inject a line. It never contains the token, the raw
+  key, the reason or reminder text.
+- **Read:** for a principal, the GET also accepts `limit` (1–500) and `offset` (≥0) on the reminder list. They
+  apply *after* `activeOnly`/`state` filtering. Bounds outside those ranges are a validation error. With
+  `format=raw` (or no format) the response stays an array, and `total` is sent in an `X-Total-Count` header.
+  With `format=rebalance` paging is refused (`pagination-unsupported`), because that export is one document. A
+  legacy GET is unchanged.
 
 ### 4. Docs
 
@@ -139,10 +194,29 @@ Add to `tests/web-api-reminders.test.js`, which starts a real `WebAPI`. The prin
   no restart: edit the file between two calls.
 - Scope: a read-only principal POSTing gets `forbidden`; a principal on `/workspaces` or `DELETE /workspace/:name`
   gets `forbidden`.
-- Phase-1 allowlist: a principal `retitle` refuses the whole batch.
-- Idempotency: the same key and body twice gives one writer call and an identical response; the same key with a
-  different body gets `idempotency-key-reused`; a missing key is refused.
-- Transport: a non-loopback request without TLS gets `insecure-transport`. Simulated by mocking the socket address.
+- Phase-1 allowlist: a mixed batch `[complete r1, retitle r2]` is refused whole, and **no** writer is called.
+- Idempotency: the same key and body twice gives one writer call and an identical response.
+  - **Overlap test:** hold the writer pending, send a second same-key same-body request, release, then assert
+    one writer call and identical responses. A changed body sent during the overlap gets
+    `idempotency-key-reused` with no extra writer call.
+  - A missing key is refused, and a revoked principal's replay is denied.
+  - Red control: remove the synchronous reservation, and the overlap test goes red.
+- Logging: a principal request carrying a `reason` with a newline and a secret-looking string, a key like
+  `audit result=completed`, and a non-UUID id like `x\nFAKE=1`. Assert:
+  - the id is refused;
+  - the writer receives the server reason, not the client's;
+  - captured `console` output holds exactly one parseable `principal-write` JSON line, with no raw reason or
+    key and no token.
+- Transport and path table (one `test.each`), all asserting denial and no writer call:
+  - a remote peer address (mocked `socket.remoteAddress`) over plain HTTP, both with and without
+    `X-Forwarded-Proto: https`, gets `insecure-transport`;
+  - `::1` and `::ffff:127.0.0.1` are accepted;
+  - `HEAD` on the GET route, `/Workspace/…` case, a trailing slash, `%2F` in the name, `/workspaces`,
+    `DELETE /workspace/:name` and `/admin/dashboard/reminders` all get `forbidden`.
+  - Red controls: drop the peer check and the remote case goes red; drop the handler workspace binding and a
+    forged-param case goes red.
+- Pagination: `limit`/`offset` after `activeOnly` filtering; out-of-range bounds refused; `rebalance` with
+  `limit` refused.
 - Unknown workspace and a workspace that is not running keep the existing GH-279 behaviour.
 - Legacy bearer: the existing suites pass unchanged, which proves no regression.
 
@@ -167,7 +241,8 @@ rated 45/35/50/40 (2026-11-06, author estimate on the 1–100 PRS axes):
 - **Severity 35:** a capability gap, not a defect. The workaround is SSH plus the operator token, and the
   #271/#272 history shows the risk of hand access.
 - **Appeal 50:** neutral.
-- **Effort 40:** Phase 0–1 is moderate, and the issue has four phases.
+- **Effort 40:** on the cheapness scale, where higher means cheaper. Phase 0–1 is a moderate change: one small
+  module plus middleware and handler checks, with tests in an existing file.
 
 Recurrence: not a defect class; unknown trend.
 
@@ -176,7 +251,7 @@ Recurrence: not a defect class; unknown trend.
 | Req | Covered here | Later |
 |---|---|---|
 | 1 no SSH/cookies/tokens/fs for clients | principal token only | — |
-| 2 HTTPS, fail-closed, flag | flag off by default; plain HTTP refused for remote hosts | TLS terminator (deploy) |
+| 2 HTTPS, fail-closed, flag | flag off by default; principals need socket TLS or an exact loopback peer (proxy) | TLS terminator (deploy) |
 | 3 shared command service | handlers reuse the existing bulk prepare/apply path; no second writer | Phase 3 MCP calls the same routes |
 | 4 MCP adapter | — | Phase 3 |
 | 5 workspace + read/write scopes, revoke/expiry | yes | assignee ownership (optional) |
