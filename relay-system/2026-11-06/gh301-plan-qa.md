@@ -388,3 +388,11 @@ server connections or git commands ran during this turn. Only this relay file wa
 no plan, seeded issue or source file was modified.
 
 STATUS is Approved. Close `RELAY-gh301-plan-qa` with the pinned tick `done` verb.
+
+### Attestation · relay-drive — 2026-11-06T04:41:03Z
+task: RELAY-gh301-plan-qa
+reviewer: codex
+status: Approved
+reviewed-head: 667850241480a1a13178787d7fd074e40bb2b96e
+added-range: 24118+3372
+added-sha256: 5fd4a8c597928cd1ff832e4e053c37893989e84dabe0e422f887fd7f078cfeb8
