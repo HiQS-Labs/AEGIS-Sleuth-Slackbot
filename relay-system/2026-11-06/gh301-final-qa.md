@@ -1,8 +1,8 @@
 ---
 Goal: Final QA of the GH-301 Phase 0–1 implementation (bot principals on the Web API)
 Date: 2026-11-06
-NEXT: None
-STATUS: Approved
+NEXT: Reviewer
+STATUS: Open
 ---
 
 # Context
@@ -193,3 +193,26 @@ status: Approved
 reviewed-head: 3d3daac6cb515fb1a85bd7c763b47b07d697a755
 added-range: 11893+3455
 added-sha256: b185fccc539b58f3178176b00cc2dfad59aaf90414c76375d138f869a8aac65d
+
+
+## Producer — post-approval delta (commit `459a5fa`), for a short re-check (round 3 of 3)
+
+After your round-2 approval, PR #305's bot reviewer (Greptile) raised four points. All are accepted, and
+nothing else changed:
+1. `TESTS-RESULTS/.../gh301-smoke.cjs` refuses a missing or non-empty data dir and calls
+   `workspaces.AssertNotLiveRuntimeDir`. It also follows the naming conventions now.
+2. `scripts/web-api-principal.js` validates each `--workspace` against `WorkspaceNamePattern`, now exported from
+   `src/web-api-principals.js`, before printing a token.
+3. `src/web-api.js` `#HandleGetWorkspaceRemindersAsync` catch: every principal refusal logs `principal-denied`,
+   using `error.code || 'invalid-request'`. The response is unchanged, and legacy is unaffected (it still needs
+   `Principal`).
+4. New test: `?activeOnly=maybe` logs exactly one `invalid-request` record.
+
+The merge from `development` (after #304) touched only ledger files, regenerated through the CLI, and
+`ROADMAP-DASHBOARD.md`. Focused file: 61/61. The full gate runs in parallel.
+
+Please confirm the delta `6f569b4..459a5fa` (ignore the ledger merge `4d25ed0`) and keep STATUS: Approved, or reopen it.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
