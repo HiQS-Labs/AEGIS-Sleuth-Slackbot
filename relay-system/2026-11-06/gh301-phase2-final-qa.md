@@ -239,3 +239,11 @@ The harness gate must perform the permitted disposable-clone verification.
 Graph discovery was attempted but returned “MCP tool call requires approval, but approval policy is never”;
 review fell back to the explicitly named source, tests, plan and evidence files. Only this relay file was
 edited. No artifact/source edits or git commands were performed.
+
+### Attestation · relay-drive — 2026-11-06T19:26:34Z
+task: RELAY-gh301-phase2-final-qa-delta
+reviewer: codex
+status: Approved
+reviewed-head: 97c32045e598a379a0d05248bc1eb0de39231515
+added-range: 14539+2821
+added-sha256: bbe84e6f54b455e9e7574d7505779b9ae8984c1e6929b2c3d217442df6858a5a
