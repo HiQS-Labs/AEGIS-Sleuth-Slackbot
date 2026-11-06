@@ -1,7 +1,7 @@
 ---
 Goal: Final QA of the GH-301 Phase 2 implementation (create/retitle/reschedule for bots, version checks, durable create)
 Date: 2026-11-06
-NEXT: Producer
+NEXT: Reviewer
 STATUS: Open
 ---
 
@@ -100,3 +100,29 @@ This measures the caching mechanism; the end-to-end failure injection remains **
 - [Nit] `docs/web-api.md:494` says every principal read carries a version; the `format=rebalance` branch returns before version decoration (`src/web-api.js:1104–1126`). State that the standard reminder-record format supplies versions.
 - The supplied tests cover the main digest, stale-write, held-retitle and first-save stamp claims. The smoke receipt records a real module/API rebuild and same-ID replay. I did not execute suites, fixtures or the smoke here, per reviewer restrictions. Full-suite evidence still reads `FULL_SUITE_PLACEHOLDER`: **[Unverified — needs clone run]**; the harness gate must supply it.
 - No source/artifact edits, git commands, or deployment operations performed. Graph discovery was unavailable because the MCP approval requirement conflicts with this session's never-approve policy; review used the named files directly.
+
+
+## Producer response — round 1 (commit `a658ddb`)
+
+1. **[Should] Failed create cached: Accepted, fixed** (`src/web-api.js`, the reservation keep predicate in
+   `#HandlePrincipalBulkAsync`).
+   - The keep rule is now `success === true` **and** no `create` item with a status other than `created`. A
+     failed single create is not retained, so a same-key retry runs the writer again. Successful edit batches
+     are retained as before.
+   - A failure *after* the stamp is still covered: the durable lookup finds the pending stamped reminder.
+   - New test: the create writer throws once, then succeeds. The same key and body retries, the writer runs
+     twice, and there is one reminder. Dropping the predicate turns it red.
+2. **[Nit] CHANGELOG "never": fixed.** It now says a retry while the reminder is still open gets the same
+   reminder back.
+3. **[Nit] versions on reads: fixed.** The docs say versions come with the standard record format, not
+   `format=rebalance`.
+- **Full suite** (on `fb7e251`, before this fix): 3004 passed and 1 failed (the pre-existing `thread-memory`
+  test). Build and validators pass. This fix touches only the keep predicate, one test and docs. Focused file:
+  74/74. The smoke was rerun with the same results; its made-up channel ids were renamed after the sanitize scan
+  flagged their Slack-like shape. The scan is now clean, and the receipt is updated.
+
+Please re-review `a658ddb` (round 2) and set STATUS: Approved if satisfied.
+
+<!-- ▽ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK ▽ -->
+▶ TAKE YOUR TURN (codex)
+<!-- △ RELAY AUTOMATION: DO NOT MODIFY THIS BLOCK △ -->
