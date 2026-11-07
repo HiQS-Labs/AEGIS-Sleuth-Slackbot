@@ -1,5 +1,6 @@
 // import required modules.
 const fs = require('fs').promises;
+const { NormalizeGitHubLinks } = require('./github-url-utils');
 const path = require('path');
 const crypto = require('crypto');
 const SlackApp = require('./slack-app');
@@ -838,6 +839,59 @@ class RemindersModule {
   }
 
   /**
+   * Version of a reminder for optimistic concurrency (GH-301 Phase 2): the first 16 hex of a sha256 over
+   * the fields a bot edit reads or overwrites. Computed, never stored, so no writer can forget to bump it.
+   * Pure: never mutates its input (arrays are copied before sorting).
+   * @param {any} ArgReminder Reminder record (live object or one read from disk).
+   * @returns {string}
+   */
+  static GetReminderVersion(ArgReminder) {
+    const ShouldPostOn = ArgReminder?.ShouldPostOn instanceof Date
+      ? ArgReminder.ShouldPostOn.toISOString()
+      : (typeof ArgReminder?.ShouldPostOn === 'string' && !isNaN(Date.parse(ArgReminder.ShouldPostOn))
+        ? new Date(ArgReminder.ShouldPostOn).toISOString()
+        : '');
+    const Fields = [
+      typeof ArgReminder?.ReminderMessageText === 'string' ? ArgReminder.ReminderMessageText : '',
+      ShouldPostOn,
+      RemindersModule.GetAssigneeIDs(ArgReminder),
+      Array.isArray(ArgReminder?.GitHubUrls) ? [...ArgReminder.GitHubUrls].sort() : [],
+      ArgReminder?.State || RemindersModule.ReminderState.Scheduled,
+      ArgReminder?.IgnoreSnooze === true,
+      ArgReminder?.DndHeld === true,
+      ArgReminder?.GitHubRelayStopped === true,
+    ];
+    return crypto.createHash('sha256').update(JSON.stringify(Fields), 'utf8').digest('hex').slice(0, 16);
+  }
+
+  /**
+   * Find the pending reminder a bot create stamped with this key (GH-301 Phase 2 durable create idempotency).
+   * @param {string} ArgApiCreateKey Hex key.
+   * @returns {ReminderInfo|null}
+   */
+  FindPendingReminderByApiCreateKey(ArgApiCreateKey) {
+    return this.#PendingRemindersQueue.find(ArgReminder => /** @type {any} */ (ArgReminder).ApiCreateKey === ArgApiCreateKey) ?? null;
+  }
+
+  /**
+   * Durably save the pending queue now, through the same serialized save chain every writer uses. Rejects when
+   * the save fails. Used before a durable create replay reports success (GH-301), so an in-memory reminder
+   * whose first save failed is never acknowledged unsaved.
+   * Unlike FlushRemindersAsync (which only waits for queued saves), this performs a save and rejects on failure.
+   * When a stamped API create is supplied, also resume its missing List fanout after saving.
+   * @param {string|null} [ArgApiCreateKey]
+   * @returns {Promise<void>}
+   */
+  async SaveRemindersNowAsync(ArgApiCreateKey = null) {
+    await this.#SaveRemindersAsync();
+    const Reminder = ArgApiCreateKey ? this.FindPendingReminderByApiCreateKey(ArgApiCreateKey) : null;
+    if(Reminder && this.#ListsModule?.IsListsAvailable) {
+      const ListsSaved = await this.#ListsModule.AddReminderToListAsync(Reminder);
+      if(!ListsSaved) throw new Error('API create List recovery failed; retry.');
+    }
+  }
+
+  /**
    * Return a reminder's canonical set of human assignees without mutating the record.
    * An AssigneeIDs array with at least one valid ID is authoritative. Otherwise (no array, an empty
    * one, or one holding only invalid/bot IDs) fall back to AssigneeID, then OriginalSenderID — an
@@ -1071,14 +1125,19 @@ class RemindersModule {
    * Complete a reminder by ID using the same path as the white check mark reaction.
    * @param {string} ArgReminderID Reminder ID to complete.
    * @param {string} ArgReason Reason for completion.
-   * @returns {Promise<boolean>}
+   * @param {{ ExpectedVersion?: string }} [ArgOptions] GH-301: return `'conflict'` instead of acting when the version differs.
+   * @returns {Promise<boolean|'conflict'>}
    */
-  async CompleteReminderByIdAsync(ArgReminderID, ArgReason) {
+  async CompleteReminderByIdAsync(ArgReminderID, ArgReason, ArgOptions = {}) {
     const ReminderToComplete = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
     if(!ReminderToComplete) {
       this.#SlackApp.Logger.warn(`[github-sync] reminder ${ArgReminderID} not found for completion`);
       return false;
     }
+    // GH-301: a version-checked caller (bot principal) must not close a reminder that changed since it read it.
+    // Checked here, right before the synchronous state change (nothing above awaits).
+    if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(ReminderToComplete) !== ArgOptions.ExpectedVersion)
+      return 'conflict';
 
     this.#TransitionReminderState(ReminderToComplete, RemindersModule.ReminderState.Completed, ArgReason);
     // 'completed' routes through ListsModule.HandleReminderCompletedAsync, which marks the
@@ -1114,19 +1173,51 @@ class RemindersModule {
    * own internal path.
    * @param {string} ArgReminderID Reminder ID to cancel.
    * @param {string} ArgReason Reason for cancellation.
-   * @returns {Promise<boolean>}
+   * @param {{ ExpectedVersion?: string }} [ArgOptions] GH-301: return `'conflict'` instead of acting when the version differs.
+   * @returns {Promise<boolean|'conflict'>}
    */
-  async CancelReminderFromListAsync(ArgReminderID, ArgReason) {
+  async CancelReminderFromListAsync(ArgReminderID, ArgReason, ArgOptions = {}) {
     const Reminder = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
     if(!Reminder) {
       this.#SlackApp.Logger.warn(`[lists-sync] reminder ${ArgReminderID} not found for cancellation`);
       return false;
     }
+    // GH-301: see CompleteReminderByIdAsync.
+    if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)
+      return 'conflict';
 
     this.#TransitionReminderState(Reminder, RemindersModule.ReminderState.Canceled, ArgReason);
     await this.#DeleteRemindersAsync([ArgReminderID], 'canceled');
     this.#SlackApp.Logger.info(`[lists-sync] canceled reminder ${ArgReminderID} (${ArgReason})`);
     return true;
+  }
+
+  /**
+   * Replace a pending reminder's GitHub links without changing thread relay flags or identity.
+   * @param {string} ArgReminderID Reminder to edit.
+   * @param {string[]} ArgUrls Entire replacement set; [] survives startup as an explicit clear.
+   * @param {string} ArgReason Bounded server-owned audit reason.
+   * @param {{ExpectedVersion?: string, OnVersion?: (ArgVersion: string) => void}} [ArgOptions] Version contract.
+   * @returns {Promise<'updated'|'unchanged'|'not-found'|'conflict'>}
+   */
+  async SetReminderGitHubLinksAsync(ArgReminderID, ArgUrls, ArgReason, ArgOptions = {}) {
+    const Links = NormalizeGitHubLinks(ArgUrls);
+    const Reminder = this.#PendingRemindersQueue.find(ArgR => ArgR.ReminderID === ArgReminderID);
+    if(!Reminder) return 'not-found';
+    if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion) return 'conflict';
+    if(Array.isArray(Reminder.GitHubUrls) && JSON.stringify([...Reminder.GitHubUrls].sort()) === JSON.stringify(Links)) {
+      // a prior attempt may have mutated memory then failed its save; never acknowledge an unsaved retry.
+      await this.#SaveRemindersAsync();
+      return 'unchanged';
+    }
+    await this.#RecordLedgerGapAsync('github-links-edit');
+    const Current = this.#PendingRemindersQueue.find(ArgR => ArgR.ReminderID === ArgReminderID);
+    if(Current !== Reminder || (ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)) return 'conflict';
+    Reminder.GitHubUrls = Links;
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(Reminder));
+    await this.#SaveRemindersAsync();
+    this.#SlackApp.Logger.info(`[github-links] updated reminder ${ArgReminderID} (${ArgReason})`);
+    return 'updated';
   }
 
   /**
@@ -1137,10 +1228,11 @@ class RemindersModule {
    * @param {string} ArgReminderID Reminder ID to update.
    * @param {string} ArgSummaryMrkdwn New summary in Slack mrkdwn format.
    * @param {string} ArgReason Reason for the edit.
-   * @param {{ SyncLists?: boolean, ReturnStatus?: boolean }} [ArgOptions] `SyncLists` fans the new
-   *   summary out to every list row (a list-originated edit already did its own row). `ReturnStatus`
-   *   returns `'updated'|'unchanged'|'not-found'` instead of a boolean.
-   * @returns {Promise<boolean|'updated'|'unchanged'|'not-found'>}
+   * @param {{ SyncLists?: boolean, ReturnStatus?: boolean, ExpectedVersion?: string, OnVersion?: (ArgVersion: string) => void }} [ArgOptions] `SyncLists` fans
+   *   the new summary out to every list row (a list-originated edit already did its own row). `ReturnStatus`
+   *   returns `'updated'|'unchanged'|'not-found'` instead of a boolean. `ExpectedVersion` (GH-301) returns
+   *   `'conflict'` when the reminder changed or left the queue, including across the internal await.
+   * @returns {Promise<boolean|'updated'|'unchanged'|'not-found'|'conflict'>}
    */
   async UpdateReminderSummaryFromListAsync(ArgReminderID, ArgSummaryMrkdwn, ArgReason, ArgOptions = {}) {
     const Reminder = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
@@ -1155,6 +1247,8 @@ class RemindersModule {
       return ArgOptions.ReturnStatus ? 'not-found' : false;
     }
 
+    if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)
+      return 'conflict';
     const CurrentSummary = SlackFormatUtils.ExtractKeyTasks(Reminder.ReminderMessageText);
     if(CurrentSummary === NewSummary) {
       return ArgOptions.ReturnStatus ? 'unchanged' : true;
@@ -1163,10 +1257,19 @@ class RemindersModule {
     // no ledger event carries a summary, so a verified projection would keep serving the old text.
     // Mark the gap BEFORE the change, so no projection read sees a verified marker with stale data.
     await this.#RecordLedgerGapAsync('summary-edit');
+    // GH-301: the await above can interleave another edit or a completion. A version-checked caller re-finds
+    // the reminder and re-checks immediately before the synchronous mutation.
+    if(ArgOptions.ExpectedVersion) {
+      const Current = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
+      if(Current !== Reminder || RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)
+        return 'conflict';
+    }
     Reminder.ReminderMessageText = SlackFormatUtils.ReplaceReminderSummary(
       Reminder.ReminderMessageText,
       NewSummary
     );
+    // GH-301: the version this edit produced, captured before the awaits below can interleave other edits.
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(Reminder));
     await this.#SaveRemindersAsync();
     if(ArgOptions.SyncLists && this.#ListsModule && this.#ListsModule.IsListsAvailable)
       await this.#ListsModule.SyncReminderSummaryAcrossListsAsync(ArgReminderID, NewSummary, null);
@@ -1183,11 +1286,16 @@ class RemindersModule {
    * @param {string} ArgReminderID Reminder ID to move.
    * @param {Date} ArgShouldPostOn New time.
    * @param {string} ArgReason Reason for the change.
-   * @returns {Promise<{status: 'updated'|'unchanged'|'not-found'|'busy', listFailures?: string[]}>}
+   * @param {{ ExpectedVersion?: string, OnVersion?: (ArgVersion: string) => void }} [ArgOptions] GH-301 version check;
+   *   `OnVersion` receives the version this change produced, at the moment of mutation.
+   * @returns {Promise<{status: 'updated'|'unchanged'|'not-found'|'busy'|'conflict', listFailures?: string[]}>}
    */
-  async RescheduleReminderAsync(ArgReminderID, ArgShouldPostOn, ArgReason) {
+  async RescheduleReminderAsync(ArgReminderID, ArgShouldPostOn, ArgReason, ArgOptions = {}) {
     const Reminder = this.#PendingRemindersQueue.find(ArgReminder => ArgReminder.ReminderID === ArgReminderID);
     if(!Reminder) return { status: 'not-found' };
+    // GH-301: checked right before the synchronous mutation below (nothing between awaits).
+    if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)
+      return { status: 'conflict' };
     const State = RemindersModule.ReminderState;
     /** @type {string[]} */
     const ReschedulableStates = [State.Scheduled, State.Overdue, State.Due, State.Failed, State.Snoozed, State.Posted];
@@ -1201,6 +1309,7 @@ class RemindersModule {
     Reminder.DndHeld = false;
     this.#TransitionReminderState(Reminder, State.Rescheduled, ArgReason);
     this.#TransitionReminderState(Reminder, State.Scheduled, ArgReason);
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(Reminder));
     await this.#SaveRemindersAsync();
     const ListFailures = this.#ListsModule && this.#ListsModule.IsListsAvailable
       ? await this.#ListsModule.SyncReminderScheduleAcrossListsAsync(ArgReminderID, Reminder.ShouldPostOn)
@@ -1270,7 +1379,7 @@ class RemindersModule {
    * the usual Slack List fan-out — the list caller adopts the existing authored row instead.
    * @param {{summary: string, dueDate: string, assigneeID: string|null, assigneeIDs?: string[], targetChannelID: string, originalSenderID: string|null}} ArgRowData
    *   Minimum column contract extracted from the list row; `assigneeIDs` adds further owners.
-   * @param {{ SkipListSync?: boolean, RequireOwner?: boolean }} [ArgOptions] `SkipListSync`
+   * @param {{ SkipListSync?: boolean, RequireOwner?: boolean, ApiCreateKey?: string, ApiCreateFingerprint?: string, OnVersion?: (ArgVersion: string) => void }} [ArgOptions] `SkipListSync`
    *   (default true) skips the list fan-out; `RequireOwner` refuses a row with no owner and no
    *   sender instead of falling back to the channel id.
    * @returns {Promise<{ok: boolean, reminder?: ReminderInfo, error?: string}>}
@@ -1318,6 +1427,12 @@ class RemindersModule {
     });
 
     // SkipListSync (default): the list caller adopts the existing authored row rather than creating a duplicate.
+    // GH-301: stamp the bot create key before the first save, so the first persisted copy carries it.
+    if(typeof ArgOptions.ApiCreateKey === 'string' && ArgOptions.ApiCreateKey) {
+      /** @type {any} */ (NewReminderInfo).ApiCreateKey = ArgOptions.ApiCreateKey;
+      /** @type {any} */ (NewReminderInfo).ApiCreateFingerprint = ArgOptions.ApiCreateFingerprint ?? null;
+    }
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(NewReminderInfo));
     await this.#QueueReminderAsync(NewReminderInfo, { SkipListSync: ArgOptions.SkipListSync !== false });
     this.#SlackApp.Logger.info(`[lists-sync] created reminder ${NewReminderInfo.ReminderID} from ${ArgOptions.SkipListSync === false ? 'the Web API' : 'a hand-authored list row'}`);
     return { ok: true, reminder: NewReminderInfo };
@@ -4557,7 +4672,10 @@ class RemindersModule {
 
     // add reminder to Slack List if available (unless the caller is adopting an existing row).
     if(!ArgOptions.SkipListSync && this.#ListsModule && this.#ListsModule.IsListsAvailable) {
-      await this.#ListsModule.AddReminderToListAsync(ArgReminderInfo);
+      const ListsSaved = await this.#ListsModule.AddReminderToListAsync(ArgReminderInfo);
+      // bot creates must remain retryable if a required List row was refused.
+      if(/** @type {any} */ (ArgReminderInfo).ApiCreateKey && !ListsSaved)
+        throw new Error('API create List sync failed; retry.');
     }
 
     // log the reminder details.

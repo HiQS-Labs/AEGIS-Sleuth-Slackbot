@@ -3870,6 +3870,173 @@ describe('GH-290: Web API edit writers', () => {
     });
   });
 
+  describe('GH-301 Phase 2: versions and durable bot creates', () => {
+    const Version = RemindersModule.GetReminderVersion;
+    // restore spies even when an assertion fails, so a held rename never leaks into the next test.
+    afterEach(() => jest.restoreAllMocks());
+
+    test('the version tracks what a bot edit overwrites, normalizes forms, and never mutates its input', () => {
+      const Base = { ReminderMessageText: 'Review it', ShouldPostOn: new Date('2030-01-02T17:00:00Z'), AssigneeIDs: ['U1', 'U2'], GitHubUrls: ['b', 'a'], State: 'scheduled' };
+      const V0 = Version(Base);
+      expect(Version({ ...Base, AssigneeIDs: ['U2', 'U1'] })).not.toBe(V0);
+      for(const Flag of ['IgnoreSnooze', 'DndHeld', 'GitHubRelayStopped']) expect(Version({ ...Base, [Flag]: true })).not.toBe(V0);
+      expect(Version({ ...Base, ReminderMessageText: 'Review it now' })).not.toBe(V0);
+      expect(Version({ ...Base, ShouldPostOn: '2030-01-02T17:00:00.000Z' })).toBe(V0);
+      expect(Version({ ...Base, GitHubUrls: ['a', 'b'] })).toBe(V0);
+      const Legacy = { ReminderMessageText: 'x', ShouldPostOn: Base.ShouldPostOn, AssigneeID: 'U9', State: 'scheduled' };
+      expect(Version(Legacy)).toBe(Version({ ...Legacy, AssigneeIDs: ['U9'] }));
+      expect(Base.GitHubUrls).toEqual(['b', 'a']);
+    });
+
+    /**
+     * Hold the first ledger-coverage marker rename so a version-checked writer pauses after its check.
+     * @param {string} ArgWorkspace Workspace name.
+     * @returns {{ Engaged: () => boolean, Release: () => void }}
+     */
+    function HoldFirstGapWrite(ArgWorkspace) {
+      const Marker = path.basename(CoverageFilePath(workspaces.GetSubdirPath('events'), ArgWorkspace));
+      const Real = fs.rename.bind(fs);
+      let Engaged = false;
+      let Done = false;
+      /** @type {() => void} */
+      let Release = () => {};
+      const Gate = new Promise(ArgResolve => { Release = ArgResolve; });
+      jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+        if(!Done && String(ArgTo).endsWith(Marker)) {
+          Done = true;
+          Engaged = true;
+          await Gate;
+        }
+        return Real(ArgFrom, ArgTo);
+      });
+      return { Engaged: () => Engaged, Release };
+    }
+
+    test.each([
+      ['a list-path retitle', async (ArgReminders, ArgId) => ArgReminders.UpdateReminderSummaryFromListAsync(ArgId, 'Retitled from the list', 'list-edit')],
+      ['a completion', async (ArgReminders, ArgId) => ArgReminders.CompleteReminderByIdAsync(ArgId, 'done elsewhere')],
+    ])('a version-checked retitle that waits across %s returns conflict and changes nothing', async (_Label, ArgInterleave) => {
+      await WithModuleAsync(`race_${_Label.length}`, [Seed('r-race', HoursFromNow(48))], async ArgReminders => {
+        const Workspace = ArgReminders.GetAllReminders()[0] && MakeWorkspaceInfo(`gh290_race_${_Label.length}`).WORKSPACE_NAME;
+        const Hold = HoldFirstGapWrite(Workspace);
+        const Expected = Version(ArgReminders.GetAllReminders()[0]);
+        const Bot = ArgReminders.UpdateReminderSummaryFromListAsync('r-race', 'Retitled by the bot', 'api-bot:b:retitle', { ReturnStatus: true, ExpectedVersion: Expected });
+        while(!Hold.Engaged()) await new Promise(ArgResolve => setTimeout(ArgResolve, 5));
+        await ArgInterleave(ArgReminders, 'r-race');
+        Hold.Release();
+        expect(await Bot).toBe('conflict');
+        const After = ArgReminders.GetAllReminders().find(ArgR => ArgR.ReminderID === 'r-race');
+        if(After) expect(After.ReminderMessageText).not.toMatch(/Retitled by the bot/);
+      });
+    });
+
+    test('complete, cancel and reschedule refuse a stale ExpectedVersion before changing anything', async () => {
+      await WithModuleAsync('stale_writers', [Seed('r-a', HoursFromNow(48)), Seed('r-b', HoursFromNow(48)), Seed('r-c', HoursFromNow(48))], async ArgReminders => {
+        expect(await ArgReminders.CompleteReminderByIdAsync('r-a', 'bot', { ExpectedVersion: '0000000000000000' })).toBe('conflict');
+        expect(await ArgReminders.CancelReminderFromListAsync('r-b', 'bot', { ExpectedVersion: '0000000000000000' })).toBe('conflict');
+        expect((await ArgReminders.RescheduleReminderAsync('r-c', HoursFromNow(96), 'bot', { ExpectedVersion: '0000000000000000' })).status).toBe('conflict');
+        expect(ArgReminders.GetAllReminders().map(ArgR => ArgR.ReminderID).sort()).toEqual(['r-a', 'r-b', 'r-c']);
+        // the right version still works
+        const Current = Version(ArgReminders.GetAllReminders().find(ArgR => ArgR.ReminderID === 'r-a'));
+        expect(await ArgReminders.CompleteReminderByIdAsync('r-a', 'bot', { ExpectedVersion: Current })).toBe(true);
+      });
+    });
+
+    test('set-links persists an explicit clear across restart without changing relay flags', async () => {
+      await WithModuleAsync('links_clear', [Seed('r-links', HoursFromNow(48), {
+        GitHubUrls: ['https://github.com/o/r/issues/1'], GitHubRelayStopped: true,
+        ReminderMessageText: 'Review https://github.com/o/r/issues/1',
+      })], async (ArgReminders, ArgSlackApp, ArgPaths) => {
+        const Before = Version(ArgReminders.GetAllReminders()[0]);
+        let Produced;
+        expect(await ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'api-bot:b:set-links', { ExpectedVersion: Before, OnVersion: ArgVersion => { Produced = ArgVersion; } })).toBe('updated');
+        expect(Produced).not.toBe(Before);
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))[0]).toMatchObject({ GitHubUrls: [], GitHubRelayStopped: true });
+        expect(JSON.parse(await fs.readFile(CoverageFilePath(workspaces.GetSubdirPath('events'), ArgSlackApp.WorkspaceInfo.WORKSPACE_NAME), 'utf8')).reason).toBe('github-links-edit');
+        await ArgReminders.StopAsync();
+        const Restarted = new RemindersModule(ArgSlackApp);
+        try {
+          await Restarted.StartAsync(EmptyWorkspaceStats);
+          expect(Restarted.GetAllReminders()[0].GitHubUrls).toEqual([]);
+        } finally { await Restarted.StopAsync(); }
+      });
+    });
+
+    test('a retry cannot acknowledge unchanged links until they are durably saved', async () => {
+      await WithModuleAsync('links_failed_save', [Seed('r-links', HoursFromNow(48), { GitHubUrls: ['https://github.com/o/r/issues/1'] })], async (ArgReminders, ArgSlackApp, ArgPaths) => {
+        const Rename = fs.rename.bind(fs);
+        let FailSave = true;
+        jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+          if(FailSave && ArgTo === ArgPaths.remindersFilePath) throw new Error('simulated links save failure');
+          return Rename(ArgFrom, ArgTo);
+        });
+        try {
+          await expect(ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'bot', { ExpectedVersion: Version(ArgReminders.GetAllReminders()[0]) })).rejects.toThrow('simulated links save failure');
+          expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))[0].GitHubUrls).toHaveLength(1);
+          const ExpectedVersion = Version(ArgReminders.GetAllReminders()[0]);
+          await expect(ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'retry', { ExpectedVersion })).rejects.toThrow('simulated links save failure');
+          FailSave = false;
+          expect(await ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'retry', { ExpectedVersion })).toBe('unchanged');
+          expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))[0].GitHubUrls).toEqual([]);
+        } finally { FailSave = false; }
+      });
+    });
+
+    test('a link edit rechecks version after its ledger await', async () => {
+      await WithModuleAsync('links_race', [Seed('r-links', HoursFromNow(48))], async ArgReminders => {
+        const Hold = HoldFirstGapWrite(ArgReminders.SlackApp.WorkspaceInfo.WORKSPACE_NAME);
+        const Pending = ArgReminders.SetReminderGitHubLinksAsync('r-links', ['https://github.com/o/r/issues/1'], 'api-bot:b:set-links', { ExpectedVersion: Version(ArgReminders.GetAllReminders()[0]) });
+        while(!Hold.Engaged()) await new Promise(ArgResolve => setTimeout(ArgResolve, 5));
+        await ArgReminders.UpdateReminderSummaryFromListAsync('r-links', 'Changed by the owner', 'list-edit');
+        Hold.Release();
+        expect(await Pending).toBe('conflict');
+        expect(ArgReminders.GetAllReminders()[0].GitHubUrls).toEqual([]);
+      });
+    });
+
+    test('a failed initial bot save resumes List fanout before durable replay acknowledgment', async () => {
+      await WithModuleAsync('create_save_recovery', [], async (ArgReminders, ArgSlackApp, ArgPaths) => {
+        const Lists = { IsListsAvailable: true, AddReminderToListAsync: jest.fn(async () => true) };
+        ArgReminders.SetListsModule(Lists);
+        const Rename = fs.rename.bind(fs);
+        let FailSave = true;
+        jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+          if(FailSave && ArgTo === ArgPaths.remindersFilePath) throw new Error('initial create save failed');
+          return Rename(ArgFrom, ArgTo);
+        });
+        const Key = 'c'.repeat(64);
+        await expect(ArgReminders.CreateReminderFromListRowAsync({ summary: 'Prepare the release report', dueDate: HoursFromNow(48).toISOString(), assigneeID: 'U_OWNER', targetChannelID: 'C_REMINDERS', originalSenderID: null }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: Key, ApiCreateFingerprint: 'fp' })).rejects.toThrow('initial create save failed');
+        expect(Lists.AddReminderToListAsync).not.toHaveBeenCalled();
+        FailSave = false;
+        Lists.AddReminderToListAsync.mockResolvedValueOnce(false);
+        await expect(ArgReminders.SaveRemindersNowAsync(Key)).rejects.toThrow('List');
+        await ArgReminders.SaveRemindersNowAsync(Key);
+        expect(Lists.AddReminderToListAsync).toHaveBeenCalledWith(ArgReminders.FindPendingReminderByApiCreateKey(Key));
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))).toHaveLength(1);
+        Lists.AddReminderToListAsync.mockResolvedValueOnce(false);
+        const NextKey = 'd'.repeat(64);
+        await expect(ArgReminders.CreateReminderFromListRowAsync({ summary: 'Prepare another release report', dueDate: HoursFromNow(48).toISOString(), assigneeID: 'U_OWNER', targetChannelID: 'C_REMINDERS', originalSenderID: null }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: NextKey, ApiCreateFingerprint: 'fp-next' })).rejects.toThrow('List');
+        await ArgReminders.SaveRemindersNowAsync(NextKey);
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))).toHaveLength(2);
+      });
+    });
+
+    test('a bot create carries its key and fingerprint in the first persisted copy', async () => {
+      await WithModuleAsync('durable_create', [], async (ArgReminders, _SlackApp, ArgPaths) => {
+        const Key = 'a'.repeat(64);
+        const Created = await ArgReminders.CreateReminderFromListRowAsync({
+          summary: 'Draft the launch email', dueDate: HoursFromNow(48).toISOString(), assigneeID: null,
+          assigneeIDs: ['U_OWNER'], targetChannelID: 'C_REMINDERS', originalSenderID: null,
+        }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: Key, ApiCreateFingerprint: 'fp-1' });
+        expect(Created.ok).toBe(true);
+        const OnDisk = JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8')).find(ArgR => ArgR.ReminderID === Created.reminder.ReminderID);
+        expect(OnDisk).toMatchObject({ ApiCreateKey: Key, ApiCreateFingerprint: 'fp-1' });
+        expect(ArgReminders.FindPendingReminderByApiCreateKey(Key)?.ReminderID).toBe(Created.reminder.ReminderID);
+        expect(ArgReminders.FindPendingReminderByApiCreateKey('b'.repeat(64))).toBeNull();
+      });
+    });
+  });
+
   test('an API retitle fans out to the lists and marks the ledger coverage gapped first', async () => {
     await WithModuleAsync('retitle', [Seed('gh290-retitle', HoursFromNow(48))], async (Reminders) => {
       const Order = [];

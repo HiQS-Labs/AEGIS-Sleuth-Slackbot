@@ -88,8 +88,38 @@ function IssueKey(ArgRepo, ArgNumber) {
   return `${RepoKey}#${NumberPart}`;
 }
 
+/**
+ * Validate an exact GitHub repository grant; return its canonical key or null.
+ * No wildcards, URL paths or substring matching.
+ * @param {unknown} ArgRepository Repository in owner/repo form.
+ * @returns {string|null}
+ */
+function CanonicalGitHubRepository(ArgRepository) {
+  if(typeof ArgRepository !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/.test(ArgRepository)) return null;
+  const Repo = ArgRepository.split('/')[1];
+  return Repo === '.' || Repo === '..' ? null : CanonicalRepoKey(ArgRepository);
+}
+
+/**
+ * Validate a replacement link set; return canonical HTTPS issue/PR URLs, deduplicated and sorted.
+ * @param {unknown} ArgUrls Entire replacement array; [] explicitly removes links.
+ * @returns {string[]}
+ */
+function NormalizeGitHubLinks(ArgUrls) {
+  if(!Array.isArray(ArgUrls) || ArgUrls.length > 20) throw new Error('githubUrls must be an array of at most 20 GitHub issue/PR URLs.');
+  const Links = ArgUrls.map(ArgUrl => {
+    const Match = typeof ArgUrl === 'string' && /^https:\/\/github\.com\/([^/]+\/[^/]+)\/(issues|pull)\/([1-9][0-9]{0,14})\/?$/i.exec(ArgUrl);
+    const Repo = Match && CanonicalGitHubRepository(Match[1]);
+    if(!Match || !Repo) throw new Error('githubUrls must contain exact HTTPS github.com issue/PR URLs without credentials, query or fragment.');
+    return `https://github.com/${Repo}/${Match[2].toLowerCase()}/${Match[3]}`;
+  });
+  return [...new Set(Links)].sort();
+}
+
 module.exports = {
   ExtractGitHubUrls,
+  CanonicalGitHubRepository,
+  NormalizeGitHubLinks,
   ExtractIssueReferences,
   CanonicalRepoKey,
   IssueKey,

@@ -33,7 +33,113 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## Unreleased
+## 1.4.349 - 2026-11-07
+
+Your bot can now safely update reminders and GitHub links, including restoring missing List rows after a failed save. My update notices also show a clear, plain-language summary.
+
+**Technical:** GH-301 promotion review: durable-create recovery passes its stamped key through the owning reminder save path and resumes List fanout after persistence. Shared-list addition reuses an existing cached row, matching per-user behavior. Shared and per-user write failures propagate; stamped bot creates and their recovery reject failed List writes so the API keeps them retryable. A witnessed initial-save failure reproduced missing fanout; API, real-module and list regressions verify recovery and repeat safety. Bot setup docs now list shipped link edits; added helper parameters and return tags follow the coding guide.
+
+Your bot can now safely update reminders and GitHub links. My update notice also gives you a clear summary: development notes say “Latest changes,” and unavailable branch names are left out.
+
+**Technical:** startup-message helpers rename an Unreleased excerpt heading, stop before the technical block, and omit unknown/detached Git branch labels. Package version remains the deployed package value; full changelog commands remain unchanged. Existing startup tests cover the screenshot and unavailable/known branches.
+
+The bulk-reminder tool now works with scoped bot keys over HTTPS. It uses the versions it backed up and saves an exact request for deliberate retries; it refuses an uncertain create replay that could duplicate a reminder.
+
+**Technical:** GH-301 bulk CLI: principal detection, HTTPS/no-tunnel requirement, explicit User-Agent,
+redirect refusal, backed-up ifMatch, per-write Idempotency-Key and private prepared requests. Exact
+replay binds endpoint/workspace/principal, never refreshes versions, and refuses every create replay because a pending GET cannot guard against concurrent closure.
+Prepared requests stay immutable; responses use separate exclusive result files so a failed result
+write preserves the original retry key/body. Malformed replay files/actions are refused before
+HTTP with an actionable error. No automatic retries. Bot reassign/force/senderId and
+multiple actions on one ID are refused locally; legacy operator behavior is retained. Added
+--set-links and documented `node -- <script>` to avoid native Node interception of --env-file.
+CLI child-process contract tests exercise actual argument parsing, request metadata and receipts
+with HTTP intercepted; no live mutations.
+
+A thread you stopped stays stopped when reminder links are cleared and restored. If a link edit fails to save, I also wait for a successful save before confirming an unchanged retry.
+
+**Technical:** GH-301 / PR #308 review corrections. Relay stop checks and propagation use all pending
+thread members independently of current linked targets. The link writer persists unchanged retries
+through the existing save chain before acknowledging them. Both review failures were reproduced on the
+prior head; 306 focused tests, build and structural guards pass. Coding-guide callback/JSDoc nits fixed.
+Full local Jest: 3030 pass and the same baseline-confirmed thread-memory failure.
+
+A bot can now replace or remove a reminder's GitHub links, limited to repositories its administrator explicitly grants. If a link changes during a GitHub check or a queued thread reply, I discard the stale action instead of completing or commenting against the old links.
+
+**Technical:** GH-301 scoped `set-links` uses the existing bulk prepare/apply, per-principal
+`githubRepositories` grants (default deny), version/idempotency and redacted audit paths. A new owning
+reminder setter preserves [] across restart and marks projection coverage gapped before its version
+recheck and serialized durable save. Sync passes a pre-fetch version to the existing completion writer
+and counts/notifies only true. Relay snapshots links before AI and checks originally eligible/current
+pending targets immediately before each fetch; started ledger events preserve concurrent stop state.
+Link edits do not change thread-wide stop flags. Already-dispatched public comments cannot be recalled.
+MCP remains deferred. Verification: existing API, reminder, sync and relay suites, with five observed
+negative controls against the old consumers; receipts under TESTS-RESULTS/2026-11-07+GH-301/.
+
+Your external bot's development pilot passed its HTTPS checks, including retry handling, conflict refusal and cleanup. The remote MCP adapter is deferred so the remaining work can focus on links and delivery.
+
+**Technical:** GH-301 operator scope decision (2026-11-07): Phase 3 remote MCP is deferred until explicitly
+resumed and removed from the current completion gate. Direct HTTPS remains the external-bot interface;
+the existing local read-only stdio MCP is unchanged. Reviewed both private pilot receipt sets as one
+continued run: create/replay, retitle, stale-version refusal without mutation, reschedule, complete/replay,
+cancel and readback passed; final active snapshot exactly matches baseline, with no writes to
+pre-existing reminders. Public evidence is sanitized; raw receipts stay private. This does not verify
+link editing, production promotion or delivery of PR #307.
+
+Bot setup notes now explain how to identify the client on every request and recognize a refusal from the HTTPS front end. When I refuse a bot change, my audit log now records the refusal and its code.
+
+**Technical:** GH-301 follow-up: document an explicit `User-Agent` on reads and writes, including the
+plain-403 behavior possible before Sleuth receives a request. `WebAPI.#HandlePrincipalBulkAsync` now
+logs request-level `success:false` outcomes through the existing redacted `principal-denied` logger
+instead of `principal-write`; failures without a code use `invalid-request` in the audit only.
+Responses and mutation behavior are unchanged. Extended existing audit coverage for stale versions,
+disabled channels, missing/stopped workspaces and create-replay save failure. Web API suite: 76 passed;
+build passed. Refreshed the project status to reflect merged Phases 0–2 and remaining follow-ups.
+
+I also stopped warning that a newly created Slack List row lost its scheduled time when its date cell was correct. Missing or changed date cells still produce a warning.
+
+**Technical:** GH-301 Lists follow-up. The row schema writes `created_on` as display text, while
+`CompareReminderData` still compared a numeric `scheduledTime` that `#ValidateListItem` deliberately
+leaves null. The validator now passes the parsed display cell to the comparator, which compares it
+with the same formatter used at write time. Extended the existing row create/update/delete test for
+records with and without source messages, including missing and altered date readbacks. Lists,
+formatting and Web API suites: 188 passed; build passed. No persistence or scheduling changes.
+
+The bots your team trusts can now also add reminders and fix their wording or time, not just close them. If a
+reminder changed after the bot last looked, I refuse the change instead of overwriting it, and a bot that
+retries a create while that reminder is still open gets the same reminder back instead of a second one.
+
+**Technical:** GH-301 Phase 2.
+- **Bot actions:** principals may now `create`, `retitle` and `reschedule` as well as `complete`/`cancel`,
+  each with its own field allowlist. Every non-create action requires `ifMatch`, taken from the new `version`
+  on principal reads.
+- **Versions:** `RemindersModule.GetReminderVersion` digests the fields a bot edit reads or overwrites (text,
+  due time, ordered owners, links, state, snooze, DND and relay flags). Nothing is stored.
+- **Conflict checks:** batches are checked whole before any write. The complete, cancel, retitle and reschedule
+  writers take an optional `ExpectedVersion` and re-check it at the moment of mutation; retitle also re-checks
+  after its ledger-gap await.
+- **Bot creates:** a create must be alone in its request, is allowed only in channels with auto-scheduling
+  enabled, and is checked against the title contract. It is stamped with `ApiCreateKey`/`ApiCreateFingerprint`
+  before the first save, so a retry after a restart returns the same reminder.
+- **Unchanged:** legacy callers. Editing GitHub links is deferred to a follow-up.
+- **Tests:** `tests/web-api-reminders.test.js` and `tests/reminders-integration.test.js`.
+
+Bots your team trusts can now read and close your reminders without anyone sharing the server password.
+Each bot gets its own key, limited to your workspace. You can switch a key off at once, and it only works over
+a secure connection. Nothing changes until an administrator turns it on.
+
+**Technical:** GH-301 Phase 1. New `src/web-api-principals.js` handles bot principals:
+- `slp_<id>_<secret>` tokens, checked against `<data dir>/web-api-principals.json`, which holds SHA-256 hashes
+  and grants and is re-read on every request;
+- strict entry validation; socket TLS or a loopback peer only, never `X-Forwarded-*`;
+- exact matching for the two allowed routes;
+- an in-memory idempotency store that reserves the key before any write.
+
+`#AuthorizationMiddleware` admits principals only with `WEB_API_BOT_PRINCIPALS=1`, workspace- and scope-bound.
+For principals, the bulk route allows only complete/cancel. It rejects unknown fields and non-UUID ids, uses a
+server-owned reason, requires `Idempotency-Key`, and logs one JSON audit line. The reminders GET gains principal
+paging (`limit`/`offset`, `X-Total-Count`). Legacy bearer behaviour is unchanged. New CLI:
+`scripts/web-api-principal.js`. Tests: `tests/web-api-reminders.test.js`. Docs: `docs/web-api.md` → Bot principals.
 
 Your team's tools can now fix reminders without anyone touching my files by hand: they can rename one, move
 it to another day, hand it to someone else, or add a new one, and my Slack Lists follow along. They also take
