@@ -118,6 +118,17 @@ describe('bulk reminder CLI bot contract', () => {
     expect(Calls().filter(ArgCall => ArgCall.method === 'POST')).toHaveLength(1);
   });
 
+  test.each(['missing', '{', 'null', '[]', 'null-action', 'array-action'])('malformed replay %s refuses before HTTP', ArgCase => {
+    const file = path.join(directory, 'malformed.request.json');
+    const receipt = { BaseUrl: 'https://api.example.test', Workspace: 'test-ws', PrincipalId: 'bot-test', Key: 'test-key',
+      Body: { actions: [ArgCase === 'null-action' ? null : []] } };
+    if(ArgCase !== 'missing') fs.writeFileSync(file, ArgCase.endsWith('-action') ? JSON.stringify(receipt) : ArgCase);
+    const result = Run(['--replay', file]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/replay file|prepared request/);
+    expect(Calls()).toHaveLength(0);
+  });
+
   test('legacy operator requests preserve multiple edits without bot version requirements', () => {
     expect(Run(['--retitle', `${ReminderId}=Review the report`, '--reschedule', `${ReminderId}=2030-03-01T16:00:00Z`], {
       SLEUTH_WEB_API_TOKEN: 'operator-test', SLEUTH_WEB_API_BASE_URL: 'http://127.0.0.1:2020',

@@ -230,9 +230,13 @@ async function MainAsync() {
     throw new Error('bots cannot reassign, force titles or supply senderId.');
   let Replay;
   if(Options.replay) {
-    Replay = JSON.parse(fs.readFileSync(Options.replay, 'utf8'));
-    if(Replay.BaseUrl !== Config.BaseUrl || Replay.Workspace !== Config.Workspace || Replay.PrincipalId !== Config.PrincipalId
-      || !/^[A-Za-z0-9._:-]{1,128}$/.test(Replay.Key) || !Array.isArray(Replay.Body?.actions) || Replay.Body.actions.length === 0)
+    try { Replay = JSON.parse(fs.readFileSync(Options.replay, 'utf8')); }
+    catch { throw new Error('--replay file is missing, unreadable or not valid JSON.'); }
+    if(!Replay || typeof Replay !== 'object' || Array.isArray(Replay)
+      || Replay.BaseUrl !== Config.BaseUrl || Replay.Workspace !== Config.Workspace || Replay.PrincipalId !== Config.PrincipalId
+      || typeof Replay.Key !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(Replay.Key)
+      || !Array.isArray(Replay.Body?.actions) || Replay.Body.actions.length === 0
+      || Replay.Body.actions.some(ArgItem => !ArgItem || typeof ArgItem !== 'object' || Array.isArray(ArgItem)))
       throw new Error('prepared request does not match this bot, HTTPS endpoint or workspace.');
   }
 

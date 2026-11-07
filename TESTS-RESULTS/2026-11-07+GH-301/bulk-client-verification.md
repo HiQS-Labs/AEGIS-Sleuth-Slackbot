@@ -12,9 +12,9 @@ Replay is bound to configured endpoint/workspace/principal; it cannot redirect t
 
 ## Observed verification
 
-- `node node_modules/jest/bin/jest.js --runInBand --forceExit tests/bulk-edit-reminders.test.js tests/web-api-reminders.test.js`: **97 passed**; CLI suite has **9** checks. Same actual CLI with source from prior base: **8 failed, 1 passed** (legacy behavior), then candidate restored and green. Tests cover headers/versions, private receipts, exact replay after fresh backup changes, unsafe invocation refusal, unknown create outcome, completed-create refusal, endpoint binding and legacy behavior.
-- `npm run build`: passed; `node --check` on CLI passed.
-- Full `npm test`: **3039 passed, 1 same baseline-confirmed thread-memory failure**. Full local suite remains not green.
+- Current focused command: `node node_modules/jest/bin/jest.js --runInBand --forceExit tests/bulk-edit-reminders.test.js tests/web-api-reminders.test.js`: **104 passed**, including **16 CLI checks**. Build passed. Covers argument parsing, transport metadata, immutable receipts, exact edit replay, create refusal, endpoint binding and malformed request rejection before HTTP.
+- Historical negative control against the original CLI: **8 failed, 1 legacy passed**. Superseded initial candidate counts (97/9) and first review counts (98/10) are not the current gate; the review sections below record changes in coverage.
+- Historical full `npm test` on the initial candidate: **3039 passed, 1 same baseline-confirmed thread-memory failure**. Full local suite was not green; no full rerun is claimed after review corrections.
 - Real principal HTTPS `backup` succeeded with the existing dev credential; read-only request, private backup, no live mutations. No host/token/record details copied here.
 - Experiment discovered Node consumes --env-file before the script unless launched with `node -- <script>`; fixtures and documented invocations use the separator. This keeps the KEY=VALUE parser in control rather than native Node env-file loading.
 
@@ -22,7 +22,7 @@ Replay is bound to configured endpoint/workspace/principal; it cannot redirect t
 
 Credentials are never stored in prepared requests. Backups/requests use mode600 under the private directory; requests retain reminder content and must stay private. HTTP redirects and bot SSH tunnels are refused. Requests are not automatically retried; request/result receipt writes can fail and the CLI reports failure rather than claiming an ambiguous operation succeeded. MCP remains deferred. Operational HTTPS migration/port closure is next, not proven by this local client change.
 
-Current CLI source SHA-256: `a851ca0cadb4993c16710793b7ef99aa57c77b653dee96707573aaf505d14ef4`.
+Current CLI source SHA-256: `597a4c424bda1c9d847189b948e3f462208811d74fddc07a8c64bee16473997b`.
 
 
 ## PR #309 review corrections
@@ -33,6 +33,12 @@ in-memory replay entry. Prepared request bytes remain immutable; response receip
 exclusive files. An interrupted/full-disk response write cannot erase the original key/body.
 
 Updated regression tests fail twice on the reviewed implementation (8 passed), then pass on the
-correction. Current focused CLI/API suites: **98 passed** (10 CLI checks); build passed. A simulated
+correction. At that correction, focused CLI/API suites passed (superseded by the canonical current result above); build passed. A simulated
 result-save failure leaves the prepared request intact and an exact edit retry succeeds. The full
 3039/1 result above belongs to the preceding implementation; no full-suite rerun is claimed here.
+
+The later CodeRabbit pass identified stale project status, unclear replay parse failures and mixed
+historical/current counts. Project status and this evidence are reconciled. Missing/unreadable JSON,
+null/array roots and null/array actions are now refused before any HTTP. Six added cases produced
+five failures on the preceding parser, then all passed after the correction. Current counts are
+reported once in Observed verification above. No live writes were performed.

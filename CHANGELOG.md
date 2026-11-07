@@ -41,7 +41,8 @@ The bulk-reminder tool now works with scoped bot keys over HTTPS. It uses the ve
 redirect refusal, backed-up ifMatch, per-write Idempotency-Key and private prepared requests. Exact
 replay binds endpoint/workspace/principal, never refreshes versions, and refuses every create replay because a pending GET cannot guard against concurrent closure.
 Prepared requests stay immutable; responses use separate exclusive result files so a failed result
-write preserves the original retry key/body. No automatic retries. Bot reassign/force/senderId and
+write preserves the original retry key/body. Malformed replay files/actions are refused before
+HTTP with an actionable error. No automatic retries. Bot reassign/force/senderId and
 multiple actions on one ID are refused locally; legacy operator behavior is retained. Added
 --set-links and documented `node -- <script>` to avoid native Node interception of --env-file.
 CLI child-process contract tests exercise actual argument parsing, request metadata and receipts
