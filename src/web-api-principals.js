@@ -1,3 +1,4 @@
+
 // Bot principals for the Web API (GH-301 Phase 1).
 //
 // A principal is a revocable, workspace-scoped credential for an external bot. The operator keeps one
@@ -26,12 +27,12 @@ const PrincipalRoutes = [
   { Method: 'POST', Pattern: /^\/workspace\/([A-Za-z0-9_-]{1,64})\/reminders\/bulk$/, Route: 'bulk', Scope: 'reminders:write' },
 ];
 
-/** @returns {string} Absolute path of the principals file. */
+/** @returns {string} */
 function PrincipalsFilePath() {
   return path.join(workspaces.GetRuntimeDirPath(), 'web-api-principals.json');
 }
 
-/** @param {string} ArgToken @returns {string} Lowercase hex SHA-256 of the token. */
+/** @param {string} ArgToken @returns {string} */
 function HashToken(ArgToken) {
   return crypto.createHash('sha256').update(ArgToken, 'utf8').digest('hex');
 }
@@ -70,7 +71,7 @@ function EntryProblem(ArgEntry) {
  * Read and validate the principals file. Invalid entries (and every entry sharing a duplicated id) are
  * dropped with a warning that names only the array index and the rule.
  * @param {string} ArgFilePath
- * @returns {Promise<Map<string, any>>} Valid entries by id; empty when the file is missing or unusable.
+ * @returns {Promise<Map<string, any>>}
  */
 async function LoadPrincipalsAsync(ArgFilePath) {
   /** @type {Map<string, any>} */
@@ -223,7 +224,7 @@ class IdempotencyStore {
     }
   }
 
-  /** @returns {number} Entries held (for tests). */
+  /** @returns {number} */
   get Size() {
     return this.#Entries.size;
   }

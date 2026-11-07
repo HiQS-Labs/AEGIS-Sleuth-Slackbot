@@ -1283,11 +1283,11 @@ class WebAPI {
       if(Existing) {
         if(Existing.ApiCreateFingerprint !== ArgFingerprint)
           return { success: false, data: 'Error: Idempotency-Key was already used with a different request body.', code: 'idempotency-key-reused' };
-        // the first attempt may have failed at its save after queueing; persist before acknowledging the replay.
+        // the first attempt may have failed after queueing; persist and resume List fanout before acknowledging.
         try {
-          await RemindersModule.SaveRemindersNowAsync();
+          await RemindersModule.SaveRemindersNowAsync(ApiCreateKey);
         } catch {
-          return { success: false, data: 'Error: the earlier create is not saved yet; retry.', code: 'save-failed' };
+          return { success: false, data: 'Error: the earlier create has unfinished save or Lists work; retry.', code: 'save-failed' };
         }
         return { success: true, data: { results: [{ action: 'create', status: 'created', reminderId: Existing.ReminderID, replayed: true, version: GetReminderVersion(Existing) }], counts: { created: 1 } } };
       }

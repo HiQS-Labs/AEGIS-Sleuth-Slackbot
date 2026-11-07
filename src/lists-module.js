@@ -1247,7 +1247,7 @@ class ListsModule {
     // primary: the shared workspace list.
     let SharedOk = false;
     if(this.#SharedContext && this.#SharedContext.IsReady) {
-      SharedOk = await this.#CreateListItemAsync(this.#SharedContext, ArgReminder, {
+      SharedOk = this.#SharedContext.ItemCache.has(ArgReminder.ReminderID) || await this.#CreateListItemAsync(this.#SharedContext, ArgReminder, {
         UpdateCache: true,
         ValidateRoundtrip: true
       });

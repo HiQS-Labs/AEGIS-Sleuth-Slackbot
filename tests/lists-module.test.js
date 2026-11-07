@@ -386,6 +386,9 @@ describe('ListsModule Slack Lists contract', () => {
     const AddResult = await Lists.AddReminderToListAsync(Reminder);
     expect(AddResult).toBe(true);
     expect(Logger.warn.mock.calls.filter(([ArgLine]) => ArgLine.includes('Scheduled time:'))).toEqual([]);
+    const Creates = ApiCallMock.mock.calls.filter(([ArgMethod]) => ArgMethod === 'slackLists.items.create').length;
+    expect(await Lists.AddReminderToListAsync(Reminder)).toBe(true);
+    expect(ApiCallMock.mock.calls.filter(([ArgMethod]) => ArgMethod === 'slackLists.items.create')).toHaveLength(Creates);
 
     const CompleteResult = await Lists.MarkReminderCompletedAsync('R123');
     expect(CompleteResult).toBe(true);

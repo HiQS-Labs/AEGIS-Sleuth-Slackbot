@@ -46,3 +46,26 @@ Deferred links; MCP client shape; principal-aware bulk skill; external pilot sig
 - Review found no new mutation/auth/storage path; the three changes are bounded to client documentation, audit classification and roundtrip comparison.
 
 - Review rerun (2026-11-07): focused Lists/formatting/Web API suites **188 passed**; build passed; diff whitespace check passed. PDDA status-table still reports the same 11 unrelated-document findings, with none in GH-301. No source changes since `cfc3623`; follow-up commit adds baseline evidence and current task direction only.
+
+
+## Production promotion review (2026-11-07)
+
+PR #311 reviewed the accumulated delivery. The first-save failure left a stamped pending reminder
+without reaching List fanout. Its durable replay now passes the stamped key into the owning
+module save path, then resumes fanout for the still-pending record. Existing shared rows are
+reused by reminder ID, matching per-user cache guards; repeated recovery adds only missing rows.
+No new writer, persistent field, FSM transition or server test harness.
+
+- Real-module regression witnessed missing fanout on old code after an injected first save
+  failure, then passed with one durable record and resumed List call.
+- Existing shared-list regressions witnessed two failures with the cache guard removed, then
+  passed restored. API regression asserts the stamped key reaches owning recovery.
+- Focused API/module/Lists: **216 passed**. Build, four structural guards and changelog tone passed.
+  Existing Node suite: **116 passed**. Full local Jest: **3053 passed, 1 same baseline-confirmed
+  thread-memory failure**; no fully green local suite claimed.
+- Corrected stale bot setup text to include shipped scoped link edits; aligned added smoke
+  parameters, principals return tags and file-edge whitespace with the coding guide. CLI
+  shebangs remain first, as required for direct execution.
+
+Only local isolated tests ran. No live List mutation, production deployment, new production grant
+or change to the MCP deferral. Current-head CI is required on the fix PR and updated promotion.

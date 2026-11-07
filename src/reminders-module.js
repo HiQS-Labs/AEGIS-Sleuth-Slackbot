@@ -878,10 +878,15 @@ class RemindersModule {
    * the save fails. Used before a durable create replay reports success (GH-301), so an in-memory reminder
    * whose first save failed is never acknowledged unsaved.
    * Unlike FlushRemindersAsync (which only waits for queued saves), this performs a save and rejects on failure.
+   * When a stamped API create is supplied, also resume its missing List fanout after saving.
+   * @param {string|null} [ArgApiCreateKey]
    * @returns {Promise<void>}
    */
-  SaveRemindersNowAsync() {
-    return this.#SaveRemindersAsync();
+  async SaveRemindersNowAsync(ArgApiCreateKey = null) {
+    await this.#SaveRemindersAsync();
+    const Reminder = ArgApiCreateKey ? this.FindPendingReminderByApiCreateKey(ArgApiCreateKey) : null;
+    if(Reminder && this.#ListsModule?.IsListsAvailable)
+      await this.#ListsModule.AddReminderToListAsync(Reminder);
   }
 
   /**
