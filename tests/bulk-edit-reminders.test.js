@@ -20,6 +20,11 @@ describe('bulk reminder CLI bot contract', () => {
     bootstrap = path.join(directory, 'fetch.mjs');
     logfile = path.join(directory, 'requests.jsonl');
     fs.writeFileSync(bootstrap, `import fs from 'node:fs';
+      const write = fs.writeFileSync;
+      fs.writeFileSync = (file, ...args) => {
+        if(process.env.CLI_TEST_FAIL_RESULT === '1' && String(file).includes('.result-')) throw new Error('simulated full disk');
+        return write(file, ...args);
+      };
       globalThis.fetch = async (url, options) => {
         const body = options.body ? JSON.parse(options.body) : null;
         fs.appendFileSync(process.env.CLI_TEST_LOG, JSON.stringify({ method: options.method, redirect: options.redirect,
@@ -58,6 +63,9 @@ describe('bulk reminder CLI bot contract', () => {
     const receipt = Receipt();
     expect(fs.statSync(receipt).mode & 0o777).toBe(0o600);
     expect(fs.readFileSync(receipt, 'utf8')).not.toContain('slp_');
+    expect(JSON.parse(fs.readFileSync(receipt, 'utf8')).Result).toBeUndefined();
+    const resultFile = fs.readdirSync(directory).find(ArgName => ArgName.includes('.result-'));
+    expect(fs.statSync(path.join(directory, resultFile)).mode & 0o777).toBe(0o600);
     // a replay keeps the original version/key even when the fresh backup differs or the id disappeared.
     const replay = Run(['--replay', receipt], { CLI_TEST_RECORDS: '[]' });
     expect(replay.status).toBe(0);
@@ -82,13 +90,26 @@ describe('bulk reminder CLI bot contract', () => {
     expect(Calls().filter(ArgCall => ArgCall.method === 'POST')).toHaveLength(1);
   });
 
-  test('confirmed create replay is allowed only while its returned id is still pending', () => {
+  test('confirmed creates are never posted again, even when a GET still reports the original pending', () => {
     const action = { title: 'Validate the CLI pilot', dueDate: '2030-03-01T16:00:00Z', channelId: 'C_TEST', assigneeIds: ['U_TEST'] };
     expect(Run(['--create', JSON.stringify(action)]).status).toBe(0);
     const receipt = Receipt();
-    expect(Run(['--replay', receipt], { CLI_TEST_RECORDS: JSON.stringify([{ ...record, ReminderID: CreatedId }]) }).status).toBe(0);
+    expect(Run(['--replay', receipt], { CLI_TEST_RECORDS: JSON.stringify([{ ...record, ReminderID: CreatedId }]) }).status).toBe(1);
     expect(Run(['--replay', receipt], { CLI_TEST_RECORDS: '[]' }).status).toBe(1);
-    expect(Calls().filter(ArgCall => ArgCall.method === 'POST')).toHaveLength(2);
+    expect(Calls().filter(ArgCall => ArgCall.method === 'POST')).toHaveLength(1);
+  });
+
+  test('a failed result save preserves the immutable prepared request for exact edit retry', () => {
+    const first = Run(['--complete', ReminderId], { CLI_TEST_FAIL_RESULT: '1' });
+    expect(first.status).toBe(1);
+    const receipt = Receipt();
+    const bytes = fs.readFileSync(receipt, 'utf8');
+    const prepared = JSON.parse(bytes);
+    expect(prepared.Result).toBeUndefined();
+    expect(prepared.Body.actions[0].ifMatch).toBe(record.version);
+    expect(Run(['--replay', receipt], { CLI_TEST_RECORDS: '[]' }).status).toBe(0);
+    expect(fs.readFileSync(receipt, 'utf8')).toBe(bytes);
+    expect(Calls().filter(ArgCall => ArgCall.method === 'POST')[1]).toEqual(Calls().filter(ArgCall => ArgCall.method === 'POST')[0]);
   });
 
   test('a replay cannot change destination or principal', () => {

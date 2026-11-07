@@ -8,7 +8,7 @@ The existing CLI/SKILL were read in full; graph lookup confirmed MainAsync → R
 
 Principal requests now use direct HTTPS, explicit User-Agent, redirect refusal, backed-up ifMatch and a random write key. The exact destination/principal/workspace/key/body is saved privately before POST and can be explicitly replayed unchanged. No automatic retries or version refresh. Bot duplicate reminder targets/reassign/force/senderId are refused before POST; create is alone. Legacy operator multi-edit requests remain supported. --set-links uses the existing server action.
 
-Replay is bound to configured endpoint/workspace/principal; it cannot redirect the credential to a request-file-selected host. A confirmed create replay additionally requires its returned ID still pending. An ambiguous create has no confirmed ID and is refused: manual reconciliation is required, because server create replay durability is pending-only. Completion/edit replay keeps the original version and can report conflict/not-found after cache loss without overwriting newer state.
+Replay is bound to configured endpoint/workspace/principal; it cannot redirect the credential to a request-file-selected host. All create replays are refused: a pending GET cannot guard the later POST against concurrent completion/cancellation after the server forgets its in-memory key. Manual reconciliation is required because server create replay durability is pending-only. Completion/edit replay keeps the original version and can report conflict/not-found after cache loss without overwriting newer state.
 
 ## Observed verification
 
@@ -22,4 +22,17 @@ Replay is bound to configured endpoint/workspace/principal; it cannot redirect t
 
 Credentials are never stored in prepared requests. Backups/requests use mode600 under the private directory; requests retain reminder content and must stay private. HTTP redirects and bot SSH tunnels are refused. Requests are not automatically retried; request/result receipt writes can fail and the CLI reports failure rather than claiming an ambiguous operation succeeded. MCP remains deferred. Operational HTTPS migration/port closure is next, not proven by this local client change.
 
-CLI source SHA-256: `6ac0952fd87939382f9484f4760997214822fb08699be037cc15c9c35cbe1dd2`.
+Current CLI source SHA-256: `a851ca0cadb4993c16710793b7ef99aa57c77b653dee96707573aaf505d14ef4`.
+
+
+## PR #309 review corrections
+
+Two review findings were verified. The client no longer posts any create replay, even when the
+original ID appears pending: that GET cannot prevent a concurrent close after the server loses its
+in-memory replay entry. Prepared request bytes remain immutable; response receipts use separate
+exclusive files. An interrupted/full-disk response write cannot erase the original key/body.
+
+Updated regression tests fail twice on the reviewed implementation (8 passed), then pass on the
+correction. Current focused CLI/API suites: **98 passed** (10 CLI checks); build passed. A simulated
+result-save failure leaves the prepared request intact and an exact edit retry succeeds. The full
+3039/1 result above belongs to the preceding implementation; no full-suite rerun is claimed here.

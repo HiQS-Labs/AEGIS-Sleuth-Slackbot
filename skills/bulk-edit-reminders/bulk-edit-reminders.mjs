@@ -282,9 +282,8 @@ async function MainAsync() {
       Seen.add(Item.reminderId);
     }
     if(Replay && Actions[0].action === 'create') {
-      const CreatedId = Replay.Result?.results?.find(ArgItem => ArgItem.status === 'created')?.reminderId;
-      if(!CreatedId || !Records.some(ArgRecord => ArgRecord.ReminderID === CreatedId))
-        throw new Error('create replay refused: its earlier created reminder is not confirmed pending; reconcile manually to avoid duplicates.');
+      // a pending GET cannot guard the later POST against concurrent completion or cancellation.
+      throw new Error('create replay refused: server create-key retention is pending-only; reconcile manually to avoid duplicates.');
     }
   }
   if(Options.dryRun) {
@@ -297,11 +296,13 @@ async function MainAsync() {
   const ReceiptPath = Config.Principal ? (Options.replay ?? `${BackupPath}.request.json`) : null;
   const Receipt = Replay ?? { BaseUrl: Config.BaseUrl, Workspace: Config.Workspace, PrincipalId: Config.PrincipalId, Key, Body: { actions: Actions } };
   if(ReceiptPath && !Replay) fs.writeFileSync(ReceiptPath, JSON.stringify(Receipt, null, 2), { mode: 0o600, flag: 'wx' });
-  if(ReceiptPath) console.log(`prepared request: ${ReceiptPath} (use --replay for an exact retry)`);
+  if(ReceiptPath) console.log(`prepared request: ${ReceiptPath} (${Actions[0].action === 'create' ? 'create requires manual reconciliation; replay is refused' : 'use --replay for an exact retry'})`);
   const Result = await CallApiAsync(Config, `/workspace/${encodeURIComponent(Config.Workspace)}/reminders/bulk`, Receipt.Body, Key);
   if(ReceiptPath) {
-    fs.chmodSync(ReceiptPath, 0o600);
-    fs.writeFileSync(ReceiptPath, JSON.stringify({ ...Receipt, Result }, null, 2), { mode: 0o600 });
+    // keep the prepared key/body immutable even if recording a response fails partway through.
+    const ResultPath = `${ReceiptPath}.result-${randomUUID()}.json`;
+    fs.writeFileSync(ResultPath, JSON.stringify({ Result }, null, 2), { mode: 0o600, flag: 'wx' });
+    console.log(`result receipt: ${ResultPath}`);
   }
 
   for(const Item of Result.results)

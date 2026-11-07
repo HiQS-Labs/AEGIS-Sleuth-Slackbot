@@ -39,8 +39,9 @@ The bulk-reminder tool now works with scoped bot keys over HTTPS. It uses the ve
 
 **Technical:** GH-301 bulk CLI: principal detection, HTTPS/no-tunnel requirement, explicit User-Agent,
 redirect refusal, backed-up ifMatch, per-write Idempotency-Key and private prepared requests. Exact
-replay binds endpoint/workspace/principal, never refreshes versions, and allows create replay only
-for a confirmed returned ID still pending. No automatic retries. Bot reassign/force/senderId and
+replay binds endpoint/workspace/principal, never refreshes versions, and refuses every create replay because a pending GET cannot guard against concurrent closure.
+Prepared requests stay immutable; responses use separate exclusive result files so a failed result
+write preserves the original retry key/body. No automatic retries. Bot reassign/force/senderId and
 multiple actions on one ID are refused locally; legacy operator behavior is retained. Added
 --set-links and documented `node -- <script>` to avoid native Node interception of --env-file.
 CLI child-process contract tests exercise actual argument parsing, request metadata and receipts

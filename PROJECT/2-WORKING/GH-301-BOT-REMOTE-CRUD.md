@@ -457,4 +457,4 @@ Link verification: [304 focused passes, five witnessed negative controls, build/
 
 ## Bulk-client delivery (2026-11-07)
 
-Principal-aware bulk tooling is implemented using the existing CLI and API, including versions, idempotency, private prepared requests and explicit safe replay. No automatic retry of an ambiguous create. [Verification and limits](../../TESTS-RESULTS/2026-11-07+GH-301/bulk-client-verification.md). New live mutations were not performed. The pending-only server create-retry limitation remains unchanged.
+Principal-aware bulk tooling is implemented using the existing CLI and API, including versions, idempotency, private prepared requests and explicit safe replay. All create replays are refused to avoid a pending-read/concurrent-close race. Prepared requests stay immutable and responses use separate result files. No automatic retries. [Verification and limits](../../TESTS-RESULTS/2026-11-07+GH-301/bulk-client-verification.md). New live mutations were not performed. The pending-only server create-retry limitation remains unchanged.

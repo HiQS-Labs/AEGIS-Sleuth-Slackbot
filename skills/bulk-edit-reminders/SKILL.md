@@ -51,7 +51,9 @@ and a create must be alone. Bots cannot reassign, force titles or supply senderI
 independently enforces workspace/scope/repository authorization and field validation.
 
 Before posting, the CLI saves the exact key/body/destination/principal identity in a mode-600
-`*.request.json` beside the backup; it contains no credential. For an explicit retry use:
+`*.request.json` beside the backup; it contains no credential and stays unchanged. Responses are saved
+to separate, uniquely named mode-600 result files, so a failed result write cannot erase the saved
+key/body. For an explicit edit/lifecycle retry use:
 
 ```bash
 node -- skills/bulk-edit-reminders/bulk-edit-reminders.mjs --env-file /path/to/bot.env \
@@ -61,10 +63,10 @@ node -- skills/bulk-edit-reminders/bulk-edit-reminders.mjs --env-file /path/to/b
 Replay takes another backup but keeps the original body, versions and key. It refuses a different
 workspace, endpoint or principal. There are **no automatic retries** and no automatic version refresh
 after conflict. Completion/cancel replays can refer to an ID no longer pending; after server cache
-loss they may report not-found. A confirmed create can replay only while the returned ID is still
-pending. A create whose response was lost has no confirmed ID, so replay fails closed: reconcile
-manually instead of starting another create. This respects the server's pending-only durable create
-replay limit. Re-running a normal create command is a new operation with a new key.
+loss they may report not-found. **All create replays are refused**, including confirmed creates:
+a GET showing the original pending cannot prevent completion/cancellation before the replay POST.
+Reconcile manually instead of starting another create. This respects the server's pending-only
+durable create replay limit without depending on a racy client check. Re-running a normal create command is a new operation with a new key.
 
 Use `node -- <script> …`, especially with `--env-file`; otherwise Node may consume that flag itself
 before the script's safe KEY=VALUE parser runs. Keep backup and request files private; they contain
@@ -109,7 +111,7 @@ To find IDs, use `skills/talk-to-reminders` (mirror) or the backup file the dry 
 Exit code is `0` only when every item succeeded (`completed`, `canceled`, `updated`, `unchanged`,
 `created`). Re-running an applied batch is safe: closed reminders are no longer in the live records,
 so the run stops at the resolve step ("no match"), and repeated edits answer `unchanged`. Re-running
-a normal `--create` creates another reminder; bot retries should use the saved request under the safeguards above. `not-found` only appears when a reminder closes between the
+a normal `--create` creates another reminder; only edit/lifecycle bot retries can use the saved request under the safeguards above. `not-found` only appears when a reminder closes between the
 backup and the POST.
 
 ## Notes
