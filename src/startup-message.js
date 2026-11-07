@@ -66,19 +66,34 @@ function ShouldIncludeStartupChangelog(ArgWorkspaceInfo) {
 }
 
 /**
- * Build the changelog excerpt for the startup message: extracts only the newest version block
+ * Build the changelog excerpt for the startup message: extracts the newest block's friendly summary
  * (never the top-of-file authoring note, which lives above the first `## ` heading) and truncates
  * it to a word budget so a long entry can't blow out the compact startup post.
  *
  * @param {string} ArgChangelogContent Raw CHANGELOG.md text.
  * @param {number} ArgWordBudget Maximum words to keep from the newest block.
- * @returns {string} The excerpt, normalized for Slack markdown. Empty string if no version block exists.
+ * @returns {string}
  */
 function BuildStartupChangelogExcerpt(ArgChangelogContent, ArgWordBudget) {
   const { Text, Count } = ExtractRecentVersionBlocks(ArgChangelogContent, 1);
   if(Count === 0) return '';
-  const Truncated = SlackFormatUtils.TruncateToWords(Text, ArgWordBudget);
+  // development notes are useful here without presenting an unreleased label as a version.
+  const Summary = Text.replace(/^##\s+\[?Unreleased\]?[^\n]*/i, '## Latest changes')
+    .split(/^\s*(?:\*\*)?Technical:(?:\*\*)?/im)[0].trim();
+  const Truncated = SlackFormatUtils.TruncateToWords(Summary, ArgWordBudget);
   return SlackFormatUtils.NormalizeModelMarkdownForSlack(Truncated, { HeadingStyle: 'plain-bold' });
+}
+
+/**
+ * Format the deployed package version without inventing a branch for exported app trees.
+ * @param {string} ArgVersion
+ * @param {string} ArgBranch
+ * @returns {string}
+ */
+function BuildStartupUpdateHeader(ArgVersion, ArgBranch) {
+  const BranchSuffix = ArgBranch && !['unknown', 'detached', 'HEAD'].includes(ArgBranch)
+    ? ` from the ${ArgBranch} branch` : '';
+  return `Sleuth has been updated to ${ArgVersion}${BranchSuffix}`;
 }
 
 module.exports = {
@@ -86,4 +101,5 @@ module.exports = {
   ShouldPostStartupMessage,
   ShouldIncludeStartupChangelog,
   BuildStartupChangelogExcerpt,
+  BuildStartupUpdateHeader,
 };
