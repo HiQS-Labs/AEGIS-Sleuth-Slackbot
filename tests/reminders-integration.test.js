@@ -4008,9 +4008,16 @@ describe('GH-290: Web API edit writers', () => {
         await expect(ArgReminders.CreateReminderFromListRowAsync({ summary: 'Prepare the release report', dueDate: HoursFromNow(48).toISOString(), assigneeID: 'U_OWNER', targetChannelID: 'C_REMINDERS', originalSenderID: null }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: Key, ApiCreateFingerprint: 'fp' })).rejects.toThrow('initial create save failed');
         expect(Lists.AddReminderToListAsync).not.toHaveBeenCalled();
         FailSave = false;
+        Lists.AddReminderToListAsync.mockResolvedValueOnce(false);
+        await expect(ArgReminders.SaveRemindersNowAsync(Key)).rejects.toThrow('List');
         await ArgReminders.SaveRemindersNowAsync(Key);
         expect(Lists.AddReminderToListAsync).toHaveBeenCalledWith(ArgReminders.FindPendingReminderByApiCreateKey(Key));
         expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))).toHaveLength(1);
+        Lists.AddReminderToListAsync.mockResolvedValueOnce(false);
+        const NextKey = 'd'.repeat(64);
+        await expect(ArgReminders.CreateReminderFromListRowAsync({ summary: 'Prepare another release report', dueDate: HoursFromNow(48).toISOString(), assigneeID: 'U_OWNER', targetChannelID: 'C_REMINDERS', originalSenderID: null }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: NextKey, ApiCreateFingerprint: 'fp-next' })).rejects.toThrow('List');
+        await ArgReminders.SaveRemindersNowAsync(NextKey);
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))).toHaveLength(2);
       });
     });
 

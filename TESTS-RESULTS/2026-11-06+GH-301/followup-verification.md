@@ -69,3 +69,20 @@ No new writer, persistent field, FSM transition or server test harness.
 
 Only local isolated tests ran. No live List mutation, production deployment, new production grant
 or change to the MCP deferral. Current-head CI is required on the fix PR and updated promotion.
+
+
+### PR #313 follow-up: refused List writes remain retryable
+
+A false return from shared-row creation and discarded per-user failures could still acknowledge
+recovery. The List helper now combines shared success with per-user failure results. Recovery
+rejects false; the same rule applies to initial stamped bot creates so a first-attempt List refusal
+also stays retryable. Other queue callers retain their existing behavior. Successful cached rows
+are skipped on retry, preserving one row per list. No newly persisted field or FSM change.
+
+Observed negative controls: real recovery incorrectly resolved after a false List result; one
+per-user failure was hidden; an initial stamped create incorrectly resolved on a refused List
+write. All failed as expected before their corrections. Existing tests now exercise shared/per-user
+refusal, retry without duplicate successful rows, rejected recovery and initial create, and exact
+durable record counts. Corrected focused suites: **218 passed**. Build and four structural guards
+passed. Earlier full-suite/Node results above belong to the preceding head; no current full-suite
+pass is claimed for this follow-up. No live mutations or deployment.

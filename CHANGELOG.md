@@ -37,7 +37,7 @@
 
 Your bot can now safely update reminders and GitHub links, including restoring missing List rows after a failed save. My update notices also show a clear, plain-language summary.
 
-**Technical:** GH-301 promotion review: durable-create recovery passes its stamped key through the owning reminder save path and resumes List fanout after persistence. Shared-list addition reuses an existing cached row, matching per-user behavior. A witnessed initial-save failure reproduced missing fanout; API, real-module and list regressions verify recovery and repeat safety. Bot setup docs now list shipped link edits; added helper parameters and return tags follow the coding guide.
+**Technical:** GH-301 promotion review: durable-create recovery passes its stamped key through the owning reminder save path and resumes List fanout after persistence. Shared-list addition reuses an existing cached row, matching per-user behavior. Shared and per-user write failures propagate; stamped bot creates and their recovery reject failed List writes so the API keeps them retryable. A witnessed initial-save failure reproduced missing fanout; API, real-module and list regressions verify recovery and repeat safety. Bot setup docs now list shipped link edits; added helper parameters and return tags follow the coding guide.
 
 Your bot can now safely update reminders and GitHub links. My update notice also gives you a clear summary: development notes say “Latest changes,” and unavailable branch names are left out.
 

@@ -728,6 +728,25 @@ describe('ListsModule Slack Lists contract', () => {
       await Lists.StopAsync();
     });
 
+    it.each(['F_LIST_123', 'F_USER_1'])('a failed create in %s stays retryable without duplicating successful rows', async ArgFailedList => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+      const Real = ApiCallMock.getMockImplementation();
+      let FailWrite = true;
+      ApiCallMock.mockImplementation(async (ArgMethod, ArgParams) => {
+        if(FailWrite && ArgMethod === 'slackLists.items.create' && ArgParams.list_id === ArgFailedList) throw new Error('Slack refused row');
+        return Real(ArgMethod, ArgParams);
+      });
+      const Reminder = { ...MakeReminder(), ReminderID: 'R_RECOVER' };
+      expect(await Lists.AddReminderToListAsync(Reminder)).toBe(false);
+      const SuccessfulList = ArgFailedList === 'F_LIST_123' ? 'F_USER_1' : 'F_LIST_123';
+      const Writes = () => ApiCallMock.mock.calls.filter(([ArgMethod, ArgParams]) => ArgMethod === 'slackLists.items.create' && ArgParams.list_id === SuccessfulList).length;
+      const BeforeRetry = Writes();
+      FailWrite = false;
+      expect(await Lists.AddReminderToListAsync(Reminder)).toBe(true);
+      expect(Writes()).toBe(BeforeRetry);
+      await Lists.StopAsync();
+    });
+
     it('a failed delete from a removed owner\'s list is reported', async () => {
       const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
       const Real = ApiCallMock.getMockImplementation();

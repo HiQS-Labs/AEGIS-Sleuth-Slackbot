@@ -885,8 +885,10 @@ class RemindersModule {
   async SaveRemindersNowAsync(ArgApiCreateKey = null) {
     await this.#SaveRemindersAsync();
     const Reminder = ArgApiCreateKey ? this.FindPendingReminderByApiCreateKey(ArgApiCreateKey) : null;
-    if(Reminder && this.#ListsModule?.IsListsAvailable)
-      await this.#ListsModule.AddReminderToListAsync(Reminder);
+    if(Reminder && this.#ListsModule?.IsListsAvailable) {
+      const ListsSaved = await this.#ListsModule.AddReminderToListAsync(Reminder);
+      if(!ListsSaved) throw new Error('API create List recovery failed; retry.');
+    }
   }
 
   /**
@@ -4670,7 +4672,10 @@ class RemindersModule {
 
     // add reminder to Slack List if available (unless the caller is adopting an existing row).
     if(!ArgOptions.SkipListSync && this.#ListsModule && this.#ListsModule.IsListsAvailable) {
-      await this.#ListsModule.AddReminderToListAsync(ArgReminderInfo);
+      const ListsSaved = await this.#ListsModule.AddReminderToListAsync(ArgReminderInfo);
+      // bot creates must remain retryable if a required List row was refused.
+      if(/** @type {any} */ (ArgReminderInfo).ApiCreateKey && !ListsSaved)
+        throw new Error('API create List sync failed; retry.');
     }
 
     // log the reminder details.

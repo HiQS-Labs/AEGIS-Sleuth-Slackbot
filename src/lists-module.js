@@ -1258,9 +1258,9 @@ class ListsModule {
     const AssigneeIDs = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
       ? [...new Set(ArgReminder.AssigneeIDs)]
       : [ArgReminder.AssigneeID || ArgReminder.OriginalSenderID];
-    await this.#AddToUserContextsAsync(ArgReminder, AssigneeIDs);
+    const FailedOwners = await this.#AddToUserContextsAsync(ArgReminder, AssigneeIDs);
 
-    return SharedOk;
+    return SharedOk && FailedOwners.length === 0;
   }
 
   /**
