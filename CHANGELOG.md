@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## Unreleased
+## 1.4.350 - 2026-11-07
 
 I now keep weekday alternatives intact when updating a reminder title. If a submitted title ends in an unfinished “and,” “or,” or “but,” I refuse it rather than saving a fragment.
 
