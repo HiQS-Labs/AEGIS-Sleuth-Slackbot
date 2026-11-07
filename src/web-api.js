@@ -18,6 +18,7 @@ const { NormalizeReminderTitle, ValidateReminderTitle } = require('./reminder-ti
 const Principals = require('./web-api-principals');
 const { GetReminderVersion } = require('./reminders-module');
 const crypto = require('crypto');
+const { NormalizeGitHubLinks } = require('./github-url-utils');
 
 // add typedefs for our own types.
 /**
@@ -55,7 +56,7 @@ const ActiveReminderStates = new Set([
 
 // cap on actions per POST /workspace/:name/reminders/bulk request (GH-279).
 const MaxBulkReminderActions = 100;
-const BulkReminderActionNames = ['complete', 'cancel', 'retitle', 'reschedule', 'reassign', 'create'];
+const BulkReminderActionNames = ['complete', 'cancel', 'retitle', 'reschedule', 'reassign', 'create', 'set-links'];
 const SlackUserIdPattern = /^[UW][A-Z0-9]{2,}$/;
 
 // GH-301 Phase 1: what a bot principal may send to the bulk route.
@@ -65,6 +66,7 @@ const PrincipalBulkEnvelopeKeys = ['actions'];
 const PrincipalBulkActionKeys = {
   complete: ['action', 'reminderId', 'ifMatch', 'reason'],
   cancel: ['action', 'reminderId', 'ifMatch', 'reason'],
+  'set-links': ['action', 'reminderId', 'ifMatch', 'githubUrls', 'reason'],
   retitle: ['action', 'reminderId', 'ifMatch', 'title', 'reason'],
   reschedule: ['action', 'reminderId', 'ifMatch', 'dueDate', 'reason'],
   create: ['action', 'title', 'dueDate', 'channelId', 'assigneeIds', 'reason'],
@@ -271,7 +273,7 @@ class WebAPI {
       WebAPI.#DenyPrincipal(ArgRes, Auth.code, Auth.id, ArgReq.method, RouteLabel);
       return;
     }
-    /** @type {{Id: string, Workspaces: string[], Scopes: string[]}} */
+    /** @type {{Id: string, Workspaces: string[], Scopes: string[], GitHubRepositories: string[]}} */
     const Principal = Auth.principal;
     if(!RouteMatch || !Principal.Scopes.includes(RouteMatch.Scope)) {
       WebAPI.#DenyPrincipal(ArgRes, 'forbidden', Principal.Id, ArgReq.method, RouteLabel);
@@ -281,14 +283,14 @@ class WebAPI {
       WebAPI.#DenyPrincipal(ArgRes, 'forbidden-workspace', Principal.Id, ArgReq.method, RouteLabel);
       return;
     }
-    /** @type {any} */ (ArgReq).Principal = { Id: Principal.Id, Scopes: Principal.Scopes, Workspace: RouteMatch.Workspace };
+    /** @type {any} */ (ArgReq).Principal = { Id: Principal.Id, Scopes: Principal.Scopes, GitHubRepositories: Principal.GitHubRepositories, Workspace: RouteMatch.Workspace };
     ArgNext();
   }
 
   /**
    * The bot principal admitted for this request (GH-301), or null for legacy/admin requests.
    * @param {import('express').Request} ArgReq Request object.
-   * @returns {{Id: string, Scopes: string[], Workspace: string}|null}
+   * @returns {{Id: string, Scopes: string[], Workspace: string, GitHubRepositories: string[]}|null}
    */
   static #PrincipalOf(ArgReq) {
     return /** @type {any} */ (ArgReq).Principal ?? null;
@@ -1190,7 +1192,7 @@ class WebAPI {
    * @returns {Promise<void>}
    */
   async #HandlePrincipalBulkAsync(ArgReq, ArgRes) {
-    const Principal = /** @type {{Id: string, Scopes: string[], Workspace: string}} */ (WebAPI.#PrincipalOf(ArgReq));
+    const Principal = /** @type {{Id: string, Scopes: string[], Workspace: string, GitHubRepositories: string[]}} */ (WebAPI.#PrincipalOf(ArgReq));
     const WorkspaceName = ArgReq.params.name;
     if(WorkspaceName !== Principal.Workspace) {
       WebAPI.#DenyPrincipal(ArgRes, 'forbidden-workspace', Principal.Id, ArgReq.method, 'bulk');
@@ -1204,6 +1206,8 @@ class WebAPI {
       WebAPI.#CheckPrincipalBulkShape(ArgReq.body);
       Prepared = WebAPI.#PrepareBulkRequest(ArgReq.body);
       Prepared.forEach((ArgItem, ArgIndex) => {
+        if(ArgItem.action === 'set-links' && ArgItem.githubUrls.some((/** @type {string} */ ArgUrl) => !Principal.GitHubRepositories.includes(ArgUrl.split('/').slice(3, 5).join('/'))))
+          throw CodedError('forbidden-repository', 'one or more target repositories are not granted to this principal.');
         if(ArgItem.action === 'create') {
           // the shared path only normalizes a create title; bots get the full title contract, as for retitle.
           const Check = ValidateReminderTitle(ArgItem.title);
@@ -1431,6 +1435,10 @@ class WebAPI {
 
     /** @type {Record<string, any>} */
     const Prepared = { action: Action, reason: ArgItem.reason, reminderId: Action === 'create' ? undefined : ArgItem.reminderId };
+    if(Action === 'set-links') {
+      try { Prepared.githubUrls = NormalizeGitHubLinks(ArgItem.githubUrls); }
+      catch { throw CodedError('invalid-github-links', `${At}: githubUrls must be at most 20 exact HTTPS GitHub issue/PR URLs.`); }
+    }
     if(Action === 'retitle' || Action === 'create') {
       if(typeof ArgItem.title !== 'string') throw new Error(`${At}: title must be a string.`);
       const Title = NormalizeReminderTitle(ArgItem.title).text;
@@ -1487,6 +1495,8 @@ class WebAPI {
           : await ArgModule.CancelReminderFromListAsync(ArgItem.reminderId, ArgReason);
         return { status: Closed === 'conflict' ? 'conflict' : Closed ? 'canceled' : 'not-found' };
       }
+      case 'set-links':
+        return { status: await ArgModule.SetReminderGitHubLinksAsync(ArgItem.reminderId, ArgItem.githubUrls, ArgReason, { ExpectedVersion: ArgItem.ExpectedVersion, OnVersion: ArgItem.OnVersion }) };
       case 'retitle':
         return { status: await ArgModule.UpdateReminderSummaryFromListAsync(ArgItem.reminderId, ArgItem.title, ArgReason, {
           SyncLists: true, ReturnStatus: true, ...(ArgItem.ExpectedVersion ? { ExpectedVersion: ArgItem.ExpectedVersion, OnVersion: ArgItem.OnVersion } : {}),

@@ -349,7 +349,9 @@ class GitHubCommentRelay {
       if(!MessageText) return false;
 
       // GH-37: being in the thread is not enough — the reply must actually be about a linked task.
-      const RelevantReminders = await this.#SelectRelevantRemindersAsync(MatchingReminders, MessageText);
+      // freeze the targets before the AI await: an old decision cannot acquire newly attached URLs.
+      const Candidates = MatchingReminders.map(ArgR => ({ ...ArgR, GitHubUrls: [...(ArgR.GitHubUrls ?? [])] }));
+      const RelevantReminders = await this.#SelectRelevantRemindersAsync(Candidates, MessageText);
 
       // nothing to relay. The message still falls through to RemindersModule below, which schedules
       // it as its own reminder when it is a new task.
@@ -387,6 +389,12 @@ class GitHubCommentRelay {
       // post the comment to each GitHub issue/PR.
       let SuccessCount = 0;
       for(const Url of UniqueUrls) {
+        // no await between this live check and the synchronous path to fetch in the poster.
+        const Current = this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel);
+        if(Current.some(ArgR => ArgR.GitHubRelayStopped)) break;
+        const StillEligible = RelevantReminders.some(ArgCandidate => (ArgCandidate.GitHubUrls ?? []).includes(Url)
+          && Current.some(ArgLive => ArgLive.ReminderID === ArgCandidate.ReminderID && (ArgLive.GitHubUrls ?? []).includes(Url)));
+        if(!StillEligible) continue;
         const Posted = await this.#PostGitHubCommentAsync(Url, CommentBody, WorkspacePat);
         if(Posted) SuccessCount++;
       }
@@ -408,7 +416,7 @@ class GitHubCommentRelay {
         // the JSON store while the projection raises them — the invented-key parity divergence that
         // file documents. Parity outranks the cosmetic cost, which is that a later first comment on
         // a not-yet-relayed issue in the same thread omits the Slack permalink.
-        const NewlyStarted = MatchingReminders.filter(ArgR => !ArgR.GitHubRelayStarted);
+        const NewlyStarted = this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).filter(ArgR => !ArgR.GitHubRelayStarted);
         if(NewlyStarted.length > 0) {
           for(const StartedReminder of NewlyStarted)
             StartedReminder.GitHubRelayStarted = true;
@@ -421,9 +429,10 @@ class GitHubCommentRelay {
             this.#SlackApp.Logger.error('[github-comment-relay] failed to save relay-started state:', error);
           }
 
-          // relayStopped is definitively false here: the guard above returns early when any
-          // reminder in this thread is stopped, so a started event can never race a stopped one.
-          if(StartSaveSucceeded) this.#EmitThreadRelayState(ArgEventInfo.thread_ts, true, false);
+          // a stop may interleave the fetch/reaction/save awaits; never emit a stale false stop state.
+          if(StartSaveSucceeded) this.#EmitThreadRelayState(ArgEventInfo.thread_ts, true,
+            MatchingReminders.some(ArgR => ArgR.GitHubRelayStopped)
+              || this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).some(ArgR => ArgR.GitHubRelayStopped));
         }
       }
 

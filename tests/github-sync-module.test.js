@@ -692,6 +692,27 @@ describe('GitHubSyncModule.RunNowAsync — notification wording', () => {
     }
   }
 
+  test('link changes while fetching refuse stale completion and produce no notification', async () => {
+    const Reminder = CreateReminder(['https://github.com/o/r/issues/1']);
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: CreateWorkspaceInfo() });
+    const Harness = CreateRemindersModuleHarness(SlackApp, Reminder);
+    const Before = require('../src/reminders-module').GetReminderVersion(Reminder);
+    Harness.CompleteReminderByIdAsync.mockImplementation(async (_Id, _Reason, Options) =>
+      Options.ExpectedVersion === require('../src/reminders-module').GetReminderVersion(Reminder) ? true : 'conflict');
+    FetchSpy.mockImplementation(async () => {
+      Reminder.GitHubUrls = [];
+      return { ok: true, status: 200, json: async () => ({ state: 'closed' }) };
+    });
+    const Module = new GitHubSyncModule([Harness], SlackApp.Logger, 9999999);
+    await Module.StartAsync();
+    try {
+      await Module.RunNowAsync();
+      expect(Harness.CompleteReminderByIdAsync).toHaveBeenCalledTimes(1);
+      expect(Harness.CompleteReminderByIdAsync.mock.calls[0][2]).toEqual({ ExpectedVersion: Before });
+      expect(SlackApp.SentMessages).toHaveLength(0);
+    } finally { await Module.StopAsync(); }
+  });
+
   test('merged PR notification uses merged wording', async () => {
     const Reminder = CreateReminder(['https://github.com/o/r/pull/221']);
     const { SlackApp, RemindersModuleHarness } = await RunModuleOnceAsync(Reminder, [{
@@ -702,7 +723,8 @@ describe('GitHubSyncModule.RunNowAsync — notification wording', () => {
 
     expect(RemindersModuleHarness.CompleteReminderByIdAsync).toHaveBeenCalledWith(
       Reminder.ReminderID,
-      expect.stringContaining('pr-merged https://github.com/o/r/pull/221')
+      expect.stringContaining('pr-merged https://github.com/o/r/pull/221'),
+      { ExpectedVersion: require('../src/reminders-module').GetReminderVersion(Reminder) }
     );
     expect(SlackApp.SentMessages).toHaveLength(1);
     expect(SlackApp.SentMessages[0].text).toBe(

@@ -35,6 +35,18 @@
 
 ## Unreleased
 
+A bot can now replace or remove a reminder's GitHub links, limited to repositories its administrator explicitly grants. If a link changes during a GitHub check or a queued thread reply, I discard the stale action instead of completing or commenting against the old links.
+
+**Technical:** GH-301 scoped `set-links` uses the existing bulk prepare/apply, per-principal
+`githubRepositories` grants (default deny), version/idempotency and redacted audit paths. A new owning
+reminder setter preserves [] across restart and marks projection coverage gapped before its version
+recheck and serialized durable save. Sync passes a pre-fetch version to the existing completion writer
+and counts/notifies only true. Relay snapshots links before AI and checks originally eligible/current
+pending targets immediately before each fetch; started ledger events preserve concurrent stop state.
+Link edits do not change thread-wide stop flags. Already-dispatched public comments cannot be recalled.
+MCP remains deferred. Verification: existing API, reminder, sync and relay suites, with five observed
+negative controls against the old consumers; receipts under TESTS-RESULTS/2026-11-07+GH-301/.
+
 Your external bot's development pilot passed its HTTPS checks, including retry handling, conflict refusal and cleanup. The remote MCP adapter is deferred so the remaining work can focus on links and delivery.
 
 **Technical:** GH-301 operator scope decision (2026-11-07): Phase 3 remote MCP is deferred until explicitly

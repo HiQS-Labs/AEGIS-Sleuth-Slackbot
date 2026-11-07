@@ -10,6 +10,7 @@ const fs = require('fs').promises;
 const net = require('net');
 const path = require('path');
 const workspaces = require('./workspaces');
+const { CanonicalGitHubRepository } = require('./github-url-utils');
 
 const PrincipalIdPattern = /^[a-z0-9-]{1,32}$/;
 // id has no underscore, so the first `_` after `slp_<id>` ends it; the secret is 32 random bytes in base64url.
@@ -58,6 +59,8 @@ function EntryProblem(ArgEntry) {
     || !ArgEntry.workspaces.every((/** @type {any} */ ArgName) => typeof ArgName === 'string' && WorkspaceNamePattern.test(ArgName))) return 'bad workspaces';
   if(!Array.isArray(ArgEntry.scopes) || ArgEntry.scopes.length === 0
     || !ArgEntry.scopes.every((/** @type {any} */ ArgScope) => KnownScopes.includes(ArgScope))) return 'bad scopes';
+  if(ArgEntry.githubRepositories !== undefined && (!Array.isArray(ArgEntry.githubRepositories) || ArgEntry.githubRepositories.length > 100
+    || !ArgEntry.githubRepositories.every((/** @type {unknown} */ ArgRepo) => CanonicalGitHubRepository(ArgRepo) !== null))) return 'bad githubRepositories';
   if(ArgEntry.expiresAt !== undefined && (typeof ArgEntry.expiresAt !== 'string' || isNaN(Date.parse(ArgEntry.expiresAt)))) return 'bad expiresAt';
   if(ArgEntry.revoked !== undefined && typeof ArgEntry.revoked !== 'boolean') return 'bad revoked';
   return null;
@@ -103,7 +106,7 @@ async function LoadPrincipalsAsync(ArgFilePath) {
  * Authenticate a `slp_` bearer token against the principals file.
  * @param {string} ArgToken Bearer token.
  * @param {{ FilePath?: string, Now?: number }} [ArgOptions]
- * @returns {Promise<{ok: true, principal: {Id: string, Workspaces: string[], Scopes: string[]}} | {ok: false, code: string, id: string|null}>}
+ * @returns {Promise<{ok: true, principal: {Id: string, Workspaces: string[], Scopes: string[], GitHubRepositories: string[]}} | {ok: false, code: string, id: string|null}>}
  */
 async function AuthenticatePrincipalAsync(ArgToken, ArgOptions = {}) {
   const Match = typeof ArgToken === 'string' ? TokenPattern.exec(ArgToken) : null;
@@ -120,7 +123,7 @@ async function AuthenticatePrincipalAsync(ArgToken, ArgOptions = {}) {
     if(Entry.revoked === true) return { ok: false, code: 'revoked', id: Id };
     if(Entry.expiresAt !== undefined && Date.parse(Entry.expiresAt) <= (ArgOptions.Now ?? Date.now()))
       return { ok: false, code: 'expired', id: Id };
-    return { ok: true, principal: { Id, Workspaces: [...Entry.workspaces], Scopes: [...Entry.scopes] } };
+    return { ok: true, principal: { Id, Workspaces: [...Entry.workspaces], Scopes: [...Entry.scopes], GitHubRepositories: [...new Set((Entry.githubRepositories ?? []).map(CanonicalGitHubRepository))] } };
   } catch {
     return { ok: false, code: 'unavailable', id: Id };
   }

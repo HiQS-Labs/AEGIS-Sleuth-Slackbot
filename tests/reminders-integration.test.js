@@ -3942,6 +3942,38 @@ describe('GH-290: Web API edit writers', () => {
       });
     });
 
+    test('set-links persists an explicit clear across restart without changing relay flags', async () => {
+      await WithModuleAsync('links_clear', [Seed('r-links', HoursFromNow(48), {
+        GitHubUrls: ['https://github.com/o/r/issues/1'], GitHubRelayStopped: true,
+        ReminderMessageText: 'Review https://github.com/o/r/issues/1',
+      })], async (Reminders, SlackApp, Paths) => {
+        const Before = Version(Reminders.GetAllReminders()[0]);
+        let Produced;
+        expect(await Reminders.SetReminderGitHubLinksAsync('r-links', [], 'api-bot:b:set-links', { ExpectedVersion: Before, OnVersion: V => { Produced = V; } })).toBe('updated');
+        expect(Produced).not.toBe(Before);
+        expect(JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8'))[0]).toMatchObject({ GitHubUrls: [], GitHubRelayStopped: true });
+        expect(JSON.parse(await fs.readFile(CoverageFilePath(workspaces.GetSubdirPath('events'), SlackApp.WorkspaceInfo.WORKSPACE_NAME), 'utf8')).reason).toBe('github-links-edit');
+        await Reminders.StopAsync();
+        const Restarted = new RemindersModule(SlackApp);
+        try {
+          await Restarted.StartAsync(EmptyWorkspaceStats);
+          expect(Restarted.GetAllReminders()[0].GitHubUrls).toEqual([]);
+        } finally { await Restarted.StopAsync(); }
+      });
+    });
+
+    test('a link edit rechecks version after its ledger await', async () => {
+      await WithModuleAsync('links_race', [Seed('r-links', HoursFromNow(48))], async Reminders => {
+        const Hold = HoldFirstGapWrite(Reminders.SlackApp.WorkspaceInfo.WORKSPACE_NAME);
+        const Pending = Reminders.SetReminderGitHubLinksAsync('r-links', ['https://github.com/o/r/issues/1'], 'api-bot:b:set-links', { ExpectedVersion: Version(Reminders.GetAllReminders()[0]) });
+        while(!Hold.Engaged()) await new Promise(Resolve => setTimeout(Resolve, 5));
+        await Reminders.UpdateReminderSummaryFromListAsync('r-links', 'Changed by the owner', 'list-edit');
+        Hold.Release();
+        expect(await Pending).toBe('conflict');
+        expect(Reminders.GetAllReminders()[0].GitHubUrls).toEqual([]);
+      });
+    });
+
     test('a bot create carries its key and fingerprint in the first persisted copy', async () => {
       await WithModuleAsync('durable_create', [], async (ArgReminders, _SlackApp, ArgPaths) => {
         const Key = 'a'.repeat(64);

@@ -751,6 +751,12 @@ describe('Bot principals (GH-301 Phase 1)', () => {
         AreRemindersEnabledForChannel: ArgChannel => ArgChannel === 'C0ENABLED',
         FindPendingReminderByApiCreateKey: ArgKey => [...Seeds.values()].find(ArgR => ArgR.ApiCreateKey === ArgKey) ?? null,
         // GH-301 Phase 2 writers: record, and change the seed the way the real writer would.
+        SetReminderGitHubLinksAsync: async (ArgId, ArgUrls, ArgReason, ArgOptions) => {
+          Calls.push(['set-links', ArgId, ArgReason, ArgUrls]);
+          Seeds.get(ArgId).GitHubUrls = ArgUrls;
+          ArgOptions.OnVersion?.(GetReminderVersion(Seeds.get(ArgId)));
+          return 'updated';
+        },
         UpdateReminderSummaryFromListAsync: async (ArgId, ArgTitle, ArgReason, ArgOptions) => {
           Calls.push(['retitle', ArgId, ArgReason, ArgTitle, ArgOptions?.ExpectedVersion]);
           Seeds.get(ArgId).ReminderMessageText = ArgTitle;
@@ -968,6 +974,39 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     expect(Calls).toEqual([]);
   });
 
+  test('set-links is fail-closed by repository grant, versioned, replayable, and removable', async () => {
+    const Body = { actions: [{ action: 'set-links', reminderId: R1, ifMatch: V(R1), githubUrls: ['https://github.com/Owner/Repo/issues/42/', 'https://github.com/owner/repo/issues/42'] }] };
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'links-grant', body: Body })).json.code).toBe('forbidden-repository');
+    expect(Calls).toEqual([]);
+    const Entry = { id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read', 'reminders:write'], githubRepositories: ['OWNER/REPO'] };
+    await WritePrincipalsAsync([Entry]);
+    const First = (await CallAsync('POST', Bulk(WsA), { key: 'links-grant', body: Body })).json;
+    expect(First.data.results[0]).toMatchObject({ status: 'updated', version: V(R1) });
+    expect(V(R1)).not.toBe(Body.actions[0].ifMatch);
+    expect(Calls[0][3]).toEqual(['https://github.com/owner/repo/issues/42']);
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'links-grant', body: Body })).json).toEqual(First);
+    expect(Calls).toHaveLength(1);
+    await WritePrincipalsAsync([{ ...Entry, githubRepositories: [] }]);
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'links-grant', body: Body })).json.code).toBe('forbidden-repository');
+    const Clear = { actions: [{ action: 'set-links', reminderId: R1, ifMatch: V(R1), githubUrls: [] }] };
+    expect((await CallAsync('POST', Bulk(WsA), { key: 'links-clear', body: Clear })).json.data.results[0].status).toBe('updated');
+    expect(Seeds.get(R1).GitHubUrls).toEqual([]);
+  });
+
+  test.each([
+    null, ['https://github.com.evil.test/o/r/issues/1'], ['http://github.com/o/r/issues/1'],
+    ['https://user:@github.com/o/r/issues/1'], ['https://github.com:443/o/r/issues/1'],
+    ['https://github.com/o/r/issues/1?x=1'], ['https://github.com/o/r/issues/1#comment'],
+    ['https://github.com/o/../issues/1'], ['https://github.com/o/r/issues/0'], Array(21).fill('https://github.com/o/r/issues/1'),
+  ].map(ArgUrls => [ArgUrls]))('invalid replacement links refuse the whole batch: %j', async ArgLinks => {
+    const Result = (await CallAsync('POST', Bulk(WsA), { key: 'invalid-links', body: { actions: [
+      { action: 'complete', reminderId: R2, ifMatch: V(R2) },
+      { action: 'set-links', reminderId: R1, ifMatch: V(R1), githubUrls: ArgLinks },
+    ] } })).json;
+    expect(Result.code).toBe('invalid-github-links');
+    expect(Calls).toEqual([]);
+  });
+
   test('Phase 2: principals read a version per reminder; legacy reads do not', async () => {
     await fs.mkdir(RemindersDir, { recursive: true });
     await fs.writeFile(path.join(RemindersDir, `${WsA}_reminders.json`), JSON.stringify([MakeSeed(R1)]));
@@ -1093,6 +1132,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     ['invalid hex', () => [{ id: 'bot-a', sha256: 'zz'.repeat(32), workspaces: [WsA], scopes: ['reminders:read'] }]],
     ['a 63-char digest', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a).slice(1), workspaces: [WsA], scopes: ['reminders:read'] }]],
     ['an unknown scope', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['admin'] }]],
+    ['a wildcard repository grant', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read'], githubRepositories: ['owner/*'] }]],
     ['a bad expiresAt', () => [{ id: 'bot-a', sha256: Principals.HashToken(Tokens.a), workspaces: [WsA], scopes: ['reminders:read'], expiresAt: 'soon' }]],
     ['a non-JSON file', () => 'not json'],
   ])('a principals file with %s admits no one for that entry', async (_Label, ArgEntries) => {
