@@ -1,5 +1,6 @@
 // import required modules.
 const fs = require('fs').promises;
+const { NormalizeGitHubLinks } = require('./github-url-utils');
 const path = require('path');
 const crypto = require('crypto');
 const SlackApp = require('./slack-app');
@@ -1182,6 +1183,34 @@ class RemindersModule {
     await this.#DeleteRemindersAsync([ArgReminderID], 'canceled');
     this.#SlackApp.Logger.info(`[lists-sync] canceled reminder ${ArgReminderID} (${ArgReason})`);
     return true;
+  }
+
+  /**
+   * Replace a pending reminder's GitHub links without changing thread relay flags or identity.
+   * @param {string} ArgReminderID Reminder to edit.
+   * @param {string[]} ArgUrls Entire replacement set; [] survives startup as an explicit clear.
+   * @param {string} ArgReason Bounded server-owned audit reason.
+   * @param {{ExpectedVersion?: string, OnVersion?: (ArgVersion: string) => void}} [ArgOptions] Version contract.
+   * @returns {Promise<'updated'|'unchanged'|'not-found'|'conflict'>}
+   */
+  async SetReminderGitHubLinksAsync(ArgReminderID, ArgUrls, ArgReason, ArgOptions = {}) {
+    const Links = NormalizeGitHubLinks(ArgUrls);
+    const Reminder = this.#PendingRemindersQueue.find(ArgR => ArgR.ReminderID === ArgReminderID);
+    if(!Reminder) return 'not-found';
+    if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion) return 'conflict';
+    if(Array.isArray(Reminder.GitHubUrls) && JSON.stringify([...Reminder.GitHubUrls].sort()) === JSON.stringify(Links)) {
+      // a prior attempt may have mutated memory then failed its save; never acknowledge an unsaved retry.
+      await this.#SaveRemindersAsync();
+      return 'unchanged';
+    }
+    await this.#RecordLedgerGapAsync('github-links-edit');
+    const Current = this.#PendingRemindersQueue.find(ArgR => ArgR.ReminderID === ArgReminderID);
+    if(Current !== Reminder || (ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)) return 'conflict';
+    Reminder.GitHubUrls = Links;
+    ArgOptions.OnVersion?.(RemindersModule.GetReminderVersion(Reminder));
+    await this.#SaveRemindersAsync();
+    this.#SlackApp.Logger.info(`[github-links] updated reminder ${ArgReminderID} (${ArgReason})`);
+    return 'updated';
   }
 
   /**

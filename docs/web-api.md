@@ -503,6 +503,7 @@ characters), which its next edit of that reminder must send back.
 | action | fields allowed |
 |---|---|
 | `complete` · `cancel` | `action`, `reminderId`, `ifMatch` |
+| `set-links` | `action`, `reminderId`, `ifMatch`, `githubUrls` |
 | `retitle` | `action`, `reminderId`, `ifMatch`, `title` (title contract applies; no `force`) |
 | `reschedule` | `action`, `reminderId`, `ifMatch`, `dueDate` |
 | `create` | `action`, `title`, `dueDate`, `channelId`, `assigneeIds` (1–10 Slack user ids) |
@@ -533,6 +534,34 @@ characters), which its next edit of that reminder must send back.
   `idempotency-key-reused`. This covers reminders that are still pending; a retry after the created reminder
   was completed would create a new one.
 
+### Replacing GitHub links
+
+`set-links` uses the same bulk endpoint, key and version rules:
+
+```json
+{"actions":[{"action":"set-links","reminderId":"<reminder UUID>","ifMatch":"<version>","githubUrls":["https://github.com/your-org/your-repo/issues/42"]}]}
+```
+
+An operator grants a bot exact repositories in its existing principal entry:
+`"githubRepositories": ["your-org/your-repo"]` (max 100). Missing or empty grants deny nonempty target
+sets. No wildcard, substring, URL or organization-wide grant is accepted. Grants are canonicalized
+case-insensitively and apply only within the principal's already-granted workspaces. Editing the file
+takes effect on the next request, including cached replays. The principal CLI accepts repeatable
+`--github-repo your-org/your-repo`; it prints configuration only and does not install grants.
+
+`githubUrls` replaces the whole set: max 20 exact HTTPS github.com issue/PR URLs, deduplicated and
+canonicalized. Userinfo, ports, query strings, fragments and other paths are refused. `[]` explicitly
+removes all links and remains cleared across restart; it is allowed with write scope even without
+repository grants. Every nonempty target URL must be granted, including retained links. Legacy operator
+bearer callers can use this action without principal repo restrictions.
+
+This updates only the existing reminder's links, not its title, identity or thread stop flags. Future
+GitHub polls and relevance-gated thread replies use the new links. In-progress work discards stale
+completion decisions and pending comment targets; newly added links cannot inherit an old AI decision.
+Already-dispatched GitHub comments cannot be recalled. A sibling reminder can independently retain the
+same link. There are no new chat/List announcements from the setter itself; normal future sync completion
+notifications and public GitHub comment relays still apply.
+
 ### Responses and codes
 
 Principal-specific failures use the existing envelope plus a stable `code`:
@@ -551,6 +580,7 @@ checking the token.
 | `action-not-allowed` · `unknown-field` · `invalid-reminder-id` · `invalid-request` | batch refused before any write |
 | `if-match-required` · `duplicate-reminder` · `create-must-be-alone` · `title-refused` · `channel-not-enabled` | batch refused before any write |
 | `version-conflict` | a reminder changed since it was read; `conflicts` lists the current versions |
+| `invalid-github-links` · `forbidden-repository` | malformed replacement links, or target repository not granted |
 | `save-failed` | a create replay could not confirm the earlier create is saved; retry (nothing is cached) |
 | `invalid-pagination` · `pagination-unsupported` | bad `limit`/`offset`, or paging a rebalance export |
 

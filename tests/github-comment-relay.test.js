@@ -105,6 +105,73 @@ describe('GitHubCommentRelay.OnMessageAsync', () => {
     FetchSpy.mockRestore();
   });
 
+  test.each(['gate replacement', 'identity clear', 'first dispatch removal'])('link edits during %s cannot redirect or retain stale relay targets', async ArgStage => {
+    const Parent = '1700000000.000001';
+    const Old = 'https://github.com/owner/repo/issues/1';
+    const Next = 'https://github.com/owner/repo/issues/2';
+    const Reminder = CreateMonitoredReminder(Parent, 'C_DEV', [Old, Next]);
+    const AI = AlwaysRelayAI();
+    if(ArgStage === 'gate replacement') AI.ProcessMessageWithJsonResponseAsync.mockImplementation(async () => {
+      Reminder.GitHubUrls = ['https://github.com/owner/repo/issues/99'];
+      return { decision: 'relay', confidence: 1, rationale: 'test' };
+    });
+    if(ArgStage === 'identity clear') jest.spyOn(SlackApp, 'GetUserDisplayNameAsync').mockImplementation(async () => {
+      Reminder.GitHubUrls = [];
+      return 'Alice';
+    });
+    if(ArgStage === 'first dispatch removal') FetchSpy.mockImplementation(async () => {
+      Reminder.GitHubUrls = [Old];
+      return { status: 201, ok: true };
+    });
+    const Relay = new GitHubCommentRelay(SlackApp, () => [Reminder], jest.fn().mockResolvedValue(undefined), null, () => AI);
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'Review this task', ts: '1700000000.000002', thread_ts: Parent, user: 'U_ALICE' });
+    expect(FetchSpy).toHaveBeenCalledTimes(ArgStage === 'first dispatch removal' ? 1 : 0);
+    if(FetchSpy.mock.calls.length) expect(FetchSpy.mock.calls[0][0]).toContain('/issues/1/comments');
+  });
+
+  test('clearing and restoring sibling links cannot hide a thread stop', async () => {
+    const Parent = '1700000000.000001';
+    const Link = 'https://github.com/owner/repo/issues/1';
+    const First = CreateMonitoredReminder(Parent, 'C_DEV', [Link]);
+    const Second = { ...CreateMonitoredReminder(Parent, 'C_DEV', []), ReminderID: 'rem-002' };
+    const Relay = new GitHubCommentRelay(SlackApp, () => [First, Second], jest.fn().mockResolvedValue(undefined), null, AlwaysRelayAI);
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'stop relay', ts: '1700000000.000002', thread_ts: Parent, user: 'U_ALICE' });
+    expect(First.GitHubRelayStopped).toBe(true);
+    Second.GitHubUrls = [Link];
+    First.GitHubUrls = [];
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'Review this task', ts: '1700000000.000003', thread_ts: Parent, user: 'U_ALICE' });
+    expect(FetchSpy).not.toHaveBeenCalled();
+    expect(Second.GitHubRelayStopped).toBe(true);
+  });
+
+  test('clearing one reminder does not silence an originally eligible sibling with the same link', async () => {
+    const Parent = '1700000000.000001';
+    const Link = 'https://github.com/owner/repo/issues/1';
+    const First = CreateMonitoredReminder(Parent, 'C_DEV', [Link]);
+    const Second = { ...CreateMonitoredReminder(Parent, 'C_DEV', [Link]), ReminderID: 'rem-002' };
+    const AI = AlwaysRelayAI();
+    AI.ProcessMessageWithJsonResponseAsync.mockImplementation(async () => {
+      First.GitHubUrls = [];
+      return { decision: 'relay', confidence: 1, rationale: 'test' };
+    });
+    const Relay = new GitHubCommentRelay(SlackApp, () => [First, Second], jest.fn().mockResolvedValue(undefined), null, () => AI);
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'Review this task', ts: '1700000000.000002', thread_ts: Parent, user: 'U_ALICE' });
+    expect(FetchSpy).toHaveBeenCalledTimes(1);
+    expect(Second.GitHubRelayStopped).not.toBe(true);
+  });
+
+  test('a stop during an already-dispatched comment remains stopped in the started ledger event', async () => {
+    const Parent = '1700000000.000001';
+    const Reminder = CreateMonitoredReminder(Parent, 'C_DEV', ['https://github.com/owner/repo/issues/1']);
+    const Emit = jest.fn();
+    FetchSpy.mockImplementation(async () => { Reminder.GitHubRelayStopped = true; return { status: 201, ok: true }; });
+    const Relay = new GitHubCommentRelay(SlackApp, () => [Reminder], jest.fn().mockResolvedValue(undefined), Emit, AlwaysRelayAI);
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'Review this task', ts: '1700000000.000002', thread_ts: Parent, user: 'U_ALICE' });
+    expect(FetchSpy).toHaveBeenCalledTimes(1);
+    expect(Reminder.GitHubRelayStopped).toBe(true);
+    expect(Emit).toHaveBeenLastCalledWith(Parent, { relayStarted: true, relayStopped: true });
+  });
+
   test('relays a thread reply to a monitored GitHub issue', async () => {
     const ParentTS = '1700000000.000001';
     const Reminders = [CreateMonitoredReminder(ParentTS, 'C_DEV', ['https://github.com/owner/repo/issues/42'])];

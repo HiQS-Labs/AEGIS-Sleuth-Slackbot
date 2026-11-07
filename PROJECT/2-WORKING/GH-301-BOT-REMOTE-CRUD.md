@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Phases 0–2 merged; PR #307 holds the three diagnostic/client fixes. External-bot HTTPS pilot receipts reviewed: all exercised operations passed and pre-existing reminders were unchanged. | Finish review/landing of #307, then GitHub link editing with scoped repo access and race guards. Remote MCP is deferred by operator; direct HTTPS remains the bot interface. |
+| PR #307 merged as `891f741` with current-head CI passing. API pilot receipt review passed. Scoped link edits implemented and locally verified (304 focused tests; build/guards pass). | Review and deliver scoped link edits, then bot-compatible bulk tooling and HTTPS migration/direct-HTTP closure. MCP remains deferred. |
 
 ## Scope decision — remote MCP deferred (2026-11-07)
 
@@ -440,3 +440,17 @@ Recurrence: not a defect class; unknown trend.
 ## Operator direction (2026-11-07)
 
 Proceed with review and a PR for the three completed follow-ups. Use HTTPS for the remote connector; prefer managed certificate renewal over self-signed client trust setup. Repository-scoped links and removal are the recommended direction, but the concrete repository allowlist and detailed relay behavior still belong in the link-edit plan. Migrate dependent tools to HTTPS before closing direct HTTP access. The later receipt review signs off the exercised external-bot development pilot using its scoped credential; no credential or infrastructure identifiers belong in this public doc.
+
+## Link-edit execution contract (2026-11-07)
+
+Recon: [scoped links map](../../docs/recon-gh301-links.md), base `891f741` (PR #307 merged; current-head test passed).
+
+1. Add optional exact `githubRepositories` grants to existing principal entries (absent/empty means no nonempty target links; no wildcard/substrings). All grants apply within the already-granted workspaces. Permit explicit `[]` clearing with write scope even without repo grants. Validate and copy grants before idempotency lookup, so grant removal also refuses cached nonempty-link replays.
+2. Extend shared bulk action `set-links` with `githubUrls`, existing `ifMatch`/key rules, max 20 exact HTTPS GitHub issue/PR URLs, canonical lowercase repo keys, deduplication and all-or-nothing validation. Legacy operator bearer can use the same action without principal repo restrictions.
+3. Add one owning reminder setter following the summary writer: ledger gap, post-await live identity/version recheck, explicit array replacement, OnVersion, serialized save. Preserve thread flags and creation identity; no new Slack List/chat writes.
+4. Guard sync with the captured pre-fetch version passed to the existing completion writer, and count/notify only literal true. Guard relay with pre-AI link snapshots and final original/current identity+URL intersection plus current thread stop, immediately before dispatch. Preserve stop state when emitting started ledger events. New links are eligible only for future relevance decisions; already-dispatched comments cannot be recalled.
+5. Extend existing suites to falsify unauthorized repo/URL acceptance, stale grants on replay, lost clear on restart, post-gap writer conflicts, stale sync completion, AI-time link replacement and mid-dispatch removal/stop. Evidence goes in TESTS-RESULTS/2026-11-07+GH-301/. Run build and existing FSM/isolation/render/pipeline guards, then PR/CI.
+
+Reversibility: code is reversible; already-dispatched public comments are not. Defaults grant no new repository reach. No live grants or link writes are part of local verification. MCP remains deferred. The pending-only create-retry contract remains unchanged.
+
+Link verification: [304 focused passes, five witnessed negative controls, build/guards and full-suite limitation](../../TESTS-RESULTS/2026-11-07+GH-301/links-verification.md).

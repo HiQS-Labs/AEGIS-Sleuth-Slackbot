@@ -255,6 +255,7 @@ class GitHubSyncModule {
           CurrentSummary.checkedReminderCount += 1;
           TotalCheckedReminderCount += 1;
 
+          const ExpectedVersion = RemindersModule.GetReminderVersion(CurrentReminder);
           const CheckResult = await this.#ShouldAutoCompleteReminderAsync(
             CurrentRemindersModule,
             CurrentReminder,
@@ -277,10 +278,11 @@ class GitHubSyncModule {
           const CompletionReason = `terminal: github-complete ${GitHubSyncModule.BuildCompletionReason(CheckResult.completionItems)}`;
           const Completed = await CurrentRemindersModule.CompleteReminderByIdAsync(
             CurrentReminder.ReminderID,
-            CompletionReason
+            CompletionReason,
+            { ExpectedVersion }
           );
 
-          if(!Completed) continue;
+          if(Completed !== true) continue;
 
           CurrentSummary.autoCompletedCount += 1;
           TotalAutoCompletedCount += 1;
