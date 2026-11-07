@@ -35,6 +35,17 @@
 
 ## Unreleased
 
+The bulk-reminder tool now works with scoped bot keys over HTTPS. It uses the versions it backed up and saves an exact request for deliberate retries; it refuses an uncertain create replay that could duplicate a reminder.
+
+**Technical:** GH-301 bulk CLI: principal detection, HTTPS/no-tunnel requirement, explicit User-Agent,
+redirect refusal, backed-up ifMatch, per-write Idempotency-Key and private prepared requests. Exact
+replay binds endpoint/workspace/principal, never refreshes versions, and allows create replay only
+for a confirmed returned ID still pending. No automatic retries. Bot reassign/force/senderId and
+multiple actions on one ID are refused locally; legacy operator behavior is retained. Added
+--set-links and documented `node -- <script>` to avoid native Node interception of --env-file.
+CLI child-process contract tests exercise actual argument parsing, request metadata and receipts
+with HTTP intercepted; no live mutations.
+
 A thread you stopped stays stopped when reminder links are cleared and restored. If a link edit fails to save, I also wait for a successful save before confirming an unchanged retry.
 
 **Technical:** GH-301 / PR #308 review corrections. Relay stop checks and propagation use all pending

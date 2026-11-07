@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| PR #307 merged as `891f741` with current-head CI passing. API pilot receipt review passed. Scoped link edits implemented and locally verified (304 focused tests; build/guards pass). | Review and deliver scoped link edits, then bot-compatible bulk tooling and HTTPS migration/direct-HTTP closure. MCP remains deferred. |
+| PR #307 merged as `891f741`; scoped links and review fixes merged in #308 as `6593629`, both with current-head CI passing. Bulk CLI bot compatibility verified locally: 97 focused checks/build and a real read-only HTTPS backup. | Review/deliver the bulk CLI, then migrate dependent tools to HTTPS and close direct HTTP access. MCP remains deferred. |
 
 ## Scope decision — remote MCP deferred (2026-11-07)
 
@@ -454,3 +454,7 @@ Recon: [scoped links map](../../docs/recon-gh301-links.md), base `891f741` (PR #
 Reversibility: code is reversible; already-dispatched public comments are not. Defaults grant no new repository reach. No live grants or link writes are part of local verification. MCP remains deferred. The pending-only create-retry contract remains unchanged.
 
 Link verification: [304 focused passes, five witnessed negative controls, build/guards and full-suite limitation](../../TESTS-RESULTS/2026-11-07+GH-301/links-verification.md).
+
+## Bulk-client delivery (2026-11-07)
+
+Principal-aware bulk tooling is implemented using the existing CLI and API, including versions, idempotency, private prepared requests and explicit safe replay. No automatic retry of an ambiguous create. [Verification and limits](../../TESTS-RESULTS/2026-11-07+GH-301/bulk-client-verification.md). New live mutations were not performed. The pending-only server create-retry limitation remains unchanged.

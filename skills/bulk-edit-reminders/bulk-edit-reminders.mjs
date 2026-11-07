@@ -5,6 +5,7 @@
 // that same backup → (stop here on --dry-run) → POST /workspace/:name/reminders/bulk. Any failure
 // before the POST aborts with nothing written to the server. `backup` runs only the first step.
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -12,9 +13,11 @@ import path from 'node:path';
 
 const USAGE = `usage: bulk-edit-reminders.mjs [backup] [--complete id,...] [--cancel id,...]
        [--retitle id="Title"] [--force-title] [--reschedule id=ISO-date] [--reassign id=U1,U2]
+       [--set-links id='["https://github.com/owner/repo/issues/1"]']
        [--create '{"title":…,"dueDate":…,"channelId":…,"assigneeIds":[…]}'] [--reason "text"]
-       [--workspace name] [--env prod|dev] [--env-file path] [--backup-dir dir] [--tunnel] [--dry-run]
+       [--workspace name] [--env prod|dev] [--env-file path] [--backup-dir dir] [--replay request.json] [--tunnel] [--dry-run]
 
+Invoke as node -- <script> to keep Node from consuming CLI --env-file.
 IDs may be full ReminderIDs or unique prefixes of at least 8 characters.
 --retitle, --reschedule, --reassign and --create are repeatable; edits run in the order given.`;
 
@@ -43,6 +46,15 @@ function ParseArgs(ArgV) {
       case '--cancel': Options.cancel.push(...List()); break;
       case '--retitle': { const [id, title] = SplitPair(Flag, Next()); Options.edits.push({ id, action: 'retitle', fields: { title } }); break; }
       case '--reschedule': { const [id, dueDate] = SplitPair(Flag, Next()); Options.edits.push({ id, action: 'reschedule', fields: { dueDate } }); break; }
+      case '--set-links': {
+        const [id, value] = SplitPair(Flag, Next());
+        let githubUrls;
+        try { githubUrls = JSON.parse(value); } catch { throw new Error('--set-links expects id=<JSON array>'); }
+        if(!Array.isArray(githubUrls)) throw new Error('--set-links expects a JSON array');
+        Options.edits.push({ id, action: 'set-links', fields: { githubUrls } });
+        break;
+      }
+      case '--replay': Options.replay = Next(); break;
       case '--reassign': {
         const [id, ids] = SplitPair(Flag, Next());
         Options.edits.push({ id, action: 'reassign', fields: { assigneeIds: ids.split(',').map(Item => Item.trim()).filter(Boolean) } });
@@ -97,7 +109,16 @@ function ResolveConfig(ArgOptions) {
   if(!BaseUrl || !Token) throw new Error(`no SLEUTH_WEB_API_BASE_URL/SLEUTH_WEB_API_TOKEN in the environment or ${EnvFile}`);
   if(!Workspace) throw new Error('no workspace: pass --workspace or set SLEUTH_WORKSPACE_NAME');
   const BackupDir = ArgOptions.backupDir || path.join(os.homedir(), 'secrets', 'sleuth', 'backups');
-  return { BaseUrl: BaseUrl.replace(/\/+$/, ''), Token, Workspace, BackupDir, EnvName };
+  const Url = new URL(BaseUrl);
+  const Principal = Token.startsWith('slp_');
+  if(!['http:', 'https:'].includes(Url.protocol) || Url.username || Url.password || Url.search || Url.hash)
+    throw new Error('API URL must be HTTP(S) without credentials, query or fragment.');
+  if(Principal && (Url.protocol !== 'https:' || ArgOptions.tunnel))
+    throw new Error('bot credentials require direct HTTPS without --tunnel.');
+  if(!/^[A-Za-z0-9_-]{1,64}$/.test(Workspace)) throw new Error('invalid workspace name');
+  return { BaseUrl: BaseUrl.replace(/\/+$/, ''), Token, Workspace, BackupDir, EnvName, Principal,
+    PrincipalId: Principal ? Token.split('_')[1] : null };
+
 }
 
 // true when something already accepts connections on the port.
@@ -156,12 +177,15 @@ async function OpenTunnelAsync(ArgConfig) {
   throw new Error(`--tunnel: port ${Port} did not open within 10 s`);
 }
 
-async function CallApiAsync(ArgConfig, ArgPath, ArgBody) {
+async function CallApiAsync(ArgConfig, ArgPath, ArgBody, ArgKey) {
   const Response = await fetch(`${ArgConfig.BaseUrl}${ArgPath}`, {
     method: ArgBody ? 'POST' : 'GET',
-    headers: { Authorization: `Bearer ${ArgConfig.Token}`, ...(ArgBody ? { 'Content-Type': 'application/json' } : {}) },
+    redirect: 'error',
+    signal: AbortSignal.timeout(30000),
+    headers: { Authorization: `Bearer ${ArgConfig.Token}`, 'User-Agent': 'AEGIS-Bulk-Reminders/1.0', ...(ArgBody ? { 'Content-Type': 'application/json' } : {}), ...(ArgKey ? { 'Idempotency-Key': ArgKey } : {}) },
     body: ArgBody ? JSON.stringify(ArgBody) : undefined,
   });
+  if(!Response.ok) throw new Error(`API request refused: HTTP ${Response.status}`);
   const Payload = await Response.json();
   if(Payload?.success !== true) throw new Error(`${ArgPath}: ${typeof Payload?.data === 'string' ? Payload.data : 'request failed'}`);
   return Payload.data;
@@ -196,9 +220,22 @@ async function MainAsync() {
     ...Options.cancel.map(id => ({ id, action: 'cancel' })),
     ...Options.edits,
   ];
-  if(Requested.length === 0 && !Options.backupOnly) throw new Error(`nothing to do.\n${USAGE}`);
+  if(Requested.length === 0 && !Options.backupOnly && !Options.replay) throw new Error(`nothing to do.\n${USAGE}`);
   if(Requested.length > 0 && Options.backupOnly) throw new Error('backup takes no edit flags');
   const Config = ResolveConfig(Options);
+  if(Options.replay && (Requested.length || Options.backupOnly || Options.forceTitle || Options.reason))
+    throw new Error('--replay cannot be combined with edit, backup or reason flags.');
+  if(Options.replay && !Config.Principal) throw new Error('--replay is only for bot-principal prepared requests.');
+  if(Config.Principal && (Options.forceTitle || Requested.some(ArgItem => ArgItem.action === 'reassign' || Object.hasOwn(ArgItem.fields ?? {}, 'senderId'))))
+    throw new Error('bots cannot reassign, force titles or supply senderId.');
+  let Replay;
+  if(Options.replay) {
+    Replay = JSON.parse(fs.readFileSync(Options.replay, 'utf8'));
+    if(Replay.BaseUrl !== Config.BaseUrl || Replay.Workspace !== Config.Workspace || Replay.PrincipalId !== Config.PrincipalId
+      || !/^[A-Za-z0-9._:-]{1,128}$/.test(Replay.Key) || !Array.isArray(Replay.Body?.actions) || Replay.Body.actions.length === 0)
+      throw new Error('prepared request does not match this bot, HTTPS endpoint or workspace.');
+  }
+
   if(Options.tunnel) {
     const Tunnel = await OpenTunnelAsync(Config);
     const Close = () => { if(Tunnel.exitCode === null) Tunnel.kill(); };
@@ -220,25 +257,53 @@ async function MainAsync() {
   if(Options.backupOnly) return 0;
 
   // 2. resolve against the backup and show what will change.
-  const Resolved = ResolveIds(Requested, Records);
+  const Resolved = Replay ? [] : ResolveIds(Requested, Records);
+  if(Replay) for(const Item of Replay.Body.actions)
+    console.log(`  replay ${Item.action} ${Item.reminderId || '(create)'}`);
   for(const { action, fields, record } of Resolved) {
     const Change = fields ? `  → ${JSON.stringify(fields)}` : '';
     if(!record) { console.log(`  ${action.padEnd(10)} (new)${Change}`); continue; }
     const Text = String(record.ReminderMessageText || '').replace(/\s+/g, ' ').slice(0, 100);
     console.log(`  ${action.padEnd(10)} ${record.ReminderID.slice(0, 8)}  ${record.State || '?'}  ${String(record.CreatedOn || '').slice(0, 10)}  ${Text}${Change}`);
   }
-  if(Options.dryRun) {
-    console.log(`dry run: ${Resolved.length} reminder(s) would change; nothing was sent.`);
-    return 0;
-  }
-
-  // 3. apply.
-  const Actions = Resolved.map(({ action, fields, record }) => ({
-    ...(record ? { reminderId: record.ReminderID } : {}), action, ...fields,
+  const Actions = Replay ? Replay.Body.actions : Resolved.map(({ action, fields, record }) => ({
+    ...(record ? { reminderId: record.ReminderID, ...(Config.Principal ? { ifMatch: record.version } : {}) } : {}), action, ...fields,
     ...(action === 'retitle' && Options.forceTitle ? { force: true } : {}),
     ...(Options.reason ? { reason: Options.reason } : {}),
   }));
-  const Result = await CallApiAsync(Config, `/workspace/${encodeURIComponent(Config.Workspace)}/reminders/bulk`, { actions: Actions });
+  if(Config.Principal) {
+    if(Actions.length > 100 || (Actions.some(ArgItem => ArgItem.action === 'create') && Actions.length !== 1))
+      throw new Error('bot batches allow at most 100 actions and create must be alone.');
+    const Seen = new Set();
+    for(const Item of Actions) {
+      if(Item.action === 'create') continue;
+      if(!/^[0-9a-f]{16}$/.test(Item.ifMatch ?? '') || Seen.has(Item.reminderId))
+        throw new Error('bots require a backed-up version and may touch each reminder once per request.');
+      Seen.add(Item.reminderId);
+    }
+    if(Replay && Actions[0].action === 'create') {
+      const CreatedId = Replay.Result?.results?.find(ArgItem => ArgItem.status === 'created')?.reminderId;
+      if(!CreatedId || !Records.some(ArgRecord => ArgRecord.ReminderID === CreatedId))
+        throw new Error('create replay refused: its earlier created reminder is not confirmed pending; reconcile manually to avoid duplicates.');
+    }
+  }
+  if(Options.dryRun) {
+    console.log(`dry run: ${Actions.length} action(s); nothing was sent.`);
+    return 0;
+  }
+
+  // persist the exact principal request before dispatch; explicit replay never refreshes versions or keys.
+  const Key = Config.Principal ? (Replay?.Key ?? randomUUID()) : undefined;
+  const ReceiptPath = Config.Principal ? (Options.replay ?? `${BackupPath}.request.json`) : null;
+  const Receipt = Replay ?? { BaseUrl: Config.BaseUrl, Workspace: Config.Workspace, PrincipalId: Config.PrincipalId, Key, Body: { actions: Actions } };
+  if(ReceiptPath && !Replay) fs.writeFileSync(ReceiptPath, JSON.stringify(Receipt, null, 2), { mode: 0o600, flag: 'wx' });
+  if(ReceiptPath) console.log(`prepared request: ${ReceiptPath} (use --replay for an exact retry)`);
+  const Result = await CallApiAsync(Config, `/workspace/${encodeURIComponent(Config.Workspace)}/reminders/bulk`, Receipt.Body, Key);
+  if(ReceiptPath) {
+    fs.chmodSync(ReceiptPath, 0o600);
+    fs.writeFileSync(ReceiptPath, JSON.stringify({ ...Receipt, Result }, null, 2), { mode: 0o600 });
+  }
+
   for(const Item of Result.results)
     console.log(`  ${Item.status.padEnd(9)} ${Item.action.padEnd(10)} ${Item.reminderId || '(new)'}${Item.error ? `  (${Item.error})` : ''}`);
   console.log(`result: ${JSON.stringify(Result.counts)}`);
