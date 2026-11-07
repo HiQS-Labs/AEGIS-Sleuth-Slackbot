@@ -17,6 +17,14 @@ const LongSource = 'Background detail about the review. '.repeat(20) + 'Please r
 
 describe('NormalizeReminderTitle', () => {
   test.each([
+    'Move the call with Alex to tomorrow or Wednesday',
+    'Move the call to Monday or Tuesday',
+    'Move the call to Monday or Tuesday at 2pm',
+    'Review the reports on Monday and Wednesday',
+  ])('preserves a complete weekday alternative: %s', ArgTitle => {
+    expect(TitleContract.NormalizeReminderTitle(ArgTitle).text).toBe(ArgTitle);
+  });
+  test.each([
     ['addressee + courtesy + request + question mark',
       '<@U1> can we please wrap up the LTVera website layout improvements tonight, please?',
       'Wrap up the LTVera website layout improvements'],
@@ -82,6 +90,9 @@ describe('NormalizeReminderTitle', () => {
 });
 
 describe('ValidateReminderTitle', () => {
+  test.each(['and', 'or', 'but'])('refuses an incomplete trailing %s', ArgConjunction => {
+    expect(TitleContract.ValidateReminderTitle(`Move the call to tomorrow ${ArgConjunction}`).ok).toBe(false);
+  });
   test.each([
     ['a question', 'Confirming this is ready for deployment today?', ['question', 'status-remark']],
     ['an interrogative without the mark', 'When is the deploy', ['question']],
