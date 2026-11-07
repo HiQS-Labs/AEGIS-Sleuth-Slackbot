@@ -1025,6 +1025,16 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     expect(Calls).toEqual([]);
   });
 
+  test('Phase 2: retitle preserves weekday alternatives and refuses an incomplete conjunction', async () => {
+    const Title = 'Move the call with Alex to tomorrow or Wednesday';
+    const Updated = await CallAsync('POST', Bulk(WsA), { key: 'weekday-title', body: { actions: [{ action: 'retitle', reminderId: R1, ifMatch: V(R1), title: Title }] } });
+    expect(Updated.json.success).toBe(true);
+    expect(Calls[0][3]).toBe(Title);
+    const Refused = await CallAsync('POST', Bulk(WsA), { key: 'incomplete-title', body: { actions: [{ action: 'retitle', reminderId: R1, ifMatch: V(R1), title: 'Move the call to tomorrow or' }] } });
+    expect(Refused.json.success).toBe(false);
+    expect(Calls).toHaveLength(1);
+  });
+
   test('Phase 2: retitle and reschedule pass the version to the writer and return the new one', async () => {
     const Before = V(R1);
     const Result = await CallAsync('POST', Bulk(WsA), { key: 'k-edit', body: { actions: [

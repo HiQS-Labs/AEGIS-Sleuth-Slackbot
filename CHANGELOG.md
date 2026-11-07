@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## Unreleased
+
+I now keep weekday alternatives intact when updating a reminder title. If a submitted title ends in an unfinished “and,” “or,” or “but,” I refuse it rather than saving a fragment.
+
+**Technical:** retitle/title-contract fix: schedule stripping treats trailing conjunctions as dangling endings and preserves the full scheduling phrase instead of removing just its last weekday. The shared validator rejects incomplete conjunction endings, including before closing punctuation, without inspecting protected quoted names. Existing title, API and reminder suites cover alternatives, stacked times, exact writer input and no-write refusal; quoted task names and ordinary deadline cleanup keep their existing behavior.
+
 ## 1.4.349 - 2026-11-07
 
 Your bot can now safely update reminders and GitHub links, including restoring missing List rows after a failed save. My update notices also show a clear, plain-language summary.
