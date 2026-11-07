@@ -7,6 +7,11 @@ workspace** Sleuth is connected to.
 It is a separate, stdio-based process from the Slack app. It **never opens a Slack socket and never
 mutates anything** — it reads Sleuth's on-disk runtime state and makes read-only Slack Web API calls.
 
+**Remote mutation adapter (GH-301): deferred by operator decision on 2026-11-07.** External bots use the
+scoped HTTPS API directly; remote MCP implementation and connector hosting resume only on explicit
+operator request. This existing local, read-only stdio connector remains available. See
+[GH-301 scope decision](../PROJECT/2-WORKING/GH-301-BOT-REMOTE-CRUD.md#scope-decision--remote-mcp-deferred-2026-11-07).
+
 ## What it exposes
 
 ### Reminders (read from Sleuth's on-disk state)

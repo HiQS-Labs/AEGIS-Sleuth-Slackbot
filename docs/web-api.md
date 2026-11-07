@@ -439,8 +439,9 @@ Per-item `status` is `completed`, `canceled`, `not-found` (not pending, e.g. alr
 
 A **bot principal** lets an external bot (for example a Cursor agent) read, create, retitle, reschedule,
 complete and cancel reminders in its own workspace, with no SSH, Slack token or server files. It is separate
-from the operator's `WEB_API_BEARER_TOKEN`. Phases 1–2 of #301; editing GitHub links and an MCP adapter come
-later.
+from the operator's `WEB_API_BEARER_TOKEN`. Phases 1–2 of #301; editing GitHub links remains planned.
+The remote MCP adapter is **deferred by operator decision (2026-11-07)**; external bots use these HTTPS
+routes directly. MCP is not a prerequisite for the current API delivery and resumes only on explicit request.
 
 **Off by default.** Set `WEB_API_BOT_PRINCIPALS=1` on the service and restart. With the flag off, a bot token
 is refused like any unknown token (`Forbidden.`).

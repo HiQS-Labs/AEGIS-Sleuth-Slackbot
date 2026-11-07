@@ -35,6 +35,16 @@
 
 ## Unreleased
 
+Your external bot's development pilot passed its HTTPS checks, including retry handling, conflict refusal and cleanup. The remote MCP adapter is deferred so the remaining work can focus on links and delivery.
+
+**Technical:** GH-301 operator scope decision (2026-11-07): Phase 3 remote MCP is deferred until explicitly
+resumed and removed from the current completion gate. Direct HTTPS remains the external-bot interface;
+the existing local read-only stdio MCP is unchanged. Reviewed both private pilot receipt sets as one
+continued run: create/replay, retitle, stale-version refusal without mutation, reschedule, complete/replay,
+cancel and readback passed; final active snapshot exactly matches baseline, with no writes to
+pre-existing reminders. Public evidence is sanitized; raw receipts stay private. This does not verify
+link editing, production promotion or delivery of PR #307.
+
 Bot setup notes now explain how to identify the client on every request and recognize a refusal from the HTTPS front end. When I refuse a bot change, my audit log now records the refusal and its code.
 
 **Technical:** GH-301 follow-up: document an explicit `User-Agent` on reads and writes, including the
