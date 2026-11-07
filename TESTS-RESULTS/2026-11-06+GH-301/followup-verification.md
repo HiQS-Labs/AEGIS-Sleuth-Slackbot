@@ -36,3 +36,13 @@ Deferred links; MCP client shape; principal-aware bulk skill; external pilot sig
 - Re-ran `npm test`: **3008 passed, 1 failed**, 146 suites passed and 1 failed. The sole failure is `thread-memory store > SaveThreadMemoryAsync stores the row but no embedding when no key/embedder` (`Embedded` expected false, received true), matching the outgoing handoff's known failure. It has not been independently reproduced on a fresh baseline by this agent. The full suite is **not green**.
 - Because `npm test` stops before the Node tests when Jest fails, ran `npm run test:node` separately: **116 passed, 0 failed**.
 - Self-review: no auth, reminder mutation, persistence, version, idempotency, or Slack API payload change. The new `scheduledDisplay` is only the parsed display cell used for comparison; exact timestamps remain authoritative in reminders. The audit branch returns the same payload before the success log, so it records exactly one denial and no misleading write.
+
+## Independent baseline confirmation (2026-11-07)
+
+- Fetched `origin/development`: `b2ef33da34d972976861b2512038cf6ff9cfed07`. Exported that exact commit with `git archive` into a fresh temporary directory, with no candidate source files. Reused the same installed dependencies/runtime via a node_modules symlink; tests used isolated temporary runtime data.
+- Command in each tree: `node node_modules/jest/bin/jest.js --runInBand --forceExit tests/thread-memory.test.js -t 'SaveThreadMemoryAsync stores the row but no embedding'` (baseline invocation also explicitly sets its rootDir/config to the exported tree). Node 26.13.0.
+- Baseline: **1 failed, 25 skipped**; `Embedded` expected false, received true at `tests/thread-memory.test.js:140`.
+- Candidate `cfc3623`: **same failure and assertion**, 1 failed, 25 skipped. This independently confirms the known failure exists on the PR base, rather than relying on the outgoing handoff. It remains unfixed and out of scope.
+- Review found no new mutation/auth/storage path; the three changes are bounded to client documentation, audit classification and roundtrip comparison.
+
+- Review rerun (2026-11-07): focused Lists/formatting/Web API suites **188 passed**; build passed; diff whitespace check passed. PDDA status-table still reports the same 11 unrelated-document findings, with none in GH-301. No source changes since `cfc3623`; follow-up commit adds baseline evidence and current task direction only.
