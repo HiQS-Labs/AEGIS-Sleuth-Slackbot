@@ -1058,6 +1058,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
     const First = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body });
     expect(First.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c' });
     expect(Calls).toEqual([['create', 'Draft the launch email', 'C0ENABLED', true]]);
+    const Recovery = jest.spyOn(TestSlackApps.get(WsA).RemindersModule, 'SaveRemindersNowAsync');
     // a second API instance has an empty in-memory store, like a restart; the module still holds the stamped
     // reminder. (A second port, not a restart on the same port: a pooled keep-alive socket to a stopped server
     // fails on CI.)
@@ -1074,6 +1075,7 @@ describe('Bot principals (GH-301 Phase 1)', () => {
       SaveNowFails = false;
       const Retry = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: Body, port: TestPort + 7 });
       expect(Retry.json.data.results[0]).toMatchObject({ status: 'created', reminderId: 'cccccccc-1111-4111-8111-00000000000c', replayed: true });
+      expect(Recovery).toHaveBeenLastCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/));
       const Changed = await CallAsync('POST', Bulk(WsA), { key: 'k-create', body: { actions: [{ ...Body.actions[0], title: 'Draft the launch post' }] }, port: TestPort + 7 });
       expect(Changed.json.code).toBe('idempotency-key-reused');
       expect(Calls).toHaveLength(1);

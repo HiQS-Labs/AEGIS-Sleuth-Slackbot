@@ -1,7 +1,8 @@
+
 // GH-301 smoke: the real WebAPI + a real RemindersModule (test MockSlackApp, throwaway SLEUTH_DATA_DIR),
 // driven over HTTP the way a bot would, with WEB_API_BOT_PRINCIPALS=1. Usage: node gh301-smoke.cjs <repo> <datadir>
 'use strict';
-global.jest = { fn: (Impl = () => undefined) => { const F = (...A) => { F.mock.calls.push(A); return Impl(...A); }; F.mock = { calls: [] }; F.mockResolvedValue = V => { Impl = async () => V; return F; }; F.mockImplementation = I => { Impl = I; return F; }; return F; } };
+global.jest = { fn: (ArgImpl = () => undefined) => { const Fn = (...ArgArgs) => { Fn.mock.calls.push(ArgArgs); return ArgImpl(...ArgArgs); }; Fn.mock = { calls: [] }; Fn.mockResolvedValue = ArgValue => { ArgImpl = async () => ArgValue; return Fn; }; Fn.mockImplementation = ArgNew => { ArgImpl = ArgNew; return Fn; }; return Fn; } };
 const Repo = process.argv[2]; const DataDir = process.argv[3];
 // refuse anything but an empty throwaway directory: this harness writes a principals file and reminders there.
 if(!DataDir || !require('fs').existsSync(DataDir) || require('fs').readdirSync(DataDir).length > 0) {

@@ -878,10 +878,17 @@ class RemindersModule {
    * the save fails. Used before a durable create replay reports success (GH-301), so an in-memory reminder
    * whose first save failed is never acknowledged unsaved.
    * Unlike FlushRemindersAsync (which only waits for queued saves), this performs a save and rejects on failure.
+   * When a stamped API create is supplied, also resume its missing List fanout after saving.
+   * @param {string|null} [ArgApiCreateKey]
    * @returns {Promise<void>}
    */
-  SaveRemindersNowAsync() {
-    return this.#SaveRemindersAsync();
+  async SaveRemindersNowAsync(ArgApiCreateKey = null) {
+    await this.#SaveRemindersAsync();
+    const Reminder = ArgApiCreateKey ? this.FindPendingReminderByApiCreateKey(ArgApiCreateKey) : null;
+    if(Reminder && this.#ListsModule?.IsListsAvailable) {
+      const ListsSaved = await this.#ListsModule.AddReminderToListAsync(Reminder);
+      if(!ListsSaved) throw new Error('API create List recovery failed; retry.');
+    }
   }
 
   /**
@@ -4665,7 +4672,10 @@ class RemindersModule {
 
     // add reminder to Slack List if available (unless the caller is adopting an existing row).
     if(!ArgOptions.SkipListSync && this.#ListsModule && this.#ListsModule.IsListsAvailable) {
-      await this.#ListsModule.AddReminderToListAsync(ArgReminderInfo);
+      const ListsSaved = await this.#ListsModule.AddReminderToListAsync(ArgReminderInfo);
+      // bot creates must remain retryable if a required List row was refused.
+      if(/** @type {any} */ (ArgReminderInfo).ApiCreateKey && !ListsSaved)
+        throw new Error('API create List sync failed; retry.');
     }
 
     // log the reminder details.

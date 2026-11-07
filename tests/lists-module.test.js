@@ -386,6 +386,9 @@ describe('ListsModule Slack Lists contract', () => {
     const AddResult = await Lists.AddReminderToListAsync(Reminder);
     expect(AddResult).toBe(true);
     expect(Logger.warn.mock.calls.filter(([ArgLine]) => ArgLine.includes('Scheduled time:'))).toEqual([]);
+    const Creates = ApiCallMock.mock.calls.filter(([ArgMethod]) => ArgMethod === 'slackLists.items.create').length;
+    expect(await Lists.AddReminderToListAsync(Reminder)).toBe(true);
+    expect(ApiCallMock.mock.calls.filter(([ArgMethod]) => ArgMethod === 'slackLists.items.create')).toHaveLength(Creates);
 
     const CompleteResult = await Lists.MarkReminderCompletedAsync('R123');
     expect(CompleteResult).toBe(true);
@@ -722,6 +725,25 @@ describe('ListsModule Slack Lists contract', () => {
       const RetainedUpdate = ApiCallMock.mock.calls.find(([ArgMethod, ArgPayload]) =>
         ArgMethod === 'slackLists.items.update' && ArgPayload.list_id === 'F_USER_1');
       expect(JSON.stringify(RetainedUpdate[1].cells)).toContain('U_NEW');
+      await Lists.StopAsync();
+    });
+
+    it.each(['F_LIST_123', 'F_USER_1'])('a failed create in %s stays retryable without duplicating successful rows', async ArgFailedList => {
+      const { Lists, ApiCallMock } = await CreateTwoOwnerHarnessAsync();
+      const Real = ApiCallMock.getMockImplementation();
+      let FailWrite = true;
+      ApiCallMock.mockImplementation(async (ArgMethod, ArgParams) => {
+        if(FailWrite && ArgMethod === 'slackLists.items.create' && ArgParams.list_id === ArgFailedList) throw new Error('Slack refused row');
+        return Real(ArgMethod, ArgParams);
+      });
+      const Reminder = { ...MakeReminder(), ReminderID: 'R_RECOVER' };
+      expect(await Lists.AddReminderToListAsync(Reminder)).toBe(false);
+      const SuccessfulList = ArgFailedList === 'F_LIST_123' ? 'F_USER_1' : 'F_LIST_123';
+      const Writes = () => ApiCallMock.mock.calls.filter(([ArgMethod, ArgParams]) => ArgMethod === 'slackLists.items.create' && ArgParams.list_id === SuccessfulList).length;
+      const BeforeRetry = Writes();
+      FailWrite = false;
+      expect(await Lists.AddReminderToListAsync(Reminder)).toBe(true);
+      expect(Writes()).toBe(BeforeRetry);
       await Lists.StopAsync();
     });
 

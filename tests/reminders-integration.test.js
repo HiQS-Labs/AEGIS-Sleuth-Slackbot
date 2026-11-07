@@ -3994,6 +3994,33 @@ describe('GH-290: Web API edit writers', () => {
       });
     });
 
+    test('a failed initial bot save resumes List fanout before durable replay acknowledgment', async () => {
+      await WithModuleAsync('create_save_recovery', [], async (ArgReminders, ArgSlackApp, ArgPaths) => {
+        const Lists = { IsListsAvailable: true, AddReminderToListAsync: jest.fn(async () => true) };
+        ArgReminders.SetListsModule(Lists);
+        const Rename = fs.rename.bind(fs);
+        let FailSave = true;
+        jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+          if(FailSave && ArgTo === ArgPaths.remindersFilePath) throw new Error('initial create save failed');
+          return Rename(ArgFrom, ArgTo);
+        });
+        const Key = 'c'.repeat(64);
+        await expect(ArgReminders.CreateReminderFromListRowAsync({ summary: 'Prepare the release report', dueDate: HoursFromNow(48).toISOString(), assigneeID: 'U_OWNER', targetChannelID: 'C_REMINDERS', originalSenderID: null }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: Key, ApiCreateFingerprint: 'fp' })).rejects.toThrow('initial create save failed');
+        expect(Lists.AddReminderToListAsync).not.toHaveBeenCalled();
+        FailSave = false;
+        Lists.AddReminderToListAsync.mockResolvedValueOnce(false);
+        await expect(ArgReminders.SaveRemindersNowAsync(Key)).rejects.toThrow('List');
+        await ArgReminders.SaveRemindersNowAsync(Key);
+        expect(Lists.AddReminderToListAsync).toHaveBeenCalledWith(ArgReminders.FindPendingReminderByApiCreateKey(Key));
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))).toHaveLength(1);
+        Lists.AddReminderToListAsync.mockResolvedValueOnce(false);
+        const NextKey = 'd'.repeat(64);
+        await expect(ArgReminders.CreateReminderFromListRowAsync({ summary: 'Prepare another release report', dueDate: HoursFromNow(48).toISOString(), assigneeID: 'U_OWNER', targetChannelID: 'C_REMINDERS', originalSenderID: null }, { SkipListSync: false, RequireOwner: true, ApiCreateKey: NextKey, ApiCreateFingerprint: 'fp-next' })).rejects.toThrow('List');
+        await ArgReminders.SaveRemindersNowAsync(NextKey);
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))).toHaveLength(2);
+      });
+    });
+
     test('a bot create carries its key and fingerprint in the first persisted copy', async () => {
       await WithModuleAsync('durable_create', [], async (ArgReminders, _SlackApp, ArgPaths) => {
         const Key = 'a'.repeat(64);

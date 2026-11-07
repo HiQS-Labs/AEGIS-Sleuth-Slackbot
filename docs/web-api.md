@@ -438,8 +438,9 @@ Per-item `status` is `completed`, `canceled`, `not-found` (not pending, e.g. alr
 ## Bot principals (GH-301)
 
 A **bot principal** lets an external bot (for example a Cursor agent) read, create, retitle, reschedule,
-complete and cancel reminders in its own workspace, with no SSH, Slack token or server files. It is separate
-from the operator's `WEB_API_BEARER_TOKEN`. Phases 1–2 of #301; editing GitHub links remains planned.
+complete and cancel reminders, and replace their GitHub links in its own workspace, with no SSH,
+Slack token or server files. It is separate from the operator's `WEB_API_BEARER_TOKEN`. Link targets
+require explicit repository grants; an empty link list clears the links.
 The remote MCP adapter is **deferred by operator decision (2026-11-07)**; external bots use these HTTPS
 routes directly. MCP is not a prerequisite for the current API delivery and resumes only on explicit request.
 

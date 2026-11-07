@@ -35,6 +35,10 @@
 
 ## 1.4.349 - 2026-11-07
 
+Your bot can now safely update reminders and GitHub links, including restoring missing List rows after a failed save. My update notices also show a clear, plain-language summary.
+
+**Technical:** GH-301 promotion review: durable-create recovery passes its stamped key through the owning reminder save path and resumes List fanout after persistence. Shared-list addition reuses an existing cached row, matching per-user behavior. Shared and per-user write failures propagate; stamped bot creates and their recovery reject failed List writes so the API keeps them retryable. A witnessed initial-save failure reproduced missing fanout; API, real-module and list regressions verify recovery and repeat safety. Bot setup docs now list shipped link edits; added helper parameters and return tags follow the coding guide.
+
 Your bot can now safely update reminders and GitHub links. My update notice also gives you a clear summary: development notes say “Latest changes,” and unavailable branch names are left out.
 
 **Technical:** startup-message helpers rename an Unreleased excerpt heading, stop before the technical block, and omit unknown/detached Git branch labels. Package version remains the deployed package value; full changelog commands remain unchanged. Existing startup tests cover the screenshot and unavailable/known branches.

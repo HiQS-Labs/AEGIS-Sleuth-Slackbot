@@ -1247,7 +1247,7 @@ class ListsModule {
     // primary: the shared workspace list.
     let SharedOk = false;
     if(this.#SharedContext && this.#SharedContext.IsReady) {
-      SharedOk = await this.#CreateListItemAsync(this.#SharedContext, ArgReminder, {
+      SharedOk = this.#SharedContext.ItemCache.has(ArgReminder.ReminderID) || await this.#CreateListItemAsync(this.#SharedContext, ArgReminder, {
         UpdateCache: true,
         ValidateRoundtrip: true
       });
@@ -1258,9 +1258,9 @@ class ListsModule {
     const AssigneeIDs = Array.isArray(ArgReminder.AssigneeIDs) && ArgReminder.AssigneeIDs.length > 0
       ? [...new Set(ArgReminder.AssigneeIDs)]
       : [ArgReminder.AssigneeID || ArgReminder.OriginalSenderID];
-    await this.#AddToUserContextsAsync(ArgReminder, AssigneeIDs);
+    const FailedOwners = await this.#AddToUserContextsAsync(ArgReminder, AssigneeIDs);
 
-    return SharedOk;
+    return SharedOk && FailedOwners.length === 0;
   }
 
   /**
