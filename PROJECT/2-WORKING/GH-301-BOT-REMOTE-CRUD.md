@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| PR #307 merged as `891f741`; scoped links and review fixes merged in #308 as `6593629`, both with current-head CI passing. Bulk CLI bot compatibility verified locally with build, focused checks and a real read-only HTTPS backup; see the linked bulk-client evidence for current counts. | Review/deliver the bulk CLI, then migrate dependent tools to HTTPS and close direct HTTP access. MCP remains deferred. |
+| PR #307 merged as `891f741`, scoped links #308 as `6593629`, and bot-compatible bulk CLI #309 as `10abe21`, each after current-head CI passed. The dev operator client now uses HTTPS; persistent host rules refuse direct HTTP while secure reads remain unchanged. | Current authorized items1–4 are delivered. Remove the redundant cloud ingress allow on a future authenticated maintenance pass; keep MCP deferred and production promotion separate. |
 
 ## Scope decision — remote MCP deferred (2026-11-07)
 
@@ -32,12 +32,12 @@ non_goals:
 
 **Pilot:** the two supplied private receipt sets were reviewed as one continued run. Read, create/replay, retitle, stale refusal, reschedule, complete/replay and cancel passed. Both test reminders are absent from the final active snapshot; all pre-existing records and versions match the baseline exactly. No mutation request targeted a pre-existing reminder. This signs off the exercised development API workflow, not production promotion, link editing, MCP or deployment of PR #307. Public evidence: [pilot receipt review](../../TESTS-RESULTS/2026-11-07+GH-301/pilot-receipt-review.md). Raw receipts and their hash manifest remain private.
 
-### Remaining active work
+### Delivery ledger and remaining work
 
 1. Delivered: #307 merged as `891f741` after current-head CI passed. Deployment evidence remains separate from the pilot; the known local thread-memory failure is independently reproduced on baseline.
 2. Delivered: scoped link editing and consumer/thread guards merged in #308 as `6593629` after current-head CI passed. Explicit repository grants and removal are supported; already-dispatched comments cannot be recalled.
-3. Implemented and locally verified: `bulk-edit-reminders` supports bot keys over direct HTTPS with backed-up versions, idempotency and guarded explicit edit/lifecycle replay. Complete review and landing of #309; all create replays are refused. See the bulk-client verification below.
-4. Migrate dependent operator tooling to HTTPS before closing direct HTTP exposure; keep production promotion and deployment evidence separate.
+3. Delivered: bot-compatible `bulk-edit-reminders` merged in #309 as `10abe21` after current-head CI passed. Backed-up versions, idempotency and guarded explicit edit/lifecycle replay are supported; all create replays are refused. See the bulk-client verification below.
+4. Delivered: migrated the identified dev operator client to HTTPS, verified real operator/bot reads, then closed direct HTTP with persistent IPv4/IPv6 host rules. Cloud ingress allow remains redundant and unchanged due to expired OCI auth; see the cutover evidence below. Production promotion remains separate.
 5. Reconcile the issue, roadmap and project lifecycle after the active scope is delivered. Keep the pending-only durable create-retry limitation documented; widen retention only for demonstrated need. MCP stays deferred.
 
 ## Follow-up findings (2026-11-06)
@@ -458,3 +458,13 @@ Link verification: [304 focused passes, five witnessed negative controls, build/
 ## Bulk-client delivery (2026-11-07)
 
 Principal-aware bulk tooling is implemented using the existing CLI and API, including versions, idempotency, private prepared requests and explicit safe replay. All create replays are refused to avoid a pending-read/concurrent-close race. Prepared requests stay immutable and responses use separate result files. No automatic retries. [Verification and limits](../../TESTS-RESULTS/2026-11-07+GH-301/bulk-client-verification.md). New live mutations were not performed. The pending-only server create-retry limitation remains unchanged.
+
+
+## HTTPS cutover delivery (2026-11-07)
+
+Identified direct-HTTP client migrated to HTTPS and verified before changing access. Host rules
+now refuse non-loopback port2020 for IPv4 and IPv6, preserving the tunnel origin. Read-only
+external checks confirm direct HTTP refused, authenticated HTTPS reads unchanged and unauthorized
+HTTPS denied. No app restart or live reminder mutation. The cloud security list was not changed
+because its CLI session is expired; the persistent host firewall provides the verified closure.
+[Sanitized cutover receipt](../../TESTS-RESULTS/2026-11-07+GH-301/https-cutover.md).
