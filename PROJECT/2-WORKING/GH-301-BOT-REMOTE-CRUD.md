@@ -4,7 +4,7 @@ source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301
 title: "Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH)"
 status: Active (2-WORKING)
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-07
 owner: noel
 goal: "An external bot holding only a revocable, workspace-scoped credential can read reminders and complete or cancel them through the existing Web API, with no SSH, Slack token or filesystem access."
 doc_type: feature
@@ -22,7 +22,32 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Phase 0–1 shipped in #305. Phase 2 plan approved by Codex (round 2) and implemented on the phase2 branch (2026-11-06). | Phase 2 smoke, final QA and PR. Link editing follow-up; Phase 3 (MCP); Phase 4 pilot running on dev. |
+| Phases 0–2 merged; PR #307 holds the three diagnostic/client fixes. External-bot HTTPS pilot receipts reviewed: all exercised operations passed and pre-existing reminders were unchanged. | Finish review/landing of #307, then GitHub link editing with scoped repo access and race guards. Remote MCP is deferred by operator; direct HTTPS remains the bot interface. |
+
+## Scope decision — remote MCP deferred (2026-11-07)
+
+**Decision:** defer GH-301 Phase 3, the remote MCP adapter. Direct HTTPS is the supported external-bot interface for the current delivery. MCP implementation, hosting and connector setup are removed from the active completion gate, not reported as shipped. Resume only on an explicit operator request; no automatic date or background work. The existing local read-only stdio connector is unchanged.
+
+**Reason:** the external-bot pilot demonstrates that the current HTTPS API supports the required workflow. Focus the remaining work on links, operational hardening and delivery rather than another adapter.
+
+**Pilot:** the two supplied private receipt sets were reviewed as one continued run. Read, create/replay, retitle, stale refusal, reschedule, complete/replay and cancel passed. Both test reminders are absent from the final active snapshot; all pre-existing records and versions match the baseline exactly. No mutation request targeted a pre-existing reminder. This signs off the exercised development API workflow, not production promotion, link editing, MCP or deployment of PR #307. Public evidence: [pilot receipt review](../../TESTS-RESULTS/2026-11-07+GH-301/pilot-receipt-review.md). Raw receipts and their hash manifest remain private.
+
+### Remaining active work
+
+1. Finish review and landing of #307; verify its delivery separately from the pilot. The known local thread-memory failure is independently reproduced on the baseline.
+2. Plan and implement allowlisted GitHub link edits, including explicit removal to `[]`, a concrete repository allowlist, current-link rechecks before sync completion/public relay dispatch, and deliberate thread/sibling semantics. No promise of recalling already-dispatched comments.
+3. Resolve principal support in `bulk-edit-reminders`: direct HTTPS is already proven; if the skill becomes a bot entry point it must send versions and idempotency keys. It is not a current bot-compatible entry point.
+4. Migrate dependent operator tooling to HTTPS before closing direct HTTP exposure; keep production promotion and deployment evidence separate.
+5. Reconcile the issue, roadmap and project lifecycle after the active scope is delivered. Keep the pending-only durable create-retry limitation documented; widen retention only for demonstrated need. MCP stays deferred.
+
+## Follow-up findings (2026-11-06)
+
+- Outgoing AgentChorus handoff confirms all code and review receipts are on origin; no retired checkout is needed.
+- Explicit User-Agent setup guidance is in `docs/web-api.md`.
+- Request-level bulk refusals now use the existing redacted denial audit; response envelopes and writers are unchanged.
+- Local Lists reproduction disproved a source-message-specific or remote date-serialization cause: both message-backed and list-authored records warn with a faithful readback. `#ValidateListItem` intentionally leaves numeric `scheduledTime` null, while the writer emits a formatted `created_on` cell. The comparison was using the obsolete numeric representation. It now compares the parsed cell with the existing write formatter; missing/altered cells still warn. This does not recover an exact instant from display text or change scheduling.
+- Focused suites: 188 passed; build passed. Full Jest: 3008 passed, one thread-memory failure matching the outgoing handoff; separate Node suite passed. Evidence and remaining scope: [follow-up verification](../../TESTS-RESULTS/2026-11-06+GH-301/followup-verification.md).
+- Already-dispatched public posts cannot be retracted. Repository-scoped links with removal and an HTTPS connector are the approved direction; the concrete repo allowlist and thread/relay semantics still need a reviewed link-edit plan. The exercised external-bot HTTPS pilot is signed off by the receipt review below; link editing and operational delivery remain open.
 
 ## Problem
 
@@ -403,7 +428,7 @@ Recurrence: not a defect class; unknown trend.
 | 1 no SSH/cookies/tokens/fs for clients | principal token only | — |
 | 2 HTTPS, fail-closed, flag | flag off by default; principals need socket TLS or an exact loopback peer (proxy) | TLS terminator (deploy) |
 | 3 shared command service | handlers reuse the existing bulk prepare/apply path; no second writer | Phase 3 MCP calls the same routes |
-| 4 MCP adapter | — | Phase 3 |
+| 4 MCP adapter | deferred by operator on 2026-11-07 | explicit operator resume only; not a current gate |
 | 5 workspace + read/write scopes, revoke/expiry | yes | assignee ownership (optional) |
 | 6 allowlisted patches | complete/cancel only for principals | Phase 2 |
 | 7 optimistic concurrency | — | Phase 2 (with patches) |
@@ -411,3 +436,7 @@ Recurrence: not a defect class; unknown trend.
 | 9 audit | one redacted line per batch | — |
 | 10 Slack side effects | unchanged writers; no new posts | — |
 | 11 flag + revoke/rollback | yes | pilot (Phase 4) |
+
+## Operator direction (2026-11-07)
+
+Proceed with review and a PR for the three completed follow-ups. Use HTTPS for the remote connector; prefer managed certificate renewal over self-signed client trust setup. Repository-scoped links and removal are the recommended direction, but the concrete repository allowlist and detailed relay behavior still belong in the link-edit plan. Migrate dependent tools to HTTPS before closing direct HTTP access. The later receipt review signs off the exercised external-bot development pilot using its scoped credential; no credential or infrastructure identifiers belong in this public doc.

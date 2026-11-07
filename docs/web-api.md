@@ -439,8 +439,9 @@ Per-item `status` is `completed`, `canceled`, `not-found` (not pending, e.g. alr
 
 A **bot principal** lets an external bot (for example a Cursor agent) read, create, retitle, reschedule,
 complete and cancel reminders in its own workspace, with no SSH, Slack token or server files. It is separate
-from the operator's `WEB_API_BEARER_TOKEN`. Phases 1–2 of #301; editing GitHub links and an MCP adapter come
-later.
+from the operator's `WEB_API_BEARER_TOKEN`. Phases 1–2 of #301; editing GitHub links remains planned.
+The remote MCP adapter is **deferred by operator decision (2026-11-07)**; external bots use these HTTPS
+routes directly. MCP is not a prerequisite for the current API delivery and resumes only on explicit request.
 
 **Off by default.** Set `WEB_API_BOT_PRINCIPALS=1` on the service and restart. With the flag off, a bot token
 is refused like any unknown token (`Forbidden.`).
@@ -454,6 +455,9 @@ proxy on the same host. `X-Forwarded-*` headers are never trusted. Anything else
 - The proxy must accept HTTPS only and overwrite any forwarding headers.
 - Configure bots with an `https://` URL. A refusal cannot un-send a token already sent in plain text.
 - Remote bot use needs such an HTTPS front end in place; deployment details are kept in private ops notes.
+- Send an explicit `User-Agent`, for example `AEGIS-Reminder-Client/1.0`, on reads and writes.
+  An HTTPS front end may block a library default such as `Python-urllib/*` before Sleuth receives it;
+  such a refusal can be a plain HTTP 403 rather than Sleuth's JSON error envelope.
 
 ### Creating, revoking and expiring a principal
 
