@@ -33,7 +33,7 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
-## Unreleased
+## 1.4.349 - 2026-11-07
 
 The bulk-reminder tool now works with scoped bot keys over HTTPS. It uses the versions it backed up and saves an exact request for deliberate retries; it refuses an uncertain create replay that could duplicate a reminder.
 
