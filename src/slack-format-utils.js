@@ -657,10 +657,10 @@ class SlackFormatUtils {
     /** @type {string[]} */
     const Differences = [];
 
-    // Compare scheduled time (allow 1 second tolerance for rounding)
-    const OriginalTime = ArgOriginal.ShouldPostOn?.getTime() || 0;
-    const RestoredTime = ArgRestored.scheduledTime || 0;
-    if(Math.abs(OriginalTime - RestoredTime) > 1000) {
+    // compare the display cell written by the current Lists schema; it has no numeric timestamp.
+    const OriginalTime = SlackFormatUtils.FormatTimestampForDisplay(ArgOriginal.ShouldPostOn);
+    const RestoredTime = ArgRestored.scheduledDisplay || '';
+    if(OriginalTime !== RestoredTime) {
       Differences.push(`Scheduled time: expected ${OriginalTime}, got ${RestoredTime}`);
     }
 

@@ -4,7 +4,7 @@ source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301
 title: "Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH)"
 status: Active (2-WORKING)
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-07
 owner: noel
 goal: "An external bot holding only a revocable, workspace-scoped credential can read reminders and complete or cancel them through the existing Web API, with no SSH, Slack token or filesystem access."
 doc_type: feature
@@ -22,7 +22,16 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| Phase 0–1 shipped in #305. Phase 2 plan approved by Codex (round 2) and implemented on the phase2 branch (2026-11-06). | Phase 2 smoke, final QA and PR. Link editing follow-up; Phase 3 (MCP); Phase 4 pilot running on dev. |
+| Phases 0–1 (#305) and 2 (#306) merged to development; outgoing handoff records passing dev smoke. AgentChorus handoff completed (2026-11-06). | Client User-Agent notes, refusal-audit fix and Lists display-cell check verified locally; see follow-up evidence below. Bounded follow-ups ready for PR; thread-memory failure independently reproduced on development baseline (2026-11-07). Links and Phase 3 MCP remain open; Phase 4 awaits external-bot sign-off. |
+
+## Follow-up findings (2026-11-06)
+
+- Outgoing AgentChorus handoff confirms all code and review receipts are on origin; no retired checkout is needed.
+- Explicit User-Agent setup guidance is in `docs/web-api.md`.
+- Request-level bulk refusals now use the existing redacted denial audit; response envelopes and writers are unchanged.
+- Local Lists reproduction disproved a source-message-specific or remote date-serialization cause: both message-backed and list-authored records warn with a faithful readback. `#ValidateListItem` intentionally leaves numeric `scheduledTime` null, while the writer emits a formatted `created_on` cell. The comparison was using the obsolete numeric representation. It now compares the parsed cell with the existing write formatter; missing/altered cells still warn. This does not recover an exact instant from display text or change scheduling.
+- Focused suites: 188 passed; build passed. Full Jest: 3008 passed, one thread-memory failure matching the outgoing handoff; separate Node suite passed. Evidence and remaining scope: [follow-up verification](../../TESTS-RESULTS/2026-11-06+GH-301/followup-verification.md).
+- Already-dispatched public posts cannot be retracted. Repository-scoped links with removal and an HTTPS connector are the approved direction; the concrete repo allowlist and thread/relay semantics still need a reviewed link-edit plan. External-bot pilot sign-off remains open.
 
 ## Problem
 
@@ -411,3 +420,7 @@ Recurrence: not a defect class; unknown trend.
 | 9 audit | one redacted line per batch | — |
 | 10 Slack side effects | unchanged writers; no new posts | — |
 | 11 flag + revoke/rollback | yes | pilot (Phase 4) |
+
+## Operator direction (2026-11-07)
+
+Proceed with review and a PR for the three completed follow-ups. Use HTTPS for the remote connector; prefer managed certificate renewal over self-signed client trust setup. Repository-scoped links and removal are the recommended direction, but the concrete repository allowlist and detailed relay behavior still belong in the link-edit plan. Migrate dependent tools to HTTPS before closing direct HTTP access. Prepare an external-bot development pilot using its scoped credential; no credential or infrastructure identifiers belong in this public doc.

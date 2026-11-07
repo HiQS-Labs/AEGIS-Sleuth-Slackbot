@@ -1235,6 +1235,11 @@ class WebAPI {
       return;
     }
     const Payload = await Reservation.promise;
+    if(Payload?.success === false) {
+      WebAPI.#LogPrincipalDenied(Payload.code || 'invalid-request', Principal.Id, ArgReq.method, 'bulk');
+      ArgRes.status(200).json(Payload);
+      return;
+    }
     /** @type {Record<string, number>} */
     const ActionCounts = {};
     for(const Item of Prepared) ActionCounts[Item.action] = (ActionCounts[Item.action] || 0) + 1;
