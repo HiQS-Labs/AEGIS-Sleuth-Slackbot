@@ -407,7 +407,7 @@ function ValidateReminderTitle(ArgText, ArgOptions = {}) {
   if(STATUS_REMARK_PATTERN.test(Text)) Reasons.push('status-remark');
   if(DETERMINER_START_PATTERN.test(Text)) Reasons.push('not-imperative');
   if(/(?:…|\.\.\.)$/.test(Text)) Reasons.push('truncated');
-  if(/\b(?:and|or|but)$/i.test(Unquoted.replace(/[\s.!,;:\-–—]+$/, ''))) Reasons.push('incomplete');
+  if(/\b(?:and|or|but)$/i.test(Unquoted.replace(/[\s.!,;:\-–—)\]}]+$/, ''))) Reasons.push('incomplete');
   if(ArgOptions.RequireSingleSentence && HasSentenceBoundary(Text)) Reasons.push('multi-sentence');
   if(ArgOptions.RequireSingleSentence && IsListShaped(Text)) Reasons.push('list');
   if(CountTitleWords(Text) < TITLE_MIN_WORDS) Reasons.push('too-short');

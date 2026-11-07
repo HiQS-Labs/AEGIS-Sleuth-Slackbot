@@ -90,6 +90,12 @@ describe('NormalizeReminderTitle', () => {
 });
 
 describe('ValidateReminderTitle', () => {
+  test.each(['Move the call (Monday or)', 'Move the call [Monday and]', 'Move the call (Monday but).'])('refuses a conjunction hidden by closing punctuation: %s', ArgTitle => {
+    expect(TitleContract.ValidateReminderTitle(ArgTitle).ok).toBe(false);
+  });
+  test.each(['Review "Quarterly AND"', 'Review "Monday or" (draft)'])('preserves quoted task names: %s', ArgTitle => {
+    expect(TitleContract.ValidateReminderTitle(ArgTitle).ok).toBe(true);
+  });
   test.each(['and', 'or', 'but'])('refuses an incomplete trailing %s', ArgConjunction => {
     expect(TitleContract.ValidateReminderTitle(`Move the call to tomorrow ${ArgConjunction}`).ok).toBe(false);
   });
