@@ -3946,15 +3946,15 @@ describe('GH-290: Web API edit writers', () => {
       await WithModuleAsync('links_clear', [Seed('r-links', HoursFromNow(48), {
         GitHubUrls: ['https://github.com/o/r/issues/1'], GitHubRelayStopped: true,
         ReminderMessageText: 'Review https://github.com/o/r/issues/1',
-      })], async (Reminders, SlackApp, Paths) => {
-        const Before = Version(Reminders.GetAllReminders()[0]);
+      })], async (ArgReminders, ArgSlackApp, ArgPaths) => {
+        const Before = Version(ArgReminders.GetAllReminders()[0]);
         let Produced;
-        expect(await Reminders.SetReminderGitHubLinksAsync('r-links', [], 'api-bot:b:set-links', { ExpectedVersion: Before, OnVersion: V => { Produced = V; } })).toBe('updated');
+        expect(await ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'api-bot:b:set-links', { ExpectedVersion: Before, OnVersion: ArgVersion => { Produced = ArgVersion; } })).toBe('updated');
         expect(Produced).not.toBe(Before);
-        expect(JSON.parse(await fs.readFile(Paths.remindersFilePath, 'utf8'))[0]).toMatchObject({ GitHubUrls: [], GitHubRelayStopped: true });
-        expect(JSON.parse(await fs.readFile(CoverageFilePath(workspaces.GetSubdirPath('events'), SlackApp.WorkspaceInfo.WORKSPACE_NAME), 'utf8')).reason).toBe('github-links-edit');
-        await Reminders.StopAsync();
-        const Restarted = new RemindersModule(SlackApp);
+        expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))[0]).toMatchObject({ GitHubUrls: [], GitHubRelayStopped: true });
+        expect(JSON.parse(await fs.readFile(CoverageFilePath(workspaces.GetSubdirPath('events'), ArgSlackApp.WorkspaceInfo.WORKSPACE_NAME), 'utf8')).reason).toBe('github-links-edit');
+        await ArgReminders.StopAsync();
+        const Restarted = new RemindersModule(ArgSlackApp);
         try {
           await Restarted.StartAsync(EmptyWorkspaceStats);
           expect(Restarted.GetAllReminders()[0].GitHubUrls).toEqual([]);
@@ -3962,15 +3962,35 @@ describe('GH-290: Web API edit writers', () => {
       });
     });
 
+    test('a retry cannot acknowledge unchanged links until they are durably saved', async () => {
+      await WithModuleAsync('links_failed_save', [Seed('r-links', HoursFromNow(48), { GitHubUrls: ['https://github.com/o/r/issues/1'] })], async (ArgReminders, ArgSlackApp, ArgPaths) => {
+        const Rename = fs.rename.bind(fs);
+        let FailSave = true;
+        jest.spyOn(fs, 'rename').mockImplementation(async (ArgFrom, ArgTo) => {
+          if(FailSave && ArgTo === ArgPaths.remindersFilePath) throw new Error('simulated links save failure');
+          return Rename(ArgFrom, ArgTo);
+        });
+        try {
+          await expect(ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'bot', { ExpectedVersion: Version(ArgReminders.GetAllReminders()[0]) })).rejects.toThrow('simulated links save failure');
+          expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))[0].GitHubUrls).toHaveLength(1);
+          const ExpectedVersion = Version(ArgReminders.GetAllReminders()[0]);
+          await expect(ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'retry', { ExpectedVersion })).rejects.toThrow('simulated links save failure');
+          FailSave = false;
+          expect(await ArgReminders.SetReminderGitHubLinksAsync('r-links', [], 'retry', { ExpectedVersion })).toBe('unchanged');
+          expect(JSON.parse(await fs.readFile(ArgPaths.remindersFilePath, 'utf8'))[0].GitHubUrls).toEqual([]);
+        } finally { FailSave = false; }
+      });
+    });
+
     test('a link edit rechecks version after its ledger await', async () => {
-      await WithModuleAsync('links_race', [Seed('r-links', HoursFromNow(48))], async Reminders => {
-        const Hold = HoldFirstGapWrite(Reminders.SlackApp.WorkspaceInfo.WORKSPACE_NAME);
-        const Pending = Reminders.SetReminderGitHubLinksAsync('r-links', ['https://github.com/o/r/issues/1'], 'api-bot:b:set-links', { ExpectedVersion: Version(Reminders.GetAllReminders()[0]) });
-        while(!Hold.Engaged()) await new Promise(Resolve => setTimeout(Resolve, 5));
-        await Reminders.UpdateReminderSummaryFromListAsync('r-links', 'Changed by the owner', 'list-edit');
+      await WithModuleAsync('links_race', [Seed('r-links', HoursFromNow(48))], async ArgReminders => {
+        const Hold = HoldFirstGapWrite(ArgReminders.SlackApp.WorkspaceInfo.WORKSPACE_NAME);
+        const Pending = ArgReminders.SetReminderGitHubLinksAsync('r-links', ['https://github.com/o/r/issues/1'], 'api-bot:b:set-links', { ExpectedVersion: Version(ArgReminders.GetAllReminders()[0]) });
+        while(!Hold.Engaged()) await new Promise(ArgResolve => setTimeout(ArgResolve, 5));
+        await ArgReminders.UpdateReminderSummaryFromListAsync('r-links', 'Changed by the owner', 'list-edit');
         Hold.Release();
         expect(await Pending).toBe('conflict');
-        expect(Reminders.GetAllReminders()[0].GitHubUrls).toEqual([]);
+        expect(ArgReminders.GetAllReminders()[0].GitHubUrls).toEqual([]);
       });
     });
 

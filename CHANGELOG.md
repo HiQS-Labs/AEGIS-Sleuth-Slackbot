@@ -35,6 +35,14 @@
 
 ## Unreleased
 
+A thread you stopped stays stopped when reminder links are cleared and restored. If a link edit fails to save, I also wait for a successful save before confirming an unchanged retry.
+
+**Technical:** GH-301 / PR #308 review corrections. Relay stop checks and propagation use all pending
+thread members independently of current linked targets. The link writer persists unchanged retries
+through the existing save chain before acknowledging them. Both review failures were reproduced on the
+prior head; 306 focused tests, build and structural guards pass. Coding-guide callback/JSDoc nits fixed.
+Full local Jest: 3030 pass and the same baseline-confirmed thread-memory failure.
+
 A bot can now replace or remove a reminder's GitHub links, limited to repositories its administrator explicitly grants. If a link changes during a GitHub check or a queued thread reply, I discard the stale action instead of completing or commenting against the old links.
 
 **Technical:** GH-301 scoped `set-links` uses the existing bulk prepare/apply, per-principal

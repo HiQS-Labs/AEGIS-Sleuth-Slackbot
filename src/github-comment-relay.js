@@ -148,12 +148,20 @@ class GitHubCommentRelay {
    * @returns {ReminderInfo[]}
    */
   #FindMonitoredReminders(ArgThreadTs, ArgChannelID) {
+    return this.#FindThreadReminders(ArgThreadTs, ArgChannelID).filter(ArgReminder =>
+      Array.isArray(ArgReminder.GitHubUrls) && ArgReminder.GitHubUrls.length > 0);
+  }
+
+  /**
+   * Find thread members independently of link targets so edits cannot hide the thread stop latch.
+   * @param {string} ArgThreadTs Root thread timestamp.
+   * @param {string} ArgChannelID Channel identity.
+   * @returns {ReminderInfo[]}
+   */
+  #FindThreadReminders(ArgThreadTs, ArgChannelID) {
     return this.#GetPendingReminders().filter(ArgReminder =>
-      (ArgReminder.OriginalThreadTs ?? ArgReminder.OriginalMessageID) === ArgThreadTs &&
-      ArgReminder.OriginalChannelID === ArgChannelID &&
-      Array.isArray(ArgReminder.GitHubUrls) &&
-      ArgReminder.GitHubUrls.length > 0
-    );
+      (ArgReminder.OriginalThreadTs ?? ArgReminder.OriginalMessageID) === ArgThreadTs
+        && ArgReminder.OriginalChannelID === ArgChannelID);
   }
 
   /**
@@ -241,7 +249,7 @@ class GitHubCommentRelay {
       const ThreadTs = await ArgSlackApp.GetMessageThreadTsAsync(ChannelID, MessageTS);
       if(!ThreadTs) return false;
 
-      const MatchingReminders = this.#FindMonitoredReminders(ThreadTs, ChannelID);
+      const MatchingReminders = this.#FindThreadReminders(ThreadTs, ChannelID);
       if(MatchingReminders.length === 0) return false;
 
       // already stopped — nothing to do, and no second acknowledgement.
@@ -327,20 +335,21 @@ class GitHubCommentRelay {
       const WorkspacePat = ArgSlackApp.WorkspaceInfo.GITHUB_PAT;
       if(!WorkspacePat) return false;
 
+      const ThreadReminders = this.#FindThreadReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel);
       const MatchingReminders = this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel);
 
       if(MatchingReminders.length === 0) return false;
 
       // check if any matching reminder has already had its relay stopped.
       // all reminders sharing this thread share the same stop state — check the first one.
-      if(MatchingReminders.some(ArgR => ArgR.GitHubRelayStopped)) return false;
+      if(ThreadReminders.some(ArgR => ArgR.GitHubRelayStopped)) return false;
 
       const MessageText = typeof ArgEventInfo.text === 'string' ? ArgEventInfo.text : '';
 
       // check whether this message contains a stop-relay trigger (🛑, ⏹, or "stop relay").
       if(ContainsStopRelayTrigger(MessageText)) {
         await this.#StopRelayAsync(
-          ArgSlackApp, MatchingReminders, ArgEventInfo.channel, ArgEventInfo.ts, ArgEventInfo.thread_ts
+          ArgSlackApp, ThreadReminders, ArgEventInfo.channel, ArgEventInfo.ts, ArgEventInfo.thread_ts
         );
         return false;
       }
@@ -391,7 +400,7 @@ class GitHubCommentRelay {
       for(const Url of UniqueUrls) {
         // no await between this live check and the synchronous path to fetch in the poster.
         const Current = this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel);
-        if(Current.some(ArgR => ArgR.GitHubRelayStopped)) break;
+        if(this.#FindThreadReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).some(ArgR => ArgR.GitHubRelayStopped)) break;
         const StillEligible = RelevantReminders.some(ArgCandidate => (ArgCandidate.GitHubUrls ?? []).includes(Url)
           && Current.some(ArgLive => ArgLive.ReminderID === ArgCandidate.ReminderID && (ArgLive.GitHubUrls ?? []).includes(Url)));
         if(!StillEligible) continue;
@@ -416,7 +425,7 @@ class GitHubCommentRelay {
         // the JSON store while the projection raises them — the invented-key parity divergence that
         // file documents. Parity outranks the cosmetic cost, which is that a later first comment on
         // a not-yet-relayed issue in the same thread omits the Slack permalink.
-        const NewlyStarted = this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).filter(ArgR => !ArgR.GitHubRelayStarted);
+        const NewlyStarted = this.#FindThreadReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).filter(ArgR => !ArgR.GitHubRelayStarted);
         if(NewlyStarted.length > 0) {
           for(const StartedReminder of NewlyStarted)
             StartedReminder.GitHubRelayStarted = true;
@@ -431,8 +440,8 @@ class GitHubCommentRelay {
 
           // a stop may interleave the fetch/reaction/save awaits; never emit a stale false stop state.
           if(StartSaveSucceeded) this.#EmitThreadRelayState(ArgEventInfo.thread_ts, true,
-            MatchingReminders.some(ArgR => ArgR.GitHubRelayStopped)
-              || this.#FindMonitoredReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).some(ArgR => ArgR.GitHubRelayStopped));
+            ThreadReminders.some(ArgR => ArgR.GitHubRelayStopped)
+              || this.#FindThreadReminders(ArgEventInfo.thread_ts, ArgEventInfo.channel).some(ArgR => ArgR.GitHubRelayStopped));
         }
       }
 

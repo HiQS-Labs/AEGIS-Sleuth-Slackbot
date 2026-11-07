@@ -129,6 +129,21 @@ describe('GitHubCommentRelay.OnMessageAsync', () => {
     if(FetchSpy.mock.calls.length) expect(FetchSpy.mock.calls[0][0]).toContain('/issues/1/comments');
   });
 
+  test('clearing and restoring sibling links cannot hide a thread stop', async () => {
+    const Parent = '1700000000.000001';
+    const Link = 'https://github.com/owner/repo/issues/1';
+    const First = CreateMonitoredReminder(Parent, 'C_DEV', [Link]);
+    const Second = { ...CreateMonitoredReminder(Parent, 'C_DEV', []), ReminderID: 'rem-002' };
+    const Relay = new GitHubCommentRelay(SlackApp, () => [First, Second], jest.fn().mockResolvedValue(undefined), null, AlwaysRelayAI);
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'stop relay', ts: '1700000000.000002', thread_ts: Parent, user: 'U_ALICE' });
+    expect(First.GitHubRelayStopped).toBe(true);
+    Second.GitHubUrls = [Link];
+    First.GitHubUrls = [];
+    await Relay.OnMessageAsync(SlackApp, { channel: 'C_DEV', text: 'Review this task', ts: '1700000000.000003', thread_ts: Parent, user: 'U_ALICE' });
+    expect(FetchSpy).not.toHaveBeenCalled();
+    expect(Second.GitHubRelayStopped).toBe(true);
+  });
+
   test('clearing one reminder does not silence an originally eligible sibling with the same link', async () => {
     const Parent = '1700000000.000001';
     const Link = 'https://github.com/owner/repo/issues/1';

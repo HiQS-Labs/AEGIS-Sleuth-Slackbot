@@ -42,3 +42,7 @@ Extend web-api-reminders tests for allowlist/version/replay; reminders-integrati
 ## Unknowns and boundaries
 
 Concrete production repository grants are operator config, not inferred from display/client repo patterns. No grants will be installed by this code change. Presentation consumers were bounded to existing live reads; no historical reminder rewrite. No external consumer or live-provider response has been exhaustively audited. No guarantee against already-dispatched GitHub writes is possible.
+
+## Review correction — empty links and unsaved retries
+
+PR308 review reproduced a missed seam: thread stop state must be read and propagated across all pending thread members, independently of which currently have target URLs. The new thread-member helper owns this selection. Unchanged setter retries also need a serialized save before success, because the prior failed attempt may already have changed memory. Regression evidence is in links-verification.md.

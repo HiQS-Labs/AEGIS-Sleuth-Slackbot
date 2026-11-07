@@ -1198,7 +1198,11 @@ class RemindersModule {
     const Reminder = this.#PendingRemindersQueue.find(ArgR => ArgR.ReminderID === ArgReminderID);
     if(!Reminder) return 'not-found';
     if(ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion) return 'conflict';
-    if(Array.isArray(Reminder.GitHubUrls) && JSON.stringify([...Reminder.GitHubUrls].sort()) === JSON.stringify(Links)) return 'unchanged';
+    if(Array.isArray(Reminder.GitHubUrls) && JSON.stringify([...Reminder.GitHubUrls].sort()) === JSON.stringify(Links)) {
+      // a prior attempt may have mutated memory then failed its save; never acknowledge an unsaved retry.
+      await this.#SaveRemindersAsync();
+      return 'unchanged';
+    }
     await this.#RecordLedgerGapAsync('github-links-edit');
     const Current = this.#PendingRemindersQueue.find(ArgR => ArgR.ReminderID === ArgReminderID);
     if(Current !== Reminder || (ArgOptions.ExpectedVersion && RemindersModule.GetReminderVersion(Reminder) !== ArgOptions.ExpectedVersion)) return 'conflict';

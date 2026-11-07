@@ -89,9 +89,10 @@ function IssueKey(ArgRepo, ArgNumber) {
 }
 
 /**
- * Validate an exact GitHub repository grant; no wildcards, URL paths or substring matching.
+ * Validate an exact GitHub repository grant; return its canonical key or null.
+ * No wildcards, URL paths or substring matching.
  * @param {unknown} ArgRepository Repository in owner/repo form.
- * @returns {string|null} Canonical repository key, or null.
+ * @returns {string|null}
  */
 function CanonicalGitHubRepository(ArgRepository) {
   if(typeof ArgRepository !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/.test(ArgRepository)) return null;
@@ -100,9 +101,9 @@ function CanonicalGitHubRepository(ArgRepository) {
 }
 
 /**
- * Validate and canonicalize a replacement link set at the API/writer boundary.
+ * Validate a replacement link set; return canonical HTTPS issue/PR URLs, deduplicated and sorted.
  * @param {unknown} ArgUrls Entire replacement array; [] explicitly removes links.
- * @returns {string[]} Canonical HTTPS issue/PR URLs, deduplicated and sorted.
+ * @returns {string[]}
  */
 function NormalizeGitHubLinks(ArgUrls) {
   if(!Array.isArray(ArgUrls) || ArgUrls.length > 20) throw new Error('githubUrls must be an array of at most 20 GitHub issue/PR URLs.');

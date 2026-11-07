@@ -697,8 +697,8 @@ describe('GitHubSyncModule.RunNowAsync — notification wording', () => {
     const SlackApp = new MockSlackApp({ WorkspaceInfo: CreateWorkspaceInfo() });
     const Harness = CreateRemindersModuleHarness(SlackApp, Reminder);
     const Before = require('../src/reminders-module').GetReminderVersion(Reminder);
-    Harness.CompleteReminderByIdAsync.mockImplementation(async (_Id, _Reason, Options) =>
-      Options.ExpectedVersion === require('../src/reminders-module').GetReminderVersion(Reminder) ? true : 'conflict');
+    Harness.CompleteReminderByIdAsync.mockImplementation(async (ArgId, ArgReason, ArgOptions) =>
+      ArgOptions.ExpectedVersion === require('../src/reminders-module').GetReminderVersion(Reminder) ? true : 'conflict');
     FetchSpy.mockImplementation(async () => {
       Reminder.GitHubUrls = [];
       return { ok: true, status: 200, json: async () => ({ state: 'closed' }) };

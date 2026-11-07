@@ -26,3 +26,11 @@ Root cause addressed: async consumers acted on mutable/stale link snapshots; fix
 ## Limits and rollback
 
 No live deployment smoke, no production repository grants installed, and no actual public GitHub comments. Link edits preserve thread-stop flags and creation-time identity. New links become candidates for future messages, never old relevance decisions. Stored arrays/[] are compatible with rollback base; reverting removes the action while preserving readable data. MCP remains deferred; create retry retention is unchanged.
+
+## PR #308 review corrections (2026-11-07)
+
+- Verified four inline findings against source and coding conventions. Two safety findings reproduced with new regressions on head `4a85035`: a stopped reminder hidden by [] allowed a sibling to relay after link rotation; an unchanged retry resolved while both its first save and retry save should fail. Both tests failed before the fixes (the retry explicitly resolved instead of rejecting).
+- Separate all pending thread members from linked targets. Stop checks and state propagation now include members with empty links; AI/URL target selection still uses linked reminders. Stops remain thread-wide and cannot be hidden by link edits.
+- Before acknowledging unchanged links, await the existing serialized save. A repeated save failure still rejects; after recovery, [] is persisted before success. No rollback overwrites a concurrent edit.
+- Renamed new callbacks with Arg prefixes and moved return descriptions into main JSDoc comments as required by docs/coding-conventions.md.
+- Corrected candidate: **306 focused tests pass**, build and FSM/isolation/render/pipeline guards pass. Full Jest: **3030 pass, 1 same baseline-known thread-memory failure**. No live writes/deployment.
