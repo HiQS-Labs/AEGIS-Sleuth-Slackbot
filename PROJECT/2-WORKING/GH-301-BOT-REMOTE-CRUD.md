@@ -22,7 +22,7 @@ non_goals:
 
 | What was just completed | What's next |
 |---|---|
-| PR #307 merged as `891f741` with current-head CI passing. API pilot receipt review passed. Scoped link edits implemented and locally verified (304 focused tests; build/guards pass). | Review and deliver scoped link edits, then bot-compatible bulk tooling and HTTPS migration/direct-HTTP closure. MCP remains deferred. |
+| PR #307 merged as `891f741`; scoped links and review fixes merged in #308 as `6593629`, both with current-head CI passing. Bulk CLI bot compatibility verified locally with build, focused checks and a real read-only HTTPS backup; see the linked bulk-client evidence for current counts. | Review/deliver the bulk CLI, then migrate dependent tools to HTTPS and close direct HTTP access. MCP remains deferred. |
 
 ## Scope decision — remote MCP deferred (2026-11-07)
 
@@ -34,9 +34,9 @@ non_goals:
 
 ### Remaining active work
 
-1. Finish review and landing of #307; verify its delivery separately from the pilot. The known local thread-memory failure is independently reproduced on the baseline.
-2. Plan and implement allowlisted GitHub link edits, including explicit removal to `[]`, a concrete repository allowlist, current-link rechecks before sync completion/public relay dispatch, and deliberate thread/sibling semantics. No promise of recalling already-dispatched comments.
-3. Resolve principal support in `bulk-edit-reminders`: direct HTTPS is already proven; if the skill becomes a bot entry point it must send versions and idempotency keys. It is not a current bot-compatible entry point.
+1. Delivered: #307 merged as `891f741` after current-head CI passed. Deployment evidence remains separate from the pilot; the known local thread-memory failure is independently reproduced on baseline.
+2. Delivered: scoped link editing and consumer/thread guards merged in #308 as `6593629` after current-head CI passed. Explicit repository grants and removal are supported; already-dispatched comments cannot be recalled.
+3. Implemented and locally verified: `bulk-edit-reminders` supports bot keys over direct HTTPS with backed-up versions, idempotency and guarded explicit edit/lifecycle replay. Complete review and landing of #309; all create replays are refused. See the bulk-client verification below.
 4. Migrate dependent operator tooling to HTTPS before closing direct HTTP exposure; keep production promotion and deployment evidence separate.
 5. Reconcile the issue, roadmap and project lifecycle after the active scope is delivered. Keep the pending-only durable create-retry limitation documented; widen retention only for demonstrated need. MCP stays deferred.
 
@@ -454,3 +454,7 @@ Recon: [scoped links map](../../docs/recon-gh301-links.md), base `891f741` (PR #
 Reversibility: code is reversible; already-dispatched public comments are not. Defaults grant no new repository reach. No live grants or link writes are part of local verification. MCP remains deferred. The pending-only create-retry contract remains unchanged.
 
 Link verification: [304 focused passes, five witnessed negative controls, build/guards and full-suite limitation](../../TESTS-RESULTS/2026-11-07+GH-301/links-verification.md).
+
+## Bulk-client delivery (2026-11-07)
+
+Principal-aware bulk tooling is implemented using the existing CLI and API, including versions, idempotency, private prepared requests and explicit safe replay. All create replays are refused to avoid a pending-read/concurrent-close race. Prepared requests stay immutable and responses use separate result files. No automatic retries. [Verification and limits](../../TESTS-RESULTS/2026-11-07+GH-301/bulk-client-verification.md). New live mutations were not performed. The pending-only server create-retry limitation remains unchanged.
