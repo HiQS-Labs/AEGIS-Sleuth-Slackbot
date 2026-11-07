@@ -7,6 +7,7 @@ const {
   ShouldPostStartupMessage,
   ShouldIncludeStartupChangelog,
   BuildStartupChangelogExcerpt,
+  BuildStartupUpdateHeader,
 } = require('../src/startup-message');
 
 const PLACEHOLDER_MARKERS = ['<!--', '-->', 'HOW TO WRITE AN ENTRY'];
@@ -110,6 +111,14 @@ describe('ShouldIncludeStartupChangelog — the 2x2 truth table', () => {
 });
 
 describe('BuildStartupChangelogExcerpt', () => {
+  test('unreleased startup notes use a friendly label and exclude implementation details', () => {
+    const Excerpt = BuildStartupChangelogExcerpt('## Unreleased\nA bot can now update reminders safely.\n\n**Technical:** internal implementation detail.', 50);
+    expect(Excerpt).toContain('Latest changes');
+    expect(Excerpt).toContain('A bot can now update reminders safely.');
+    expect(Excerpt).not.toContain('Unreleased');
+    expect(Excerpt).not.toContain('Technical');
+    expect(Excerpt).not.toContain('internal implementation');
+  });
   // Reproduces the exact prod incident (v1.4.236 boot message): a raw whole-file word-truncate
   // surfaced the top-of-file "HOW TO WRITE AN ENTRY" authoring note instead of the newest entry.
   test('never surfaces the authoring note above the first version heading', () => {
@@ -184,5 +193,14 @@ describe('BuildStartupChangelogExcerpt', () => {
     for(const Marker of PLACEHOLDER_MARKERS) {
       expect(Excerpt).not.toContain(Marker);
     }
+  });
+});
+
+describe('BuildStartupUpdateHeader', () => {
+  test.each(['unknown', 'detached', 'HEAD', ''])('omits unavailable branch %p', ArgBranch => {
+    expect(BuildStartupUpdateHeader('1.4.349', ArgBranch)).toBe('Sleuth has been updated to 1.4.349');
+  });
+  test('retains a known branch', () => {
+    expect(BuildStartupUpdateHeader('1.4.349', 'development')).toBe('Sleuth has been updated to 1.4.349 from the development branch');
   });
 });

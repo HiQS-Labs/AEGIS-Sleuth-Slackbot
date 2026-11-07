@@ -35,6 +35,10 @@
 
 ## 1.4.349 - 2026-11-07
 
+Your bot can now safely update reminders and GitHub links. My update notice also gives you a clear summary: development notes say “Latest changes,” and unavailable branch names are left out.
+
+**Technical:** startup-message helpers rename an Unreleased excerpt heading, stop before the technical block, and omit unknown/detached Git branch labels. Package version remains the deployed package value; full changelog commands remain unchanged. Existing startup tests cover the screenshot and unavailable/known branches.
+
 The bulk-reminder tool now works with scoped bot keys over HTTPS. It uses the versions it backed up and saves an exact request for deliberate retries; it refuses an uncertain create replay that could duplicate a reminder.
 
 **Technical:** GH-301 bulk CLI: principal detection, HTTPS/no-tunnel requirement, explicit User-Agent,

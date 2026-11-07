@@ -31,6 +31,7 @@ const {
   ShouldPostStartupMessage,
   ShouldIncludeStartupChangelog,
   BuildStartupChangelogExcerpt,
+  BuildStartupUpdateHeader,
 } = require('./startup-message');
 const {
   DEFAULT_TIMEOUT_MS: STARTUP_GITHUB_ACTIONS_TIMEOUT_MS,
@@ -156,7 +157,7 @@ async function PostStartupNotificationAsync(ArgSlackApps, ArgLogger) {
 
       const IncludeChangelog = ShouldIncludeStartupChangelog(SlackAppInstance.WorkspaceInfo);
       const StartupMessageParts = [
-        `Sleuth has been updated to ${Version} from the ${CurrentBranch} branch`,
+        BuildStartupUpdateHeader(Version, CurrentBranch),
         IncludeChangelog ? ChangelogSnippet : '',
       ].filter(Boolean);
       const StartupMessage = StartupMessageParts.join('\n');
