@@ -6,5 +6,7 @@
     "final-full-test": 1,
     "final-node-test": 0,
     "final-replay": 0
-  }
+  },
+  "recordKind": "historical corrected-runtime qualification",
+  "supersededBy": "short-acronym-final-gates.json"
 }

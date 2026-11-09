@@ -31,5 +31,7 @@
     "mode": "observe",
     "clean": false,
     "note": "Unrelated existing findings; own registered working plan excludes legacy-only roadmap coverage."
-  }
+  },
+  "recordKind": "historical qualification snapshot",
+  "supersededBy": "final-gates.json"
 }
