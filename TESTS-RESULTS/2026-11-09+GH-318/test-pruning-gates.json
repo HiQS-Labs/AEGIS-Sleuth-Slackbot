@@ -1,0 +1,10 @@
+{
+  "baseHead": "6e7b052d1cfd309f441832893869cdec6319d163",
+  "results": {
+    "pruned-focused": 0,
+    "pruned-build": 0,
+    "pruned-full": 1,
+    "pruned-node": 0,
+    "pruned-replay": 0
+  }
+}

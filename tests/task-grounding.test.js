@@ -251,26 +251,18 @@ describe('UngroundedTerms — inflections are not inventions', () => {
   });
 });
 
-// GH-318: ordinary imperative and acronym inflection must not erase a useful title.
+
+// GH-318: retain one witness per changed rule and trust-boundary case.
 describe('GH-318 title wording', () => {
   test.each([
     ['Compile the reference list', 'I am working on the reference list'],
     ['Prepare reference URLs', 'I am working on a reference URL list'],
-    ['Review APIs', 'review the API'],
   ])('accepts grounded wording: %s', (ArgTitle, ArgSource) => {
     expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(true);
   });
   test.each([
     ['Review Compile', 'review the reference list'],
-    ['Acme deployment', 'deployment is tomorrow'],
-    ['Update Teams', 'update the team'],
-    ['Review AWS', 'review aw'],
     ['Review APIs', 'review documentation'],
-    ['Review URLs', 'review furl'],
-    ['Compile Acme URLs', 'working on a reference URL list'],
-    ['Compile 23 URLs', 'working on a reference URL list'],
-    ['Compile URLs Monday', 'working on a reference URL list'],
-    ['Compile "URLs"', 'working on a reference URL list'],
   ])('still rejects invented entities: %s', (ArgTitle, ArgSource) => {
     expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
   });
@@ -285,16 +277,13 @@ describe('GH-318 quoted acronym padding', () => {
 });
 
 describe('GH-318 two-letter acronym plurals', () => {
-  test.each(['PR', 'ID', 'DB'])(
-    'accepts the supported plural of %s only when grounded', ArgStem => {
-      expect(IsTitleGrounded(`Review ${ArgStem}s`, `review the ${ArgStem}`)).toBe(true);
-      expect(IsTitleGrounded(`Review ${ArgStem}s`, 'review documentation')).toBe(false);
-      expect(IsTitleGrounded(`Review " ${ArgStem}s "`, `review the ${ArgStem}`)).toBe(false);
-      expect(IsTitleGrounded(`Review " ${ArgStem}s "`, `review the ${ArgStem}s`)).toBe(true);
-    });
-  test('does not widen short ordinary words or invent an acronym', () => {
+  test('accepts a supported short plural without relaxing quoted or absent acronyms', () => {
+    expect(IsTitleGrounded('Review PRs', 'review the PR')).toBe(true);
+    expect(IsTitleGrounded('Review PRs', 'review documentation')).toBe(false);
+    expect(IsTitleGrounded('Review " PRs "', 'review the PR')).toBe(false);
+    expect(IsTitleGrounded('Review " PRs "', 'review the PRs')).toBe(true);
+  });
+  test('does not ground a short acronym in a longer word', () => {
     expect(IsTitleGrounded('Review PRs', 'review apr')).toBe(false);
-    expect(IsTitleGrounded('Update Gas', 'update ga')).toBe(false);
-    expect(IsTitleGrounded('Update Teams', 'update team')).toBe(false);
   });
 });

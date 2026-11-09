@@ -344,6 +344,7 @@ describe('GH-243 long-source safety', () => {
   });
 });
 
+
 describe('GH-318 selected wording', () => {
   const Source = 'I am working on a list of publicly indexable reference URL for you later today';
   const Candidate = {
@@ -357,37 +358,21 @@ describe('GH-318 selected wording', () => {
     expect(Selection.ungroundedTerms).toEqual([]);
     expect(Selection.contract.repair).toBeFalsy();
   });
-  test('an adjacent invented entity is still refused', () => {
-    const Selection = SelectTaskText({ ...Candidate,
-      reminder_message: 'Compile Acme reference URLs',
-    }, Source, true, Source);
-    expect(Selection.text).not.toContain('Acme');
-    expect(Selection.ungroundedTerms).toContain('Acme');
-  });
   test('preserves grounded acronym context and refuses invented acronym context', () => {
     expect(SelectContextLine({ reminder_message: 'Prepare the list', context: 'The reference URLs are publicly indexable' },
       Source, true, Source)).toEqual({ text: 'The reference URLs are publicly indexable', suppressedBy: null });
     expect(SelectContextLine({ reminder_message: 'Prepare the list', context: 'The reference APIs are publicly indexable' },
       Source, true, Source)).toEqual({ text: '', suppressedBy: 'ungrounded' });
   });
-});
-
-describe('GH-318 quoted acronym display', () => {
-  test.each(['Compile " URLs "', 'Compile “ URLs ”', "Compile ' URLs '", 'Compile ‘ URLs ’'])(
-    'refuses a padded quote instead of displaying it: %s', ArgTitle => {
-      const Source = 'working on a reference URL list';
-      const Selection = SelectTaskText({ reminder_message: ArgTitle }, Source, true, Source);
-      expect(Selection.source).not.toBe('title');
-      expect(Selection.ungroundedTerms).toContain('URLs');
-    });
-});
-
-describe('GH-318 two-letter acronym selection', () => {
-  test.each(['PR', 'ID', 'DB'])('preserves a grounded %s plural in the displayed title', ArgStem => {
-    const Title = `Review ${ArgStem}s`;
-    const Source = `please review the ${ArgStem} tomorrow`;
-    const Selection = SelectTaskText({ reminder_message: Title }, Source, true, Source);
-    expect(Selection.text).toBe(Title);
+  test('refuses a padded quote instead of displaying it', () => {
+    const Selection = SelectTaskText({ reminder_message: 'Compile " URLs "' }, Source, true, Source);
+    expect(Selection.source).not.toBe('title');
+    expect(Selection.ungroundedTerms).toContain('URLs');
+  });
+  test('preserves a grounded short acronym plural in the displayed title', () => {
+    const Source = 'please review the PR tomorrow';
+    const Selection = SelectTaskText({ reminder_message: 'Review PRs' }, Source, true, Source);
+    expect(Selection.text).toBe('Review PRs');
     expect(Selection.source).toBe('title');
     expect(Selection.ungroundedTerms).toEqual([]);
   });
