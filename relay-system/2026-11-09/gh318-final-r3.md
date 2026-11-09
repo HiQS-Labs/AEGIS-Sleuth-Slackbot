@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-09.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -80,5 +80,32 @@ Grade against the small intended class, not speculative new architecture or expa
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 3
+VERDICT: PASS
+Basis: Ship with conditions. The intended two-letter plural-acronym correction is surgical and supported by source inspection and narrow probes. This approves implementation QA only; final-code full qualification and exact-head hosted checks remain pending.
+swept file: yes
+
+Reviewed HEAD: 30dd58eb496010e2dd2d33e2b95628509e24e797 (read directly from worktree HEAD; no git command). Read the entire seeded artifact, helper, selector, title contract, both named test files, relevant reminder-module callers/repair paths, prior final-QA thread, incremental patch and retained verification receipts. No additional actionable pre-existing defect found in the swept helper/selector/contract files. Existing documented lowercase-entity and deterministic-normalization limits remain.
+
+- [Pass] Matcher reuse and scope: src/task-grounding.js:240 selects the shorter floor only for literal uppercase two-letter stems plus lowercase s; :241 and :256 keep both suffix comparisons behind ArgAllowPlural. The exported IsTermGrounded signature remains unchanged. UngroundedTerms and IsBareProperNoun retain quote provenance and proper-name controls. The incremental patch changes no provider, prompt, admission, workspace owner or write path. Keep this bounded implementation.
+- [Pass] Selected output and refusal controls: tests/reminder-display-selection.test.js:386 asserts exact Review PRs/IDs/DBs titles with source=title; tests/task-grounding.test.js:289 covers invented acronyms, padded quotes and exact-source positives. Existing controls retain Teams, AWS, figures/dates, nonleading Compile and substring refusals. The 52-check inline Node probe exited 0 with decisive output `{"checks":52,"failures":[]}`; it exercised all three stems through helper and selector, ArgAllowPlural=false positive/negative paths, four quote styles with padding, and adjacent Compile/URL/API/Teams/Gas/AWS/number/date/Acme controls. A second fully reproducible probe follows; exit 0, stdout `[["PR","title",false,false],["ID","title",false,false],["DB","title",false,false]]`.
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node <<'NODE'
+const G=require('./src/task-grounding'), S=require('./src/reminder-display-selection');
+const rows=['PR','ID','DB'].map(x=>[x,S.SelectTaskText({reminder_message:'Review '+x+'s'},'review the '+x,true).source,G.IsTermGrounded(x+'s',G.GroundingTokens(x),false),G.IsTitleGrounded('Review " '+x+'s "','review '+x)]);
+console.log(JSON.stringify(rows));
+process.exitCode=rows.every(r=>r[1]==='title'&&r[2]===false&&r[3]===false)?0:1;
+NODE
+```
+
+- [Pass] Consumer continuity: src/reminder-display-selection.js:291 rechecks normalized title grounding and :431 checks context with the same helper; src/reminders-module.js:2754/:2797 delegate to those selectors, and :2908/:2931 reuse selection before/after bounded model repair. No parallel matching subsystem or changed call contract is needed.
+- [Unverified — no citation] Evidence attribution is truthful: verification.md, “Greptile two-letter acronym correction,” records “6 failed/248 passed” then “254/254,” and “All50 captured candidate/context selections remain identical ... 0 new model calls.” This is adequate focused evidence for this narrow correction, together with the direct probes. aggregate-comparison.json pins the historical 54 comparisons, fallback4→0 and repair6→0 to implementationCommit 835f6ca1105d1e324e1c6c58509aba9c3b1133bd; verification.md explicitly retains that attribution after later fixes. These are retained aggregate receipts, not independently remeasured private provider responses. No general model winner, new API run or production change is claimed.
+- [Unverified — needs clone run] Final-code full gates and latest exact-head hosted status remain outstanding. verification.md ends “correction has fresh round3 QA pending and needs final-code qualification.” final-gates.json belongs to fa984388acbe8f1f545ea0d878d4d092152b055c, with final-full-test=1; the older hosted success is explicitly bound to 058e040363eca3304da04b4de9782a860be8f56d. Neither qualifies reviewed 30dd58e. Preserve the known baseline thread-memory failure and pending checks; harness must run qualification in the disposable full clone. No suite, executable fixture, network/private-data access, git command, source/artifact edit or production action was performed this turn.
+
+Relay closed (Approved), no further turn needed. Harness owns the file-scoped commit, attestation and subsequent qualification gates.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
