@@ -343,3 +343,31 @@ describe('GH-243 long-source safety', () => {
     expect(SelectContextLine({ reminder_message: 'Review the plan', context: Original }, Original, true, Original).text).toBe('');
   });
 });
+
+describe('GH-318 selected wording', () => {
+  const Source = 'I am working on a list of publicly indexable reference URL for you later today';
+  const Candidate = {
+    reminder_message: 'Compile a list of publicly indexable reference URLs',
+    actionable_language: 'I am working on a list of publicly indexable reference URL for you',
+  };
+  test('retains the useful final title rather than repairing or falling back', () => {
+    const Selection = SelectTaskText(Candidate, Source, true, Source);
+    expect(Selection.text).toBe(Candidate.reminder_message);
+    expect(Selection.source).toBe('title');
+    expect(Selection.ungroundedTerms).toEqual([]);
+    expect(Selection.contract.repair).toBeFalsy();
+  });
+  test('an adjacent invented entity is still refused', () => {
+    const Selection = SelectTaskText({ ...Candidate,
+      reminder_message: 'Compile Acme reference URLs',
+    }, Source, true, Source);
+    expect(Selection.text).not.toContain('Acme');
+    expect(Selection.ungroundedTerms).toContain('Acme');
+  });
+  test('preserves grounded acronym context and refuses invented acronym context', () => {
+    expect(SelectContextLine({ reminder_message: 'Prepare the list', context: 'The reference URLs are publicly indexable' },
+      Source, true, Source)).toEqual({ text: 'The reference URLs are publicly indexable', suppressedBy: null });
+    expect(SelectContextLine({ reminder_message: 'Prepare the list', context: 'The reference APIs are publicly indexable' },
+      Source, true, Source)).toEqual({ text: '', suppressedBy: 'ungrounded' });
+  });
+});

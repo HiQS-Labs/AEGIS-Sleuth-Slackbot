@@ -20,7 +20,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Reproduced rejection of Compile and URLs on current development | Independent plan QA before code edits |
+| Plan QA Approved; red control reproduced and focused239/239 green | Build and frozen private real-source repeat, then final QA |
 
 ## Requirements and smallest viable bet
 Source `I am working on a list of publicly indexable reference URL for you later today` with candidate `Compile a list of publicly indexable reference URLs` currently rejects Compile/URLs and can select a generic fallback. Extend existing src/task-grounding.js only: add compile to the bounded leading ImperativeVerbs set; let an ASCII uppercase acronym followed by lowercase plural s (URLs, APIs) use existing whole-token plural matching. Keep ordinary capitalized proper nouns (Teams), quoted strings, dates, figures and invented identifiers checked. No global first-word exemption or general proper-noun plural tolerance. No prompt, model, admission, CRUD, persistence/FSM, server, deploy or framework changes.

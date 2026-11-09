@@ -250,3 +250,28 @@ describe('UngroundedTerms — inflections are not inventions', () => {
     expect(IsTitleGrounded('Deploy Prod', 'deploy prodx tomorrow')).toBe(false);
   });
 });
+
+// GH-318: ordinary imperative and acronym inflection must not erase a useful title.
+describe('GH-318 title wording', () => {
+  test.each([
+    ['Compile the reference list', 'I am working on the reference list'],
+    ['Prepare reference URLs', 'I am working on a reference URL list'],
+    ['Review APIs', 'review the API'],
+  ])('accepts grounded wording: %s', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(true);
+  });
+  test.each([
+    ['Review Compile', 'review the reference list'],
+    ['Acme deployment', 'deployment is tomorrow'],
+    ['Update Teams', 'update the team'],
+    ['Review AWS', 'review aw'],
+    ['Review APIs', 'review documentation'],
+    ['Review URLs', 'review furl'],
+    ['Compile Acme URLs', 'working on a reference URL list'],
+    ['Compile 23 URLs', 'working on a reference URL list'],
+    ['Compile URLs Monday', 'working on a reference URL list'],
+    ['Compile "URLs"', 'working on a reference URL list'],
+  ])('still rejects invented entities: %s', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
+  });
+});
