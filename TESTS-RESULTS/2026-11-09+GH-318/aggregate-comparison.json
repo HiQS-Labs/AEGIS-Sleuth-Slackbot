@@ -1,0 +1,25 @@
+{
+  "comparisons": 54,
+  "matchedInputsIncludingBaseline": 54,
+  "diskReadback": 54,
+  "calls": 138,
+  "estimatedUsd": 1.6360553999999987,
+  "fixedOutputRetained": 6,
+  "fixedOutputBeforeRetained": 0,
+  "implementationCommit": "835f6ca1105d1e324e1c6c58509aba9c3b1133bd",
+  "genericFallbackCases": {
+    "before": 4,
+    "branch": 0
+  },
+  "repairCases": {
+    "before": 6,
+    "branch": 0
+  },
+  "limitations": [
+    "one selected9-case pass",
+    "one historical case excluded",
+    "current-code replay, not live Slack ingress/Lists/delivery",
+    "fresh-model admission variability",
+    "full Jest failure independently present on baseline"
+  ]
+}

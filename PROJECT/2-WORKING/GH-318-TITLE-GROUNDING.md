@@ -12,6 +12,7 @@ effort: 2
 complexity: 2
 risk: 2
 phases: 1
+roadmap_exempt: true
 ---
 
 # GH-318 — Title grounding
@@ -20,7 +21,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA Approved; red control reproduced and focused239/239 green | Build and frozen private real-source repeat, then final QA |
+| Code and frozen54 comparisons verified; baseline full-suite failure independently reproduced | Final independent QA, hosted gates, then PR readiness |
 
 ## Requirements and smallest viable bet
 Source `I am working on a list of publicly indexable reference URL for you later today` with candidate `Compile a list of publicly indexable reference URLs` currently rejects Compile/URLs and can select a generic fallback. Extend existing src/task-grounding.js only: add compile to the bounded leading ImperativeVerbs set; let an ASCII uppercase acronym followed by lowercase plural s (URLs, APIs) use existing whole-token plural matching. Keep ordinary capitalized proper nouns (Teams), quoted strings, dates, figures and invented identifiers checked. No global first-word exemption or general proper-noun plural tolerance. No prompt, model, admission, CRUD, persistence/FSM, server, deploy or framework changes.
@@ -28,6 +29,8 @@ Source `I am working on a list of publicly indexable reference URL for you later
 ## Recon and evidence
 Base: 6c5576ecb5bdce9085433a995ab2d97a5ed828b1. src/reminders-module.js calls reminder-display-selection.js and reminder-title-contract.js; both consume UngroundedTerms from task-grounding.js; refused candidates can reach bounded model repair and generic fallback. Context-line grounding shares the same helper, so preserve its controls as well. IsBareProperNoun currently classifies URLs as a capitalized bare name, disabling the existing plural tolerance. ExtractGroundedTerms only exempts recognized opening verbs; compile is absent. Source, candidate and final selected text must be observed separately; stronger raw drafts alone do not prove the saved output improved.
 Public prior art #68/#69 already widened grounding to analyzed context; current defect remains with identical source context and different token classification. #250/#316 cover broader title/evaluation work, not this specific token bug. Recent 14 days versus preceding14: one distinct newly observed incident from frozen local replay; older #68 is a different context defect; no established increasing incident rate. Full recurrence coverage unknown.
+
+The task is registered in the RELEASES roadmap. `roadmap_exempt` suppresses the legacy ROADMAP.md-only coverage check, which does not read this repo's canonical DB. The intake redirect preserves the registered pointer.
 
 ## Rating rationale (2026-11-09)
 PRS rated 75/55/50/85: user-selected priority, recoverable loss of title specificity with original source retained, appeal neutral, bounded existing-rule edit and focused coverage. No operator override. PDDA size/risk fields are distinct planning metadata.

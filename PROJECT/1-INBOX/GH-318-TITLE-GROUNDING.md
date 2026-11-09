@@ -5,6 +5,7 @@ source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/318
 status: Promoted
 created: 2026-11-09
 doc_type: bugfix
+roadmap_exempt: true
 ---
 
 # GH-318 intake
