@@ -28,3 +28,6 @@ Reviewer found padded quoted URLs bypassed quote provenance (discarded review tr
 Plan QA Approved at84feb73b; final QA round2 Approved at75b5bb7, attested in fa984388acbe8f1f545ea0d878d4d092152b055c. Reviewer repeated15 concrete controls100 times, zero mismatches. Source runtime is unchanged between reviewed75b5bb7 and testedfa984388. See committed relay threads.
 
 On final corrected runtime fa984388: build passed, deterministic replay23/23 passed, Node116/116 passed. Full Jest again failed only the independently reproduced baseline thread-memory assertion:3088 passed,1 failed,4 skipped;146 suites passed,1 failed,1 skipped. Gate HEAD before/after equalsfa984388. Full qualification is not green and the PR starts as a draft pending hosted required checks. No code changes or retests made just to mask the known failure. Existing focused247/247 remains valid.
+
+## Hosted qualification
+GitHub Actions Run Tests / test passed on058e040363eca3304da04b4de9782a860be8f56d (run42657057958, job129298255016). CodeRabbit was skipped because the PR was Draft, not a completed review. Plan and final independent relay QA remain Approved. Local baseline failure remains documented rather than rewritten as a passing local run. Subsequent closeout-only commits do not alter runtime/tests; latest exact-head hosted status is on PR319.
