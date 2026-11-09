@@ -1,0 +1,10 @@
+{
+  "before": "3e67ae95b5571f331968c134f83e6bd82cfefcb2",
+  "after": "3e67ae95b5571f331968c134f83e6bd82cfefcb2",
+  "results": {
+    "short-build": 0,
+    "short-full-test": 1,
+    "short-node-test": 0,
+    "short-replay": 0
+  }
+}

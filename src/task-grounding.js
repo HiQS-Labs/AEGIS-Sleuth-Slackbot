@@ -82,7 +82,7 @@ const ImperativeVerbs = new Set([
   'audit', 'automate', 'back', 'backfill', 'block', 'book', 'bring', 'build', 'bump', 'call',
   'cancel', 'change', 'chase', 'check', 'clarify', 'clean', 'clear', 'close', 'collect', 'compare',
   'complete', 'configure', 'confirm', 'connect', 'consolidate', 'convert', 'copy', 'correct',
-  'create', 'cut', 'decide', 'decrease', 'delete', 'deliver', 'deploy', 'disable', 'discuss', 'do',
+  'compile', 'create', 'cut', 'decide', 'decrease', 'delete', 'deliver', 'deploy', 'disable', 'discuss', 'do',
   'document', 'double', 'draft', 'drop', 'email', 'enable', 'ensure', 'escalate', 'expand',
   'export', 'extend', 'extract', 'file', 'fill', 'finalize', 'find', 'finish', 'fix', 'flag',
   'follow', 'forward', 'gather', 'generate', 'get', 'give', 'group', 'handle', 'hold', 'hook',
@@ -190,10 +190,11 @@ function GroundingTokens(ArgText) {
  * author used is not inventing an entity, and rejecting it would send a perfectly good title back to
  * the verbatim path, which is the exact failure this whole module exists to avoid.
  * @param {string} ArgToken
+ * @param {number} [ArgMinLength] Minimum token length before plural suffix.
  * @returns {string}
  */
-function StripPluralSuffix(ArgToken) {
-  return ArgToken.length > 3 && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
+function StripPluralSuffix(ArgToken, ArgMinLength = 3) {
+  return ArgToken.length > ArgMinLength && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
 }
 
 /**
@@ -236,7 +237,9 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
   // `team`, so the rendered title named a Microsoft product the author never mentioned. (Codex,
   // branch relay round 4.) Descriptive identifiers like `billing-syncs` keep the tolerance: those
   // are compounds, not names, and they genuinely inflect.
-  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target) : Target;
+  // two-letter uppercase acronym plurals need a shorter stem, still behind ArgAllowPlural.
+  const PluralMinLength = /^[A-Z]{2}s$/.test(ArgTerm) ? 2 : 3;
+  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target, PluralMinLength) : Target;
 
   for(let StartIndex = 0; StartIndex < ArgSourceTokens.length; StartIndex++) {
     let Run = '';
@@ -250,11 +253,13 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
       // verbatim dump this issue exists to remove.
       if(Run.length > Target.length + 1) break;
       if(Run === Target) return true;
-      if(ArgAllowPlural && StripPluralSuffix(Run) === TargetSingular) return true;
+      if(ArgAllowPlural && StripPluralSuffix(Run, PluralMinLength) === TargetSingular) return true;
     }
   }
   return false;
 }
+
+const QuotedSpanPattern = /["“]([^"”]+)["”]|(?<![\p{L}\p{N}])['‘]([^'’]+)['’](?![\p{L}\p{N}])/gu;
 
 /**
  * Extract the substrings of a title that must be found in the source.
@@ -278,7 +283,6 @@ function ExtractGroundedTerms(ArgTitle) {
   // apostrophes manufacture a bogus quotation out of the text between them: `Fix Jamie's script;
   // it's broken` reported the invented term `s script; it` and needlessly fell back to quoting the
   // whole message. (Codex, branch relay round 4.) Double quotes need no such guard.
-  const QuotedSpanPattern = /["“]([^"”]+)["”]|(?<![\p{L}\p{N}])['‘]([^'’]+)['’](?![\p{L}\p{N}])/gu;
   for(const Match of Title.matchAll(QuotedSpanPattern)) Add(Match[1] || Match[2]);
 
   // strip quoted spans before everything else so their interior words and figures are not re-tested
@@ -334,23 +338,27 @@ function ExtractGroundedTerms(ArgTitle) {
  * @returns {string[]} ungrounded terms; empty means the title is fully grounded.
  */
 function UngroundedTerms(ArgTitle, ArgSourceText) {
+  const QuotedTerms = Array.from((ArgTitle || '').matchAll(QuotedSpanPattern), ArgMatch => (ArgMatch[1] || ArgMatch[2]).trim());
   const SourceTokens = GroundingTokens(ArgSourceText);
   if(SourceTokens.length === 0) return ExtractGroundedTerms(ArgTitle);
 
   return ExtractGroundedTerms(ArgTitle)
-    .filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens, !IsBareProperNoun(ArgTerm)));
+    .filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens, !IsBareProperNoun(ArgTerm, QuotedTerms.includes(ArgTerm))));
 }
 
 /**
  * A single capitalized word with no internal separator or digit — i.e. a NAME rather than a
  * descriptive compound. These do not get plural tolerance; see {@link IsTermGrounded}.
  * @param {string} ArgTerm
+ * @param {boolean} [ArgIsQuoted] Whether the term is quoted.
  * @returns {boolean}
  */
-function IsBareProperNoun(ArgTerm) {
+function IsBareProperNoun(ArgTerm, ArgIsQuoted = false) {
   const Term = (ArgTerm || '').trim().replace(/['’]s$/i, '');
   if(!Term || /\s/.test(Term)) return false;
   if(/[-_./]/.test(Term) || /\p{N}/u.test(Term)) return false;
+  // plural acronyms retain whole-token matching; ordinary proper names stay exact.
+  if(!ArgIsQuoted && /^[A-Z]{2,}s$/.test(Term)) return false;
   return /^\p{Lu}/u.test(Term);
 }
 
