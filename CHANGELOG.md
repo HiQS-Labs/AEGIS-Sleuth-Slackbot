@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 2026-11-09
+
+I've recorded a proposed project to improve reminder titles through reviewed examples and measured comparisons. My current prompts and production behavior are unchanged.
+
+**Technical:** GH-316 adds a data-agnostic intake and roadmap pointer for a prompt-only first iteration, with an optional later three-model comparison. Complete instruction drafts require maintainer review before publication. No runtime instruction assets, provider settings or reminder data changed; no model-quality result is claimed.
+
 ## 1.4.350 - 2026-11-07
 
 I now keep weekday alternatives intact when updating a reminder title. If a submitted title ends in an unfinished “and,” “or,” or “but,” I refuse it rather than saving a fragment.
