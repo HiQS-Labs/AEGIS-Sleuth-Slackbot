@@ -216,7 +216,7 @@ async function synthesize(query, context, systemPrompt) {
   const body = {
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2500 },
+    generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
   };
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -225,6 +225,14 @@ async function synthesize(query, context, systemPrompt) {
   });
   if (!res.ok) throw new Error(`Gemini synthesis ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  const candidate = data?.candidates?.[0];
+  console.info('[rag] synthesis usage:', JSON.stringify({
+    modelVersion: data?.modelVersion,
+    finishReason: candidate?.finishReason,
+    usageMetadata: data?.usageMetadata,
+  }));
+  if(candidate?.finishReason !== 'STOP')
+    throw new Error(`Gemini synthesis: incomplete response (${candidate?.finishReason || 'missing finish reason'})`);
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini synthesis: empty response');
   return text;
