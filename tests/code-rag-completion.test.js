@@ -1,3 +1,4 @@
+
 'use strict';
 
 const { queryRagAsync, _resetForTesting } = require('../src/rag');
@@ -42,15 +43,27 @@ describe('code RAG completed answers', () => {
 
   test('completed provider answer survives the native query path with bounded output', async () => {
     RespondWith('STOP', 'Handlers run in registered order [src/slack-app.js].');
-    const Result = await queryRagAsync('How are events routed?', { includeAnswer: true });
-    expect(Result.answer).toBe('Handlers run in registered order [src/slack-app.js].');
-    const Request = JSON.parse(global.fetch.mock.calls[1][1].body);
-    expect(Request.generationConfig.maxOutputTokens).toBe(8192);
+    const result = await queryRagAsync('How are events routed?', { includeAnswer: true });
+    expect(result.answer).toBe('Handlers run in registered order [src/slack-app.js].');
+    const request = JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(request.generationConfig.maxOutputTokens).toBe(8192);
+    expect(InfoSpy).toHaveBeenCalledWith('[rag] synthesis usage:', JSON.stringify({
+      modelVersion: 'synthetic-model', finishReason: 'STOP',
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 3 },
+    }));
+    expect(JSON.stringify(InfoSpy.mock.calls)).not.toContain('unit-test-key');
+    expect(JSON.stringify(InfoSpy.mock.calls)).not.toContain('How are events routed?');
   });
 
   test('nonempty truncated draft is refused instead of becoming a completed answer', async () => {
     RespondWith('MAX_TOKENS', 'Drafting: I will explain both routes...');
     await expect(queryRagAsync('How are events routed?', { includeAnswer: true })).rejects.toThrow('incomplete');
+    expect(InfoSpy).toHaveBeenCalledWith('[rag] synthesis usage:', JSON.stringify({
+      modelVersion: 'synthetic-model', finishReason: 'MAX_TOKENS',
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 3 },
+    }));
+    expect(JSON.stringify(InfoSpy.mock.calls)).not.toContain('unit-test-key');
+    expect(JSON.stringify(InfoSpy.mock.calls)).not.toContain('How are events routed?');
   });
 
   test('empty completed response remains a failure', async () => {
@@ -58,3 +71,4 @@ describe('code RAG completed answers', () => {
     await expect(queryRagAsync('How are events routed?', { includeAnswer: true })).rejects.toThrow('empty response');
   });
 });
+
