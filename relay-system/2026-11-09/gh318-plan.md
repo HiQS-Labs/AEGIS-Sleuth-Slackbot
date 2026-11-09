@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-09.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 1 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -105,5 +105,23 @@ relay-drive: GH318-PLAN not found in the resolved tick log
 No review receipt/transcript exists from this invocation because `codex-turn.sh` was not invoked. Exact reviewed HEAD: **none**. This thread is the retained runner evidence, not an independent-review receipt. Read-only follow-up found neither task-root `.tick/events/` nor `.xyz/.tick/events/`; locator `--env` resolves TICK_REPO_ROOT to the same task root.
 
 Next action for parent: seed the missing GH318-PLAN token through the shipped tick CLI using the skill's task.created/claim/release-to-codex protocol in the resolved task root, then perform a new authorized launch. No retry/reset, alternate reviewer, harness edit, production edit, test, benchmark, push or PR was performed here. Handing off to producer to disposition this launch failure; NEXT remains Reviewer because plan QA is pending.
+
+### Reviewer · Round 1
+
+VERDICT: PASS
+Basis: Approve the implementation plan. The two bounded classification changes fit the observed fail path, reuse the canonical matcher, and specify selected-output red/green checks and factual negative controls. This is plan approval, not implementation or private-evaluation verification.
+swept file: yes
+
+Input HEAD reviewed: `84feb73b9b9c7beaa03462f448b93bbf56b01552` (read directly from the worktree Git metadata HEAD; no git command run). Read the complete plan, all three required helpers and all three required test files, plus the analyzed-source regression suite and relevant reminder-module delegates. Graph discovery was attempted but unavailable because the tool required approval under a never-approval policy; direct source inspection was used.
+
+- [Pass] **Opening verb is bounded.** `src/task-grounding.js:80–102` lacks `compile`; `:304–324` checks identifier/temporal terms before exempting only a recognized opening verb at `:321`. Adding just `compile` fixes that token without exempting nonleading `Compile` or opening `Acme`. Existing first-noun witnesses are `tests/task-grounding.test.js:35–44`; the plan explicitly retains both controls (`PROJECT/2-WORKING/GH-318-TITLE-GROUNDING.md:36`). Implement at that existing set, with separate Compile-only and plural-only red cases so either change cannot mask the other.
+- [Pass] **Plural acronym rule has the correct existing home.** `UngroundedTerms` withholds plural matching through `!IsBareProperNoun` (`src/task-grounding.js:336–354`); the matcher already compares whole consecutive token runs and singularized tokens (`:223–256`). An anchored ASCII uppercase stem of at least two letters plus lowercase `s` (for example `/^[A-Z]{2,}s$/`) can narrowly change classification without skipping extraction or matching. Keep `Teams`, `AWS` versus `aw`, invented acronyms and substring lookalikes refused; the existing safety witnesses are `tests/task-grounding.test.js:229–250`. Quotes, numbers and temporal terms must still enter the matcher (`src/task-grounding.js:275–294`, `:310–313`); the plan explicitly calls for these negative controls, rather than an acronym bypass (`plan:26,36`). No new matcher is needed.
+- [Pass] **Existing selected-output seam is sufficient.** Extend the `SelectTaskText` grounding tests at `tests/reminder-display-selection.test.js:240–274`: with the plan's nonempty source, synthesis true and a genuine source span, assert exact text `Compile a list of publicly indexable reference URLs`, `source: 'title'`, empty ungrounded terms and no repair; pair it with a title adding absent `Acme` and assert that entity is absent from the selected output and grounding records refusal. The contract suite already calls the real selector and asserts final text/source (`tests/reminder-title-contract.test.js:251–281`), so use that seam rather than a raw model-output assertion. Production delegates there (`src/reminders-module.js:2754–2758`), and the selector rechecks normalized text (`src/reminder-display-selection.js:279–323`). These are concrete ways to satisfy the existing plan steps 1–2, not additional scope.
+- [Pass] **Both consumers and context preservation are accounted for.** Context grounding calls the same helper before redundancy filtering (`src/reminder-display-selection.js:417–448`); existing context positive/negative seams are `tests/reminder-display-selection.test.js:277–321` and `tests/gh68-grounding-uses-analyzed-source.test.js:108–122`. Exercise a distinct context line naming grounded `URLs` versus invented `APIs` so redundancy cannot make the positive pass vacuously. Analyzed-source positive and omitted-source negative controls already exist in `tests/gh68-grounding-uses-analyzed-source.test.js:35–65`. The plan explicitly includes focused analyzed-context coverage and preservation of shared context controls (`plan:29,37`).
+- [Pass] **Scope, rollback and evaluation protocol are proportionate.** The plan restricts production edits to the shared pure helper and excludes prompt/FSM/persistence/API changes (`plan:26`); code/test revert needs no migration (`plan:42`). Its final-code checks and independent QA (`plan:39`) must record the exact tested implementation revision in the promised results receipt, not claim the base revision is tested candidate evidence. The frozen nine-case/six-setting protocol separates raw/selected/saved, preserves source hashes, historical clock/settings/native effort, exclusions and unknowns, and stops on provider/isolation errors without resetting the $5/200-attempt/30-minute bounds (`plan:38`). Retained original responses provide the stated additional deterministic attribution check. Private data was neither accessed nor required for judging that protocol.
+- [Pass] **Whole-file sweep:** no additional relevant pre-existing defect found requiring expansion of this plan. The deliberately uncaught lowercase invented-word limitation is already explicit in `src/task-grounding.js:19–31` and `tests/task-grounding.test.js:114–123`; it is not silently solved by these two changes. The title-contract's bounded normalization/validation/fallback behavior remains owned by its existing functions (`src/reminder-title-contract.js:235–324,394–416,485–529`).
+- [Unverified — needs clone run] No tests, fixtures, app modules, provider calls or candidate implementation were executed here. Proposed red/green behavior, final build/full test gate, and frozen private evaluation remain implementation-time obligations (`plan:36–39`); this PASS makes no claim they have already passed.
+
+Relay closed (Approved), no further turn needed. Token handoff: `done GH318-PLAN --agent codex` through the absolute env-pinned tick.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
