@@ -52,11 +52,24 @@ ROUND: 1 / 3
    was merely waiting looked stalled. A turn that ends without this line is not finished.
 
 ## Setup
-- Artifact under review: **.relay-artifacts/GH-318-TITLE-GROUNDING.md** — the read-only path that
-  `relay-drive.sh --artifact-file PROJECT/2-WORKING/GH-318-TITLE-GROUNDING.md` seeds into the isolated worktree (read it there; do NOT edit it).
+- Artifact under review: **PROJECT/2-WORKING/GH-318-TITLE-GROUNDING.md** (committed plan; read in full, do NOT edit).
 - Reviewer: codex   ·   Producer: producer
 - Started: 2026-11-09
-- Definition of Done: _<fill in the acceptance criteria the Reviewer grades against>_
+- Definition of Done: The proposed two-rule change preserves useful grounded titles while retaining factual-entity controls; existing tests can demonstrate the selected user-visible title and negative controls; scope stays surgical and the evaluation/verification plan is falsifiable.
+
+## Plan-review brief
+This is PLAN QA only, before implementation. Operational envelope: a small shared pure-function edit in this Node.js backend. No new subsystem, speculative architecture or enterprise machinery. Do not implement, run app/API benchmarks, access private Slack data, or run tests in this review worktree. Examples are synthetic; the producer will run the frozen private real-source evaluation later.
+
+Read the actual committed plan above in full, then read the full relevant helper and its existing consumers/tests, not just this summary. Required source: `src/task-grounding.js`, `src/reminder-display-selection.js`, `src/reminder-title-contract.js`. Required coverage: `tests/task-grounding.test.js`, `tests/reminder-display-selection.test.js`, `tests/reminder-title-contract.test.js`; inspect existing analyzed-context coverage and reminder module call sites as needed. Follow ROUTER.md / AGENTS.md and read the architecture title-contract section. Cite actual file:line spans. Record the exact input HEAD reviewed.
+
+Questions:
+1. Does adding only leading `compile` to ImperativeVerbs fix the opening-verb defect while retaining nonleading Compile and invented first-noun checks?
+2. Does the proposed ASCII uppercase acronym + lowercase plural s exception reuse whole-token singular/plural matching, preserve Teams/quoted/identifier/number/date controls, and cover both title and context-line consumers safely?
+3. Do the proposed existing selector/contract regressions verify the final selected useful title and adjacent invented-entity refusal, rather than raw model output alone? What existing test seam should be used?
+4. Is the plan surgical and DRY with no parallel mechanism or prompt/FSM/persistence/API change? Are rollback and exact-revision verification sufficient for this scope?
+5. Does the frozen nine-case/six-setting evaluation distinguish raw, selected and saved outputs, preserve input equality and historical clock/settings, retain exclusions/unknowns and stop on provider/isolation errors without resetting bounds? Judge the stated protocol; private data is not available or needed for this plan review.
+
+Output one graded review block in this thread only, with verdict PASS/FAIL/PARKED, Basis, swept file declaration, concrete citations and protocol-required Observed input/Affected scope/Falsifier for behaviour-change requests. Pre-existing relevant defects found while sweeping should be identified explicitly. Do not edit the plan or production source.
 
 ## Ground rules
 1. This file is the single source of truth. The agents never share memory — read the whole file.
