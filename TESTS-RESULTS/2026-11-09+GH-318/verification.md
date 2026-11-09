@@ -20,3 +20,6 @@ Retained baseline first-pass draft replay:0/6 accepted at initial selection on b
 Edit verdicts: grounding classification helped (deterministic same-output control); quoted-acronym first attempt hurt (caught by negative control, corrected); prompt/model changes: none; fresh wording changes: confounded. Lessons Learned: NO_ENTRY — runtime-specific finding belongs in this receipt/changelog, not a new workflow lesson.
 
 Final independent QA and hosted CI pending. Full local Jest remains failed for the independently reproduced baseline reason. Do not label the PR ready until required hosted gates and review are verified.
+
+## Post-review correction
+Reviewer found padded quoted URLs bypassed quote provenance (discarded review transcript, not an accepted attestation). Captured terms now trim exactly like extracted terms. Eight added parameterized controls: padding variants red before, then4 suites/247 tests passed on bb7b1f1cea18017109ad621f5dde138dd1852b76. Prior54 model calls remain attributed to835f6ca. All50 retained analyzer/title-only candidates and context selections are byte-equivalent under old versus corrected selection;0 additional API calls or budget resets. Fresh full final-code gate pending after final QA.

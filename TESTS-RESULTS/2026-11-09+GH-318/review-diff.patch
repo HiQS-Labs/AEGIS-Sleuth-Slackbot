@@ -1,0 +1,147 @@
+diff --git a/src/task-grounding.js b/src/task-grounding.js
+index 7b08465..f010965 100644
+--- a/src/task-grounding.js
++++ b/src/task-grounding.js
+@@ -82,7 +82,7 @@ const ImperativeVerbs = new Set([
+   'audit', 'automate', 'back', 'backfill', 'block', 'book', 'bring', 'build', 'bump', 'call',
+   'cancel', 'change', 'chase', 'check', 'clarify', 'clean', 'clear', 'close', 'collect', 'compare',
+   'complete', 'configure', 'confirm', 'connect', 'consolidate', 'convert', 'copy', 'correct',
+-  'create', 'cut', 'decide', 'decrease', 'delete', 'deliver', 'deploy', 'disable', 'discuss', 'do',
++  'compile', 'create', 'cut', 'decide', 'decrease', 'delete', 'deliver', 'deploy', 'disable', 'discuss', 'do',
+   'document', 'double', 'draft', 'drop', 'email', 'enable', 'ensure', 'escalate', 'expand',
+   'export', 'extend', 'extract', 'file', 'fill', 'finalize', 'find', 'finish', 'fix', 'flag',
+   'follow', 'forward', 'gather', 'generate', 'get', 'give', 'group', 'handle', 'hold', 'hook',
+@@ -256,6 +256,8 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
+   return false;
+ }
+ 
++const QuotedSpanPattern = /["“]([^"”]+)["”]|(?<![\p{L}\p{N}])['‘]([^'’]+)['’](?![\p{L}\p{N}])/gu;
++
+ /**
+  * Extract the substrings of a title that must be found in the source.
+  * @param {string} ArgTitle Candidate display title.
+@@ -278,7 +280,6 @@ function ExtractGroundedTerms(ArgTitle) {
+   // apostrophes manufacture a bogus quotation out of the text between them: `Fix Jamie's script;
+   // it's broken` reported the invented term `s script; it` and needlessly fell back to quoting the
+   // whole message. (Codex, branch relay round 4.) Double quotes need no such guard.
+-  const QuotedSpanPattern = /["“]([^"”]+)["”]|(?<![\p{L}\p{N}])['‘]([^'’]+)['’](?![\p{L}\p{N}])/gu;
+   for(const Match of Title.matchAll(QuotedSpanPattern)) Add(Match[1] || Match[2]);
+ 
+   // strip quoted spans before everything else so their interior words and figures are not re-tested
+@@ -334,23 +335,27 @@ function ExtractGroundedTerms(ArgTitle) {
+  * @returns {string[]} ungrounded terms; empty means the title is fully grounded.
+  */
+ function UngroundedTerms(ArgTitle, ArgSourceText) {
++  const QuotedTerms = Array.from((ArgTitle || '').matchAll(QuotedSpanPattern), ArgMatch => (ArgMatch[1] || ArgMatch[2]).trim());
+   const SourceTokens = GroundingTokens(ArgSourceText);
+   if(SourceTokens.length === 0) return ExtractGroundedTerms(ArgTitle);
+ 
+   return ExtractGroundedTerms(ArgTitle)
+-    .filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens, !IsBareProperNoun(ArgTerm)));
++    .filter(ArgTerm => !IsTermGrounded(ArgTerm, SourceTokens, !IsBareProperNoun(ArgTerm, QuotedTerms.includes(ArgTerm))));
+ }
+ 
+ /**
+  * A single capitalized word with no internal separator or digit — i.e. a NAME rather than a
+  * descriptive compound. These do not get plural tolerance; see {@link IsTermGrounded}.
+  * @param {string} ArgTerm
++ * @param {boolean} [ArgIsQuoted] Whether the term is quoted.
+  * @returns {boolean}
+  */
+-function IsBareProperNoun(ArgTerm) {
++function IsBareProperNoun(ArgTerm, ArgIsQuoted = false) {
+   const Term = (ArgTerm || '').trim().replace(/['’]s$/i, '');
+   if(!Term || /\s/.test(Term)) return false;
+   if(/[-_./]/.test(Term) || /\p{N}/u.test(Term)) return false;
++  // plural acronyms retain whole-token matching; ordinary proper names stay exact.
++  if(!ArgIsQuoted && /^[A-Z]{2,}s$/.test(Term)) return false;
+   return /^\p{Lu}/u.test(Term);
+ }
+ 
+diff --git a/tests/reminder-display-selection.test.js b/tests/reminder-display-selection.test.js
+index 875ac9b..9d2ff6d 100644
+--- a/tests/reminder-display-selection.test.js
++++ b/tests/reminder-display-selection.test.js
+@@ -343,3 +343,41 @@ describe('GH-243 long-source safety', () => {
+     expect(SelectContextLine({ reminder_message: 'Review the plan', context: Original }, Original, true, Original).text).toBe('');
+   });
+ });
++
++describe('GH-318 selected wording', () => {
++  const Source = 'I am working on a list of publicly indexable reference URL for you later today';
++  const Candidate = {
++    reminder_message: 'Compile a list of publicly indexable reference URLs',
++    actionable_language: 'I am working on a list of publicly indexable reference URL for you',
++  };
++  test('retains the useful final title rather than repairing or falling back', () => {
++    const Selection = SelectTaskText(Candidate, Source, true, Source);
++    expect(Selection.text).toBe(Candidate.reminder_message);
++    expect(Selection.source).toBe('title');
++    expect(Selection.ungroundedTerms).toEqual([]);
++    expect(Selection.contract.repair).toBeFalsy();
++  });
++  test('an adjacent invented entity is still refused', () => {
++    const Selection = SelectTaskText({ ...Candidate,
++      reminder_message: 'Compile Acme reference URLs',
++    }, Source, true, Source);
++    expect(Selection.text).not.toContain('Acme');
++    expect(Selection.ungroundedTerms).toContain('Acme');
++  });
++  test('preserves grounded acronym context and refuses invented acronym context', () => {
++    expect(SelectContextLine({ reminder_message: 'Prepare the list', context: 'The reference URLs are publicly indexable' },
++      Source, true, Source)).toEqual({ text: 'The reference URLs are publicly indexable', suppressedBy: null });
++    expect(SelectContextLine({ reminder_message: 'Prepare the list', context: 'The reference APIs are publicly indexable' },
++      Source, true, Source)).toEqual({ text: '', suppressedBy: 'ungrounded' });
++  });
++});
++
++describe('GH-318 quoted acronym display', () => {
++  test.each(['Compile " URLs "', 'Compile “ URLs ”', "Compile ' URLs '", 'Compile ‘ URLs ’'])(
++    'refuses a padded quote instead of displaying it: %s', ArgTitle => {
++      const Source = 'working on a reference URL list';
++      const Selection = SelectTaskText({ reminder_message: ArgTitle }, Source, true, Source);
++      expect(Selection.source).not.toBe('title');
++      expect(Selection.ungroundedTerms).toContain('URLs');
++    });
++});
+diff --git a/tests/task-grounding.test.js b/tests/task-grounding.test.js
+index 0a54c3f..49f4035 100644
+--- a/tests/task-grounding.test.js
++++ b/tests/task-grounding.test.js
+@@ -250,3 +250,36 @@ describe('UngroundedTerms — inflections are not inventions', () => {
+     expect(IsTitleGrounded('Deploy Prod', 'deploy prodx tomorrow')).toBe(false);
+   });
+ });
++
++// GH-318: ordinary imperative and acronym inflection must not erase a useful title.
++describe('GH-318 title wording', () => {
++  test.each([
++    ['Compile the reference list', 'I am working on the reference list'],
++    ['Prepare reference URLs', 'I am working on a reference URL list'],
++    ['Review APIs', 'review the API'],
++  ])('accepts grounded wording: %s', (ArgTitle, ArgSource) => {
++    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(true);
++  });
++  test.each([
++    ['Review Compile', 'review the reference list'],
++    ['Acme deployment', 'deployment is tomorrow'],
++    ['Update Teams', 'update the team'],
++    ['Review AWS', 'review aw'],
++    ['Review APIs', 'review documentation'],
++    ['Review URLs', 'review furl'],
++    ['Compile Acme URLs', 'working on a reference URL list'],
++    ['Compile 23 URLs', 'working on a reference URL list'],
++    ['Compile URLs Monday', 'working on a reference URL list'],
++    ['Compile "URLs"', 'working on a reference URL list'],
++  ])('still rejects invented entities: %s', (ArgTitle, ArgSource) => {
++    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
++  });
++});
++
++describe('GH-318 quoted acronym padding', () => {
++  test.each(['Compile " URLs "', 'Compile “ URLs ”', "Compile ' URLs '", 'Compile ‘ URLs ’'])(
++    'keeps quote provenance after trimming: %s', ArgTitle => {
++      expect(UngroundedTerms(ArgTitle, 'reference URL list')).toEqual(['URLs']);
++      expect(IsTitleGrounded(ArgTitle, 'reference URLs list')).toBe(true);
++    });
++});
