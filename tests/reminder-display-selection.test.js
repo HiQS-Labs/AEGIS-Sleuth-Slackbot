@@ -371,3 +371,13 @@ describe('GH-318 selected wording', () => {
       Source, true, Source)).toEqual({ text: '', suppressedBy: 'ungrounded' });
   });
 });
+
+describe('GH-318 quoted acronym display', () => {
+  test.each(['Compile " URLs "', 'Compile “ URLs ”', "Compile ' URLs '", 'Compile ‘ URLs ’'])(
+    'refuses a padded quote instead of displaying it: %s', ArgTitle => {
+      const Source = 'working on a reference URL list';
+      const Selection = SelectTaskText({ reminder_message: ArgTitle }, Source, true, Source);
+      expect(Selection.source).not.toBe('title');
+      expect(Selection.ungroundedTerms).toContain('URLs');
+    });
+});

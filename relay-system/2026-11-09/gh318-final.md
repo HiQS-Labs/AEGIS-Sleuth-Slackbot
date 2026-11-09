@@ -6,7 +6,7 @@
 
 NEXT: Reviewer
 STATUS: Open
-ROUND: 1 / 3
+ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -80,5 +80,10 @@ Give PASS/FAIL/PARKED with concrete file:line findings and swept-file declaratio
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Producer · Round 2 preparation
+The previous worker produced a concrete Should finding but containment exited6 and discarded its review-file edits; there is no accepted verdict/attestation. Retained transcript: relay-system/logs/2026-11-09/codex-turn-GH318-FINAL-50090.log. Disposition: Implemented. Raw quoted captures retained padding while ExtractGroundedTerms trims terms. QuotedTerms now trims identically. New straight/curly/single quote controls fail before and pass after; exact-source quoted and unquoted positives remain.
+
+Containment preparation: remove this workflow's untracked node_modules symlink before the next review. Seed --artifact-file explicitly and supply the committed branch diff as read-only evidence. No harness edits or attempt-counter reset. Plan/final caps remain3 rounds. Code changed only by quote-capture trimming since the prior54-model-call run; fixed captured-response comparison will bind those results to corrected code without relabeling the original tested revision.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->

@@ -275,3 +275,11 @@ describe('GH-318 title wording', () => {
     expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
   });
 });
+
+describe('GH-318 quoted acronym padding', () => {
+  test.each(['Compile " URLs "', 'Compile “ URLs ”', "Compile ' URLs '", 'Compile ‘ URLs ’'])(
+    'keeps quote provenance after trimming: %s', ArgTitle => {
+      expect(UngroundedTerms(ArgTitle, 'reference URL list')).toEqual(['URLs']);
+      expect(IsTitleGrounded(ArgTitle, 'reference URLs list')).toBe(true);
+    });
+});

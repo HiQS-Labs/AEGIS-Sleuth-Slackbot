@@ -335,7 +335,7 @@ function ExtractGroundedTerms(ArgTitle) {
  * @returns {string[]} ungrounded terms; empty means the title is fully grounded.
  */
 function UngroundedTerms(ArgTitle, ArgSourceText) {
-  const QuotedTerms = Array.from((ArgTitle || '').matchAll(QuotedSpanPattern), ArgMatch => ArgMatch[1] || ArgMatch[2]);
+  const QuotedTerms = Array.from((ArgTitle || '').matchAll(QuotedSpanPattern), ArgMatch => (ArgMatch[1] || ArgMatch[2]).trim());
   const SourceTokens = GroundingTokens(ArgSourceText);
   if(SourceTokens.length === 0) return ExtractGroundedTerms(ArgTitle);
 
