@@ -1,0 +1,69 @@
+{
+  "kind": "native-code-rag-completion",
+  "sourceBase": "7e9e58f1ec79abe92453fa96724734745e9fb4ac",
+  "red": {
+    "focusedTests": 3,
+    "failed": 2,
+    "passed": 1,
+    "failure": "nonempty MAX_TOKENS accepted; configured cap2500"
+  },
+  "green": {
+    "focusedTests": 3,
+    "passed": 3,
+    "build": "PASS",
+    "changelogTone": "PASS"
+  },
+  "mainSmoke": {
+    "method": "unchanged queryRagAsync main entry with changed synthesize",
+    "question": "Which event handlers run before chat for message, app_mention and reaction_added events?",
+    "old": {
+      "maxOutputTokens": 2500,
+      "finishReason": "MAX_TOKENS",
+      "usage": {
+        "promptTokenCount": 50430,
+        "candidatesTokenCount": 99,
+        "totalTokenCount": 52926,
+        "cachedContentTokenCount": 48381,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 50430
+          }
+        ],
+        "cacheTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 48381
+          }
+        ],
+        "thoughtsTokenCount": 2397,
+        "serviceTier": "standard"
+      },
+      "visibleCharacters": 529
+    },
+    "new": {
+      "maxOutputTokens": 8192,
+      "finishReason": "STOP",
+      "usage": {
+        "promptTokenCount": 50330,
+        "candidatesTokenCount": 422,
+        "totalTokenCount": 53352,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 50330
+          }
+        ],
+        "thoughtsTokenCount": 2600,
+        "serviceTier": "standard"
+      },
+      "visibleCharacters": 1845
+    },
+    "limitation": "Fresh model samples are not deterministic; live changelog injection changed prompt count50430 to50330 after adding the changelog entry. No same-byte paired-request claim for these two generations."
+  },
+  "adjacentSmoke": {
+    "method": "captured MAX_TOKENS replay through actual ask-self Slack handler with synthetic workspace/client and no network",
+    "result": "PASS; generic lookup failure posted once; partial draft not posted"
+  },
+  "scope": "No server test harness or production action. No raw source corpus,private Slack links,keys or infrastructure published."
+}

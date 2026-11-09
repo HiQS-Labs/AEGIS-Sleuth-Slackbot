@@ -33,6 +33,12 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.352 - 2026-11-09
+
+I now give code questions more room for a complete answer. If an answer is cut short, I report a failed lookup instead of posting an unfinished draft as though it were complete.
+
+**Technical:** GH-322 raises the existing Slack code-RAG synthesis output allowance from2500 to8192 tokens, requires a STOP completion before accepting text, and logs model/version, finish reason and provider usage counts without prompts or credentials. Focused native-query regressions cover complete, truncated and empty responses. Model, prompts, retrieval and workspace gating are unchanged; the larger bound increases possible per-query cost and latency. Revert the source change to restore the previous limit/acceptance; no index migration is needed.
+
 ## 1.4.351 - 2026-11-09
 I keep useful reminder titles when they start with “Compile” or use plural acronyms already present in the source, instead of replacing them with a vague follow-up.
 
