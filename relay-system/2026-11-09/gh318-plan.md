@@ -124,4 +124,12 @@ Input HEAD reviewed: `84feb73b9b9c7beaa03462f448b93bbf56b01552` (read directly f
 
 Relay closed (Approved), no further turn needed. Token handoff: `done GH318-PLAN --agent codex` through the absolute env-pinned tick.
 
+
+### Attestation · relay-drive — 2026-11-09T16:15:10Z
+task: GH318-PLAN
+reviewer: codex
+status: Approved
+reviewed-head: 84feb73b9b9c7beaa03462f448b93bbf56b01552
+added-range: 9979+5764
+added-sha256: 88805973eeab9df72023594329ee9b13910a3ea63c06c522ad0aa3158e51aa41
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
