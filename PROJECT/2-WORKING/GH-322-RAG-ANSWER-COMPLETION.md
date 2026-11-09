@@ -21,7 +21,7 @@ roadmap_exempt: true
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA approved; implementation,3 focused regressions,build and main/adjacent smokes complete | Final independent code QA and exact-head hosted CI; dev audit remains separate |
+| Final independent code QA Approved;3 regressions,build,smokes andconfigured scan pass | Exact-head hosted CI and bounded dev audit; no merge/production rollout |
 
 ## Observed problem and recon
 Base7e9e58f. Slack ask-self handler delegates to src/rag/index.js askSelf/queryRagAsync/synthesize; synthesize requests2500 output tokens and returns the first nonempty text without inspecting finishReason. Existing generic handler error path can reject failed synthesis. Native reproduction on a public-code event-routing question: HTTP200,modelgemini-3.1-pro-preview,50430prompt/2397thought/99visible tokens,finishReasonMAX_TOKENS,one non-thought text part529characters. This is truncated output,not a discarded final part. Independent retrieval/index quality is a separate audit concern. No reminder mutation or data corruption observed.
