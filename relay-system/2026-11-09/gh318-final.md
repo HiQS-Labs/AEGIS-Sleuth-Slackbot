@@ -102,4 +102,12 @@ Reviewed HEAD: 75b5bb7fabffbb913bde338312f4cfe109820ddd (read directly from the 
 
 Relay closed (Approved), no further turn needed. Harness owns the file-scoped commit and subsequent qualification gates.
 
+
+### Attestation · relay-drive — 2026-11-09T16:37:37Z
+task: GH318-FINAL
+reviewer: codex
+status: Approved
+reviewed-head: 75b5bb7fabffbb913bde338312f4cfe109820ddd
+added-range: 8921+4990
+added-sha256: 756cc870150d3d36832b4a688b1c934509067f101f4c3d6be604269f754537f0
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
