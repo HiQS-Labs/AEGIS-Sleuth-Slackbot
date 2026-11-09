@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-09.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -85,5 +85,21 @@ Give PASS/FAIL/PARKED with concrete file:line findings and swept-file declaratio
 The previous worker produced a concrete Should finding but containment exited6 and discarded its review-file edits; there is no accepted verdict/attestation. Retained transcript: relay-system/logs/2026-11-09/codex-turn-GH318-FINAL-50090.log. Disposition: Implemented. Raw quoted captures retained padding while ExtractGroundedTerms trims terms. QuotedTerms now trims identically. New straight/curly/single quote controls fail before and pass after; exact-source quoted and unquoted positives remain.
 
 Containment preparation: remove this workflow's untracked node_modules symlink before the next review. Seed --artifact-file explicitly and supply the committed branch diff as read-only evidence. No harness edits or attempt-counter reset. Plan/final caps remain3 rounds. Code changed only by quote-capture trimming since the prior54-model-call run; fixed captured-response comparison will bind those results to corrected code without relabeling the original tested revision.
+
+### Reviewer · Round 2
+VERDICT: PASS
+Basis: Ship with conditions. The bounded helper change is correct on the reviewed code and retained evidence; approval is implementation QA, not a declaration of green qualification or PR readiness. Final-code clone/hosted required gates remain outstanding.
+swept file: yes
+
+Reviewed HEAD: 75b5bb7fabffbb913bde338312f4cfe109820ddd (read directly from the isolated worktree's HEAD file; no git command). Read the entire seeded artifact, entire task-grounding.js, display-selection.js, title-contract.js and both named test files, plus relevant reminder-module consumer/repair paths and all six retained receipts. Reviewed the supplied origin/development comparison in TESTS-RESULTS/2026-11-09+GH-318/review-diff.patch; no independent git diff was run under this turn's prohibition. No additional actionable pre-existing defect found in the swept helper/selector/contract files; existing documented limits remain.
+
+- [Pass] Surgical classification: src/task-grounding.js:85 adds only the bounded opening verb; :315 retains the opening-position check; :362 permits plural tolerance only for unquoted ASCII uppercase acronyms ending in lowercase s. :240 retains whole-source-token comparison. Teams, absent entities/identifiers/figures/dates and nonleading Compile still take existing checks. No new runtime owner, provider, workspace state or write path. Rollback is reverting this helper change (artifact, “no data migration or live write”).
+- [Pass] Quote provenance correction: src/task-grounding.js:259, :283, :287 and :338 reuse one pattern; captured terms now trim exactly like extracted terms at :274. matchAll uses a cloned regex iterator, while replace resets the global regex cursor; no tenant data is retained. Four padded straight/curly single/double-quote cases reject URL→quoted URLs, but accept exact-source URLs (tests/task-grounding.test.js:281). Narrow non-mutating probe: command was an inline `node` script requiring `./src/task-grounding`, iterating 100 times over 15 [title,source,expected] rows: Compile reference URLs/reference URL list/true; Review APIs/the API/true; Review URLs/furl/false; Update Teams/team/false; Review Compile/reference list/false; Compile Acme URLs/reference URL/false; Compile 23 URLs Monday/reference URL/false; plus each of `" URLs "`, `“ URLs ”`, `' URLs '`, `‘ URLs ’` after Compile against reference URL/false and reference URLs/true. It counted any IsTitleGrounded mismatch and set exitCode accordingly. Exit 0; decisive stdout: `{"cases":15,"iterations":100,"failures":0}`. Environment: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; mkdir -p "$TMPDIR"`. No suite or executable fixture ran.
+- [Pass] Consumer/output coverage: src/reminder-display-selection.js:291 rechecks normalized output; :431 applies the same helper to context. src/reminders-module.js:2754 and :2797 delegate to these selectors; :2908 and :2931 use the selector before/after bounded repair. tests/reminder-display-selection.test.js:346 covers retained title and absent Acme/context controls, with padded-quote rejection at :376. Retained smoke.jsonl reports exact useful title with source=title and adjacent Acme source=fallback/refused=[Acme]. verification.md:6 records five red witnesses; :25 attributes corrected focused247/247 to bb7b1f1, rather than relabeling older runs.
+- [Pass] Evidence claims stay separated: verification.md:15 and aggregate-comparison.json report fixed-output0/6→6/6 separately from fresh54 fallback4→0/repair6→0, request matches54/54 and disk readback54/54. verification.md:25 reports 50 unchanged corrected-code selections with zero additional calls. These are retained aggregate receipts, not independently inspected private provider inputs. The stated admission variability, excluded historical case and absent live ingress/Lists/delivery coverage remain material limits; no model winner inferred.
+- [Unverified — needs clone run] Final qualification remains conditional. verification.md:11 records build/focused239/decision23/Node116 success on835f6ca and full Jest failure3080 passed/1 failed, independently reproduced at baseline6c5576e. :13 explicitly describes PDDA observe findings, not clean docs; :22 and :25 leave hosted/final-code full gates pending. This PASS does not override those failed/pending checks. Run required gates in the disposable clone through the harness; do not repair unrelated baseline behavior in this change.
+- [Unverified — no citation] Reviewed public payloads contain synthetic examples/aggregate receipts only: artifact “All real evaluation data stays private,” aggregate-comparison.json limitations and smoke.jsonl's synthetic Compile/Acme pair. No credential values or private source transcripts encountered; no private Slack access, production writes, push, merge or deploy performed.
+
+Relay closed (Approved), no further turn needed. Harness owns the file-scoped commit and subsequent qualification gates.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
