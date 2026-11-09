@@ -23,3 +23,8 @@ Final independent QA and hosted CI pending. Full local Jest remains failed for t
 
 ## Post-review correction
 Reviewer found padded quoted URLs bypassed quote provenance (discarded review transcript, not an accepted attestation). Captured terms now trim exactly like extracted terms. Eight added parameterized controls: padding variants red before, then4 suites/247 tests passed on bb7b1f1cea18017109ad621f5dde138dd1852b76. Prior54 model calls remain attributed to835f6ca. All50 retained analyzer/title-only candidates and context selections are byte-equivalent under old versus corrected selection;0 additional API calls or budget resets. Fresh full final-code gate pending after final QA.
+
+## Final qualification and independent QA
+Plan QA Approved at84feb73b; final QA round2 Approved at75b5bb7, attested in fa984388acbe8f1f545ea0d878d4d092152b055c. Reviewer repeated15 concrete controls100 times, zero mismatches. Source runtime is unchanged between reviewed75b5bb7 and testedfa984388. See committed relay threads.
+
+On final corrected runtime fa984388: build passed, deterministic replay23/23 passed, Node116/116 passed. Full Jest again failed only the independently reproduced baseline thread-memory assertion:3088 passed,1 failed,4 skipped;146 suites passed,1 failed,1 skipped. Gate HEAD before/after equalsfa984388. Full qualification is not green and the PR starts as a draft pending hosted required checks. No code changes or retests made just to mask the known failure. Existing focused247/247 remains valid.

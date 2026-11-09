@@ -1,0 +1,10 @@
+{
+  "before": "fa984388acbe8f1f545ea0d878d4d092152b055c",
+  "after": "fa984388acbe8f1f545ea0d878d4d092152b055c",
+  "results": {
+    "final-build": 0,
+    "final-full-test": 1,
+    "final-node-test": 0,
+    "final-replay": 0
+  }
+}

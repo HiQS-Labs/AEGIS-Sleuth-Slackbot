@@ -21,7 +21,7 @@ roadmap_exempt: true
 
 | What was just completed | What's next |
 |---|---|
-| Code and frozen54 comparisons verified; baseline full-suite failure independently reproduced | Final independent QA, hosted gates, then PR readiness |
+| Final QA Approved; corrected-runtime build/Node/replay passed, known baseline Jest failure retained | Draft PR and hosted required checks; no merge or deploy |
 
 ## Requirements and smallest viable bet
 Source `I am working on a list of publicly indexable reference URL for you later today` with candidate `Compile a list of publicly indexable reference URLs` currently rejects Compile/URLs and can select a generic fallback. Extend existing src/task-grounding.js only: add compile to the bounded leading ImperativeVerbs set; let an ASCII uppercase acronym followed by lowercase plural s (URLs, APIs) use existing whole-token plural matching. Keep ordinary capitalized proper nouns (Teams), quoted strings, dates, figures and invented identifiers checked. No global first-word exemption or general proper-noun plural tolerance. No prompt, model, admission, CRUD, persistence/FSM, server, deploy or framework changes.
