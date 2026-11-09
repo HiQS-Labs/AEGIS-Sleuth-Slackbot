@@ -81,4 +81,29 @@ Output one graded review block in this thread only, with verdict PASS/FAIL/PARKE
 
 ## Log
 
+### Runner evidence · 2026-11-09 · launch halted
+
+Independent review did not run. No reviewer verdict or code findings were produced.
+
+- Input HEAD at invocation: `b07bec66daa71fd1e0572e3b2e6a1fa4ff8582f5` (review-brief-only commit above original inputs `e6e50feb4e3a1f4f2c69fb5fc5d3cdc684f6ec03`; plan/source unchanged).
+- Locator `bash ${HOME}/.codex/skills/relay-xyz/find-harness.sh --check` exited 0, resolved this task clone's `.xyz`, current harness `57ba82912d894a0b978093c70911a7c59b8bf1a3`, Codex CLI available.
+- Command, from task root (machine paths redacted as ${TASK_ROOT} / ${HOME}; exact command and output retained in runner tool transcript):
+
+```bash
+ALLOW_PATHS='' CODEX_AGENT=codex RELAY_PEER=producer .xyz/relay-automation/relay-drive.sh --relay-file relay-system/2026-11-09/gh318-plan.md --relay-task GH318-PLAN --agent-cmd '${TASK_ROOT}/.xyz/relay-automation/codex-turn.sh' --reviewer codex --round-cap 3 --review-once
+```
+
+Actual exit status: **4**, before worker invocation. Decisive stderr:
+
+```text
+relay-drive: NOTE — TICK_REPO_ROOT unset; self-resolved to ${TASK_ROOT} (#129)
+relay-drive: GH318-PLAN not found in the resolved tick log
+  TICK_REPO_ROOT: ${TASK_ROOT}
+  searched:       ${TASK_ROOT}/.tick/events/
+```
+
+No review receipt/transcript exists from this invocation because `codex-turn.sh` was not invoked. Exact reviewed HEAD: **none**. This thread is the retained runner evidence, not an independent-review receipt. Read-only follow-up found neither task-root `.tick/events/` nor `.xyz/.tick/events/`; locator `--env` resolves TICK_REPO_ROOT to the same task root.
+
+Next action for parent: seed the missing GH318-PLAN token through the shipped tick CLI using the skill's task.created/claim/release-to-codex protocol in the resolved task root, then perform a new authorized launch. No retry/reset, alternate reviewer, harness edit, production edit, test, benchmark, push or PR was performed here. Handing off to producer to disposition this launch failure; NEXT remains Reviewer because plan QA is pending.
+
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
