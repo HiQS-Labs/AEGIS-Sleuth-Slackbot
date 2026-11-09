@@ -108,4 +108,12 @@ NODE
 
 Relay closed (Approved), no further turn needed. Harness owns the file-scoped commit, attestation and subsequent qualification gates.
 
+
+### Attestation · relay-drive — 2026-11-09T16:53:42Z
+task: GH318-FINAL-R3
+reviewer: codex
+status: Approved
+reviewed-head: 30dd58eb496010e2dd2d33e2b95628509e24e797
+added-range: 8256+4588
+added-sha256: 3cc4d281678cd814adaab230eaaac03772f474a2cbeaa883a588a329acd3edbd
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
