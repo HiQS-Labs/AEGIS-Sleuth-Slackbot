@@ -381,3 +381,14 @@ describe('GH-318 quoted acronym display', () => {
       expect(Selection.ungroundedTerms).toContain('URLs');
     });
 });
+
+describe('GH-318 two-letter acronym selection', () => {
+  test.each(['PR', 'ID', 'DB'])('preserves a grounded %s plural in the displayed title', ArgStem => {
+    const Title = `Review ${ArgStem}s`;
+    const Source = `please review the ${ArgStem} tomorrow`;
+    const Selection = SelectTaskText({ reminder_message: Title }, Source, true, Source);
+    expect(Selection.text).toBe(Title);
+    expect(Selection.source).toBe('title');
+    expect(Selection.ungroundedTerms).toEqual([]);
+  });
+});

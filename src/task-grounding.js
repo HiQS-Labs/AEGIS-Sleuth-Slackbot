@@ -190,10 +190,11 @@ function GroundingTokens(ArgText) {
  * author used is not inventing an entity, and rejecting it would send a perfectly good title back to
  * the verbatim path, which is the exact failure this whole module exists to avoid.
  * @param {string} ArgToken
+ * @param {number} [ArgMinLength] Minimum token length before plural suffix.
  * @returns {string}
  */
-function StripPluralSuffix(ArgToken) {
-  return ArgToken.length > 3 && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
+function StripPluralSuffix(ArgToken, ArgMinLength = 3) {
+  return ArgToken.length > ArgMinLength && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
 }
 
 /**
@@ -236,7 +237,9 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
   // `team`, so the rendered title named a Microsoft product the author never mentioned. (Codex,
   // branch relay round 4.) Descriptive identifiers like `billing-syncs` keep the tolerance: those
   // are compounds, not names, and they genuinely inflect.
-  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target) : Target;
+  // two-letter uppercase acronym plurals need a shorter stem, still behind ArgAllowPlural.
+  const PluralMinLength = /^[A-Z]{2}s$/.test(ArgTerm) ? 2 : 3;
+  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target, PluralMinLength) : Target;
 
   for(let StartIndex = 0; StartIndex < ArgSourceTokens.length; StartIndex++) {
     let Run = '';
@@ -250,7 +253,7 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
       // verbatim dump this issue exists to remove.
       if(Run.length > Target.length + 1) break;
       if(Run === Target) return true;
-      if(ArgAllowPlural && StripPluralSuffix(Run) === TargetSingular) return true;
+      if(ArgAllowPlural && StripPluralSuffix(Run, PluralMinLength) === TargetSingular) return true;
     }
   }
   return false;

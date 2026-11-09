@@ -31,3 +31,6 @@ On final corrected runtime fa984388: build passed, deterministic replay23/23 pas
 
 ## Hosted qualification
 GitHub Actions Run Tests / test passed on058e040363eca3304da04b4de9782a860be8f56d (run42657057958, job129298255016). CodeRabbit was skipped because the PR was Draft, not a completed review. Plan and final independent relay QA remain Approved. Local baseline failure remains documented rather than rewritten as a passing local run. Subsequent closeout-only commits do not alter runtime/tests; latest exact-head hosted status is on PR319.
+
+## Greptile two-letter acronym correction
+Greptile discussion r4515362920 correctly observed that PRs/IDs/DBs classify as supported acronyms but cannot singularize under the old length floor. Regression red:6 failed/248 passed; corrected focused suite:254/254. The existing suffix matcher now takes a stem floor, lowered only for uppercase two-letter acronym + lowercase plural s; the existing ArgAllowPlural gate still blocks quoted/proper-name relaxation. Ordinary short words, invented acronyms and padded quotes remain refused. All50 captured candidate/context selections remain identical to the54-call branch run;0 new model calls. Prior final review remains bound to75b5bb7; correction has fresh round3 QA pending and needs final-code qualification.

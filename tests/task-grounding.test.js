@@ -283,3 +283,18 @@ describe('GH-318 quoted acronym padding', () => {
       expect(IsTitleGrounded(ArgTitle, 'reference URLs list')).toBe(true);
     });
 });
+
+describe('GH-318 two-letter acronym plurals', () => {
+  test.each(['PR', 'ID', 'DB'])(
+    'accepts the supported plural of %s only when grounded', ArgStem => {
+      expect(IsTitleGrounded(`Review ${ArgStem}s`, `review the ${ArgStem}`)).toBe(true);
+      expect(IsTitleGrounded(`Review ${ArgStem}s`, 'review documentation')).toBe(false);
+      expect(IsTitleGrounded(`Review " ${ArgStem}s "`, `review the ${ArgStem}`)).toBe(false);
+      expect(IsTitleGrounded(`Review " ${ArgStem}s "`, `review the ${ArgStem}s`)).toBe(true);
+    });
+  test('does not widen short ordinary words or invent an acronym', () => {
+    expect(IsTitleGrounded('Review PRs', 'review apr')).toBe(false);
+    expect(IsTitleGrounded('Update Gas', 'update ga')).toBe(false);
+    expect(IsTitleGrounded('Update Teams', 'update team')).toBe(false);
+  });
+});
