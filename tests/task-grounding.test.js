@@ -250,3 +250,40 @@ describe('UngroundedTerms — inflections are not inventions', () => {
     expect(IsTitleGrounded('Deploy Prod', 'deploy prodx tomorrow')).toBe(false);
   });
 });
+
+
+// GH-318: retain one witness per changed rule and trust-boundary case.
+describe('GH-318 title wording', () => {
+  test.each([
+    ['Compile the reference list', 'I am working on the reference list'],
+    ['Prepare reference URLs', 'I am working on a reference URL list'],
+  ])('accepts grounded wording: %s', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(true);
+  });
+  test.each([
+    ['Review Compile', 'review the reference list'],
+    ['Review APIs', 'review documentation'],
+  ])('still rejects invented entities: %s', (ArgTitle, ArgSource) => {
+    expect(IsTitleGrounded(ArgTitle, ArgSource)).toBe(false);
+  });
+});
+
+describe('GH-318 quoted acronym padding', () => {
+  test.each(['Compile " URLs "', 'Compile “ URLs ”', "Compile ' URLs '", 'Compile ‘ URLs ’'])(
+    'keeps quote provenance after trimming: %s', ArgTitle => {
+      expect(UngroundedTerms(ArgTitle, 'reference URL list')).toEqual(['URLs']);
+      expect(IsTitleGrounded(ArgTitle, 'reference URLs list')).toBe(true);
+    });
+});
+
+describe('GH-318 two-letter acronym plurals', () => {
+  test('accepts a supported short plural without relaxing quoted or absent acronyms', () => {
+    expect(IsTitleGrounded('Review PRs', 'review the PR')).toBe(true);
+    expect(IsTitleGrounded('Review PRs', 'review documentation')).toBe(false);
+    expect(IsTitleGrounded('Review " PRs "', 'review the PR')).toBe(false);
+    expect(IsTitleGrounded('Review " PRs "', 'review the PRs')).toBe(true);
+  });
+  test('does not ground a short acronym in a longer word', () => {
+    expect(IsTitleGrounded('Review PRs', 'review apr')).toBe(false);
+  });
+});

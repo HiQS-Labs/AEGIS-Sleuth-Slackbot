@@ -33,6 +33,11 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.351 - 2026-11-09
+I keep useful reminder titles when they start with “Compile” or use plural acronyms already present in the source, instead of replacing them with a vague follow-up.
+
+**Technical:** GH-318 extends the existing grounding helper's bounded imperative list and whole-token plural matching for unquoted ASCII acronyms, including two-letter stems such as PRs and IDs. Quoted terms, proper names such as Teams, invented acronyms, numbers and dates retain their checks. No prompt, model, admission, persistence or server changes. Existing grounding/selection suites cover positive and refusal controls. Rollback: revert the helper change; no data migration.
+
 ## 1.4.350 - 2026-11-07
 
 I now keep weekday alternatives intact when updating a reminder title. If a submitted title ends in an unfinished “and,” “or,” or “but,” I refuse it rather than saving a fragment.

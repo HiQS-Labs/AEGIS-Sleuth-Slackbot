@@ -1,0 +1,37 @@
+{
+  "before": "835f6ca1105d1e324e1c6c58509aba9c3b1133bd",
+  "after": "835f6ca1105d1e324e1c6c58509aba9c3b1133bd",
+  "results": {
+    "build": 0,
+    "full-test": 1,
+    "decision-replay": 0
+  },
+  "focused": {
+    "suites": 4,
+    "tests": 239,
+    "exit": 0
+  },
+  "nodeTests": {
+    "passed": 116,
+    "exit": 0
+  },
+  "baselineThreadMemory": {
+    "head": "6c5576ecb5bdce9085433a995ab2d97a5ed828b1",
+    "exit": 1,
+    "passed": 25,
+    "failed": 1
+  },
+  "fullJest": {
+    "passed": 3080,
+    "failed": 1,
+    "skipped": 4
+  },
+  "pdda": {
+    "exit": 0,
+    "mode": "observe",
+    "clean": false,
+    "note": "Unrelated existing findings; own registered working plan excludes legacy-only roadmap coverage."
+  },
+  "recordKind": "historical qualification snapshot",
+  "supersededBy": "final-gates.json"
+}

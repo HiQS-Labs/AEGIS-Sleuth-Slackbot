@@ -1,0 +1,80 @@
+diff --git a/src/task-grounding.js b/src/task-grounding.js
+index f010965..0d1a87e 100644
+--- a/src/task-grounding.js
++++ b/src/task-grounding.js
+@@ -190,10 +190,11 @@ function GroundingTokens(ArgText) {
+  * author used is not inventing an entity, and rejecting it would send a perfectly good title back to
+  * the verbatim path, which is the exact failure this whole module exists to avoid.
+  * @param {string} ArgToken
++ * @param {number} [ArgMinLength] Minimum token length before plural suffix.
+  * @returns {string}
+  */
+-function StripPluralSuffix(ArgToken) {
+-  return ArgToken.length > 3 && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
++function StripPluralSuffix(ArgToken, ArgMinLength = 3) {
++  return ArgToken.length > ArgMinLength && ArgToken.endsWith('s') ? ArgToken.slice(0, -1) : ArgToken;
+ }
+ 
+ /**
+@@ -236,7 +237,9 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
+   // `team`, so the rendered title named a Microsoft product the author never mentioned. (Codex,
+   // branch relay round 4.) Descriptive identifiers like `billing-syncs` keep the tolerance: those
+   // are compounds, not names, and they genuinely inflect.
+-  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target) : Target;
++  // two-letter uppercase acronym plurals need a shorter stem, still behind ArgAllowPlural.
++  const PluralMinLength = /^[A-Z]{2}s$/.test(ArgTerm) ? 2 : 3;
++  const TargetSingular = ArgAllowPlural ? StripPluralSuffix(Target, PluralMinLength) : Target;
+ 
+   for(let StartIndex = 0; StartIndex < ArgSourceTokens.length; StartIndex++) {
+     let Run = '';
+@@ -250,7 +253,7 @@ function IsTermGrounded(ArgTerm, ArgSourceTokens, ArgAllowPlural = true) {
+       // verbatim dump this issue exists to remove.
+       if(Run.length > Target.length + 1) break;
+       if(Run === Target) return true;
+-      if(ArgAllowPlural && StripPluralSuffix(Run) === TargetSingular) return true;
++      if(ArgAllowPlural && StripPluralSuffix(Run, PluralMinLength) === TargetSingular) return true;
+     }
+   }
+   return false;
+diff --git a/tests/reminder-display-selection.test.js b/tests/reminder-display-selection.test.js
+index 9d2ff6d..41937b4 100644
+--- a/tests/reminder-display-selection.test.js
++++ b/tests/reminder-display-selection.test.js
+@@ -381,3 +381,14 @@ describe('GH-318 quoted acronym display', () => {
+       expect(Selection.ungroundedTerms).toContain('URLs');
+     });
+ });
++
++describe('GH-318 two-letter acronym selection', () => {
++  test.each(['PR', 'ID', 'DB'])('preserves a grounded %s plural in the displayed title', ArgStem => {
++    const Title = `Review ${ArgStem}s`;
++    const Source = `please review the ${ArgStem} tomorrow`;
++    const Selection = SelectTaskText({ reminder_message: Title }, Source, true, Source);
++    expect(Selection.text).toBe(Title);
++    expect(Selection.source).toBe('title');
++    expect(Selection.ungroundedTerms).toEqual([]);
++  });
++});
+diff --git a/tests/task-grounding.test.js b/tests/task-grounding.test.js
+index 49f4035..35b4399 100644
+--- a/tests/task-grounding.test.js
++++ b/tests/task-grounding.test.js
+@@ -283,3 +283,18 @@ describe('GH-318 quoted acronym padding', () => {
+       expect(IsTitleGrounded(ArgTitle, 'reference URLs list')).toBe(true);
+     });
+ });
++
++describe('GH-318 two-letter acronym plurals', () => {
++  test.each(['PR', 'ID', 'DB'])(
++    'accepts the supported plural of %s only when grounded', ArgStem => {
++      expect(IsTitleGrounded(`Review ${ArgStem}s`, `review the ${ArgStem}`)).toBe(true);
++      expect(IsTitleGrounded(`Review ${ArgStem}s`, 'review documentation')).toBe(false);
++      expect(IsTitleGrounded(`Review " ${ArgStem}s "`, `review the ${ArgStem}`)).toBe(false);
++      expect(IsTitleGrounded(`Review " ${ArgStem}s "`, `review the ${ArgStem}s`)).toBe(true);
++    });
++  test('does not widen short ordinary words or invent an acronym', () => {
++    expect(IsTitleGrounded('Review PRs', 'review apr')).toBe(false);
++    expect(IsTitleGrounded('Update Gas', 'update ga')).toBe(false);
++    expect(IsTitleGrounded('Update Teams', 'update team')).toBe(false);
++  });
++});
