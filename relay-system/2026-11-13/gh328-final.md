@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-13.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 1 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -78,5 +78,22 @@ Required output: graded findings with `file:line`; literal `swept file: yes|no`;
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1 · codex
+
+swept file: yes
+
+VERDICT: PASS
+Basis: reviewed the complete product utility and existing test file, the plan, recorded smoke/red-green evidence, full-gate summary, changelog and GH-328 ledger/dashboard entries. No blocking regression or pre-existing defect found in the swept file. This is render-only and uses the existing builder. No source or evidence artifacts changed; no git or suites executed. Graph search was attempted but denied by the tool's approval policy; scoped source reads supplied the caller inventory.
+
+- [Pass] Mapped labels are outside the hyperlink: `src/reminders-display-utils.js:255-273` constructs the task link first and prepends the optional label. `tests/reminders-display-utils.test.js:245-251` asserts both placement and absence of `|Client A`; the exact unlabelled line remains asserted at lines 218-224. The caller passes the bare summary and separate label at product lines 315-317 and 342-349.
+- [Pass] Idempotence preserves the chosen stored-title exception: `src/client-mapping.js:266-273` returns an already-led title unchanged; product line 317 therefore supplies no extra label. Caller assertions at `tests/reminders-display-utils.test.js:350-353` cover both cases. No new loss/doubling input found within this contract; this deliberately retains the existing prefix helper's matching semantics.
+- [Pass] Slack-token and missing-link branches retain the client label before the task, at `src/reminders-display-utils.js:261-273`. Narrow probe command: `node <<'NODE'` with `fs.readFileSync('src/reminders-display-utils.js','utf8')`, extraction of the unchanged source declarations `FormatReminderAge` and `BuildCompactReminderLine` into a fresh `vm` context, then `assert.equal` against the complete no-client line and `assert(line.startsWith(expected))` for client/plain, client/token and client/null-permalink inputs. Inputs: Label `C`, Summary `Ship the hotfix` or `Ping <@U2>`, PermaLink `https://example.test/p` or null, ClientName `Client A`, epoch due time, age 3, owner `<@U1>`. Exit status: 0. Decisive output: `C.) Client A - <https://example.test/p|Ship the hotfix> · …`; `C.) Client A - Ping <@U2> <https://example.test/p|↗︎> · …`; `C.) Client A - Ship the hotfix · …`; `PASS: exact unmapped line; mapped plain/token/no-link branches`. No application modules or executable fixtures started.
+- [Pass] The new positive prefix assertions fail if the optional field is ignored or if the caller still embeds the prefix in Summary (`tests/reminders-display-utils.test.js:247,350-351`). The negative `not.toContain('|Client A')` assertion alone would be insufficient, but is paired with the positive assertion. Recorded unchanged-code result: “2 failed” and the old `B.) <…|Client A - Ship the hotfix>` output in `TESTS-RESULTS/2026-11-13+GH-328/verification.md:6`. This is inspected historical evidence, not a reviewer rerun.
+- [Pass] Caller/consumer sweep: the other production builder caller supplies no ClientName (`src/chat-commands/show-rebalance-reminders-command.js:194`); export summaries still use ExtractCompactSummary (`src/web-api.js:721,1629`). Extra tasks independently retain ApplyClientPrefix and annotations remain appended after them (`src/reminders-display-utils.js:361-375`). The mapped multi-task smoke output is recorded in `TESTS-RESULTS/2026-11-13+GH-328/smoke-output.txt` (“• Client A - Review invoice 483”). No consumer of the formerly prefixed local summary was missed.
+- [Nit] Verification provenance: `TESTS-RESULTS/2026-11-13+GH-328/full-gate.log:1-8` records HEAD, 147 passing Jest suites, 3094 passing Jest tests and 116 passing Node tests, but explicitly lacks the npm-test exit status. Preserve the harness's upcoming exit status with its final gate; do not describe this old summary as an independently rerun or exit-code-proven gate.
+- [Nit] The plan's Status table still says implementation is next (`PROJECT/2-WORKING/GH-328-CLIENT-PREFIX-OUTSIDE-LINK.md:23`). Refresh that table during producer closeout to reflect implementation and final QA completion.
+
+relay closed (Approved), no further turn needed.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
