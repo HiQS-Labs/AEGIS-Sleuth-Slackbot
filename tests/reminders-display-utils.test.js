@@ -241,6 +241,14 @@ describe('BuildCompactReminderLine', () => {
     expect(Line).toMatch(/ · due <!date\^\d+\^\{date_short\} \{time\}\|[^>]+> · 3 days old$/);
     expect(Line).not.toContain('(3 days old)');
   });
+
+  test('GH-328: the client name sits before the link, not inside it', () => {
+    const Line = BuildCompactReminderLine({ ...BaseParts, ClientName: 'Client A' });
+    expect(Line.startsWith('A.) Client A - <https://x.slack.com/archives/C1/p123|Ship the hotfix> · <@U_TARGET> · due ')).toBe(true);
+    expect(Line).not.toContain('|Client A');
+    expect(BuildCompactReminderLine({ ...BaseParts, Summary: 'Ping <@U_OTHER> about it', ClientName: 'Client A' }))
+      .toContain('A.) Client A - Ping <@U_OTHER> about it <https://x.slack.com/archives/C1/p123|↗︎> · ');
+  });
 });
 
 describe('ToWebSafeSummary', () => {
@@ -314,6 +322,35 @@ describe('BuildCompactTextForReminder (parity with the shared line builder)', ()
 
     expect(Yesterday.endsWith(' · 1 day old')).toBe(true);
     expect(Today.endsWith(' · created today')).toBe(true); // same-day control
+  });
+
+  test('GH-328: a mapped client is labelled outside the link; a title already led by it is left as written', async () => {
+    FreezeAt('2026-11-04T12:00:00.000Z');
+    const SlackApp = {
+      WorkspaceInfo: { MAIN_TIMEZONE: 'UTC', WORKSPACE_NAME: 'ws' },
+      GetPermaLinkAsync: jest.fn().mockResolvedValue('https://x.slack.com/archives/C1/p123'),
+    };
+    const Reminder = {
+      ReminderMessageText: '<@U123>, please follow up on this:\n• Ship the hotfix',
+      OriginalChannelID: 'C1',
+      OriginalMessageID: '123.456',
+      CreatedOn: new Date('2026-11-01T12:00:00.000Z'),
+      ShouldPostOn: new Date(Date.UTC(2026, 5, 12, 12, 0, 0)),
+      AssigneeID: 'U_TARGET',
+    };
+    let Build;
+    jest.isolateModules(() => {
+      jest.doMock('../src/client-mapping', () => ({
+        ...jest.requireActual('../src/client-mapping'),
+        ResolveClientNameForReminder: () => 'Client A',
+      }));
+      Build = require('../src/reminders-display-utils').BuildCompactTextForReminder;
+    });
+
+    expect(await Build(SlackApp, Reminder, 'B'))
+      .toMatch(/^B\.\) Client A - <https:\/\/x\.slack\.com\/archives\/C1\/p123\|Ship the hotfix> · <@U_TARGET> · /);
+    expect(await Build(SlackApp, { ...Reminder, ReminderMessageText: '<@U123>, please follow up on this:\n• Client A - Ship the hotfix' }, 'C'))
+      .toMatch(/^C\.\) <https:\/\/x\.slack\.com\/archives\/C1\/p123\|Client A - Ship the hotfix> · /);
   });
 });
 

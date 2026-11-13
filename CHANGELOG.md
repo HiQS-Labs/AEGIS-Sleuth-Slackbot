@@ -33,6 +33,11 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.353 - 2026-11-13
+In reminder lists I now show the client name before the linked task instead of inside the link, so the link is just the task.
+
+**Technical:** GH-328. `BuildCompactReminderLine` takes an optional `ClientName` and renders it as plain `Client - ` text before the permalink; `BuildCompactTextForReminder` passes the GH-395 client label there instead of folding it into the summary. A title whose own stored text already leads with the client name is left as written. Client resolution, `ApplyClientPrefix`, stored reminder text, confirmation bullets, extra Key-task bullets and the published rebalance export are unchanged. Render-only; rollback is a revert.
+
 ## 1.4.352 - 2026-11-12
 I can use nearby thread context for replies such as “I'll tell them tomorrow,” and keep useful communication titles instead of accepting a vague acknowledgment or discarding “Inform” as an unknown name.
 

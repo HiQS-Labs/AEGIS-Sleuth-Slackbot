@@ -243,10 +243,13 @@ function FormatReminderAge(ArgAgeDays) {
  * permalink is always attached: wrapping the summary when it carries no Slack token, else as a
  * trailing `↗︎` link.
  *
+ * `ClientName` (GH-328), when given, is rendered as plain `Client - ` text BEFORE the link, so the
+ * GH-395 client label stays visible without becoming part of the hyperlinked task title.
+ *
  * Pure — shared by the live show-reminders path and consumers re-rendering reminders from
  * the published rebalance export, so the wording stays identical everywhere.
  * @param {{ Label: string, Summary: string, PermaLink: string|null, AgeDays: number,
- *   TaggedUserMention: string, ShouldPostOnMs: number }} ArgParts Precomputed line parts.
+ *   TaggedUserMention: string, ShouldPostOnMs: number, ClientName?: string|null }} ArgParts Precomputed line parts.
  * @returns {string}
  */
 function BuildCompactReminderLine(ArgParts) {
@@ -265,8 +268,9 @@ function BuildCompactReminderLine(ArgParts) {
   }
 
   const Owner = ArgParts.TaggedUserMention || 'unassigned';
+  const ClientLabel = ArgParts.ClientName ? `${ArgParts.ClientName} - ` : '';
 
-  return `${ArgParts.Label}.) ${SummaryLink} · ${Owner} · due ${SlackDateFormat} · ${FormatReminderAge(ArgParts.AgeDays)}`;
+  return `${ArgParts.Label}.) ${ClientLabel}${SummaryLink} · ${Owner} · due ${SlackDateFormat} · ${FormatReminderAge(ArgParts.AgeDays)}`;
 }
 
 /**
@@ -302,13 +306,15 @@ function ToWebSafeSummary(ArgSummary, ArgUserNamesById = {}) {
  * @returns {Promise<string>}
  */
 async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, ArgAnnotationsByReminderId, ArgOptions) {
-  // Prefix the display-only summary with the reminder's inferred client name (GH-395). This is a
+  // Label the display-only summary with the reminder's inferred client name (GH-395). This is a
   // non-destructive render-time decoration on top of the GH-391 per-reminder poster, so every list
-  // surface (ask-reminders, buckets, digests) gets it consistently. No confident match → no prefix.
-  const summary = ApplyClientPrefix(
-    ExtractCompactSummary(ArgReminder.ReminderMessageText),
-    ResolveClientNameForReminder(ArgReminder, ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME)
-  );
+  // surface (ask-reminders, buckets, digests) gets it consistently. No confident match → no label.
+  // GH-328: the label goes to the line builder separately so it renders outside the permalink. It
+  // is passed only when ApplyClientPrefix would add it; a title whose own text already leads with
+  // the client name keeps it, as written, inside the link.
+  const ClientName = ResolveClientNameForReminder(ArgReminder, ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME);
+  const summary = ExtractCompactSummary(ArgReminder.ReminderMessageText);
+  const SummaryClientName = ApplyClientPrefix(summary, ClientName) === summary ? null : ClientName;
 
   const PermaLink = await ArgSlackApp.GetPermaLinkAsync(
     ArgReminder.OriginalChannelID,
@@ -340,9 +346,10 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
     AgeDays: DaysOld,
     TaggedUserMention: TaggedUser,
     ShouldPostOnMs: ArgReminder.ShouldPostOn.getTime(),
+    ClientName: SummaryClientName,
   });
 
-  // tasks 2..N of this record. `summary` above already rendered task 1 (with the client prefix), so
+  // tasks 2..N of this record. `summary` above already rendered task 1 (with the client label), so
   // these are the ones the old `find('•')` read dropped on the floor. Same ApplyClientPrefix
   // treatment, so a two-task reminder does not label one bullet and leave the other bare.
   //
@@ -352,7 +359,6 @@ async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, A
   // Without a permalink there is nowhere to point, so every task stays visible.
   let ExtraTaskLines = '';
   if(ArgOptions?.IncludeAllKeyTasks) {
-    const ClientName = ResolveClientNameForReminder(ArgReminder, ArgSlackApp.WorkspaceInfo?.WORKSPACE_NAME);
     const ExtraTasks = ExtractKeyTaskSummaries(ArgReminder.ReminderMessageText).slice(1);
     const Shown = PermaLink ? ExtraTasks.slice(0, TitleContract.MAX_DISPLAYED_SUBTASKS) : ExtraTasks;
     const Hidden = ExtraTasks.length - Shown.length;
