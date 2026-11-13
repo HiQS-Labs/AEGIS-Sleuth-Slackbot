@@ -1,6 +1,6 @@
 -- releases-app canonical dump (GH-32 grammar: GID-keyed rows, natural keys elsewhere,
 -- no integer PKs/FKs as values; rebuild renumbers deterministically)
--- generation: 136
+-- generation: 140
 -- table: schema_migrations
 INSERT INTO schema_migrations(version, applied_at) VALUES('1', '2026-08-25T01:07:47Z');
 INSERT INTO schema_migrations(version, applied_at) VALUES('2', '2026-08-25T01:07:47Z');
@@ -13,7 +13,7 @@ INSERT INTO schema_migrations(version, applied_at) VALUES('8', '2026-10-11T15:59
 INSERT INTO schema_migrations(version, applied_at) VALUES('9', '2026-10-11T15:59:55Z');
 -- table: settings
 INSERT INTO settings(key, value, updated_at) VALUES('enforcement', 'lenient', '2026-09-09T21:31:03Z');
-INSERT INTO settings(key, value, updated_at) VALUES('generation', '136', '2026-11-09T16:09:38Z');
+INSERT INTO settings(key, value, updated_at) VALUES('generation', '140', '2026-11-13T03:34:48Z');
 INSERT INTO settings(key, value, updated_at) VALUES('repo_slug', 'aegis-sleuth-slack-bot', '2026-09-09T21:31:03Z');
 INSERT INTO settings(key, value, updated_at) VALUES('unshipped_version_tokens', 'TBD', '2026-09-09T21:31:03Z');
 -- table: repos
@@ -312,22 +312,7 @@ INSERT INTO roadmap_items(global_id, repo_gid, gh_number, title, section, positi
   [PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md](PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md),
   [PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md](PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md),
   [PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md](PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md)', '2026-08-26T02:02:58Z', '2026-08-26T02:02:58Z', NULL, NULL, NULL, NULL, NULL, NULL);
-INSERT INTO roadmap_items(global_id, repo_gid, gh_number, title, section, position, status_marker, complexity, risk, effort, doc_path, issue_url, raw_text, first_seen, updated_at, rating_pri, rating_sev, rating_appeal, rating_effort, rating_ovr, status_label) VALUES('rmi-01M0XWWTRY5MGRN69J63G4WZSX', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, 'Pronoun follow-ups schedule the literal sentence (GH-55)', 'In progress', '3', NULL, NULL, NULL, NULL, 'PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md', NULL, '- **Pronoun follow-ups schedule the literal sentence (GH-55)** — **planned, not started; release
-  goalpost 1.4.290 ("Antecedent").** "Can we try to get it done by end of day on Monday?" was
-  scheduled verbatim, with the task it points at never read and the owner lost with it — observed
-  live 2026-08-14 following "@Vishal please make the fast-search GH issue and work on it", and
-  assigned to the sender instead of Vishal. Telemetry shows the analyzer behaved correctly on the
-  text it was handed (`ratio_usable=yes`, `analyzer_owner=unclear`, `resolved_by=sender-fallback`);
-  it was handed the wrong text. **The inverse of GH-43/GH-51** — those shorten a long message, this
-  adds context to a 50-character one — and the wrong assignee is the same root cause, not a second
-  defect, since "can we get it done" has no grammatical subject to own. Two verified blockers:
-  enrichment is gated on `thread_ts` (these were top-level channel posts; `enrichment=none` is a
-  hardcoded literal on the auto-schedule path) and "get it done" matches none of the three
-  vague-reference patterns. Deliberately **not** fixed by adding a verb — that list is documented
-  in-code as a losing whack-a-mole. Phase 1 generalizes reference detection in-thread and ships
-  independently; Phase 2 adds channel-level lookback behind a default-OFF flag with a recency
-  window and does not open until Phase 1''s gate is green. →
-  [PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md)', '2026-08-26T02:02:58Z', '2026-08-26T02:02:58Z', NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO roadmap_items(global_id, repo_gid, gh_number, title, section, position, status_marker, complexity, risk, effort, doc_path, issue_url, raw_text, first_seen, updated_at, rating_pri, rating_sev, rating_appeal, rating_effort, rating_ovr, status_label) VALUES('rmi-01M0XWWTRY5MGRN69J63G4WZSX', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, 'Pronoun follow-ups schedule the literal sentence (GH-55)', 'In progress', '3', NULL, NULL, NULL, NULL, 'PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md', NULL, '- **GH-55 · Pronoun follow-ups schedule the literal sentence** 🚧 **scoped fix reviewed and locally qualified; PR #324; rated 75/55/50/80** — [plan](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md) · [PR](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/324) · [#55](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/55)', '2026-08-26T02:02:58Z', '2026-11-13T03:34:48Z', '75', '55', '50', '80', NULL, NULL);
 INSERT INTO roadmap_items(global_id, repo_gid, gh_number, title, section, position, status_marker, complexity, risk, effort, doc_path, issue_url, raw_text, first_seen, updated_at, rating_pri, rating_sev, rating_appeal, rating_effort, rating_ovr, status_label) VALUES('rmi-01M0XWWTRYEQBDX6BPJ1N6D892', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, 'Span-ratio rounding hides the most deeply buried tasks (GH-51)', 'In progress', '4', NULL, NULL, NULL, NULL, 'PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md', NULL, '- **Span-ratio rounding hides the most deeply buried tasks (GH-51)** — **release goalpost 1.4.280
   ("Grounding")** for the open remainder. `DescribeSynthesisRouting`
   rounded the actionable-span ratio with `toFixed(2)` **before** the buried-task gate read it, so any
@@ -793,6 +778,10 @@ INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_bef
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-update', 'rmi-01M6QMXAWTTNSWH7PEW8SYGVS7', '2026-11-06T05:22:11Z', '33102a40d3db46e7956e1685d2c017b6', 'default', '78a45d8725fe23cd3383c50b961e90fd87b3689829b3901f886e76cacd7427de', '83337a9a04488d968c44358c4f33fdb71e3508f350072ee9ce957f3336c084fe');
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-add', 'rmi-01M70H4CR9102B3QQCX582V29F', '2026-11-09T16:09:17Z', 'f84b3e46d08147ce8daa52ce446c9418', 'default', '83337a9a04488d968c44358c4f33fdb71e3508f350072ee9ce957f3336c084fe', '67dcb6d99e44f9d99251342825414f12c7b40eafa6115ff493202c6dfd4b8223');
 INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-update', 'rmi-01M70H4CR9102B3QQCX582V29F', '2026-11-09T16:09:38Z', 'b9ddc4fdce884c57924e89f34098ecc0', 'default', '67dcb6d99e44f9d99251342825414f12c7b40eafa6115ff493202c6dfd4b8223', '5424ee5c56d58f9d05038286e11d70026e5e03c15abdf278a81644ed13780d2c');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-rate', 'rmi-01M0XWWTRY5MGRN69J63G4WZSX', '2026-11-13T02:53:02Z', '2cc74dbce56f408eb784072a78bbe30e', 'default', '5424ee5c56d58f9d05038286e11d70026e5e03c15abdf278a81644ed13780d2c', '36606e14ec00bb5fafff230f3a143691963a73c6eb6cb543ad1983fef8f2b3d9');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-update', 'rmi-01M0XWWTRY5MGRN69J63G4WZSX', '2026-11-13T02:53:02Z', '9635e6e691314893b21f0370e86e1a9d', 'default', '36606e14ec00bb5fafff230f3a143691963a73c6eb6cb543ad1983fef8f2b3d9', '8599d94f9144de860b3f845e4f6f51fdd7215ea2271f8dc9a7d9c5576c10dc4a');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-update', 'rmi-01M0XWWTRY5MGRN69J63G4WZSX', '2026-11-13T03:18:20Z', 'd168413054c24274a9f6fb3d64bb8065', 'default', '8599d94f9144de860b3f845e4f6f51fdd7215ea2271f8dc9a7d9c5576c10dc4a', 'e0ab38c3d792b85f5f53a98443a421f3114ec28c388d17965d0b20129c0d900f');
+INSERT INTO op_receipts(op, target_gid, at, txn_id, session_id, state_digest_before, state_digest_after) VALUES('roadmap-update', 'rmi-01M0XWWTRY5MGRN69J63G4WZSX', '2026-11-13T03:34:48Z', '1e1a419ed7084ce19a4b7116b6e9b913', 'default', 'e0ab38c3d792b85f5f53a98443a421f3114ec28c388d17965d0b20129c0d900f', 'cfb4ddfb16811e8c582973263e0e043888d923a1eb61daca8b87f4297cfd0f57');
 -- table: work_events
 INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M4NX57SYJFDBK8835FW5R4FC', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', '233', '270ad932d325450eba79e2745e4d62f9', 'completed', '{"marker": "\u2705", "section": "Completed", "source": "roadmap-update", "transition": true}', '2026-10-11T16:36:26Z');
 INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M4NXT32J957RNJY5NMA3V231', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', '237', '9977cb6577ae4ca4981156c2f6377fbd', 'parked', '{"section": "Queue / parked intake"}', '2026-10-11T16:47:49Z');
@@ -842,3 +831,7 @@ INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, 
 INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M6QMXB1MAX5C18C7GWMR47RX', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', '301', '33102a40d3db46e7956e1685d2c017b6', 'in_flight', '{"marker": "\ud83d\udea7", "section": "In progress", "source": "roadmap-update", "transition": true}', '2026-11-06T05:22:11Z');
 INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M70H4CRFW908JFDZBMFTMFQ6', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', '318', 'f84b3e46d08147ce8daa52ce446c9418', 'parked', '{"section": "Queue / parked intake"}', '2026-11-09T16:09:17Z');
 INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M70H50TXE4D0JYB45QFQKCK8', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', '318', 'b9ddc4fdce884c57924e89f34098ecc0', 'in_flight', '{"marker": "\ud83d\udea7", "section": "In progress", "source": "roadmap-update", "transition": true}', '2026-11-09T16:09:38Z');
+INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M79D58XNWH7SS4NG81E3GY2G', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '2cc74dbce56f408eb784072a78bbe30e', 'rated', '{"rated": "75/55/50/80"}', '2026-11-13T02:53:02Z');
+INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M79D592Z8W2JMJEWZYQDJAD7', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '9635e6e691314893b21f0370e86e1a9d', 'updated', '{"marker": "", "section": "In progress", "source": "roadmap-update", "transition": false}', '2026-11-13T02:53:02Z');
+INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M79EKK36Z3SN9DT9T1HXVWPF', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, 'd168413054c24274a9f6fb3d64bb8065', 'updated', '{"marker": "", "section": "In progress", "source": "roadmap-update", "transition": false}', '2026-11-13T03:18:20Z');
+INSERT INTO work_events(global_id, repo_gid, gh_number, txn_id, event, payload, at) VALUES('wev-01M79FHR7F5YJFZT5FJ4ETXBZZ', 'repo-01M0V7B2N4NR2AFQPFYKVT7997', NULL, '1e1a419ed7084ce19a4b7116b6e9b913', 'updated', '{"marker": "", "section": "In progress", "source": "roadmap-update", "transition": false}', '2026-11-13T03:34:48Z');

@@ -2,13 +2,13 @@
 title: "Pronoun follow-ups schedule the literal sentence: the antecedent is never resolved, losing both the task and its owner"
 status: Active (2-WORKING) — implemented and merged at 1.4.290 with the channel half default-OFF. Stays open: the milestone needs the flag armed and observed in production.
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-11-12
 owner: noel
 goal: "When a follow-up refers to earlier work by pronoun, resolve the antecedent before scheduling, so the reminder records the real task and the real owner instead of the literal sentence — and record the resolution in the ledger so a wrong stitch is auditable rather than silent."
 branch: gh-55-antecedent-resolution
 doc_type: project
 gh_issue: 55
-source: https://github.com/HiQS-Suite/aegis-sleuth-slack-bot/issues/55
+source: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/55
 release: 1.4.290 ("Antecedent")
 related: "Not GH-43/GH-51 — those shorten long messages; this adds context to short ones. Uses the GH-44 replay battery as a REGRESSION GUARD only — it has no thread context, so it never reaches the enrichment path and cannot show the improvement. Generalizes the mechanism GH-424 introduced. Reuses the GH-43 grounding constraint in src/reminder-display-selection.js as the non-destructive guarantee."
 context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory, blast-radius]
@@ -20,7 +20,7 @@ context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory
 
 | What was just completed | What's next |
 |---|---|
-| **Implemented and merged at 1.4.290.** Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **Arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe.** The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
+| **2026-11-12: three-helper fix implemented; 532 focused tests and selected-model 3/3 replay pass. Final QA Approved; full local qualification passes; PR #324 published.** Historical phase: implemented and merged at 1.4.290. Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **PR #324 awaits merge after hosted gates/reviews; historical rollout remains separate.** Historical rollout remains separately unverified: arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe. The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
 
 ## What the merge did NOT do
 
@@ -227,3 +227,114 @@ invalidate even that.
 
 Also out of scope: cross-channel or DM antecedents, and any attempt to resolve an antecedent older
 than the recency window.
+
+
+## 2026-11-12 recipient-reference follow-up
+
+### Scope and current state
+
+Requested outcome: a short communication commitment referring to an adjacent plan should retain the communication action and recover its subject, rather than display a vague reply. This is a bounded continuation of open GH-55, related to GH-66/GH-77; it does not close the historical rollout milestone above. No new issue is needed. Existing public examples above are historical; this continuation publishes synthetic cases only.
+
+Base: `7e9e58f1ec79abe92453fa96724734745e9fb4ac`. Task branch: `fix/AEGIS-Sleuth-Slackbot-gh55-antecedent-resolution-2026-11-12`. Fresh full clone, hooks installed, dependencies installed. This paragraph records the planning baseline; current results are below.
+
+### Measured ground truth and recon map
+
+- Read-only production decision evidence reported `enrichment=none`, synthesis on, title/span refused as `bare-pointer`, accepted verbatim, and `repair=none`. Raw message, IDs and server evidence remain private; no server modules or tests were run.
+- Public deterministic baseline: [baseline probe](../../TESTS-RESULTS/2026-11-12+GH-55/baseline-probe.json). `Yes I'll tell them by tomorrow.` has no reference shape and normalizes to valid `Yes I'll tell them`. `I will tell it tomorrow.` requests context and normalizes to refused `Tell it`. A self-contained task and subject-position control request no context.
+- Context origin: `IsObjectPositionPronounReference` in `src/reminder-context-resolution.js` admits only `it|this|that`. Automatic handler `TryEnrichVagueCompletionFromAboveAsync` exits before context fetch if `NeedsEarlierContext` is false. Existing resolver reads at most three preceding human thread messages, anchors at the live timestamp, excludes bots, neutralizes context markers, and preserves live reply/provenance.
+- Display origin: `NormalizeReminderTitle` in `src/reminder-title-contract.js` strips commitment framing only at the start. An affirmative hides it; `HasConcreteObject` then counts framing words as object content. `SelectTaskTextRaw` accepts verbatim before existing repair; `#RepairRefusedTitlesAsync` only repairs fallback once through WorkspaceAI with source-grounded object/title checks.
+- Dates/ownership/write path: `#TryScheduleRemindersAsync` uses analyzer `scheduling_trigger` alone for date extraction; first-person live reply owns the commitment. Common scheduling factory/FSM, persistence, feedback and ledger remain the sole writers. The same candidate feeds posted confirmation and stored task.
+- Blast radius: detector shared by automatic, explicit/reaction depth, optional same-channel lookback and triage. Normalizer shared by all title candidates and API retitling. Preserve kill switches, bounded collection, source grounding, quoted task names, person-versus-thing distinction, deadline/date and owner contracts.
+- Independent graph leads were confirmed in the task checkout; the available graph indexed a different checkout revision. Index coverage unknown. No exhaustive repository-wide audit claimed.
+
+### Triangulate card and root-cause statement
+
+**GROUND:** production took the unenriched path; isolated baseline demonstrates two deterministic gaps.
+**FALSIFY:** hypothesis that the model ignored already-supplied context is contradicted by `enrichment=none`. Synthesis-off is contradicted by telemetry. Missing Slack pagination could independently matter, but this path exits before fetching; pagination is deferred, not asserted as this incident's cause.
+**SMALLEST:** extend the existing object-pronoun detector and framing cleanup, then exercise the existing resolver, selector and one-repair path. Do not create a new reasoning subsystem.
+
+Root cause: recipient `them` is absent from context admission and affirmative-prefixed commitment scaffolding survives normalization; Fix site: existing detector and title normalizer; Why not upstream/downstream: Slack delivery and model selection cannot recover context never supplied, and broadening repair or deterministic person replacement would bypass existing safeguards.
+
+### Logic ladder and smallest viable bet
+
+1. Recognize object-position `them` through the existing closed pronoun detector; retain subject/clause controls. Limit temporal-demonstrative exclusion to `this|that`, so `Tell them Monday` remains eligible.
+2. Retrieve the existing bounded preceding thread context. Preserve the live reply as the authority for ownership and scheduling commitment.
+3. Let the current analyzer resolve what is being communicated. Synthetic case: `Tell the vendor about the April downgrade`; notification deadline `tomorrow`; April is the change's effective month. Recipient and subject require supplied evidence.
+4. Remove a leading affirmative only when it introduces already-recognized request/commitment framing. Then existing validation refuses unresolved `Tell them` and existing one-shot model repair may resolve it from context. Do not replace person pointers with thing objects.
+5. Select, validate, ground and persist through the current common writer; verify confirmation and stored text agree.
+
+Alternatives: changing model/prompt first cannot fix the demonstrated pre-model admission gap; a verb list repeats prior whack-a-mole; stripping every leading affirmative can damage a real task name; widening context or adding a new inference ladder increases unrelated-topic exposure. Strongest counterargument: `them` may be locally resolved inside a self-contained sentence, so it can cause an unnecessary bounded lookup. Existing bounds/switches remain containment; test self-contained and subject controls. No promise of universal topic resolution.
+
+Non-goals: model/provider changes, prompt redesign, unbounded history, channel rollout/pagination work, production mutations/deployment, statuses/deadlines/owners/links edits, new persistent fields, new frameworks/runners/fuzzers. No server tests. No new paid-provider budget inferred from prior projects.
+
+Rollback: revert the two helper changes; no migration. Existing thread-context and title-repair switches remain available containment. No new feature flag.
+
+### Ordered implementation and falsifiable acceptance
+
+- [x] Independent Codex plan QA, maximum three rounds; reviewer paraphrases this proposal before reading source, then validates against source-backed requirements.
+- [x] Extend only existing detector/normalizer and existing test seams. Add focused positives and negatives; record pre-fix red and post-fix green output in this receipt directory. Reverting each runtime change must make its new regression fail.
+- [x] Main-path integration: synthetic preceding `We should downgrade the vendor service plan for April`, `Should we tell them?`, live `Yes I'll tell them by tomorrow.` yields one scheduled reminder. Assert enriched model input, useful notification title in BOTH confirmation and persisted task, live author, tomorrow due date, original source and enrichment provenance. A mock tests plumbing only, never proves real synthesis quality.
+- [x] Adjacent repair: affirmative-prefixed vague title/span/verbatim must reach existing one-repair path; accepted repair must be grounded. Missing context must not invent vendor/downgrade. Preserve existing `Ask them` != `Ask invoice` negative. Quoted names and affirmative task-name controls remain intact.
+- [x] Subject `They will reply tomorrow`, scheduling-word controls, bot/future-message boundaries and disabled-thread switch preserve current contracts. Date extraction input must be tomorrow rather than April; owner/state/source unchanged by title cleanup.
+- [x] Run focused context/title/display/integration suites, build, applicable validators and decision replay. Run bounded real-model handler replay locally with complete confirmation + stored output; report actual provider/settings and semantic outcome, never equate mocked output with real quality. If access or authorization is unavailable, mark that acceptance unverified and do not claim ready.
+- [ ] Smoke main and adjacent path with receipts, independent final Codex QA (three-round cap), then final required repository gate and PR into development. No package version bump. Update CHANGELOG and issue closeout; historical GH-55 stays open. Final qualification not yet run.
+
+### Rating and recurrence
+
+2026-11-12 assessment: `rated 75/55/50/80` (priority/severity/neutral appeal/cheapness). A recoverable reminder can omit the actual task; no data loss or evidence of changed owner/deadline in this incident. User prioritizes fixing synthesis. Two existing pure helpers bound effort. One current incident observed; related old GH-55/GH-66/GH-77 are not counted as new incidents. Recent windows 2026-10-30–11-12 versus 2026-10-16–29 have incomplete incident coverage: trend unknown. No operator rank override.
+
+Legacy ledger row `rmi-01M0XWWTRY5MGRN69J63G4WZSX` owns this exact doc/title but has no native issue number or URL. Preserve and rate it through the supported `--gid` writer; do not create a duplicate row or hand-edit DB identity. This limitation does not authorize schema or upstream tool changes.
+
+### Experiment ledger and next action
+
+1. Production read-only telemetry: context absent, synthesis active, vague verbatim survived; excludes synthesis-off and supplied-context-only hypotheses.
+2. Baseline synthetic probe: missing `them` admission and affirmative normalization reproduced; controls distinguished.
+3. Three independent read-only recon lanes corroborated caller, display and write/date/owner contracts. No implementation or provider run yet.
+
+Next action: independent plan review, then implement only approved scope. Plan/final QA and real-model evidence remain pending.
+
+
+### Plan amendment after real-model evidence (review round 2 requested)
+
+Plan round 1 PASS/attested Approved, reviewed `2a2efbd`, receipt `96399fc`. Two approved helper changes implemented. Four focused suites: 311 passed; three adjacent suites: 168 passed; build and FSM/pipeline validators pass; deterministic decision replay 23 passed. Reverting context change made four targeted cases fail; reverting affirmative change made five fail. The initial red run had 8 test failures/2 controls passing and completed assertions, but its Jest process needed termination for an open handle; subsequent runs use the repo's `--forceExit` convention. No full final gate yet.
+
+**New observed failure, not a successful quality result:** real end-to-end replay using the harness defaults `gpt-4o-mini` / `gpt-4o` passed only 2/3 scenarios twice. Main output was `Follow up: Downgrade the vendor service plan for April`. This is a local synthetic qualification, not production's mixed model configuration. Diagnostic output includes complete posted and stored surfaces, raw model answers, and tomorrow date extraction: [receipt](../../TESTS-RESULTS/2026-11-12+GH-55/real-replay-diagnostic.log).
+
+The context fix worked: three preceding messages reached analysis. The analyzer returned `Inform the vendor about the service plan downgrade`; repair returned `Inform the vendor about the service plan downgrade for April`. Both were refused as ungrounded because the existing leading-imperative allowlist omits `inform`. Pure probe must confirm `UngroundedTerms` returns exactly `Inform`; quoted/body entity controls must remain strict. This is the same bounded shared-verifier seam as GH-318, not a reason to disable grounding. The initial analyzer title also omitted the effective month, keeping it only as context; an explicit instruction is needed if the title itself must preserve it reliably.
+
+**Bounded amendment proposed, before implementation:**
+1. Add only observed imperative `inform` to existing `ImperativeVerbs`; extend existing grounding/selector tests with the captured response and invented-entity/date/quoted/non-leading controls. Mutation-revert the one token and require the positive to fail. Do not exempt arbitrary first words or extend entity matching.
+2. Add one concise communication-commitment rule to existing analyzer and one-repair instructions: keep the live communication action, resolve recipient/topic only from supplied context, retain a stated effective period that distinguishes the topic, and put only the communication deadline in scheduling_trigger. Use generic wording; no private examples. This is a targeted clarification, not a prompt redesign or new stage. Keep admission/exclusions, schema, providers, spend limits, ownership and writes unchanged.
+3. Real replay's literal `tell` criterion is too narrow: `Inform`/`Notify` are valid paraphrases. Extend the EXISTING replay grader with optional `taskStartsWithAny` (accepted communication openings), and narrowly extend its EXISTING tests if present; otherwise a pure existing-seam check recorded in receipts, not a new suite. An unchanged failing fallback must fail this predicate, as must `Downgrade the plan`; empty output must still fail. Retain month/subject and no-fallback assertions. This improves measurement, not runtime logic. Subject/model uncertainty stays explicit.
+4. Re-run the bounded actual-model main + self-contained + no-context cases locally with complete surfaces and provider identity; pin semantic checks to communication action/recipient/topic/effective month, live owner, tomorrow due date and stored/confirmation agreement. Prompt validation required. Preserve first failed results and report variability honestly. Full qualification still waits until final review.
+
+Updated root cause: two pre-model/normalization gaps plus a demonstrated `Inform` false refusal and insufficiently explicit effective-period instruction. Fix sites remain existing detector, normalizer, grounding allowlist and two prompt assets; no new runtime subsystem, model switch or durable writer. Strongest counterargument: a one-word allowlist addition cannot guarantee all paraphrases and prompting is probabilistic; acceptance is bounded, failures remain red, and no universal reliability claim is allowed.
+
+Paraphrase-first review applies again to this amendment, same three-round plan budget (round 2/3). Existing private/public separation and historical GH55-open status remain. Amendment not yet implemented.
+
+
+### Retained implementation and final-review handoff
+
+Plan amendment round 2 PASS/attested Approved (`b7437938` receipt). Implemented the three helper changes plus optional anchored replay-grader action openings. Two targeted Inform tests went red before the one-token fix, passed after, and failed again under its mutation. Eight focused suites now pass 532 cases (12 added cases in existing suites). Build passes. No new runtime modules, writer, provider client, fields or feature flag.
+
+**Prompt disposition: removed, not shipped.** Two prompt variants failed the stricter main case on the default replay model; Luna passed with both modified and original prompts. Original-prompt main-only ablation 1/1 and retained-original-prompt full three-case run 3/3 provide no observed benefit for adding the rules. Both prompt assets equal base; no prompt or live model-setting change remains. This narrows the approved amendment; it does not silently claim its proposed prompt experiment succeeded.
+
+Real qualification is bounded: local Luna analysis/repair with gpt-4o dates; last production observation used Luna/Sonnet. Explicit gpt-4o-mini replay failures stay recorded. Exact original private incident, live transport, production date provider, universal topic/recipient resolution and historical GH55 rollout are not claimed verified. Current useful title still conservatively says `them` where recipient identity is implicit. Default-model effective-month omission stays open. See [verification and experiment ledger](../../TESTS-RESULTS/2026-11-12+GH-55/verification.md) and complete output.
+
+Current code decisions: context and affirmative changes **helped** under independent mutation; inform exemption **helped** under captured real response and mutation; prompt wording **no observed effect**, removed; cross-model result **confounded**, not a ranking. No root LESSONS-LEARNED entry (NO_ENTRY).
+
+Final QA and full qualification remain pending. Final reviewer must assess whether bounded selected-model success plus explicit default-model limitations justifies the scoped PR; do not close GH55 or claim production fixed. No full suite has been run yet. Once final review approves, run the repo's qualifying CI commands once on the final artifact, publish only with truthful gate results, and leave the idempotent issue closeout.
+
+
+### Qualification and publication checkpoint
+
+Final independent Codex review PASS/attested Approved (`40bdd35` reviewed, `52ade68` receipt); no Blocker/Should. Full Node22/npm10 qualification passes 3,091 Jest + 116 Node tests, build, validators, decision replay and secret scan in disposable full clone, with reviewed HEAD/tree unchanged. First inherited-environment full run remained red; paired unchanged-base probes identify ambient GOOGLE_API_KEY as the no-key-test cause. Clearing only that variable yields baseline pass and a fully passing corrective gate without source/assertion changes. See verification.md/qualification.json for counts, commands and explicit prior failure.
+
+Current next action: publish into development, verify the final head's hosted checks and review comments, then idempotent issue closeout and targeted safe checkout retirement. Prompt assets/package version remain base-identical. This is not production deployment or whole GH55 closure.
+
+
+### Published development PR
+
+PR: https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/324 — base `development`, non-draft, mergeable at initial inspection. Local qualification and independent review are complete. Merge remains contingent on the live PR head's hosted checks/review disposition; GitHub is authoritative for that changing status. No merge or deployment is included. Product/tests/prompts remain identical to the independently reviewed artifact after receipt/status-only commits.
+
+The workflow's task and gate checkouts remain retained while hosted validation is active. Attempt only the start-task targeted published-PR retirement after checks/reviews finish; preserve any active or local-only state. Broader GH55 work stays open. Issue closeout uses marker `<!-- start-task closeout: fix/AEGIS-Sleuth-Slackbot-gh55-antecedent-resolution-2026-11-12 -->` and is updated idempotently with live evidence.

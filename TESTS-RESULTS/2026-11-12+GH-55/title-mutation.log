@@ -1,0 +1,160 @@
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+(node:42187) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL tests/reminders-integration.test.js
+  ● Console
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:42 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:42 GMT, Offset: -480 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:42 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:42 GMT, Offset: -480 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:42 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:42 GMT, Offset: -480 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+  ● RemindersModule integration via MockSlackApp › GH-250 phase 3 — one constrained re-synthesis before the template fallback › recipient commitment retains context, owner and deadline; repair=true
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 1
+    Received length: 0
+    Received array:  []
+
+      3589 |         expect(R.AnalysisCalls[0]).toContain('downgrade the vendor service plan for April');
+      3590 |         expect(R.AnalysisCalls[0]).toContain('Should we tell them?');
+    > 3591 |         expect(R.RepairCalls).toHaveLength(ArgNeedsRepair ? 1 : 0);
+           |                               ^
+      3592 |         expect(R.FeedbackText).toContain(`• ${Title}`);
+      3593 |         expect(R.Stored).toHaveLength(1);
+      3594 |         expect(R.Stored[0]).toMatchObject({
+
+      at toHaveLength (tests/reminders-integration.test.js:3591:31)
+
+  ● RemindersModule integration via MockSlackApp › GH-250 phase 3 — one constrained re-synthesis before the template fallback › a recipient commitment without an antecedent cannot accept an invented repair
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 1
+    Received length: 0
+    Received array:  []
+
+      3618 |         }],
+      3619 |       });
+    > 3620 |       expect(R.RepairCalls).toHaveLength(1);
+           |                             ^
+      3621 |       expect(R.FeedbackText).not.toMatch(/vendor|April|downgrade/);
+      3622 |       expect(R.Stored[0].ReminderMessageText).not.toMatch(/vendor|April|downgrade/);
+      3623 |     });
+
+      at Object.toHaveLength (tests/reminders-integration.test.js:3620:29)
+
+FAIL tests/reminder-title-contract.test.js
+  ● NormalizeReminderTitle › affirmative before commitment
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Tell them"
+    Received: "Yes, I'll tell them"
+
+      67 |     ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\''],
+      68 |   ])('%s', (_Label, ArgInput, ArgExpected) => {
+    > 69 |     expect(TitleContract.NormalizeReminderTitle(ArgInput).text).toBe(ArgExpected);
+         |                                                                 ^
+      70 |   });
+      71 |
+      72 |   test('reports which transforms fired', () => {
+
+      at toBe (tests/reminder-title-contract.test.js:69:65)
+
+  ● NormalizeReminderTitle › affirmative before concrete commitment
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Notify the vendor about the April downgrade"
+    Received: "Sure, I will notify the vendor about the April downgrade"
+
+      67 |     ['a quoted name is opaque to the framing strip', 'can you handle \'Please Let\'s Go\' by Friday?', 'Handle \'Please Let\'s Go\''],
+      68 |   ])('%s', (_Label, ArgInput, ArgExpected) => {
+    > 69 |     expect(TitleContract.NormalizeReminderTitle(ArgInput).text).toBe(ArgExpected);
+         |                                                                 ^
+      70 |   });
+      71 |
+      72 |   test('reports which transforms fired', () => {
+
+      at toBe (tests/reminder-title-contract.test.js:69:65)
+
+  ● NormalizeReminderTitle › an affirmative does not let an unresolved person pointer pass the title contract
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected value: "bare-pointer"
+    Received array: []
+
+      78 |   test('an affirmative does not let an unresolved person pointer pass the title contract', () => {
+      79 |     const Normalized = TitleContract.NormalizeReminderTitle("Yes I'll tell them by tomorrow.");
+    > 80 |     expect(TitleContract.ValidateReminderTitle(Normalized.text).reasons).toContain('bare-pointer');
+         |                                                                          ^
+      81 |   });
+      82 |
+      83 |   test('validator rejects an unquoted courtesy misspelling but preserves a quoted task name', () => {
+
+      at Object.toContain (tests/reminder-title-contract.test.js:80:74)
+
+Test Suites: 2 failed, 2 total
+Tests:       5 failed, 243 skipped, 3 passed, 251 total
+Snapshots:   0 total
+Time:        0.471 s, estimated 1 s
+Ran all test suites matching tests/reminder-title-contract.test.js|tests/reminders-integration.test.js with tests matching "affirmative|recipient commitment".
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

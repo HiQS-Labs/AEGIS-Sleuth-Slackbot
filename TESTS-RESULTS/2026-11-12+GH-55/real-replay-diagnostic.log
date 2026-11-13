@@ -1,0 +1,154 @@
+
+── GH-55 recipient commitment: notification deadline differs from effective month
+   U_OTHER: The report is in the shared folder.
+   U_OTHER: We should downgrade the vendor service plan for April.
+   U_OTHER: Should we tell them?
+   U_SENDER: Yes I'll tell them by tomorrow.   <- the live message
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:18 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:18 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:18 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:18 GMT, Offset: -480 minutes
+[decision] reminder path fired: path=object_position_pronoun_in_thread enrichment=thread_context temporal_trigger="by" prepended_messages=3 antecedent_ts=1800000002.000100
+[model] reminder_response gpt-4o-mini {"recommendation":"schedule","rationale":"The message contains actionable language 'I'll tell them' with the scheduling trigger 'by tomorrow', indicating a clear commitment to perform a task by a specific time.","reminders":[{"actionable_language":"I'll tell them","scheduling_trigger":"by tomorrow","reminder_message":"Inform the vendor about the service plan downgrade","context":"We should downgrade the vendor service plan for April.","owner":"speaker","owner_mentions":[],"object_ref":"","subtasks":[]}]}
+[decision] reminder enriched-reply safety check: path=enriched_thread_reply temporal_trigger="by" weak_live_reply=no
+[decision] reminder display source: path=enriched_thread_reply temporal_trigger="by" quote_source=live_reply task_source=ai_synthesized_task_title msg_len=31 sentences=1 segment=normal synthesis=on enrichment=on enrichment_path=object_position_pronoun_in_thread actionable_span_ratio=0.45 ratio_usable=yes routed_by=enriched_context
+[model] reminder_title_repair_response gpt-4o-mini {"rationale":"I specified the vendor as the object of the communication based on the context provided.","reminder_message":"Inform the vendor about the service plan downgrade for April","object_ref":"the vendor service plan"}
+[decision] reminder title repair: path=enriched_thread_reply refused_for=title:ungrounded,span:bare-pointer,verbatim:bare-pointer outcome=refused:ungrounded
+[decision] discarding an ungrounded reminder title: it names 1 term(s) absent from the source message. Falling back to the quoted actionable span.
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:22 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:22 GMT, Offset: -480 minutes
+[model] datetime_components gpt-4o {"year":2026,"month":11,"day":13,"hour":8,"minute":0,"second":0,"rationale":"The input phrase 'by tomorrow' indicates a relative date. According to the rules, 'tomorrow' means 8 AM on the next day after the BASE DATE. The BASE DATE is Thu, 12 Nov 2026, so the next day is Fri, 13 Nov 2026. Therefore, the date components are year = 2026, month = 11, day = 13. The time components are hour = 8, minute = 0, second = 0, as 'tomorrow' defaults to 8 AM."}
+[decision] reminder title contract: path=enriched_thread_reply source=fallback words=9 chars=54 shortened=no normalized=none rejected=title:ungrounded,span:bare-pointer,verbatim:bare-pointer repair=none
+[complete confirmation] Automatic reminders have been enabled for this channel. Disable them by typing `@Sleuth AI disable reminders`.
+[complete confirmation] 1 Slack reminder has been scheduled for <@U_SENDER>.
+
+Tasks for <!date^1794585600^{date_long_pretty} at {time}|Fri, 13 Nov 2026 16:00:00 GMT>:
+<https://mock.slack.test/C_REPLAY/1800000003.000100|Original message>
+• Follow up: Downgrade the vendor service plan for April
+  _We should downgrade the vendor service plan for April._
+[complete stored] [
+  {
+    "ShouldPostOn": "2026-11-13T16:00:00.000Z",
+    "TargetChannelID": "C_REPLAY",
+    "OriginalChannelID": "C_REPLAY",
+    "OriginalChannelName": null,
+    "OriginalMessageID": "1800000003.000100",
+    "OriginalThreadTs": "1800000000.000100",
+    "OriginalSenderID": "U_SENDER",
+    "ReminderMessageText": "<@U_SENDER> - please follow up on <https://mock.slack.test/C_REPLAY/1800000003.000100|this>:\n>Yes I'll tell them by tomorrow.\n\nKey task(s):\n• Follow up: Downgrade the vendor service plan for April\n  _We should downgrade the vendor service plan for April._",
+    "AssigneeID": "U_SENDER",
+    "AssigneeIDs": [
+      "U_SENDER"
+    ],
+    "NotifyIDs": [],
+    "GitHubUrls": null,
+    "EnrichedFrom": {
+      "sourceTs": "1800000002.000100",
+      "path": "object_position_pronoun_in_thread",
+      "originalText": "Yes I'll tell them by tomorrow."
+    },
+    "ReminderID": "335e257d-f203-45ed-9b46-9551b8ef7370",
+    "CreatedOn": "2026-11-13T03:02:24.174Z",
+    "IgnoreSnooze": false,
+    "DndHeld": false,
+    "State": "scheduled",
+    "clientId": null,
+    "projectId": null
+  }
+]
+   -> "Follow up: Downgrade the vendor service plan for April"  [U_SENDER]
+   FAIL: expected some reminder to mention "tell"
+   FAIL: no reminder should contain "Follow up:"
+
+── GH-55 adjacent self-contained communication needs no earlier context
+   U_SENDER: Yes I'll tell the vendor about the April downgrade by tomorrow.   <- the live message
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:24 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:24 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:24 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:24 GMT, Offset: -480 minutes
+[decision] reminder path fired: path=message_event_auto_schedule enrichment=none temporal_trigger="by"
+[model] reminder_response gpt-4o-mini {"recommendation":"schedule","rationale":"The message contains actionable language 'I'll tell the vendor about the April downgrade' with the scheduling trigger 'by tomorrow', indicating a clear commitment to perform a task in the future.","reminders":[{"actionable_language":"I'll tell the vendor about the April downgrade","scheduling_trigger":"by tomorrow","reminder_message":"Inform the vendor about the April downgrade","context":"The vendor needs to be updated about the downgrade.","owner":"speaker","owner_mentions":[],"object_ref":"vendor","subtasks":[]},{"actionable_language":"I'll tell the vendor about the April downgrade","scheduling_trigger":"by tomorrow","reminder_message":"Inform the vendor about the April downgrade","context":"The vendor needs to be updated about the downgrade.","owner":"speaker","owner_mentions":[],"object_ref":"vendor","subtasks":[]}]}
+[decision] reminder display source: path=message_event_auto_schedule temporal_trigger="by" quote_source=message_text task_source=ai_synthesized_task_title msg_len=63 sentences=1 segment=normal synthesis=on enrichment=off enrichment_path=none actionable_span_ratio=0.73 ratio_usable=yes routed_by=always_synthesize
+[decision] discarding an ungrounded reminder title: it names 1 term(s) absent from the source message. Falling back to the quoted actionable span.
+[decision] discarding an ungrounded reminder title: it names 1 term(s) absent from the source message. Falling back to the quoted actionable span.
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:27 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:27 GMT, Offset: -480 minutes
+[model] datetime_components gpt-4o {"year":2026,"month":11,"day":13,"hour":8,"minute":0,"second":0,"rationale":"The input phrase 'by tomorrow' indicates a relative date. According to the rules, 'tomorrow' means 8 AM on the next day after the BASE DATE. The BASE DATE is Thu, 12 Nov 2026, so 'tomorrow' refers to Fri, 13 Nov 2026. Therefore, the date components are year = 2026, month = 11, day = 13. The time components are hour = 8, minute = 0, second = 0, as 'tomorrow' defaults to 8 AM."}
+[decision] reminder title contract: path=message_event_auto_schedule source=span words=7 chars=41 shortened=no normalized=request-framing,capitalized rejected=title:ungrounded repair=none
+[complete confirmation] Automatic reminders have been enabled for this channel. Disable them by typing `@Sleuth AI disable reminders`.
+[complete confirmation] 1 Slack reminder has been scheduled for <@U_SENDER>.
+
+Tasks for <!date^1794585600^{date_long_pretty} at {time}|Fri, 13 Nov 2026 16:00:00 GMT>:
+<https://mock.slack.test/C_REPLAY/1800000000.000100|Original message>
+• Tell the vendor about the April downgrade
+  _The vendor needs to be updated about the downgrade._
+[complete stored] [
+  {
+    "ShouldPostOn": "2026-11-13T16:00:00.000Z",
+    "TargetChannelID": "C_REPLAY",
+    "OriginalChannelID": "C_REPLAY",
+    "OriginalChannelName": null,
+    "OriginalMessageID": "1800000000.000100",
+    "OriginalThreadTs": null,
+    "OriginalSenderID": "U_SENDER",
+    "ReminderMessageText": "<@U_SENDER> - please follow up on <https://mock.slack.test/C_REPLAY/1800000000.000100|this>:\n>Yes I'll tell the vendor about the April downgrade by tomorrow.\n\nKey task(s):\n• Tell the vendor about the April downgrade\n  _The vendor needs to be updated about the downgrade._",
+    "AssigneeID": "U_SENDER",
+    "AssigneeIDs": [
+      "U_SENDER"
+    ],
+    "NotifyIDs": [],
+    "GitHubUrls": null,
+    "ReminderID": "a45d4d89-4fd9-4044-acab-f4628adaf5ad",
+    "CreatedOn": "2026-11-13T03:02:29.079Z",
+    "IgnoreSnooze": false,
+    "DndHeld": false,
+    "State": "scheduled",
+    "clientId": null,
+    "projectId": null
+  }
+]
+   -> "Tell the vendor about the April downgrade"  [U_SENDER]
+   PASS
+
+── GH-55 unresolved recipient cannot invent a downgrade
+   U_SENDER: Yes I'll tell them by tomorrow.   <- the live message
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:29 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:29 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:29 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:29 GMT, Offset: -480 minutes
+[decision] reminder path fired: path=message_event_auto_schedule enrichment=none temporal_trigger="by"
+[model] reminder_response gpt-4o-mini {"recommendation":"schedule","rationale":"The message contains actionable language 'I'll tell them' with the scheduling trigger 'by tomorrow', indicating a clear commitment to perform a task by a specific time.","reminders":[{"actionable_language":"I'll tell them","scheduling_trigger":"by tomorrow","reminder_message":"Tell them","context":"The speaker is committing to inform someone by tomorrow.","owner":"speaker","owner_mentions":[],"object_ref":"","subtasks":[]}]}
+[decision] reminder display source: path=message_event_auto_schedule temporal_trigger="by" quote_source=message_text task_source=ai_synthesized_task_title msg_len=31 sentences=1 segment=normal synthesis=on enrichment=off enrichment_path=none actionable_span_ratio=0.45 ratio_usable=yes routed_by=always_synthesize
+[model] reminder_title_repair_response gpt-4o-mini {"rationale":"The title was reshaped to specify the action of informing and the deadline mentioned in the source.","reminder_message":"Inform them by tomorrow","object_ref":""}
+[decision] reminder title repair: path=message_event_auto_schedule refused_for=title:bare-pointer,span:bare-pointer,verbatim:bare-pointer outcome=refused:object-ref-ungrounded
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:02:32 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:02:32 GMT, Offset: -480 minutes
+[model] datetime_components gpt-4o {"year":2026,"month":11,"day":13,"hour":8,"minute":0,"second":0,"rationale":"The input phrase 'by tomorrow' indicates the next day after the BASE DATE. The BASE DATE is Thu, 12 Nov 2026. Therefore, 'tomorrow' is Fri, 13 Nov 2026. Since no specific time is provided, we use the default time of 8 AM for a specific date. Thus, the computed date and time components are: year = 2026, month = 11, day = 13, hour = 8, minute = 0, second = 0."}
+[decision] reminder title contract: path=message_event_auto_schedule source=fallback words=6 chars=33 shortened=no normalized=none rejected=title:bare-pointer,span:bare-pointer,verbatim:bare-pointer repair=none
+[complete confirmation] Automatic reminders have been enabled for this channel. Disable them by typing `@Sleuth AI disable reminders`.
+[complete confirmation] 1 Slack reminder has been scheduled for <@U_SENDER>.
+
+Tasks for <!date^1794585600^{date_long_pretty} at {time}|Fri, 13 Nov 2026 16:00:00 GMT>:
+<https://mock.slack.test/C_REPLAY/1800000000.000100|Original message>
+• Follow up on the original message
+  _The speaker is committing to inform someone by tomorrow._
+[complete stored] [
+  {
+    "ShouldPostOn": "2026-11-13T16:00:00.000Z",
+    "TargetChannelID": "C_REPLAY",
+    "OriginalChannelID": "C_REPLAY",
+    "OriginalChannelName": null,
+    "OriginalMessageID": "1800000000.000100",
+    "OriginalThreadTs": null,
+    "OriginalSenderID": "U_SENDER",
+    "ReminderMessageText": "<@U_SENDER> - please follow up on <https://mock.slack.test/C_REPLAY/1800000000.000100|this>:\n>Yes I'll tell them by tomorrow.\n\nKey task(s):\n• Follow up on the original message\n  _The speaker is committing to inform someone by tomorrow._",
+    "AssigneeID": "U_SENDER",
+    "AssigneeIDs": [
+      "U_SENDER"
+    ],
+    "NotifyIDs": [],
+    "GitHubUrls": null,
+    "ReminderID": "81d00630-864f-4c19-b856-4d3ac53795ff",
+    "CreatedOn": "2026-11-13T03:02:34.071Z",
+    "IgnoreSnooze": false,
+    "DndHeld": false,
+    "State": "scheduled",
+    "clientId": null,
+    "projectId": null
+  }
+]
+   -> "Follow up on the original message"  [U_SENDER]
+   PASS
+
+2/3 scenarios passed

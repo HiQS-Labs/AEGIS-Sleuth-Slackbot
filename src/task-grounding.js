@@ -86,7 +86,7 @@ const ImperativeVerbs = new Set([
   'document', 'double', 'draft', 'drop', 'email', 'enable', 'ensure', 'escalate', 'expand',
   'export', 'extend', 'extract', 'file', 'fill', 'finalize', 'find', 'finish', 'fix', 'flag',
   'follow', 'forward', 'gather', 'generate', 'get', 'give', 'group', 'handle', 'hold', 'hook',
-  'implement', 'import', 'improve', 'increase', 'install', 'investigate', 'keep', 'kick', 'land',
+  'implement', 'import', 'improve', 'increase', 'inform', 'install', 'investigate', 'keep', 'kick', 'land',
   'launch', 'let', 'limit', 'link', 'list', 'load', 'lock', 'look', 'lower', 'make', 'map', 'merge',
   'message', 'migrate', 'monitor', 'move', 'notify', 'open', 'order', 'organize', 'patch', 'pause',
   'pick', 'ping', 'plan', 'post', 'prepare', 'prioritize', 'process', 'promote', 'prototype',

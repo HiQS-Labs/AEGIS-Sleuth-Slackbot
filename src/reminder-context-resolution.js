@@ -85,13 +85,13 @@ const TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE =
   /^\s*(?:week|month|year|day|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
 
 /**
- * True when the text carries a vague pronoun (it/this/that) in OBJECT position.
+ * True when the text carries a vague pronoun (it/this/that/them) in OBJECT position.
  * @param {string} ArgText
  * @returns {boolean}
  */
 function IsObjectPositionPronounReference(ArgText) {
   const Text = ArgText || '';
-  const PronounMatcher = /\b(it|this|that)\b/gi;
+  const PronounMatcher = /\b(it|this|that|them)\b/gi;
   let Match;
   while((Match = PronounMatcher.exec(Text)) !== null) {
     const Pronoun = Match[1].toLowerCase();
@@ -99,7 +99,7 @@ function IsObjectPositionPronounReference(ArgText) {
     const After = Text.slice(Match.index + Match[0].length);
     if(CLAUSE_BOUNDARY_BEFORE_PRONOUN.test(Before)) continue;
     if(SUBJECT_AUXILIARY_AFTER_PRONOUN.test(After)) continue;
-    if(Pronoun !== 'it' && TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE.test(After)) continue;
+    if((Pronoun === 'this' || Pronoun === 'that') && TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE.test(After)) continue;
     return true;
   }
   return false;

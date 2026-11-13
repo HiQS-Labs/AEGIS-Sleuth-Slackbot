@@ -377,3 +377,12 @@ describe('GH-318 selected wording', () => {
     expect(Selection.ungroundedTerms).toEqual([]);
   });
 });
+
+test('GH-55 keeps the captured communication title rather than a generic downgrade fallback', () => {
+  const Source = "We should downgrade the vendor service plan for April. Should we tell them? Yes I'll tell them by tomorrow.";
+  const Title = 'Inform the vendor about the service plan downgrade for April';
+  const Selected = SelectTaskText({ reminder_message: Title, actionable_language: "I'll tell them" },
+    "Yes I'll tell them by tomorrow.", true, Source);
+  expect(Selected.text).toBe(Title);
+  expect(Selected.source).toBe('title');
+});

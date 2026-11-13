@@ -1,0 +1,54 @@
+{
+  "base": "7e9e58f1ec79abe92453fa96724734745e9fb4ac",
+  "cases": [
+    {
+      "input": "Yes I'll tell them by tomorrow.",
+      "reference": null,
+      "normalized": "Yes I'll tell them",
+      "validation": {
+        "ok": true,
+        "reasons": []
+      }
+    },
+    {
+      "input": "Tell them Monday",
+      "reference": null,
+      "normalized": "Tell them",
+      "validation": {
+        "ok": false,
+        "reasons": [
+          "bare-pointer"
+        ]
+      }
+    },
+    {
+      "input": "I will tell it tomorrow.",
+      "reference": "object_position_pronoun",
+      "normalized": "Tell it",
+      "validation": {
+        "ok": false,
+        "reasons": [
+          "bare-pointer"
+        ]
+      }
+    },
+    {
+      "input": "They will reply tomorrow.",
+      "reference": null,
+      "normalized": "They will reply",
+      "validation": {
+        "ok": true,
+        "reasons": []
+      }
+    },
+    {
+      "input": "Tell the vendor about the April downgrade tomorrow.",
+      "reference": null,
+      "normalized": "Tell the vendor about the April downgrade",
+      "validation": {
+        "ok": true,
+        "reasons": []
+      }
+    }
+  ]
+}

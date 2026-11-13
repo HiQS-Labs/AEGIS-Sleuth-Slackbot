@@ -178,5 +178,95 @@
       "noOriginalCopy": true,
       "sourceLink": true
     }
+  },
+  {
+    "name": "GH-55 recipient commitment: notification deadline differs from effective month",
+    "kind": "message",
+    "thread": [
+      {
+        "user": "U_OTHER",
+        "text": "The report is in the shared folder."
+      },
+      {
+        "user": "U_OTHER",
+        "text": "We should downgrade the vendor service plan for April."
+      },
+      {
+        "user": "U_OTHER",
+        "text": "Should we tell them?"
+      }
+    ],
+    "event": {
+      "user": "U_SENDER",
+      "text": "Yes I'll tell them by tomorrow."
+    },
+    "expect": {
+      "reminderCount": 1,
+      "taskContains": [
+        "vendor",
+        "April",
+        "downgrade"
+      ],
+      "taskNotContains": [
+        "Yes I'll tell them",
+        "Follow up:",
+        "[earlier messages"
+      ],
+      "assignee": "U_SENDER",
+      "maxTaskLength": 90,
+      "note": "Assert useful communication task; due-date separation is checked in deterministic integration and full replay output.",
+      "taskStartsWithAny": [
+        "Tell",
+        "Inform",
+        "Notify"
+      ]
+    }
+  },
+  {
+    "name": "GH-55 adjacent self-contained communication needs no earlier context",
+    "kind": "message",
+    "thread": [],
+    "event": {
+      "user": "U_SENDER",
+      "text": "Yes I'll tell the vendor about the April downgrade by tomorrow."
+    },
+    "expect": {
+      "reminderCount": 1,
+      "taskContains": [
+        "vendor",
+        "April",
+        "downgrade"
+      ],
+      "taskNotContains": [
+        "Follow up:"
+      ],
+      "assignee": "U_SENDER",
+      "maxTaskLength": 90,
+      "taskStartsWithAny": [
+        "Tell",
+        "Inform",
+        "Notify"
+      ]
+    }
+  },
+  {
+    "name": "GH-55 unresolved recipient cannot invent a downgrade",
+    "kind": "message",
+    "thread": [],
+    "event": {
+      "user": "U_SENDER",
+      "text": "Yes I'll tell them by tomorrow."
+    },
+    "expect": {
+      "reminderCount": 1,
+      "taskNotContains": [
+        "vendor",
+        "April",
+        "downgrade",
+        "Yes I'll tell them"
+      ],
+      "assignee": "U_SENDER",
+      "maxTaskLength": 90
+    }
   }
 ]

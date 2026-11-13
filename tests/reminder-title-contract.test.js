@@ -32,6 +32,10 @@ describe('NormalizeReminderTitle', () => {
     ['let\'s', '<@U2> let\'s connect the loop on the Mailgun alerts setup tomorrow morning, please.',
       'Connect the loop on the Mailgun alerts setup'],
     ['first-person commitment', 'I\'ll deploy the changes tomorrow morning.', 'Deploy the changes'],
+    ['affirmative before commitment', "Yes, I'll tell them by tomorrow.", 'Tell them'],
+    ['affirmative before concrete commitment', 'Sure, I will notify the vendor about the April downgrade', 'Notify the vendor about the April downgrade'],
+    ['affirmative name without framing', 'Yes platform migration', 'Yes platform migration'],
+    ['quoted affirmative task name', 'Review "Yes I will" tomorrow', 'Review "Yes I will"'],
     ['first-person with adverb', 'I will definitely resize the font tomorrow', 'Resize the font'],
     ['leading schedule wording precedes framing', 'Tomorrow I will deploy the hotfix', 'Deploy the hotfix'],
     ['leading schedule token does not damage a longer word', 'Tomorrowland release checklist', 'Tomorrowland release checklist'],
@@ -69,6 +73,11 @@ describe('NormalizeReminderTitle', () => {
     expect(TitleContract.NormalizeReminderTitle('<@U1> can you please deploy it tomorrow?').changes)
       .toEqual(['mention', 'courtesy', 'request-framing', 'schedule', 'capitalized']);
     expect(TitleContract.NormalizeReminderTitle('Review PR 697').changes).toEqual([]);
+  });
+
+  test('an affirmative does not let an unresolved person pointer pass the title contract', () => {
+    const Normalized = TitleContract.NormalizeReminderTitle("Yes I'll tell them by tomorrow.");
+    expect(TitleContract.ValidateReminderTitle(Normalized.text).reasons).toContain('bare-pointer');
   });
 
   test('validator rejects an unquoted courtesy misspelling but preserves a quoted task name', () => {
