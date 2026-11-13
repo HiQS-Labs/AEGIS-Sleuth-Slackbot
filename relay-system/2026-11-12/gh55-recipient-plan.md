@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-12.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 1 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -80,5 +80,35 @@ Source-backed reads: src/reminder-context-resolution.js, src/reminders-app-menti
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1
+
+**What this proposes** — Input boundary: plan-only; source and supplementary receipts not yet read. Extend the existing object-pronoun admission to `them` and conditionally remove affirmative scaffolding so vague communication commitments can use bounded context and the existing one-repair route. Demonstrate a useful title while preserving tomorrow as the notification deadline and April as task content.
+
+**How the existing system works, per this document** — The document says admission precedes context collection, normalization precedes title validation, and the common scheduler owns date, ownership, persistence and confirmation. These are document claims pending source assessment; the precise conditional stripping grammar is left to implementation.
+
+**What it's not** — This is a plan for two helper changes and proportional regressions, not a delivered fix or closure of the historical channel rollout. It excludes new inference machinery, providers, widened history and production writes.
+
+**Source-backed assessment — approve this plan for implementation.**
+
+swept file: yes
+
+Reviewed the entire plan, including historical sections; no additional pre-existing plan defect requiring correction found. Historical rollout statements are context, not fresh deployment verification. Graph inventory access returned `MCP tool call requires approval, but approval policy is never`; named local source reads supplied the assessment instead. No suites, executable fixtures, provider calls, server access or git commands run.
+
+- [Pass] **Both deterministic gaps are real; telemetry is corroborating reported evidence, not independently inspected private evidence.** `src/reminder-context-resolution.js:93` limits the matcher to `it|this|that`; `src/reminders-app-mention-handler.js:316` returns before the resolver at line 326. Anchored framing in `src/reminder-title-contract.js:92` and normalization at line 288 leave the affirmative hiding the commitment; `HasConcreteObject` at line 334 then accepts it. The baseline receipt agrees. Narrow probe (exit **0**), after setting `PYTHONDONTWRITEBYTECODE=1` and scratch TMPDIR:
+  ```sh
+  node -e 'const C=require("./src/reminder-context-resolution"),T=require("./src/reminder-title-contract"); const s="Yes I\x27ll tell them by tomorrow."; const n=T.NormalizeReminderTitle(s); console.log(JSON.stringify({reference:C.DescribeReferenceShape(s),normalized:n.text,validation:T.ValidateReminderTitle(n.text)}));'
+  ```
+  Decisive output: `{"reference":null,"normalized":"Yes I'll tell them","validation":{"ok":true,"reasons":[]}}`. A separate pure-selector probe (exit 0) with title `Tell them` and span `I'll tell them` returned `source:"verbatim"`, both other candidates refused as `bare-pointer`, and `repair:null`. This measures the claimed pre-repair escape, not actual model quality.
+- [Pass] **The smallest proposed change fits existing ownership.** Plan lines 260–266 explicitly constrain temporal exclusion to `this|that` and affirmative removal to recognized framing, while acknowledging unnecessary lookups on locally resolved `them`. Keep those constraints in the implementation; there is no need for another detector, repair tier or relevance subsystem. The current exclusion at `src/reminder-context-resolution.js:102` would wrongly suppress `Tell them Monday` if only the matcher were extended. Quoted spans are protected before normalization (`src/reminder-title-contract.js:241`). Person pointers intentionally stay outside `THING_POINTER_PATTERN` (`src/reminder-display-selection.js:163`); the existing negative at `tests/reminder-display-selection.test.js:91` pins `Ask them` against invoice replacement.
+- [Pass] **Preservation and rollback are explicit and source-compatible.** The live reply/provenance are retained by `ResolveContextAsync` (returned `liveReplyText: Text` and `enrichment`), the thread switch gates collection at `src/reminder-context-resolution.js:344`, and referenced depth remains three. The handler passes the live reply separately (`src/reminders-app-mention-handler.js:336`); ownership reads it at `src/reminder-ownership.js:330`. Date extraction consumes `CurrentTrigger` (`src/reminders-module.js:2235`); selected task text enters the common stored message at line 2278 and factory at line 2324. These are contracts to preserve, not proof the future model will select tomorrow correctly. Plan lines 276–278 demand tomorrow extraction, effective-month content, live owner, source/provenance, and matching confirmation/stored titles. Reverting the two helpers and using existing containment switches (plan line 270) needs no migration.
+- [Pass] **The plan cannot count unchanged code or mocked quality as delivery.** Plan lines 275–280 require pre-fix red/post-fix green, independent revert sensitivity for both helper changes, both rendered and stored outputs, and a separately identified real-model handler replay; absent access explicitly prevents claiming ready. Existing `RunRepairCaseAsync` (`tests/reminders-integration.test.js:3491`) already accepts thread scenarios and returns feedback, repair calls and stored data; its test at line 3563 asserts one repair and both outputs. The scheduler only attempts repair for fallback and accepts a reselected grounded title (`src/reminders-module.js:2903`). Extend these existing seams with the distinct stated controls; no new runner or gate architecture is justified. Suite/build/replay acceptance remains **[Unverified — needs clone run]**, appropriately pending at plan stage.
+- [Pass] **Scope and planning honesty meet this review's DoD.** Plan lines 284–286 label `75/55/50/80` as an assessment, trend as unknown, and the gid limitation as a constraint rather than a schema project. These are reasonable planning judgments, not measured incident statistics; ledger identity was not independently queried here. Lines 236 and 280 keep historical GH-55 open, and line 242 keeps private incident material out of public examples. No missing requirement or unjustified expansion found within the bounded follow-up.
+
+**VERDICT: PASS**
+
+**Basis:** Approve the bounded implementation plan, not delivery or production behavior. Both helper defects reproduce, the source provides the proposed continuation path, and acceptance distinguishes deterministic plumbing from actual-model quality while preserving date, owner and common writes. No Blocker or Should finding remains; implementation and final QA must still satisfy the pending gates.
+
+Relay closed (Approved), no further turn needed.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
