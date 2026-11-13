@@ -85,13 +85,15 @@ const TEMPORAL_PHRASE_AFTER_DEMONSTRATIVE =
   /^\s*(?:week|month|year|day|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
 
 /**
- * True when the text carries a vague pronoun (it/this/that/them) in OBJECT position.
+ * True when the text carries a vague pronoun (it/this/that, plus `them` by default) in OBJECT position.
+ * `them` admits a context lookup only; {@link IsBarePointerReference} leaves it out (GH-55).
  * @param {string} ArgText
+ * @param {boolean} [ArgIncludeThem]
  * @returns {boolean}
  */
-function IsObjectPositionPronounReference(ArgText) {
+function IsObjectPositionPronounReference(ArgText, ArgIncludeThem = true) {
   const Text = ArgText || '';
-  const PronounMatcher = /\b(it|this|that|them)\b/gi;
+  const PronounMatcher = ArgIncludeThem ? /\b(it|this|that|them)\b/gi : /\b(it|this|that)\b/gi;
   let Match;
   while((Match = PronounMatcher.exec(Text)) !== null) {
     const Pronoun = Match[1].toLowerCase();
@@ -109,21 +111,33 @@ function IsObjectPositionPronounReference(ArgText) {
  * Which reference shape fired, or null when the text stands on its own. The shape rides through to
  * the structural path in telemetry, so a wrong stitch names the rule that caused it.
  * @param {string} ArgText
+ * @param {boolean} [ArgIncludeThem]
  * @returns {'vague_completion'|'vague_reference'|'above_reference'|'collective_reference'|'object_position_pronoun'|null}
  */
-function DescribeReferenceShape(ArgText) {
+function DescribeReferenceShape(ArgText, ArgIncludeThem = true) {
   const Text = ArgText || '';
   if(VAGUE_COMPLETION_PATTERN.test(Text)) return 'vague_completion';
   if(VAGUE_REFERENCE_PATTERN.test(Text)) return 'vague_reference';
   if(ABOVE_REFERENCE_PATTERN.test(Text)) return 'above_reference';
   if(COLLECTIVE_REFERENCE_PATTERN.test(Text)) return 'collective_reference';
-  if(IsObjectPositionPronounReference(Text)) return 'object_position_pronoun';
+  if(IsObjectPositionPronounReference(Text, ArgIncludeThem)) return 'object_position_pronoun';
   return null;
 }
 
 /** True when the message points at something said earlier. @param {string} ArgText @returns {boolean} */
 function NeedsEarlierContext(ArgText) {
   return DescribeReferenceShape(ArgText) !== null;
+}
+
+/**
+ * True when a candidate title is a bare pointer the echo filter may delete. This is the detector as
+ * it was before GH-55 added `them`: "Tell them about the April downgrade" names its topic and is
+ * real work, but counting `them` as a pointer deleted it beside a sibling task (PR #326 review).
+ * @param {string} ArgText
+ * @returns {boolean}
+ */
+function IsBarePointerReference(ArgText) {
+  return DescribeReferenceShape(ArgText, false) !== null;
 }
 
 // Markers that separate prepended context from the message being acted on. They are part of the
@@ -411,6 +425,7 @@ async function ResolveContextAsync(ArgSlackApp, ArgEventInfo, ArgOptions = {}) {
 module.exports = {
   ResolveContextAsync,
   NeedsEarlierContext,
+  IsBarePointerReference,
   DescribeReferenceShape,
   IsObjectPositionPronounReference,
   IsChannelAntecedentLookbackEnabled,

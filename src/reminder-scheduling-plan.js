@@ -39,7 +39,7 @@ function PrepareReminderCandidates(ArgInput) {
     });
   }
   const Filter = DisplaySelection.DropUnresolvedReferenceCandidates(
-    Distinct, Boolean(ArgInput.Enriched), ContextResolution.NeedsEarlierContext, ArgInput.LiveReplyText || '',
+    Distinct, Boolean(ArgInput.Enriched), ContextResolution.IsBarePointerReference, ArgInput.LiveReplyText || '',
   );
   return {
     Candidates: Filter.kept,
