@@ -20,7 +20,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Traced the render path; stored titles carry no client prefix | Implement in the existing line builder, then final independent QA |
+| Implemented (b12b3b4); red/green, smoke and full gate recorded; final Codex QA PASS/Approved (`relay-system/2026-11-13/gh328-final.md`) | PR into development; promote to main with the next release |
 
 ## Requirements and smallest viable bet
 Observed in production on 2026-11-13: a client-mapped reminder renders as `C.) <permalink|Client A - Automate new meeting summaries …> · @owner · …`. The operator wants the client/project name out of the hyperlink. Smallest bet: keep the GH-395 client label visible, rendered as plain text before the link: `C.) Client A - <permalink|Automate …>`.
