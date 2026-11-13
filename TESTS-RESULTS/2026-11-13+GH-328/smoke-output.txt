@@ -1,0 +1,9 @@
+main: mapped client, plain title
+  C.) Client A - <https://x.slack.com/archives/C_CLIENT_A/p12|Automate new meeting summaries and transcripts in GitHub issue #865 with Grok Bot> · <@U_OWNER> · due <!date^1794639540^{date_short} {time}|Sat, 14 Nov 2026 06:59:00 GMT> · 15 days old
+adjacent: title already led by client name
+  C.) <https://x.slack.com/archives/C_CLIENT_A/p12|Client A - Automate meeting summaries> · <@U_OWNER> · due <!date^1794639540^{date_short} {time}|Sat, 14 Nov 2026 06:59:00 GMT> · 15 days old
+adjacent: unmapped channel
+  C.) <https://x.slack.com/archives/C_OTHER/p12|Automate meeting summaries> · <@U_OWNER> · due <!date^1794639540^{date_short} {time}|Sat, 14 Nov 2026 06:59:00 GMT> · 15 days old
+adjacent: multi-task delivery
+  C.) Client A - <https://x.slack.com/archives/C_CLIENT_A/p12|Review invoice 485> · <@U_OWNER> · due <!date^1794639540^{date_short} {time}|Sat, 14 Nov 2026 06:59:00 GMT> · 15 days old
+     • Client A - Review invoice 483
