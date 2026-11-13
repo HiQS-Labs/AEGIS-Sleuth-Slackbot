@@ -255,6 +255,14 @@ function Grade(ArgScenario, ArgProduced) {
     if(!AllText.toLowerCase().includes(Needle.toLowerCase()))
       Failures.push(`expected some reminder to mention "${Needle}"`);
 
+  if(Expect.taskStartsWithAny)
+    for(const Item of ArgProduced)
+      if(!Expect.taskStartsWithAny.some(ArgOpening => {
+        const Opening = ArgOpening.trim().toLowerCase();
+        const Text = Item.text.toLowerCase();
+        return Opening && (Text === Opening || Text.startsWith(`${Opening} `));
+      })) Failures.push(`task "${Item.text}" has no expected action opening`);
+
   for(const Needle of Expect.taskNotContains || [])
     if(AllText.toLowerCase().includes(Needle.toLowerCase()))
       Failures.push(`no reminder should contain "${Needle}"`);

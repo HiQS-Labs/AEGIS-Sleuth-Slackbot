@@ -519,7 +519,7 @@ function SelectTaskText(ArgReminderInfo, ArgNormalizedOriginalText = '', ArgSynt
  * @param {Array<{candidate: any, text: string, rawText?: string}>} ArgRendered Candidates with
  * their displayed text and, optionally, the pre-contract text the pointer check should read.
  * @param {boolean} ArgEnriched Whether earlier context was prepended for this message.
- * @param {(ArgText: string) => boolean} ArgIsUnresolved Reference detector (NeedsEarlierContext).
+ * @param {(ArgText: string) => boolean} ArgIsUnresolved Bare-pointer detector (IsBarePointerReference).
  * @param {string} [ArgLiveReplyText] The author's own message, unenriched.
  * @returns {{kept: Array<any>, droppedCount: number}}
  */

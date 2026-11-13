@@ -3488,7 +3488,7 @@ describe('RemindersModule integration via MockSlackApp', () => {
      * @param {{Text?: string, Reminders?: any[], Thread?: Array<{user: string, text: string}>}} [ArgScenario]
      * The live message, the analyzer's candidates, and earlier thread messages (when the live
      * message is a thread reply that enrichment should prepend them to).
-     * @returns {Promise<{FeedbackText: string, RepairCalls: any[], Stored: any[], WarnMessages: string[]}>}
+     * @returns {Promise<{FeedbackText: string, RepairCalls: any[], AnalysisCalls: string[], DateCalls: string[], Stored: any[], WarnMessages: string[]}>}
      */
     async function RunRepairCaseAsync(ArgSuffix, ArgRepairAnswer, ArgScenario = {}) {
       const Scenario = {
@@ -3505,14 +3505,19 @@ describe('RemindersModule integration via MockSlackApp', () => {
       const WorkspaceInfo = MakeWorkspaceInfo(ArgSuffix);
       const RuntimePaths = GetReminderRuntimePaths(WorkspaceInfo.WORKSPACE_NAME);
       const RepairCalls = [];
+      const AnalysisCalls = [];
+      const DateCalls = [];
       const MockProcess = jest.fn().mockImplementation(async (ArgMessageText, _ArgInstructions, ArgSchema) => {
-        if(ArgMessageText.includes('BASE DATE:'))
+        if(ArgMessageText.includes('BASE DATE:')) {
+          DateCalls.push(ArgMessageText);
           return { year: 2030, month: 5, day: 7, hour: 8, minute: 0, second: 0, rationale: 'Tomorrow morning.' };
+        }
         if(ArgSchema?.name === 'reminder_title_repair_response') {
           RepairCalls.push(JSON.parse(ArgMessageText));
           return { rationale: 'resolved the pointer from the sentence before it', ...ArgRepairAnswer };
         }
         if(ArgSchema?.name === 'reminder_response') {
+          AnalysisCalls.push(ArgMessageText);
           return {
             recommendation: 'schedule',
             rationale: 'direct ask with a trigger',
@@ -3553,12 +3558,69 @@ describe('RemindersModule integration via MockSlackApp', () => {
         const FeedbackMessage = SlackApp.SentMessages.find(ArgMessage => /Slack reminder.*been scheduled/.test(ArgMessage.text));
         expect(FeedbackMessage).toBeDefined();
         const Stored = JSON.parse(await fs.readFile(RuntimePaths.remindersFilePath, 'utf8'));
-        return { FeedbackText: FeedbackMessage.text, RepairCalls, Stored, WarnMessages: SlackApp.Logger.WarnMessages };
+        return { FeedbackText: FeedbackMessage.text, RepairCalls, AnalysisCalls, DateCalls, Stored, WarnMessages: SlackApp.Logger.WarnMessages };
       } finally {
         await Reminders.StopAsync();
         await CleanupReminderRuntimeFilesAsync(WorkspaceInfo.WORKSPACE_NAME);
       }
     }
+
+    test.each([false, true])('recipient commitment retains context, owner and deadline; repair=%s', async ArgNeedsRepair => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+      jest.setSystemTime(new Date('2030-05-06T18:00:00.000Z'));
+      const Title = 'Tell the vendor about the April downgrade';
+      const LiveText = "Yes I'll tell them by tomorrow.";
+      try {
+        const R = await RunRepairCaseAsync(`recipient_${ArgNeedsRepair}`, {
+          reminder_message: Title, object_ref: 'the vendor',
+        }, {
+          Text: LiveText,
+          Thread: [
+            { user: 'U_OTHER', text: 'We should downgrade the vendor service plan for April.' },
+            { user: 'U_OTHER', text: 'Should we tell them?' },
+          ],
+          Reminders: [{
+            actionable_language: "I'll tell them", scheduling_trigger: 'by tomorrow',
+            reminder_message: ArgNeedsRepair ? 'Tell them' : Title,
+            context: '', owner: 'speaker', owner_mentions: [], object_ref: '', subtasks: [],
+          }],
+        });
+        expect(R.AnalysisCalls).toHaveLength(1);
+        expect(R.AnalysisCalls[0]).toContain('downgrade the vendor service plan for April');
+        expect(R.AnalysisCalls[0]).toContain('Should we tell them?');
+        expect(R.RepairCalls).toHaveLength(ArgNeedsRepair ? 1 : 0);
+        expect(R.FeedbackText).toContain(`• ${Title}`);
+        expect(R.Stored).toHaveLength(1);
+        expect(R.Stored[0]).toMatchObject({
+          AssigneeID: 'U_SENDER', AssigneeIDs: ['U_SENDER'], State: 'scheduled', IgnoreSnooze: false,
+          OriginalMessageID: '1700000000.000003', OriginalThreadTs: '1700000000.000001',
+          OriginalSenderID: 'U_SENDER', OriginalChannelID: 'C_ENABLED',
+          EnrichedFrom: { originalText: LiveText },
+        });
+        expect(R.Stored[0].ReminderMessageText).toContain(`• ${Title}`);
+        expect(R.Stored[0].ShouldPostOn).toBe('2030-05-07T15:00:00.000Z');
+        expect(R.DateCalls).toHaveLength(1);
+        expect(R.DateCalls[0]).toContain('by tomorrow');
+        expect(R.DateCalls[0]).not.toContain('April');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('a recipient commitment without an antecedent cannot accept an invented repair', async () => {
+      const R = await RunRepairCaseAsync('recipient_no_context', {
+        reminder_message: 'Tell the vendor about the April downgrade', object_ref: 'the vendor',
+      }, {
+        Text: "Yes I'll tell them by tomorrow.",
+        Reminders: [{
+          actionable_language: "I'll tell them", scheduling_trigger: 'by tomorrow', reminder_message: 'Tell them',
+          context: '', owner: 'speaker', owner_mentions: [], object_ref: '', subtasks: [],
+        }],
+      });
+      expect(R.RepairCalls).toHaveLength(1);
+      expect(R.FeedbackText).not.toMatch(/vendor|April|downgrade/);
+      expect(R.Stored[0].ReminderMessageText).not.toMatch(/vendor|April|downgrade/);
+    });
 
     test('a grounded repair is accepted: the confirmation and the stored task show it, once', async () => {
       const R = await RunRepairCaseAsync('title_repair_accepted', { reminder_message: 'Deploy the hotfix', object_ref: 'the hotfix' });

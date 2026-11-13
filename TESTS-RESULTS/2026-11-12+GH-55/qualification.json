@@ -1,0 +1,100 @@
+{
+  "headBefore": "52ade68cbd6b0b5e4ac4f1ecf1f7611336d67611",
+  "headAfter": "52ade68cbd6b0b5e4ac4f1ecf1f7611336d67611",
+  "treeAfter": "",
+  "node": "v22.23.5",
+  "npm": "10.9.10",
+  "results": [
+    {
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exit": 0,
+      "seconds": 19.71,
+      "log": "gh55-qualification-ci-0.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exit": 0,
+      "seconds": 3.83,
+      "log": "gh55-qualification-ci-1.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "validate:fsm"
+      ],
+      "exit": 0,
+      "seconds": 0.1,
+      "log": "gh55-qualification-ci-2.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "validate:reminder-pipeline"
+      ],
+      "exit": 0,
+      "seconds": 0.12,
+      "log": "gh55-qualification-ci-3.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "validate:commands"
+      ],
+      "exit": 0,
+      "seconds": 0.2,
+      "log": "gh55-qualification-ci-4.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "validate:changelog-tone"
+      ],
+      "exit": 0,
+      "seconds": 0.11,
+      "log": "gh55-qualification-ci-5.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "decision:replay"
+      ],
+      "exit": 0,
+      "seconds": 0.13,
+      "log": "gh55-qualification-ci-6.log (full log retained privately)"
+    },
+    {
+      "command": [
+        "bash",
+        "utils/sanitize-scan.sh",
+        "--allowlist",
+        "utils/sanitize-allowlist.txt"
+      ],
+      "exit": 0,
+      "seconds": 6.97,
+      "log": "gh55-qualification-ci-7.log (full log retained privately)"
+    }
+  ],
+  "summary": {
+    "jestPassed": 3091,
+    "jestSkipped": 4,
+    "nodePassed": 116,
+    "baseNoKeyTest": {
+      "base": "7e9e58f1ec79abe92453fa96724734745e9fb4ac",
+      "inheritedGoogleKeyExit": 1,
+      "absentGoogleKeyExit": 0
+    },
+    "environment": "Node 22/npm 10; GOOGLE_API_KEY absent as expected by no-key test"
+  }
+}

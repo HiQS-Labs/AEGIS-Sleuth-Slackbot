@@ -25,6 +25,8 @@ describe('reference detection', () => {
     ['see above, will handle by friday', 'above_reference'],
     ['per above — needs doing monday', 'above_reference'],
     ['get it done by monday', 'object_position_pronoun'],
+    ["Yes I'll tell them by tomorrow.", 'object_position_pronoun'],
+    ['Tell them Monday', 'object_position_pronoun'],
   ])('%s → %s', (ArgText, ArgShape) => {
     expect(ContextResolution.DescribeReferenceShape(ArgText)).toBe(ArgShape);
     expect(ContextResolution.NeedsEarlierContext(ArgText)).toBe(true);
@@ -37,6 +39,7 @@ describe('reference detection', () => {
 
   test('a pronoun in SUBJECT position is small talk, not a reference', () => {
     expect(ContextResolution.NeedsEarlierContext('it will rain on friday')).toBe(false);
+    expect(ContextResolution.NeedsEarlierContext('They will reply tomorrow.')).toBe(false);
   });
 });
 

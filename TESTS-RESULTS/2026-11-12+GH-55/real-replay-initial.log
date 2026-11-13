@@ -1,0 +1,30 @@
+
+── GH-55 recipient commitment: notification deadline differs from effective month
+   U_OTHER: The report is in the shared folder.
+   U_OTHER: We should downgrade the vendor service plan for April.
+   U_OTHER: Should we tell them?
+   U_SENDER: Yes I'll tell them by tomorrow.   <- the live message
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:43 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:43 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:43 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:43 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:48 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:48 GMT, Offset: -480 minutes
+   -> "Follow up: Downgrade the vendor service plan for April"  [U_SENDER]
+   FAIL: expected some reminder to mention "tell"
+   FAIL: no reminder should contain "Follow up:"
+
+── GH-55 adjacent self-contained communication needs no earlier context
+   U_SENDER: Yes I'll tell the vendor about the April downgrade by tomorrow.   <- the live message
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:50 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:50 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:50 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:50 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:54 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:54 GMT, Offset: -480 minutes
+   -> "Tell the vendor about the April downgrade"  [U_SENDER]
+   PASS
+
+── GH-55 unresolved recipient cannot invent a downgrade
+   U_SENDER: Yes I'll tell them by tomorrow.   <- the live message
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:56 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:56 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:00:56 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:00:56 GMT, Offset: -480 minutes
+[OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Fri, 13 Nov 2026 03:01:00 GMT, LocalizedUTC: Thu, 12 Nov 2026 19:01:00 GMT, Offset: -480 minutes
+   -> "Follow up on the original message"  [U_SENDER]
+   PASS
+
+2/3 scenarios passed

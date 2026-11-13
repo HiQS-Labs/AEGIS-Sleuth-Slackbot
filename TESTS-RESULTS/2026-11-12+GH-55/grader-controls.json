@@ -1,0 +1,37 @@
+{
+  "results": [
+    {
+      "text": "Tell the vendor about the April downgrade",
+      "failures": []
+    },
+    {
+      "text": "Inform the vendor about the April downgrade",
+      "failures": []
+    },
+    {
+      "text": "Notify the vendor about the April downgrade",
+      "failures": []
+    },
+    {
+      "text": "Follow up: Downgrade the vendor plan",
+      "failures": [
+        "task \"Follow up: Downgrade the vendor plan\" has no expected action opening"
+      ]
+    },
+    {
+      "text": "Downgrade the vendor plan",
+      "failures": [
+        "task \"Downgrade the vendor plan\" has no expected action opening"
+      ]
+    },
+    {
+      "text": "Telephone the vendor",
+      "failures": [
+        "task \"Telephone the vendor\" has no expected action opening"
+      ]
+    }
+  ],
+  "emptyOutputRejected": true,
+  "emptyOpeningRejected": true,
+  "mutationWithoutPredicateAcceptsWrongAction": true
+}

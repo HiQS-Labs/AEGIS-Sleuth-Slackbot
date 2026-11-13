@@ -285,6 +285,10 @@ function NormalizeReminderTitle(ArgText) {
   let Framed = false;
   for(let Pass = 0; Pass < 4; Pass++) {
     const Before = Text;
+    // an affirmative only disappears when it introduces existing request or commitment framing.
+    const WithoutAffirmative = Text.replace(/^(?:yes|yeah|yep|sure|ok(?:ay)?)\b[\s,!:.-]*/i, '');
+    if(WithoutAffirmative !== Text && REQUEST_FRAMING_PATTERNS.some(ArgPattern => ArgPattern.test(WithoutAffirmative)))
+      Text = WithoutAffirmative;
     for(const Pattern of REQUEST_FRAMING_PATTERNS) Text = Text.replace(Pattern, '');
     if(Text === Before) break;
     Framed = true;

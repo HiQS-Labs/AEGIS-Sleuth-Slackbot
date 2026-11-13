@@ -206,6 +206,21 @@ describe('GH-250 — the pointer-echo filter still sees the pointer behind the t
     ];
     expect(DropUnresolvedReferenceCandidates(Entries, true, NeedsEarlierContext, Reply).droppedCount).toBe(0);
   });
+
+  test('GH-55: a communication title with `them` is a task, not a pointer echo, beside a sibling', () => {
+    const { PrepareReminderCandidates } = require('../src/reminder-scheduling-plan');
+    const Reply = 'I\'ll tell them about the April vendor service plan downgrade tomorrow and file invoice tomorrow';
+    const Candidates = [
+      { reminder_message: 'Tell them about the April vendor service plan downgrade', scheduling_trigger: 'tomorrow', owner: 'speaker' },
+      { reminder_message: 'File invoice', scheduling_trigger: 'tomorrow', owner: 'speaker' },
+    ];
+    const Plan = PrepareReminderCandidates({
+      Candidates, OriginalText: Reply, AnalyzedText: `The vendor is downgrading our service plan in April.\n${Reply}`,
+      SynthesisOn: true, Enriched: true, LiveReplyText: Reply,
+    });
+    expect(Plan.DroppedReferenceCount).toBe(0);
+    expect(Plan.Candidates.map(ArgCandidate => ArgCandidate.reminder_message)).toEqual(Candidates.map(ArgCandidate => ArgCandidate.reminder_message));
+  });
 });
 
 describe('SelectTaskText — the over-compression fallback', () => {
@@ -376,4 +391,13 @@ describe('GH-318 selected wording', () => {
     expect(Selection.source).toBe('title');
     expect(Selection.ungroundedTerms).toEqual([]);
   });
+});
+
+test('GH-55 keeps the captured communication title rather than a generic downgrade fallback', () => {
+  const Source = "We should downgrade the vendor service plan for April. Should we tell them? Yes I'll tell them by tomorrow.";
+  const Title = 'Inform the vendor about the service plan downgrade for April';
+  const Selected = SelectTaskText({ reminder_message: Title, actionable_language: "I'll tell them" },
+    "Yes I'll tell them by tomorrow.", true, Source);
+  expect(Selected.text).toBe(Title);
+  expect(Selected.source).toBe('title');
 });
