@@ -46,7 +46,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 20 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -70,6 +70,7 @@ Summary: 20 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
 | GH-301 · Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH) | — | [GH-301-BOT-REMOTE-CRUD.md](PROJECT/2-WORKING/GH-301-BOT-REMOTE-CRUD.md) · [#301](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301) |
 | GH-318 · Preserve useful grounded reminder titles | — | [plan](PROJECT/2-WORKING/GH-318-TITLE-GROUNDING.md) |
+| GH-328 · Keep the client name outside the hyperlinked reminder title | — | [plan](PROJECT/2-WORKING/GH-328-CLIENT-PREFIX-OUTSIDE-LINK.md) · [#328](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/328) |
 
 ## Completed
 
