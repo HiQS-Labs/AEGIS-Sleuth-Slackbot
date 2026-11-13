@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-12.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 2 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -79,5 +79,38 @@ Write ONLY this relay file; no implementation/plan/test changes, installs, provi
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 2
+
+**What this proposes**
+Extend the existing grounding imperative exemption by exactly `inform`, clarify communication action/topic/effective-period handling in the existing analyzer and repair prompts, and add an optional accepted-opening predicate to the existing replay grader. Retest the bounded synthetic scenarios and refusal controls before final qualification.
+
+**How the existing system works, per this document**
+The two implemented helpers admit recipient references and remove affirmative commitment framing so existing bounded context collection and title repair can work. The analyzer and one-shot repair feed the shared title validator and grounding checks, followed by the common scheduling/writer path. The actual-model receipt reportedly shows context arriving but both Inform titles being refused, leaving a downgrade fallback; tomorrow supplies the deadline while April describes the subject.
+
+**What it's not**
+This is plan approval, not implementation acceptance or a claim of successful actual-model quality. It adds no provider, schema, admission stage, persistent writer, production action, or historical rollout closure.
+
+**Input-boundary/inference notes**
+Supplied context must ground recipient, topic and effective period; the live reply remains authoritative for the commitment, owner and deadline. Treat mocked plumbing, local default-model samples and production mixed-model behavior as distinct evidence. Prompt clarification is a bounded experiment rather than a reliability guarantee.
+
+**Source-backed assessment**
+
+swept file: yes
+
+Ship the bounded plan amendment. Reviewed the whole plan, whole grounding helper, both current helpers, both prompt assets and replay runner; traced the relevant shared selection/repair/date/storage/confirmation seams. No additional pre-existing defect requiring a change was found in this sweep. Historical plan statements are read as history; the amendment explicitly supersedes the earlier prompt non-goal.
+
+- [Pass] The diagnostic records failure despite context arrival: quoted receipt spans `prepended_messages=3`, `outcome=refused:ungrounded`, both complete surfaces showing `Follow up: Downgrade the vendor service plan for April`, and `2/3 scenarios passed` (TESTS-RESULTS/2026-11-12+GH-55/real-replay-diagnostic.log). The raw analyzer title loses April; the repair title retains it. This supports both proposed seams rather than another context-fetch change.
+- [Pass] The one-token grounding amendment is proportional. `src/task-grounding.js:80` owns the bounded list; `:286` extracts quotations before the first-token exemption at `:325`; dates, numbers and identifiers retain their earlier checks. Pure probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node "$TMPDIR/gh55-review-probe.js"`, exit **0**. The scratch script loaded only grounding source with VM, compared original with an in-memory addition of `inform`, and extracted only the runner's pure Grade function. For BOTH captured Inform titles against `We should downgrade the vendor service plan for April. Should we tell them? Yes I'll tell them by tomorrow.`, decisive output was `"before":["Inform"],"proposed":[]`. Controls returned `["Acme"]`, `["May"]`, `["99"]`, `["Inform"]` for `Review Inform`, and `["Inform"]` for `Review "Inform"`. No app modules, suites or providers ran. Implementation should retain the planned refusal and mutation controls; this in-memory experiment is not implementation acceptance.
+- [Pass] Existing writer paths fit the proposed scope: `src/reminder-display-selection.js:231` grounds against analyzed context; `src/reminders-module.js:2197` runs existing repair before planning; `:2279` uses Plan.Views for stored bullets and `:2433` passes those views to confirmation; `:2325` uses the FSM factory. The trigger alone reaches date extraction at `:2235`. No additional writer, scheduling layer or schema change is needed.
+- [Pass] A concise rule in each existing prompt is sufficient scope for this experiment. Analyzer instructions already cover communication topics and deadline separation at `data/static/ai/reminders-instructions.md:92`–`:93`; repair already requires source-only resolution and grounding at `data/static/ai/reminder-title-repair-instructions.md:22`–`:25`. Clarify that the communication action and subject's effective period survive, while tomorrow remains the communication deadline. This is a proposed clarification, not proof of reliable model compliance; actual-model replay and prompt validation remain required.
+- [Pass] Optional `taskStartsWithAny` belongs in existing Grade, alongside `taskContains` at `utils/reminder-replay.js:254`, preserving the missing-output guard at `:245`. The pure probe confirmed current Grade rejects missing output and rejects a valid Inform paraphrase under literal `tell`. The proposed predicate is sound provided accepted openings are anchored and nonempty, and existing subject/month/count/owner/no-fallback checks remain. The plan explicitly requires unchanged fallback, plain Downgrade and empty-output red controls; manual pure-function and mutation receipts suffice without a new runner. The predicate itself is not implemented or verified this turn.
+- [Pass] Evidence limits and status are honest: the amendment says `New observed failure, not a successful quality result`, identifies local defaults `gpt-4o-mini / gpt-4o`, distinguishes production mixed models, and leaves final qualification pending. The rating section states `trend unknown`; the status leaves historical rollout open. No production configuration or runtime claim was independently checked here.
+
+**VERDICT: PASS**
+**Basis:** The observed failure is reproduced at the pure grounding seam, the bounded remedies reuse existing owners and guards, and the plan keeps failed model evidence red. Approval covers the amendment only; implementation, prompt validation, mutation receipts and bounded real-model qualification remain for the Producer. Graph discovery was attempted but the tool returned `MCP tool call requires approval, but approval policy is never`; named-file reads were used instead. No git command, suite, provider call or production action ran.
+
+Relay closed (Approved), no further turn needed. Producer may proceed with the approved amendment through the enclosing workflow.
+
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
