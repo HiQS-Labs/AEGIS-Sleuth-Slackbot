@@ -1,0 +1,65 @@
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+(node:56664) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL tests/task-grounding.test.js
+  ● ExtractGroundedTerms › GH-55 accepts Inform as an action without exempting its facts or other positions
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 3
+
+    - Array []
+    + Array [
+    +   "Inform",
+    + ]
+
+      47 |   test('GH-55 accepts Inform as an action without exempting its facts or other positions', () => {
+      48 |     const Source = "We should downgrade the vendor service plan for April. Should we tell them? Yes I'll tell them by tomorrow.";
+    > 49 |     expect(UngroundedTerms('Inform the vendor about the service plan downgrade for April', Source)).toEqual([]);
+         |                                                                                                     ^
+      50 |     expect(IsTitleGrounded('Inform Acme about the April downgrade', Source)).toBe(false);
+      51 |     expect(IsTitleGrounded('Inform the vendor about the May downgrade', Source)).toBe(false);
+      52 |     expect(IsTitleGrounded('Inform the vendor about 99 downgrades', Source)).toBe(false);
+
+      at Object.toEqual (tests/task-grounding.test.js:49:101)
+
+FAIL tests/reminder-display-selection.test.js
+  ● GH-55 keeps the captured communication title rather than a generic downgrade fallback
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Inform the vendor about the service plan downgrade for April"
+    Received: "Follow up: Downgrade the vendor service plan for April"
+
+      384 |   const Selected = SelectTaskText({ reminder_message: Title, actionable_language: "I'll tell them" },
+      385 |     "Yes I'll tell them by tomorrow.", true, Source);
+    > 386 |   expect(Selected.text).toBe(Title);
+          |                         ^
+      387 |   expect(Selected.source).toBe('title');
+      388 | });
+      389 |
+
+      at Object.toBe (tests/reminder-display-selection.test.js:386:25)
+
+Test Suites: 2 failed, 2 total
+Tests:       2 failed, 93 skipped, 95 total
+Snapshots:   0 total
+Time:        0.218 s, estimated 1 s
+Ran all test suites matching tests/task-grounding.test.js|tests/reminder-display-selection.test.js with tests matching "GH-55".
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

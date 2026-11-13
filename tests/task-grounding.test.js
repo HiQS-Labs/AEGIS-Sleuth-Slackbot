@@ -44,6 +44,16 @@ describe('ExtractGroundedTerms', () => {
     expect(IsTitleGrounded('Bump the timeout', 'the real fix is bumping the timeout')).toBe(true);
   });
 
+  test('GH-55 accepts Inform as an action without exempting its facts or other positions', () => {
+    const Source = "We should downgrade the vendor service plan for April. Should we tell them? Yes I'll tell them by tomorrow.";
+    expect(UngroundedTerms('Inform the vendor about the service plan downgrade for April', Source)).toEqual([]);
+    expect(IsTitleGrounded('Inform Acme about the April downgrade', Source)).toBe(false);
+    expect(IsTitleGrounded('Inform the vendor about the May downgrade', Source)).toBe(false);
+    expect(IsTitleGrounded('Inform the vendor about 99 downgrades', Source)).toBe(false);
+    expect(IsTitleGrounded('Review Inform', Source)).toBe(false);
+    expect(IsTitleGrounded('Review "Inform"', Source)).toBe(false);
+  });
+
   test('identifiers, numbers, proper nouns, and quoted strings all require grounding', () => {
     expect(ExtractGroundedTerms('Ship the billing-sync retry patch')).toEqual(['billing-sync']);
     expect(ExtractGroundedTerms('Bump the timeout by 4')).toEqual(['4']);

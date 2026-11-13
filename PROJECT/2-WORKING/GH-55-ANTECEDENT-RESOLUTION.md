@@ -20,7 +20,7 @@ context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory
 
 | What was just completed | What's next |
 |---|---|
-| **2026-11-12: recipient-reference regression reproduced; bounded plan ready for independent QA.** Historical phase: implemented and merged at 1.4.290. Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **Review the recipient-reference follow-up below before implementation.** Historical rollout remains separately unverified: arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe. The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
+| **2026-11-12: three-helper fix implemented; 532 focused tests and selected-model 3/3 replay pass. Final QA pending.** Historical phase: implemented and merged at 1.4.290. Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **Run independent final QA, final qualification and PR publication.** Historical rollout remains separately unverified: arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe. The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
 
 ## What the merge did NOT do
 
@@ -235,7 +235,7 @@ than the recency window.
 
 Requested outcome: a short communication commitment referring to an adjacent plan should retain the communication action and recover its subject, rather than display a vague reply. This is a bounded continuation of open GH-55, related to GH-66/GH-77; it does not close the historical rollout milestone above. No new issue is needed. Existing public examples above are historical; this continuation publishes synthetic cases only.
 
-Base: `7e9e58f1ec79abe92453fa96724734745e9fb4ac`. Task branch: `fix/AEGIS-Sleuth-Slackbot-gh55-antecedent-resolution-2026-11-12`. Fresh full clone, hooks installed, dependencies installed. No runtime changes yet.
+Base: `7e9e58f1ec79abe92453fa96724734745e9fb4ac`. Task branch: `fix/AEGIS-Sleuth-Slackbot-gh55-antecedent-resolution-2026-11-12`. Fresh full clone, hooks installed, dependencies installed. This paragraph records the planning baseline; current results are below.
 
 ### Measured ground truth and recon map
 
@@ -311,3 +311,16 @@ The context fix worked: three preceding messages reached analysis. The analyzer 
 Updated root cause: two pre-model/normalization gaps plus a demonstrated `Inform` false refusal and insufficiently explicit effective-period instruction. Fix sites remain existing detector, normalizer, grounding allowlist and two prompt assets; no new runtime subsystem, model switch or durable writer. Strongest counterargument: a one-word allowlist addition cannot guarantee all paraphrases and prompting is probabilistic; acceptance is bounded, failures remain red, and no universal reliability claim is allowed.
 
 Paraphrase-first review applies again to this amendment, same three-round plan budget (round 2/3). Existing private/public separation and historical GH55-open status remain. Amendment not yet implemented.
+
+
+### Retained implementation and final-review handoff
+
+Plan amendment round 2 PASS/attested Approved (`b7437938` receipt). Implemented the three helper changes plus optional anchored replay-grader action openings. Two targeted Inform tests went red before the one-token fix, passed after, and failed again under its mutation. Eight focused suites now pass 532 cases (12 added cases in existing suites). Build passes. No new runtime modules, writer, provider client, fields or feature flag.
+
+**Prompt disposition: removed, not shipped.** Two prompt variants failed the stricter main case on the default replay model; Luna passed with both modified and original prompts. Original-prompt main-only ablation 1/1 and retained-original-prompt full three-case run 3/3 provide no observed benefit for adding the rules. Both prompt assets equal base; no prompt or live model-setting change remains. This narrows the approved amendment; it does not silently claim its proposed prompt experiment succeeded.
+
+Real qualification is bounded: local Luna analysis/repair with gpt-4o dates; last production observation used Luna/Sonnet. Explicit gpt-4o-mini replay failures stay recorded. Exact original private incident, live transport, production date provider, universal topic/recipient resolution and historical GH55 rollout are not claimed verified. Current useful title still conservatively says `them` where recipient identity is implicit. Default-model effective-month omission stays open. See [verification and experiment ledger](../../TESTS-RESULTS/2026-11-12+GH-55/verification.md) and complete output.
+
+Current code decisions: context and affirmative changes **helped** under independent mutation; inform exemption **helped** under captured real response and mutation; prompt wording **no observed effect**, removed; cross-model result **confounded**, not a ranking. No root LESSONS-LEARNED entry (NO_ENTRY).
+
+Final QA and full qualification remain pending. Final reviewer must assess whether bounded selected-model success plus explicit default-model limitations justifies the scoped PR; do not close GH55 or claim production fixed. No full suite has been run yet. Once final review approves, run the repo's qualifying CI commands once on the final artifact, publish only with truthful gate results, and leave the idempotent issue closeout.
