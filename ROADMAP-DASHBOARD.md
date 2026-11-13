@@ -52,7 +52,7 @@ Summary: 20 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | --- | --- | --- |
 | OCR follow-ups: intent grammar, resolver action split, catalog entry, wiring cleanups (GH-73/74/75/76) | — | [PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md](PROJECT/2-WORKING/GH-73-OCR-FOLLOWUPS.md) |
 | The 2026-08-18 development QA fixes (GH-94, GH-95, GH-96) | — | [PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml](PROJECT/2-WORKING/MARATHON-2026-08-18-DEV-QA/MARATHON.yaml) · [PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md](PROJECT/2-WORKING/GH-94-JITTER-ORDERING.md) · [PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md](PROJECT/2-WORKING/GH-95-FALLTHROUGH-NORMALIZATION.md) · [PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md](PROJECT/2-WORKING/GH-96-DIAGNOSTICS-BYPASSES.md) |
-| GH-55 · Pronoun follow-ups schedule the literal sentence | — | [plan](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md) · [#55](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/55) |
+| GH-55 · Pronoun follow-ups schedule the literal sentence | — | [plan](PROJECT/2-WORKING/GH-55-ANTECEDENT-RESOLUTION.md) · [PR](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/pull/324) · [#55](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/55) |
 | Span-ratio rounding hides the most deeply buried tasks (GH-51) | — | [PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md](PROJECT/2-WORKING/GH-51-SPAN-RATIO-PRECISION.md) |
 | Anchor the jest globs so the merge gate stops crying wolf (GH-48) | — | [PROJECT/2-WORKING/GH-48-JEST-TESTMATCH-ANCHOR.md](PROJECT/2-WORKING/GH-48-JEST-TESTMATCH-ANCHOR.md) |
 | Arm the decision corpus in production (GH-50) | — | [PROJECT/2-WORKING/GH-50-WIRE-DECISION-CAPTURE.md](PROJECT/2-WORKING/GH-50-WIRE-DECISION-CAPTURE.md) |
