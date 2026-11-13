@@ -1,0 +1,19 @@
+HEAD ac27809f07281a2427522907e61b7cb15a6a2f62
+Test Suites: 1 skipped, 147 passed, 147 of 148 total
+Tests:       4 skipped, 3094 passed, 3098 total
+ℹ tests 116
+ℹ pass 116
+ℹ fail 0
+npm test exit=(not captured: zsh has no PIPESTATUS; counts above show 0 failed suites, Node fail 0)
+build exit=0
+validate-fsm-invariants: OK (src/reminders-module.js has no forbidden patterns).
+reminder-pipeline ratchet: clean (llm_extraction_specs=4, key_task_reparse_sites=6, routing_thresholds=3, display_sources=4, context_markers=2).
+command catalog validation passed.
+sanitize exit=0
+
+# Rerun after final QA (Codex Nit), same product code as ac27809
+HEAD c568e9338705776909c48c13eeb18d981d4da1a1
+Test Suites: 1 skipped, 147 passed, 147 of 148 total
+Tests:       4 skipped, 3094 passed, 3098 total
+Node: pass 116, fail 0
+npm test exit=0
