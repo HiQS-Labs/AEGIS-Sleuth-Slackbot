@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 26 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -35,7 +35,6 @@ Summary: 26 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
 | GH-230 · selftest: add T4 later-upload and T6 memory-reuse scenarios, and a zero-download assertion for T5 | — | [GH-230-SELFTEST-T4-LATER-UPLOAD.md](PROJECT/2-WORKING/GH-230-SELFTEST-SCENARIOS.md) · [#230](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/230) |
 | GH-289 · Router takeover can still reach takeover-excluded commands through rmm ifl | — | [GH-289-TAKEOVER-RMM-IFL-LOOPHOLE.md](PROJECT/1-INBOX/GH-289-TAKEOVER-RMM-IFL-LOOPHOLE.md) · [#289](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/289) |
-| GH-328 · Keep the client name outside the hyperlinked reminder title | — | [plan](PROJECT/1-INBOX/GH-328-CLIENT-PREFIX-OUTSIDE-LINK.md) |
 
 ## Queue
 
@@ -47,7 +46,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 20 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -71,6 +70,7 @@ Summary: 20 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-258 · Reminder titles: name the topic for person objects and drop schedule wording | — | [GH-258-REMINDER-TITLE-TOPIC.md](PROJECT/2-WORKING/GH-258-REMINDER-TITLE-TOPIC.md) · [#258](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/258) |
 | GH-301 · Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH) | — | [GH-301-BOT-REMOTE-CRUD.md](PROJECT/2-WORKING/GH-301-BOT-REMOTE-CRUD.md) · [#301](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301) |
 | GH-318 · Preserve useful grounded reminder titles | — | [plan](PROJECT/2-WORKING/GH-318-TITLE-GROUNDING.md) |
+| GH-328 · Keep the client name outside the hyperlinked reminder title | — | [plan](PROJECT/2-WORKING/GH-328-CLIENT-PREFIX-OUTSIDE-LINK.md) · [#328](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/328) |
 
 ## Completed
 
