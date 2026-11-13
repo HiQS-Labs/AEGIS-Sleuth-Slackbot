@@ -306,7 +306,7 @@ function ToWebSafeSummary(ArgSummary, ArgUserNamesById = {}) {
  * @returns {Promise<string>}
  */
 async function BuildCompactTextForReminder(ArgSlackApp, ArgReminder, ArgLabel, ArgAnnotationsByReminderId, ArgOptions) {
-  // Label the display-only summary with the reminder's inferred client name (GH-395). This is a
+  // label the display-only summary with the reminder's inferred client name (GH-395). This is a
   // non-destructive render-time decoration on top of the GH-391 per-reminder poster, so every list
   // surface (ask-reminders, buckets, digests) gets it consistently. No confident match → no label.
   // GH-328: the label goes to the line builder separately so it renders outside the permalink. It
