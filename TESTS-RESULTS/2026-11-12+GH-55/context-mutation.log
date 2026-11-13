@@ -1,0 +1,126 @@
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+(node:39731) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL tests/reminders-integration.test.js
+  ● Console
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+    console.log
+      [OFFSET CALC] Timezone: America/Los_Angeles, GlobalizedUTC: Mon, 06 May 2030 18:00:00 GMT, LocalizedUTC: Mon, 06 May 2030 11:00:00 GMT, Offset: -420 minutes
+
+      at DateUtils.log [as GetTimeZoneOffsetInMinutes] (src/date-utils.js:69:13)
+
+  ● RemindersModule integration via MockSlackApp › GH-250 phase 3 — one constrained re-synthesis before the template fallback › recipient commitment retains context, owner and deadline; repair=false
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "downgrade the vendor service plan for April"
+    Received string:    "Yes I'll tell them by tomorrow."
+
+      3587 |         });
+      3588 |         expect(R.AnalysisCalls).toHaveLength(1);
+    > 3589 |         expect(R.AnalysisCalls[0]).toContain('downgrade the vendor service plan for April');
+           |                                    ^
+      3590 |         expect(R.AnalysisCalls[0]).toContain('Should we tell them?');
+      3591 |         expect(R.RepairCalls).toHaveLength(ArgNeedsRepair ? 1 : 0);
+      3592 |         expect(R.FeedbackText).toContain(`• ${Title}`);
+
+      at toContain (tests/reminders-integration.test.js:3589:36)
+
+  ● RemindersModule integration via MockSlackApp › GH-250 phase 3 — one constrained re-synthesis before the template fallback › recipient commitment retains context, owner and deadline; repair=true
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "downgrade the vendor service plan for April"
+    Received string:    "Yes I'll tell them by tomorrow."
+
+      3587 |         });
+      3588 |         expect(R.AnalysisCalls).toHaveLength(1);
+    > 3589 |         expect(R.AnalysisCalls[0]).toContain('downgrade the vendor service plan for April');
+           |                                    ^
+      3590 |         expect(R.AnalysisCalls[0]).toContain('Should we tell them?');
+      3591 |         expect(R.RepairCalls).toHaveLength(ArgNeedsRepair ? 1 : 0);
+      3592 |         expect(R.FeedbackText).toContain(`• ${Title}`);
+
+      at toContain (tests/reminders-integration.test.js:3589:36)
+
+FAIL tests/reminder-context-resolution.test.js
+  ● reference detection › Yes I'll tell them by tomorrow. → object_position_pronoun
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "object_position_pronoun"
+    Received: null
+
+      29 |     ['Tell them Monday', 'object_position_pronoun'],
+      30 |   ])('%s → %s', (ArgText, ArgShape) => {
+    > 31 |     expect(ContextResolution.DescribeReferenceShape(ArgText)).toBe(ArgShape);
+         |                                                               ^
+      32 |     expect(ContextResolution.NeedsEarlierContext(ArgText)).toBe(true);
+      33 |   });
+      34 |
+
+      at toBe (tests/reminder-context-resolution.test.js:31:63)
+
+  ● reference detection › Tell them Monday → object_position_pronoun
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "object_position_pronoun"
+    Received: null
+
+      29 |     ['Tell them Monday', 'object_position_pronoun'],
+      30 |   ])('%s → %s', (ArgText, ArgShape) => {
+    > 31 |     expect(ContextResolution.DescribeReferenceShape(ArgText)).toBe(ArgShape);
+         |                                                               ^
+      32 |     expect(ContextResolution.NeedsEarlierContext(ArgText)).toBe(true);
+      33 |   });
+      34 |
+
+      at toBe (tests/reminder-context-resolution.test.js:31:63)
+
+Test Suites: 2 failed, 2 total
+Tests:       4 failed, 123 skipped, 127 total
+Snapshots:   0 total
+Time:        0.495 s, estimated 5 s
+Ran all test suites matching tests/reminder-context-resolution.test.js|tests/reminders-integration.test.js with tests matching "recipient commitment retains|Tell them Monday|Yes I".
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?
