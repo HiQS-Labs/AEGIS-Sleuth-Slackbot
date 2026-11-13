@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-12.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 1 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -80,5 +80,35 @@ Write ONLY this relay file. No source/plan/test/ledger edits, installs, suites, 
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1
+
+Ship with conditions: approve the bounded improvement for a development PR; final repository qualification remains pending.
+
+swept file: yes
+
+Read all three changed product helpers in full, the replay runner in full, changed test sections/fixtures, canonical plan including retained implementation, verification receipts, prior plan/amendment QA, and relevant scheduling/repair/ownership consumers. No additional relevant pre-existing defect requiring a change was found in the helper sweep. This is not an exhaustive repository audit.
+
+- [Pass] **The deterministic failure origins are addressed at existing owners.** src/reminder-context-resolution.js:95 admits object-position them; :102 restricts temporal exclusion to demonstratives. src/reminder-title-contract.js:288 strips an affirmative only before existing recognized framing. Independent pure probe command: `export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"; node "$TMPDIR/probe.js"`, exit **0**. The scratch script loaded only the pure helpers and extracted Grade with VM. Decisive output: `Yes I'll tell them by tomorrow.` gives `reference:"object_position_pronoun", normalized:"Tell them", reasons:["bare-pointer"]`; `Tell them Monday` also admits context; `They will reply tomorrow.` and `Review this week` give `reference:null`. Concrete commitment framing normalizes to Notify; `Yes platform migration` and the quoted span in `Review "Yes I will" tomorrow` retain their text. These measure admission/normalization, not model quality.
+
+- [Pass] **Unchanged code would fail the measurements.** Read-only Python object decoding against integration base 7e9e58f1ec79abe92453fa96724734745e9fb4ac produced the base diff without invoking git: `python3 "$TMPDIR/read-base.py"`, exit **0**. Loading the extracted base pure helpers with `node -` exited **0**, returning `baseReference:null`, `baseNormalized:"Yes I'll tell them"`, `baseValidation:{"ok":true,"reasons":[]}`, `baseInform:["Inform"]`. Current output differs at the actual failure seams. Producer mutation receipts under TESTS-RESULTS/2026-11-12+GH-55/ report `4 failed` in context-mutation.log, `5 failed` in title-mutation.log and `2 failed` in inform-mutation.log. focused-final.log reports `8 passed` / `532 passed`. These are inspected receipts, not suites rerun this turn.
+
+- [Pass] **Inform remains a bounded leading-verb exemption.** src/task-grounding.js:89 adds exactly inform; quotations, numbers, temporal entities and identifiers retain their checks before the leading imperative exception. The same pure probe returned `ungrounded:[]` for the captured April Inform title; invented name/date/number controls returned `["Acme"]`, `["May"]`, `["99"]`; `Review Inform` and `Review "Inform"` each returned `["Inform"]`. Existing THING_POINTER_PATTERN still excludes person pointers (src/reminder-display-selection.js:163), and tests/reminder-display-selection.test.js:91 retains the Ask-them/invoice negative. No deterministic person-to-thing substitution was added.
+
+- [Pass] **Existing containment and common writes remain authoritative.** ResolveContextAsync retains thread/channel switches, referenced depth three, bot exclusion, live-message anchoring, marker neutralization, live text and provenance (src/reminder-context-resolution.js). The handler still requires reference plus scheduling trigger and passes live text separately (src/reminders-app-mention-handler.js:311). Fallback-only one-shot repair retains object-ref checks and reselects through grounding (src/reminders-module.js:2903); trigger-only date extraction remains at :2235 and the common FSM factory at :2325. Integration cases at tests/reminders-integration.test.js:3568 assert direct and repair paths, BOTH confirmation and disk wording, live owner, tomorrow, scheduled state, IgnoreSnooze false and original source/provenance. The missing-context case at :3610 refuses invented repair. Those model/date mocks prove plumbing only. The base diff changes no FSM writer or reminder-posting/snooze bypass.
+
+- [Pass] **Actual-model evidence supports bounded usefulness.** real-replay-retained.log quotes `reminder_response gpt-6-luna`, `datetime_components gpt-4o`, `prepended_messages=3`, matching confirmation/stored title `Tell them about the April vendor service plan downgrade`, stored due `2026-11-13T16:00:00.000Z`, U_SENDER, scheduled state and live source/enrichment. Adjacent title is `Tell the vendor re: April downgrade`; missing-context output is `Follow up on the original message`, with repair `refused:object-ref-not-in-title`. The receipt ends `3/3 scenarios passed`. Identity can remain implicit. Earlier default-model failures stay red: real-replay-initial.log:30 and real-replay-diagnostic.log:154 say `2/3 scenarios passed`; verification.md explicitly retains effective-month omission and prompt-experiment limits. These samples do not establish universal resolution, exact private-incident reproduction, Slack transport, production date-provider coverage or statistical model ranking.
+
+- [Pass] **The grader extension is proportional.** utils/reminder-replay.js:258 checks a nonempty case-insensitive opening followed by space/end, beside existing count/topic/month/owner/refusal checks and the empty-output guard. The independent pure Grade probe (same command, exit **0**) accepts Tell/Inform/Notify and rejects fallback, plain Downgrade, Telephone, empty text, empty produced array and empty opening. grader-controls.json additionally records `mutationWithoutPredicateAcceptsWrongAction:true`. No new runner/framework is justified. Dates are measured in integration and complete replay output; this predicate itself grades action openings.
+
+- [Pass] **Scope and qualification claims are truthful.** Read-only base comparison (Python object reader, exit **0**) found package.json and BOTH analyzer/repair prompt assets byte-identical to base. Read-only SQLite mode=ro returned existing gid rmi-01M0XWWTRY5MGRN69J63G4WZSX with ratings `(75,55,50,80)`; releases.sql preserves its NULL native issue identity and records the update/rating receipts. The newest CHANGELOG.md entry, verification.md and retained plan section preserve default-model/month and recipient limits, removed prompts, historical GH55-open status and pending final qualification. Earlier proposed/pending plan sections are superseded historical records. Reviewed public additions use synthetic examples; no private raw incident material or credentials were found there.
+
+- [Unverified — needs clone run] Full repository qualification/hosted CI and live transport/configuration remain outside this turn. No suite, executable fixture, model/API call, deployment or git command ran. Graph discovery returned `MCP tool call requires approval, but approval policy is never`; named-file reads were used instead. The enclosing harness must run the final required gate after review; it is not claimed passed.
+
+**VERDICT: PASS**
+
+**Basis:** Three small helper changes address independently measured failure seams while retaining existing context, validation, grounding, owner/date and writer contracts. Source, negative controls, mutation receipts and complete selected-model outputs support the scoped development PR despite explicit default-model limitations. No Blocker or Should remains. Approval covers scoped review readiness, with final qualification pending; historical GH55 and broader rollout remain open.
+
+Relay closed (Approved), no further turn needed.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
