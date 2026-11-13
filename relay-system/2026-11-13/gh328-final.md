@@ -96,4 +96,12 @@ Basis: reviewed the complete product utility and existing test file, the plan, r
 
 relay closed (Approved), no further turn needed.
 
+
+### Attestation · relay-drive — 2026-11-13T17:29:54Z
+task: GH328-FINAL
+reviewer: codex
+status: Approved
+reviewed-head: 11cf7ef9a1af2ff9a0f19b20e9f859ac5e46307a
+added-range: 8137+4149
+added-sha256: bc1e8a00c1c618fc87aebf140c36480c7a8238fe34ad3fa517cba3668d1d2025
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
