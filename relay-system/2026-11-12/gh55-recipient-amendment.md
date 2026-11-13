@@ -113,4 +113,13 @@ Ship the bounded plan amendment. Reviewed the whole plan, whole grounding helper
 Relay closed (Approved), no further turn needed. Producer may proceed with the approved amendment through the enclosing workflow.
 
 
+
+### Attestation · relay-drive — 2026-11-13T03:08:25Z
+task: GH55-RECIPIENT-PLAN-AMENDMENT
+reviewer: codex
+status: Approved
+reviewed-head: dd9ddd23a1e162ba573410572562af29b75f80ad
+added-range: 8328+6361
+added-sha256: 5045b4e31a434a0c8c4088cb5160abf21d2a256da4bbe3f0aa7d6f9dbb14f296
+gate-run: undeclared
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
