@@ -20,7 +20,7 @@ context_tags: [extraction-fidelity, context-enrichment, ownership, thread-memory
 
 | What was just completed | What's next |
 |---|---|
-| **2026-11-12: three-helper fix implemented; 532 focused tests and selected-model 3/3 replay pass. Final QA pending.** Historical phase: implemented and merged at 1.4.290. Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **Run independent final QA, final qualification and PR publication.** Historical rollout remains separately unverified: arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe. The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
+| **2026-11-12: three-helper fix implemented; 532 focused tests and selected-model 3/3 replay pass. Final QA Approved; full local qualification passes; PR publication pending.** Historical phase: implemented and merged at 1.4.290. Both blockers cleared: verb-agnostic object-position detection, and the `thread_ts` gate lifted with participant continuity. `enrichedFrom` provenance reaches the ledger. 47 new tests, 5 mutations all caught, full suite 111/1908 jest + 116 node, `tsc` 0, PDDA at baseline. | **Publish the PR and verify hosted checks; historical rollout remains separate.** Historical rollout remains separately unverified: arm `CHANNEL_ANTECEDENT_LOOKBACK_ENABLED` on one workspace and observe. The channel half — the half that fixes the reported case — is default-OFF, so the milestone is NOT met by the merge. Owner: noel. Then read `enrichedFrom` on real events for mis-stitches before arming more widely. |
 
 ## What the merge did NOT do
 
@@ -324,3 +324,10 @@ Real qualification is bounded: local Luna analysis/repair with gpt-4o dates; las
 Current code decisions: context and affirmative changes **helped** under independent mutation; inform exemption **helped** under captured real response and mutation; prompt wording **no observed effect**, removed; cross-model result **confounded**, not a ranking. No root LESSONS-LEARNED entry (NO_ENTRY).
 
 Final QA and full qualification remain pending. Final reviewer must assess whether bounded selected-model success plus explicit default-model limitations justifies the scoped PR; do not close GH55 or claim production fixed. No full suite has been run yet. Once final review approves, run the repo's qualifying CI commands once on the final artifact, publish only with truthful gate results, and leave the idempotent issue closeout.
+
+
+### Qualification and publication checkpoint
+
+Final independent Codex review PASS/attested Approved (`40bdd35` reviewed, `52ade68` receipt); no Blocker/Should. Full Node22/npm10 qualification passes 3,091 Jest + 116 Node tests, build, validators, decision replay and secret scan in disposable full clone, with reviewed HEAD/tree unchanged. First inherited-environment full run remained red; paired unchanged-base probes identify ambient GOOGLE_API_KEY as the no-key-test cause. Clearing only that variable yields baseline pass and a fully passing corrective gate without source/assertion changes. See verification.md/qualification.json for counts, commands and explicit prior failure.
+
+Current next action: publish into development, verify the final head's hosted checks and review comments, then idempotent issue closeout and targeted safe checkout retirement. Prompt assets/package version remain base-identical. This is not production deployment or whole GH55 closure.
