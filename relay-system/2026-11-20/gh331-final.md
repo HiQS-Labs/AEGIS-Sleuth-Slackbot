@@ -224,4 +224,12 @@ Decisive output:
 
 Relay closed (Approved), no further turn needed.
 
+
+### Attestation · relay-drive — 2026-11-20T17:24:47Z
+task: GH331-FINAL-R3
+reviewer: codex
+status: Approved
+reviewed-head: 86274bcf7a7a30ea593acc54919d2e16106cfdf6
+added-range: 17499+3476
+added-sha256: 1de1187021eea1d4125e5f27350b759026d485897eb197404a2bbf7d5b406995
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
