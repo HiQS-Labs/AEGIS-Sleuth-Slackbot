@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -183,5 +183,45 @@ After Approved, PR #333's bots (Greptile, CodeRabbit) reported the same defect: 
 - Smoke rerun on the same private backups: identical aggregates. Full gate rerun pending on this head.
 
 Please review only this delta (`git diff 7089733..HEAD -- skills tests`) and re-approve or not.
+
+### Reviewer · Round 3
+
+swept file: yes
+
+VERDICT: PASS
+Basis: Ship. The post-approval case fix addresses the recorded missed-open-link input, and identifier changes preserve the finder logic on source inspection. Swept the complete finder, skill workflow and finder tests, and re-read sync implementation and regression coverage; no additional actionable pre-existing defect found. Prior acceptance findings stand. No git command, suite, executable fixture, network call or Sleuth write was run. Current-head full-gate execution remains unverified here and belongs to the post-turn disposable-clone harness.
+
+- [Pass] Case fix: `LINK_PATTERN` now has `gi` (`skills/retire-closed-issue-reminders/find-closed-issue-reminders.mjs:12`). The new regression supplies the closed lowercase-host link plus open capitalised-host link and expects both in a mixed row (`tests/retire-closed-issue-reminders.test.js:81-86`). The recorded red receipt explicitly shows `reminders=1 links=1 all-closed=1 mixed=0` (`TESTS-RESULTS/2026-11-20+GH-331/gh332-case-red.log`). Independent source-extraction probe below exits 0 and yields both refs with class mixed. No fix requested.
+- [Pass] Rename sweep: source still unions tagged URLs and text, deduplicates refs, calls only `gh api`, gives unknown precedence, and writes the review beside the backup privately (`skills/retire-closed-issue-reminders/find-closed-issue-reminders.mjs:20-43`, `:64-82`). The workflow still requires review, dry-run completion through bulk-edit-reminders and backup comparison (SKILL.md steps 3–5). No second writer or changed completion policy found; no rating adjustment warranted.
+- [Pass] #331 remains intact: call-time require and pre-fetch version capture precede guarded completion and notification (`src/github-sync-module.js:258-297`); the regression creates the isolated sync class after requiring reminders first, without mocking that export (`tests/github-sync-module.test.js:695-720`). This turn does not claim an independently executed regression or full-gate pass.
+
+Probe command (exit 0; extracts actual source functions into a VM, no executable fixture or subprocess):
+```bash
+export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+mkdir -p "$TMPDIR"
+node --input-type=module - <<'NODE'
+import fs from 'node:fs';
+import vm from 'node:vm';
+const source=fs.readFileSync('skills/retire-closed-issue-reminders/find-closed-issue-reminders.mjs','utf8');
+const logic=source.slice(source.indexOf('const LINK_PATTERN'),source.indexOf('const BackupPath'));
+const context=vm.createContext({});
+vm.runInContext(logic+';globalThis.probe={ExtractRefs,classify};',context);
+const {ExtractRefs,classify}=context.probe;
+const refs=ExtractRefs({GitHubUrls:['https://github.com/o/r/issues/1'],ReminderMessageText:'https://GitHub.com/o/r/issues/3'});
+const result=classify(refs.map(ref=>ref==='o/r/1'?'closed':'open'));
+console.log(JSON.stringify({refs,class:result}));
+if(refs.length!==2||result!=='mixed') process.exit(1);
+const dotted=ExtractRefs({GitHubUrls:['https://github.com/o/r.dot/pull/2'],ReminderMessageText:'https://GitHub.com/o/r.dot/pull/2'});
+console.log(JSON.stringify({dotted,failedLookup:classify(['closed','unknown'])}));
+if(dotted.length!==1||classify(['closed','unknown'])!=='unknown') process.exit(1);
+NODE
+```
+Decisive output:
+```json
+{"refs":["o/r/1","o/r/3"],"class":"mixed"}
+{"dotted":["o/r.dot/2"],"failedLookup":"unknown"}
+```
+
+Relay closed (Approved), no further turn needed.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
