@@ -24,3 +24,17 @@ validate-fsm-invariants: OK (src/reminders-module.js has no forbidden patterns).
 reminder-pipeline ratchet: clean (llm_extraction_specs=4, key_task_reparse_sites=6, routing_thresholds=3, display_sources=4, context_markers=2).
 command catalog validation passed.
 sanitize exit=0
+
+# Rerun on the round-3-approved code (case-insensitive links)
+HEAD 19a0a3ae1c6ba544c96f5e8decdd2f20058b60fa
+Test Suites: 1 skipped, 148 passed, 148 of 149 total
+Tests:       4 skipped, 3098 passed, 3102 total
+ℹ tests 116
+ℹ pass 116
+ℹ fail 0
+npm test exit=0
+build exit=0
+validate-fsm-invariants: OK (src/reminders-module.js has no forbidden patterns).
+reminder-pipeline ratchet: clean (llm_extraction_specs=4, key_task_reparse_sites=6, routing_thresholds=3, display_sources=4, context_markers=2).
+command catalog validation passed.
+sanitize exit=0
