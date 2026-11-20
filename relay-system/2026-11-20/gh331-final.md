@@ -167,4 +167,12 @@ Basis: S1 is resolved on source inspection and an independent scratch-only probe
 
 Relay closed (Approved), no further turn needed.
 
+
+### Attestation · relay-drive — 2026-11-20T17:11:51Z
+task: GH331-FINAL
+reviewer: codex
+status: Approved
+reviewed-head: 81b119c1f87eba45bb72c6c6ebb9db567185fceb
+added-range: 13660+2613
+added-sha256: 1ed6af6720327c064649d41b8fbc67e4fd2c8a11129391c6eb31f5e91cabd707
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
