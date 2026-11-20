@@ -21,14 +21,14 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Plan QA PASS/Approved (Codex, round 1, `relay-system/2026-11-20/gh331-plan.md`); nits folded in | Implement #331 red/fix, then #332 finder, test and SKILL.md |
+| Both implemented; red/green, mutation control, smoke and full gate recorded; final Codex QA PASS/Approved in round 2 after S1 (review file private from creation) (`relay-system/2026-11-20/gh331-final.md`) | PR into development; after deploy, confirm the `GetReminderVersion` error stops in production logs |
 
 ## Issues
 
 | Issue | Scope | Acceptance check | Rating | State |
 |---|---|---|---|---|
-| [#331](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/331) | Fix `GetReminderVersion is not a function` in the poll cycle | New test in production load order fails before, passes after; existing sync suite green | 80/70/50/90 | planned |
-| [#332](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/332) | `skills/retire-closed-issue-reminders` (read-only finder + workflow) | Finder test over a fake `gh`: all-closed/mixed/open/unknown/none classes, lookup failure never counts as closed, private output mode 600, empty and malformed input | 45/20/50/75 | planned |
+| [#331](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/331) | Fix `GetReminderVersion is not a function` in the poll cycle | New test in production load order fails before, passes after; existing sync suite green | 80/70/50/90 | PR ready |
+| [#332](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/332) | `skills/retire-closed-issue-reminders` (read-only finder + workflow) | Finder test over a fake `gh`: all-closed/mixed/open/unknown/none classes, lookup failure never counts as closed, private output mode 600, empty and malformed input | 45/20/50/75 | PR ready |
 
 Both ship in one PR: one outcome (closed-issue reminders get retired), no shared code.
 
