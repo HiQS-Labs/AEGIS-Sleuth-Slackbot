@@ -21,7 +21,7 @@ phases: 1
 
 | What was just completed | What's next |
 |---|---|
-| Reproduced the crash cause (circular require) from production logs and source | Independent plan QA, then implement both items |
+| Plan QA PASS/Approved (Codex, round 1, `relay-system/2026-11-20/gh331-plan.md`); nits folded in | Implement #331 red/fix, then #332 finder, test and SKILL.md |
 
 ## Issues
 
@@ -48,6 +48,7 @@ Base `6325509` (origin/development; `main` is `410627b`, same `src/`).
 - `CompleteReminderByIdAsync(id, reason, { ExpectedVersion })` already guards stale completion; unchanged.
 - Skill reuse: `skills/bulk-edit-reminders/bulk-edit-reminders.mjs` owns backup (`backup`, private mode-600 file under `~/secrets/sleuth/backups/`), `--complete`/`--reason`, `--dry-run`, `--tunnel`. The backup record carries `ReminderID`, `ReminderMessageText`, `GitHubUrls`. The 2026-11-20 manual run (31 reminders, 15 links, 2 closed, 0 all-closed, 2 mixed, 1 retired after review) is the workflow this encodes.
 - Prior art: no issue or PR covers either item.
+- Evidence attribution: the production log counts, the 2026-11-20 manual run and its backups are the producer's read-only observations; raw logs and backups stay private (operator machine, `~/secrets/sleuth/backups/`, not in this repo). Plan QA did not re-read them.
 
 ## Rating rationale (2026-11-20)
 
@@ -60,7 +61,7 @@ Base `6325509` (origin/development; `main` is `410627b`, same `src/`).
 2. **#331 fix.** At `src/github-sync-module.js:258` use `require('./reminders-module').GetReminderVersion(CurrentReminder)` with a short comment on the cycle. Focused suites: `github-sync-module`, `github-comment-relay`, `reminders-module`.
 3. **#332 finder.** `find-closed-issue-reminders.mjs <backup.json>`: collect links from `GitHubUrls` and `github.com/<o>/<r>/(issues|pull)/<n>` in `ReminderMessageText` (deduplicated, source noted); look each unique ref up once with `gh api repos/<o>/<r>/issues/<n>` (REST); classify each reminder `all-closed` (every link closed or merged), `mixed`, `open`, `unknown` (any lookup failed; never treated as closed), `none`. Print a summary and per-reminder rows; write `<backup>.closed-issues.json` (mode 600) holding the all-closed, mixed and unknown reminders with their text and link states for review. Exit 0 on success; exit 2 on usage, unreadable or non-array backup. No network except `gh`.
 4. **#332 test.** `tests/retire-closed-issue-reminders.test.js` runs the script in a child process with a fake `gh` on `PATH` (fixture per URL; one URL fails). Assert the five classes, that the failing lookup yields `unknown` not `all-closed`, output mode 600, `[]` input → zero rows exit 0, malformed input → exit 2. Red control: the test fails if lookup failure were counted as closed (asserted directly).
-5. **#332 SKILL.md.** Workflow: back up with `bulk-edit-reminders` → run the finder → review every all-closed/mixed/unknown candidate by reading the linked issues (optionally three independent reviewers, then the operator's agent double-checks each retirement) → `bulk-edit-reminders --complete … --reason … --dry-run` → apply → fresh backup diff showing only the retired IDs left. Note what the server now does on its own after #331, and keep files private.
+5. **#332 SKILL.md.** Workflow: back up with `bulk-edit-reminders` → run the finder → review every all-closed/mixed/unknown candidate by reading the linked issues (optionally three independent reviewers, then the operator's agent double-checks each retirement) → `bulk-edit-reminders --complete … --reason … --dry-run` → apply → fresh backup whose diff against the pre-write backup shows exactly the retired IDs removed (the backup is pending-only) and every other pending ID unchanged. Note what the server now does on its own after #331, and keep files private.
 6. CHANGELOG entry; full gate once on the final commit; smoke: finder on the real 2026-11-20 backup (read-only `gh` calls) plus an empty-backup run; the #331 fix exercised through the new test plus a production-order load probe that requires `reminders-module` then calls the sync module's version path without starting the app. Final Codex relay QA; PR into development.
 
 ## Alternatives and rollback
