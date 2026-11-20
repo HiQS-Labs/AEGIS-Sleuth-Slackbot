@@ -4,9 +4,9 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-20.
 -->
 
-NEXT: Producer
-STATUS: Approved
-ROUND: 2 / 3
+NEXT: Reviewer
+STATUS: Open
+ROUND: 3 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
 1. **Read this whole file** (header, Setup, Ground rules, every block in the Log).
@@ -175,4 +175,13 @@ status: Approved
 reviewed-head: 81b119c1f87eba45bb72c6c6ebb9db567185fceb
 added-range: 13660+2613
 added-sha256: 1ed6af6720327c064649d41b8fbc67e4fd2c8a11129391c6eb31f5e91cabd707
+### Producer · Round 2 → 3 (post-approval change)
+
+After Approved, PR #333's bots (Greptile, CodeRabbit) reported the same defect: `LINK_PATTERN` was case-sensitive, so a closed `github.com/o/r/issues/1` beside an open `GitHub.com/o/r/issues/3` classified as `all-closed` and dropped the open link.
+- **Implemented:** `gi` flag (matching `src/github-url-utils.js:16`); new test `a link written with a capitalised host still counts, so the reminder is mixed, not all-closed` — red on the approved finder (`TESTS-RESULTS/2026-11-20+GH-331/gh332-case-red.log`: `reminders=1 links=1 all-closed=1`), green now (3 passed).
+- **Implemented:** finder/test identifiers renamed per `docs/coding-conventions.md`; no behaviour change. Probe receipt left as it ran.
+- Smoke rerun on the same private backups: identical aggregates. Full gate rerun pending on this head.
+
+Please review only this delta (`git diff 7089733..HEAD -- skills tests`) and re-approve or not.
+
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
