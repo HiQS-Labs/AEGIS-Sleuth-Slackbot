@@ -6,7 +6,7 @@ Read-only derived view of the root [ROADMAP.md](ROADMAP.md) ledger.
 
 ## Queue / parked intake
 
-Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 27 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -35,6 +35,8 @@ Summary: 25 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 1 · ⛔ 0 · ✅ 0 · �
 | GH-191 · DND/silent mode turns off reminder notifications at channel and workspace level | — | [GH-191-DND-SILENT-MODE.md](PROJECT/2-WORKING/GH-191-DND-SILENT-MODE.md) · [#191](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/191) |
 | GH-230 · selftest: add T4 later-upload and T6 memory-reuse scenarios, and a zero-download assertion for T5 | — | [GH-230-SELFTEST-T4-LATER-UPLOAD.md](PROJECT/2-WORKING/GH-230-SELFTEST-SCENARIOS.md) · [#230](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/230) |
 | GH-289 · Router takeover can still reach takeover-excluded commands through rmm ifl | — | [GH-289-TAKEOVER-RMM-IFL-LOOPHOLE.md](PROJECT/1-INBOX/GH-289-TAKEOVER-RMM-IFL-LOOPHOLE.md) · [#289](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/289) |
+| GH-331 · GitHub auto-complete crashes every cycle (circular require) | — | [plan](PROJECT/1-INBOX/GH-331-GITHUB-AUTOCOMPLETE-CRASH.md) |
+| GH-332 · Skill: review and retire reminders whose GitHub issues are closed | — | [plan](PROJECT/1-INBOX/GH-331-GITHUB-AUTOCOMPLETE-CRASH.md) |
 
 ## Queue
 
