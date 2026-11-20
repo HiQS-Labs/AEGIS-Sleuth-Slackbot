@@ -75,6 +75,7 @@ for(const Row of Rows.filter(ArgRow => ArgRow.class !== 'none')) {
 
 // review input: everything that might be retirable, with text and link states. Private, like the backup.
 const ReviewPath = `${BackupPath}.closed-issues.json`;
-fs.writeFileSync(ReviewPath, JSON.stringify(Rows.filter(ArgRow => ['all-closed', 'mixed', 'unknown'].includes(ArgRow.class)), null, 1));
-fs.chmodSync(ReviewPath, 0o600);
+// private from the first byte: tighten a file left by an earlier run, create a new one as 0600.
+if(fs.existsSync(ReviewPath)) fs.chmodSync(ReviewPath, 0o600);
+fs.writeFileSync(ReviewPath, JSON.stringify(Rows.filter(ArgRow => ['all-closed', 'mixed', 'unknown'].includes(ArgRow.class)), null, 1), { mode: 0o600 });
 process.stdout.write(`review file: ${ReviewPath}\n`);
