@@ -1,0 +1,45 @@
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+(node:29230) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL tests/retire-closed-issue-reminders.test.js
+  ● find-closed-issue-reminders (GH-332) › a link written with a capitalised host still counts, so the reminder is mixed, not all-closed
+
+    expect(received).toMatch(expected)
+
+    Expected pattern: /^mixed {6}gggggggg {2}Case one {2}\[o\/r\/1:closed, o\/r\/3:open\]$/m
+    Received string:  "reminders=1 links=1 all-closed=1 mixed=0 unknown=0 open=0 none=0
+    all-closed gggggggg  Case one  [o/r/1:closed]
+    review file: /var/folders/z0/92pfvhnn06z2_7hnpdb4kkbw0000gn/T/retire-closed-FgWDNO/backup.json.closed-issues.json
+    "
+
+      84 |     ]);
+      85 |     expect(result.status).toBe(0);
+    > 86 |     expect(result.stdout).toMatch(/^mixed {6}gggggggg {2}Case one {2}\[o\/r\/1:closed, o\/r\/3:open\]$/m);
+         |                           ^
+      87 |   });
+      88 |
+      89 |   test('an empty backup reports zero reminders; a non-array or missing backup exits 2', () => {
+
+      at Object.toMatch (tests/retire-closed-issue-reminders.test.js:86:27)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 2 skipped, 3 total
+Snapshots:   0 total
+Time:        0.231 s, estimated 1 s
+Ran all test suites matching tests/retire-closed-issue-reminders.test.js with tests matching "capitalised host".
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

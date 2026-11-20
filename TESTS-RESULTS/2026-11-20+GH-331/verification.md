@@ -28,3 +28,9 @@ Production confirmation (pending deploy): `[github-sync] … GetReminderVersion 
 | adjacent: empty workspace | backup with `[]` | `reminders=0 links=0 all-closed=0 mixed=0 unknown=0 open=0 none=0` | pass |
 
 All three review files were created mode `-rw-------`.
+
+## PR #333 review follow-up (Greptile + CodeRabbit)
+
+- Link pattern made case-insensitive (`gi`, as in `src/github-url-utils.js`); new test `a link written with a capitalised host still counts` fails on the previous finder ([gh332-case-red.log](gh332-case-red.log): `all-closed=1 … links=1`) and passes now (3 passed).
+- Finder and test identifiers renamed to `docs/coding-conventions.md` (single-word lowercase, `Arg` parameters); no behaviour change. The probe receipt keeps the names it ran with.
+- Smoke rerun on the same private backups: identical summary lines (31/15/0/2, 0, 30/12/0/1).
