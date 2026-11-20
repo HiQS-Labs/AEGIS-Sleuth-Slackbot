@@ -109,4 +109,12 @@ Basis: the complete plan identifies a specific circular-import failure, proposes
 
 Relay closed (Approved), no further turn needed. Producer may proceed with implementation and the clone-based gates.
 
+
+### Attestation · relay-drive — 2026-11-20T17:02:17Z
+task: GH331-PLAN
+reviewer: codex
+status: Approved
+reviewed-head: bea8ed10863167bc0985cf3223797edcc56bfdd2
+added-range: 7767+6594
+added-sha256: 346bf0949e322f0eca4f2824990e75d36f73c5e12475282db6f6d63dbf47e4ed
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
