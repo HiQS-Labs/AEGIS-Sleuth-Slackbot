@@ -33,6 +33,11 @@
   **Technical:** <the detailed engineering notes, as before>
 -->
 
+## 1.4.354 - 2026-11-20
+I'm completing reminders on my own again once every GitHub issue or PR they link is closed. That check had been failing every half hour since November 7. There's also a new skill for reviewing and retiring the reminders I leave alone, such as ones that link both closed and open issues.
+
+**Technical:** GH-331: `src/reminders-module.js` → `github-comment-relay` → `github-sync-module` is a require cycle, and `app.js` loads `reminders-module` first, so the sync module's top-level `RemindersModule` binding was the partial `{}` export. Since `4a85035` (GH-301) the poll cycle called `RemindersModule.GetReminderVersion` and threw on the first eligible reminder (335 errors per 7 days in production), so `EvaluateAutoComplete` never completed anything. The call now resolves the module at call time; the completion rule, version guard and notifications are unchanged. New test loads the modules in production order (red: the production `TypeError`; green after). GH-332: `skills/retire-closed-issue-reminders` adds a read-only finder over a `bulk-edit-reminders` backup that classifies each reminder's GitHub links (`gh api` REST) as all-closed, mixed, unknown (a failed lookup, never treated as closed), open or none, and a workflow that reviews each candidate and retires it through `bulk-edit-reminders --complete`. No new write path. Rollback: revert the one-line fix; delete the skill folder.
+
 ## 1.4.353 - 2026-11-13
 In reminder lists I now show the client name before the linked task instead of inside the link, so the link is just the task.
 
