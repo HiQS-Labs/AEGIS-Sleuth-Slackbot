@@ -4,8 +4,8 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-20.
 -->
 
-NEXT: Reviewer
-STATUS: Open
+NEXT: Producer
+STATUS: Approved
 ROUND: 1 / 3
 
 ## ▶ TAKE YOUR TURN — read this first (works for ANY agent: Claude, Codex, agy)
@@ -79,5 +79,34 @@ Required output: graded findings with `file:line`; literal `swept file: yes|no`;
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1
+
+**What this proposes.** Restore GitHub auto-completion with a call-time import and a regression test that reproduces application load order. Add a local read-only finder and a skill workflow that retires reviewed candidates through the existing bulk editor.
+
+**How the existing system works, per this document.** The application loads reminders first, entering a circular require that leaves the sync module holding an incomplete export. The current sync tests load in the reverse order. The server completes reminders with entirely closed GitHub links, while bulk-edit-reminders supplies the existing backup and completion writer.
+
+**What it's not.** Per “Requirements and smallest viable bet” and “Alternatives and rollback,” this changes neither the server's completion rule nor its polling behavior, introduces no second API writer or daemon, and does not restructure module ownership.
+
+Input boundary for the paraphrase above: plan only; no source files opened.
+
+swept file: yes
+
+Sweep boundary: the entire 69-line plan, including requirements, historical claims, acceptance, alternatives and rollback; source-backed assessment of the named integration paths. This is plan approval, not final implementation QA. No additional blocking pre-existing defect found in the plan.
+
+- [Pass] **Root cause and minimal repair.** `src/reminders-module.js:32` → `src/github-comment-relay.js:3` → `src/github-sync-module.js:3` closes the cycle before the reminders class export (`src/reminders-module.js:4792`). `src/app.js:17` precedes its explicit sync import at line 20; `tests/github-sync-module.test.js:3` starts with sync instead. The only runtime dereference of the imported class in sync is `GetReminderVersion` at line 258; the similarly named object key at line 226 is not a class read. The call-time require in plan line 60 obtains the final cached export without changing the version algorithm (`src/reminders-module.js:848`) or completion guard argument (`src/github-sync-module.js:283`). Keep the proposed fix.
+  Static probe: `python3` stripped comments from `src/github-sync-module.js` and printed lines matching `(?<![\w.])RemindersModule\b`; exit 0; decisive output: `3: const RemindersModule = require('./reminders-module');`, `226: RemindersModule: CurrentRemindersModule,`, `258: const ExpectedVersion = RemindersModule.GetReminderVersion(CurrentReminder);`. This is source inspection, not a runtime reproduction.
+- [Pass] **Regression design is non-vacuous.** Plan line 59 requires an isolated registry, reminders-first loading, one closed-linked reminder, a completion call with ExpectedVersion, and `Result.ok === true`. On the traced unfixed path, line 258 fails before fetch/completion, the workspace catch at `src/github-sync-module.js:310` marks HadError, and `RunNowAsync` returns false at line 102. Therefore the two positive assertions reject the broken import order. During implementation construct the sync instance from the class obtained INSIDE isolateModules, supply DataLoaded/PAT, start it before RunNowAsync, and stop it in finally, following `tests/github-sync-module.test.js:687` onward. Do not substitute the file-level sync import or mock the reminders export.
+- [Unverified — needs clone run] **Red/green execution remains an implementation gate.** There is no new regression test or fixed source yet. The above is a source-backed prediction; witness the intended TypeError on baseline and a passing completion after repair in the disposable clone. No suites or module-starting fixtures were run here, per the turn boundary.
+- [Pass] **Single writer and conservative lookup policy are specified.** Plan lines 39 and 61–63 keep the finder off the Sleuth API and delegate completion to bulk-edit-reminders. The existing CLI backs up pending records with exclusive mode-600 creation (`skills/bulk-edit-reminders/bulk-edit-reminders.mjs:252` onward), resolves before writing, exits at dry-run before POST, and uses the bulk endpoint at line 306. Plan lines 61–62 explicitly say “unknown (any lookup failed; never treated as closed)” and require a failing-lookup assertion. These are adequate plan contracts; enforcement and test results remain to be inspected after implementation.
+- [Pass] **Issues REST endpoint is sufficient for the proposed binary classification.** Plan line 61 needs open versus closed, not a distinct merged class. GitHub documents that issues endpoints return PRs too, identified by `pull_request`: [GitHub REST issues documentation](https://docs.github.com/en/rest/issues/issues#get-an-issue). A merged PR is closed for this decision. Do not expect a top-level `merged_at` from the issues response; a separate merged label would need additional PR data, but this plan does not require one. Include an ordinary closed PR and a merged-PR-shaped closed issue response in the fake-gh cases when implementing.
+- [Nit] **Verification wording.** Plan line 63 says “fresh backup diff showing only the retired IDs left.” The backup is pending-only (`skills/bulk-edit-reminders/SKILL.md:15`), so clarify that retired IDs are absent afterward and appear only as removals in the before/after diff; remaining pending IDs should survive. This is wording clarification, not a new completion behavior.
+- [Nit] **Keep historical evidence attribution explicit.** Plan lines 37, 49–55 report 335 errors, the manual review counts, deployment date and no prior issue/PR. Those logs, backup and issue-search receipts are not attached to the seeded plan; they were not independently re-read here. The recurrence interpretation (one continuous failure rather than 335 incidents) and ratings are proportionate if the producer's evidence holds. Add a private evidence pointer or retain attribution rather than presenting this review as independently certifying those counts. No deployment-state claim is made by this review.
+
+VERDICT: PASS
+
+Basis: the complete plan identifies a specific circular-import failure, proposes the smallest runtime repair, defines a regression that cannot pass merely by doing no work, and preserves the existing completion writer and conservative unknown policy. The nits do not block plan approval. Runtime red/green, finder safety enforcement and final gates belong to implementation QA. Optional three-reviewer candidate analysis is unnecessary for this single-operator workflow; ordinary per-candidate review is sufficient under the plan's optional wording.
+
+Relay closed (Approved), no further turn needed. Producer may proceed with implementation and the clone-based gates.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
