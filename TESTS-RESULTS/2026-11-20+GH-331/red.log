@@ -1,0 +1,46 @@
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+(node:55801) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL tests/github-sync-module.test.js
+  ● GitHubSyncModule.RunNowAsync — notification wording › GH-331: completes in the production load order (reminders-module required first)
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: ""
+    Received: "[github-sync] workspace TestWorkspace heartbeat cycle error: TypeError: RemindersModule.GetReminderVersion is not a function
+
+      256 |           TotalCheckedReminderCount += 1;
+      257 |
+    > 258 |           const ExpectedVersion = RemindersModule.GetReminderVersion(CurrentReminder);
+          |                                                   ^
+      259 |           const CheckResult = await this.#ShouldAutoCompleteReminderAsync(
+      260 |             CurrentRemindersModule,
+      261 |             CurrentReminder,
+
+      at GitHubSyncModule.GetReminderVersion (src/github-sync-module.js:258:51)
+      at GitHubSyncModule.RunNowAsync (src/github-sync-module.js:98:61)
+      at Object.RunNowAsync (tests/github-sync-module.test.js:712:35)
+      at processTicksAndRejections (node:internal/process/task_queues:104:5)"
+      at Object.toBe (tests/github-sync-module.test.js:713:75)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 52 skipped, 53 total
+Snapshots:   0 total
+Time:        0.416 s, estimated 1 s
+Ran all test suites matching tests/github-sync-module.test.js with tests matching "GH-331".
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

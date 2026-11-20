@@ -255,7 +255,10 @@ class GitHubSyncModule {
           CurrentSummary.checkedReminderCount += 1;
           TotalCheckedReminderCount += 1;
 
-          const ExpectedVersion = RemindersModule.GetReminderVersion(CurrentReminder);
+          // GH-331: resolve at call time. reminders-module → github-comment-relay → this file is a
+          // require cycle, and app.js loads reminders-module first, so the top-level binding is
+          // still its partial `{}` export here.
+          const ExpectedVersion = require('./reminders-module').GetReminderVersion(CurrentReminder);
           const CheckResult = await this.#ShouldAutoCompleteReminderAsync(
             CurrentRemindersModule,
             CurrentReminder,
