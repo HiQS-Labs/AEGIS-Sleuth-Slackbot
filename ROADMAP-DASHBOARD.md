@@ -46,7 +46,7 @@ Summary: 0 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮
 
 ## In progress
 
-Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
+Summary: 23 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · 🔮 0 · 🔲 0
 
 | Item | Status | Links |
 | --- | --- | --- |
@@ -71,6 +71,8 @@ Summary: 21 items | Tally: 🟢 0 · 🟡 0 · ⏸️ 0 · ⛔ 0 · ✅ 0 · �
 | GH-301 · Secure remote reminder CRUD for external bots (HTTPS + MCP, no SSH) | — | [GH-301-BOT-REMOTE-CRUD.md](PROJECT/2-WORKING/GH-301-BOT-REMOTE-CRUD.md) · [#301](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/301) |
 | GH-318 · Preserve useful grounded reminder titles | — | [plan](PROJECT/2-WORKING/GH-318-TITLE-GROUNDING.md) |
 | GH-328 · Keep the client name outside the hyperlinked reminder title | — | [plan](PROJECT/2-WORKING/GH-328-CLIENT-PREFIX-OUTSIDE-LINK.md) · [#328](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/328) |
+| GH-331 · GitHub auto-complete crashes every cycle (circular require) | — | [plan](PROJECT/2-WORKING/GH-331-GITHUB-AUTOCOMPLETE-CRASH.md) · [#331](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/331) |
+| GH-332 · Skill: review and retire reminders whose GitHub issues are closed | — | [plan](PROJECT/2-WORKING/GH-331-GITHUB-AUTOCOMPLETE-CRASH.md) · [#332](https://github.com/HiQS-Labs/AEGIS-Sleuth-Slackbot/issues/332) |
 
 ## Completed
 

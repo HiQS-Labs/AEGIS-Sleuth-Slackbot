@@ -692,6 +692,32 @@ describe('GitHubSyncModule.RunNowAsync — notification wording', () => {
     }
   }
 
+  test('GH-331: completes in the production load order (reminders-module required first)', async () => {
+    // app.js loads reminders-module before github-sync-module, so the sync module is first reached
+    // through reminders-module → github-comment-relay while reminders-module is still a partial
+    // export. This file's top-level require runs the other way round and never sees that state.
+    let IsolatedSyncModule;
+    let IsolatedRemindersModule;
+    jest.isolateModules(() => {
+      IsolatedRemindersModule = require('../src/reminders-module');
+      IsolatedSyncModule = require('../src/github-sync-module');
+    });
+    const Reminder = CreateReminder(['https://github.com/o/r/issues/7']);
+    const SlackApp = new MockSlackApp({ WorkspaceInfo: CreateWorkspaceInfo() });
+    const Harness = CreateRemindersModuleHarness(SlackApp, Reminder);
+    FetchSpy.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ state: 'closed' }) });
+    const Module = new IsolatedSyncModule([Harness], SlackApp.Logger, 9999999);
+    await Module.StartAsync();
+    try {
+      const Result = await Module.RunNowAsync();
+      expect(SlackApp.Logger.ErrorMessages.flat().map(String).join('\n')).toBe('');
+      expect(Result.ok).toBe(true);
+      expect(Harness.CompleteReminderByIdAsync).toHaveBeenCalledTimes(1);
+      expect(Harness.CompleteReminderByIdAsync.mock.calls[0][2])
+        .toEqual({ ExpectedVersion: IsolatedRemindersModule.GetReminderVersion(Reminder) });
+    } finally { await Module.StopAsync(); }
+  });
+
   test('link changes while fetching refuse stale completion and produce no notification', async () => {
     const Reminder = CreateReminder(['https://github.com/o/r/issues/1']);
     const SlackApp = new MockSlackApp({ WorkspaceInfo: CreateWorkspaceInfo() });

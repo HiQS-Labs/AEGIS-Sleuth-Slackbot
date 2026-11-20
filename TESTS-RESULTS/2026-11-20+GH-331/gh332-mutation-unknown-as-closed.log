@@ -1,0 +1,49 @@
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+● Validation Warning:
+
+  Unknown option "_comment_glob_anchoring" with value "GH-48: testMatch and collectCoverageFrom are both anchored to <rootDir>. Unanchored ('**/tests/**', 'src/**') matched ANY such directory anywhere under the root, including the .tick/orphan-backups/<utc>-<pid>/ snapshots the relay harness writes when its containment reverts a file mid-turn. Those copies carry a test file without its sibling src/, so they can never resolve and always fail — breaking npm test on an unpredictable schedule with a suite unrelated to the change. Keep both anchored; there is exactly one real tests/ and one real src/." was found.
+  This is probably a typing mistake. Fixing it will remove this message.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
+(node:96047) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL tests/retire-closed-issue-reminders.test.js
+  ● find-closed-issue-reminders (GH-332) › classifies all-closed, mixed, open, unknown and none, and never treats a failed lookup as closed
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "reminders=6 links=5 all-closed=2 mixed=1 unknown=1 open=1 none=1"
+    Received string:    "reminders=6 links=5 all-closed=3 mixed=1 unknown=0 open=1 none=1
+    all-closed aaaaaaaa  Closed one  [o/r/1:closed]
+    mixed      bbbbbbbb  Mixed one  [o/r/2:merged, o/r/3:open]
+    open       cccccccc  Open one  [o/r/3:open]
+    all-closed dddddddd  Unknown one  [o/r/1:closed, o/r/9:unknown]
+    all-closed ffffffff  Closed PR  [o/r/4:closed]
+    review file: /var/folders/z0/92pfvhnn06z2_7hnpdb4kkbw0000gn/T/retire-closed-sHfPie/backup.json.closed-issues.json
+    "
+
+      59 |
+      60 |     expect(Result.status).toBe(0);
+    > 61 |     expect(Result.stdout).toContain('reminders=6 links=5 all-closed=2 mixed=1 unknown=1 open=1 none=1');
+         |                           ^
+      62 |     expect(Result.stdout).toMatch(/^all-closed aaaaaaaa {2}Closed one {2}\[o\/r\/1:closed\]$/m);
+      63 |     expect(Result.stdout).toMatch(/^mixed {6}bbbbbbbb {2}Mixed one {2}\[o\/r\/2:merged, o\/r\/3:open\]$/m);
+      64 |     expect(Result.stdout).toMatch(/^unknown {4}dddddddd/m);
+
+      at Object.toContain (tests/retire-closed-issue-reminders.test.js:61:27)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 1 passed, 2 total
+Snapshots:   0 total
+Time:        0.403 s, estimated 1 s
+Ran all test suites matching tests/retire-closed-issue-reminders.test.js.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

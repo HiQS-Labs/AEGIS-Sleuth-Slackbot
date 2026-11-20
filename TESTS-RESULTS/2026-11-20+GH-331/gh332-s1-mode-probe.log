@@ -1,0 +1,10 @@
+# fixed (HEAD working tree)
+fresh: mode right after content write=600
+fresh: final mode=600
+existing644: mode right after content write=600
+existing644: final mode=600
+# before fix (21a6c9b)
+fresh: mode right after content write=644
+fresh: final mode=600
+existing644: mode right after content write=644
+existing644: final mode=600
