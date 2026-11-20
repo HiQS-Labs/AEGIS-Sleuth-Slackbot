@@ -4,7 +4,7 @@
   Scaffolded by relay-automation/new-relay.sh on 2026-11-20.
 -->
 
-NEXT: Reviewer
+NEXT: Producer
 STATUS: Open
 ROUND: 1 / 3
 
@@ -82,5 +82,42 @@ Required output: graded findings with `file:line`; literal `swept file: yes|no`;
 6. The relay ends on **Approved** (Reviewer only). End each turn by committing just this file; no push.
 
 ## Log
+
+### Reviewer · Round 1
+
+swept file: yes
+
+VERDICT: FAIL
+Basis: #331 is sound on source inspection and the supplied receipts; #332 has one measured private-file creation gap to fix before approval. Swept the full product files and both test files, including pre-existing sync behavior; no additional actionable pre-existing defect found. No suite or executable fixture was run, and no git command was used.
+
+- [Should] S1 — create the review file with private permissions **before writing its contents** (`skills/retire-closed-issue-reminders/find-closed-issue-reminders.mjs:78-79`). `writeFileSync` currently uses default creation permissions; the subsequent chmod only protects the finished file. With ordinary umask 022, private reminder text is written into a 0644 file until chmod succeeds. Small fix: pass `{ mode: 0o600 }` for creation; retain permission tightening for an existing output before overwriting it. No new subsystem needed.
+  Observed input: a fresh backup containing `[]`, new output path, process umask `022`; the real finder created output mode `644` before its chmod, then `600` afterward. Real candidate content uses the same unconditional write.
+  Affected scope: fresh review outputs under permissive umasks, and existing permissive review outputs on rerun. No classification or retirement behavior change requested.
+  Falsifier: intercept `fs.chmodSync` to inspect the file mode immediately before the final chmod; with umask 022 and a fresh output it must already be 600. An existing 0644 output must be tightened before sensitive replacement content is written. If these hold, this finding is resolved.
+  Probe command (exit 0; scratch-only, no network):
+  ```bash
+  export PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.relay-scratch/tmp"
+  mkdir -p "$TMPDIR"
+  node --input-type=module - <<'NODE'
+  import fs from 'node:fs';
+  import path from 'node:path';
+  const dir=fs.mkdtempSync(path.join(process.env.TMPDIR,'mode-probe-'));
+  const backup=path.join(dir,'backup.json');
+  fs.writeFileSync(backup,'[]',{mode:0o600});
+  process.umask(0o022);
+  const chmod=fs.chmodSync;
+  fs.chmodSync=(p,m)=>{console.log('before chmod mode='+ (fs.statSync(p).mode & 0o777).toString(8)); return chmod(p,m);};
+  process.argv=['node','finder',backup];
+  await import(path.resolve('skills/retire-closed-issue-reminders/find-closed-issue-reminders.mjs'));
+  console.log('final mode='+ (fs.statSync(backup+'.closed-issues.json').mode & 0o777).toString(8));
+  NODE
+  ```
+  Decisive output: `before chmod mode=644`, `final mode=600`.
+- [Pass] #331: call-time resolution at `src/github-sync-module.js:258-261` avoids retaining the partial export; the expected version is still captured before fetch and passed into completion at lines 282-285, and notifications follow successful completion at lines 288-297. The isolated registry loads reminders first and constructs the isolated sync class (`tests/github-sync-module.test.js:695-720`), with no reminders export mock. Supplied `red.log` records the exact `TypeError: RemindersModule.GetReminderVersion is not a function`; supplied `green.log` records `1 passed`. No fix requested.
+- [Pass] #332 classification/source inspection: `LINK_PATTERN` includes `pull` and dotted repo slugs; `ExtractRefs` unions tagged URLs and text and deduplicates refs. `Classify` checks unknown before closed (`skills/retire-closed-issue-reminders/find-closed-issue-reminders.mjs:10-44`). The sole subprocess is `gh api`, with no Sleuth writer. The workflow explicitly says unknown means “never retire on this run” and uses `--complete … --dry-run` followed by before/after backup comparison (`skills/retire-closed-issue-reminders/SKILL.md`, steps 2–5). No change requested beyond S1.
+- [Pass] Recorded evidence is internally consistent: `TESTS-RESULTS/2026-11-20+GH-331/verification.md` gives 31→30 reminders, 2→1 mixed, and one reviewed retirement; the mutation log records `all-closed=3 … unknown=0` when failures are incorrectly treated as closed. `full-gate.log` reports `148 passed`, `3097 passed`, `npm test exit=0`, and `build exit=0`. These are producer receipts, not independently rerun tests; unchanged/fixed probe comparison and private smoke aggregates remain attributed to the producer. The post-turn harness must establish current clone-gate status.
+- [Pass] Scope and ratings: the plan's “80/70/50/90” and “45/20/50/75” remain proportionate to the bounded crash fix and local operator workflow (`PROJECT/2-WORKING/GH-331-GITHUB-AUTOCOMPLETE-CRASH.md`, Rating rationale). No second reminder writer or parallel completion subsystem was introduced. No rating change requested.
+
+Handing off to Producer — fix/disposition S1, record the relevant receipt, then reopen for Reviewer.
 
 <!-- ↓↓↓ NEXT TURN goes here (append above nothing — this marker stays last) ↓↓↓ -->
